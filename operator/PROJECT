@@ -1,0 +1,29 @@
+# Kubebuilder project metadata (layout compatibility; scaffolding is managed
+# in-repo, codegen via `make generate manifests`).
+domain: xorhub.io
+layout:
+- go.kubebuilder.io/v4
+projectName: waas-operator
+repo: github.com/xorhub/waas/operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: xorhub.io
+  group: waas
+  kind: Workspace
+  path: github.com/xorhub/waas/operator/api/v1alpha1
+  version: v1alpha1
+  webhooks:
+    validation: true
+    webhookVersion: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: xorhub.io
+  group: waas
+  kind: WorkspaceTemplate
+  path: github.com/xorhub/waas/operator/api/v1alpha1
+  version: v1alpha1
+version: "3"
