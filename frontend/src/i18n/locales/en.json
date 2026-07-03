@@ -1,0 +1,96 @@
+{
+  "app": {
+    "name": "WaaS",
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "logout": "Sign out",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "create": "Create",
+    "actions": "Actions"
+  },
+  "login": {
+    "title": "Sign in to your workspace",
+    "username": "Username",
+    "password": "Password",
+    "submit": "Sign in",
+    "failed": "Sign-in failed. Check your username and password."
+  },
+  "portal": {
+    "title": "My workspaces",
+    "empty": "You have no workspace yet. Ask your administrator to create one for you.",
+    "open": "Open desktop",
+    "starting": "Starting…",
+    "paused": "Paused",
+    "resume": "Resume",
+    "pause": "Pause",
+    "newWorkspace": "New workspace",
+    "template": "Template",
+    "name": "Name (optional)",
+    "displayName": "Display name (optional)",
+    "phase": {
+      "Pending": "Pending",
+      "Provisioning": "Preparing your desktop…",
+      "Running": "Ready",
+      "Stopped": "Stopped",
+      "Failed": "Unavailable",
+      "Terminating": "Shutting down…"
+    }
+  },
+  "connect": {
+    "connecting": "Connecting to your desktop…",
+    "disconnected": "The connection was closed.",
+    "back": "Back to my workspaces",
+    "failed": "Could not connect to the desktop."
+  },
+  "admin": {
+    "title": "Administration",
+    "fleet": "Fleet",
+    "templates": "Templates",
+    "users": "Users",
+    "audit": "Audit trail",
+    "sessions": "Sessions",
+    "backToPortal": "Back to portal",
+    "fleetPage": {
+      "workspace": "Workspace",
+      "owner": "Owner",
+      "template": "Template",
+      "phase": "Status",
+      "created": "Created",
+      "empty": "No workspace in the fleet."
+    },
+    "templatesPage": {
+      "new": "New template",
+      "name": "Name",
+      "displayName": "Display name",
+      "os": "OS",
+      "image": "Image",
+      "homeSize": "Home size",
+      "description": "Description",
+      "empty": "No template yet.",
+      "deleteConfirm": "Delete this template?"
+    },
+    "usersPage": {
+      "new": "New user",
+      "username": "Username",
+      "email": "Email",
+      "password": "Password",
+      "role": "Role",
+      "active": "Active",
+      "maxWorkspaces": "Workspace quota",
+      "lastLogin": "Last sign-in",
+      "never": "Never",
+      "deleteConfirm": "Delete this user?"
+    },
+    "auditPage": {
+      "when": "When",
+      "actor": "Actor",
+      "action": "Action",
+      "resource": "Resource",
+      "ip": "IP",
+      "empty": "No audit entries."
+    }
+  }
+}

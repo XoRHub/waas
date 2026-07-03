@@ -1,0 +1,96 @@
+{
+  "app": {
+    "name": "WaaS",
+    "loading": "Chargement…",
+    "error": "Une erreur est survenue",
+    "retry": "Réessayer",
+    "logout": "Se déconnecter",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "delete": "Supprimer",
+    "create": "Créer",
+    "actions": "Actions"
+  },
+  "login": {
+    "title": "Connectez-vous à votre espace de travail",
+    "username": "Nom d'utilisateur",
+    "password": "Mot de passe",
+    "submit": "Se connecter",
+    "failed": "Échec de la connexion. Vérifiez vos identifiants."
+  },
+  "portal": {
+    "title": "Mes espaces de travail",
+    "empty": "Vous n'avez pas encore d'espace de travail. Demandez à votre administrateur d'en créer un.",
+    "open": "Ouvrir le bureau",
+    "starting": "Démarrage…",
+    "paused": "En pause",
+    "resume": "Reprendre",
+    "pause": "Mettre en pause",
+    "newWorkspace": "Nouvel espace",
+    "template": "Modèle",
+    "name": "Nom (optionnel)",
+    "displayName": "Nom d'affichage (optionnel)",
+    "phase": {
+      "Pending": "En attente",
+      "Provisioning": "Préparation de votre bureau…",
+      "Running": "Prêt",
+      "Stopped": "Arrêté",
+      "Failed": "Indisponible",
+      "Terminating": "Arrêt en cours…"
+    }
+  },
+  "connect": {
+    "connecting": "Connexion à votre bureau…",
+    "disconnected": "La connexion a été fermée.",
+    "back": "Retour à mes espaces",
+    "failed": "Impossible de se connecter au bureau."
+  },
+  "admin": {
+    "title": "Administration",
+    "fleet": "Parc",
+    "templates": "Modèles",
+    "users": "Utilisateurs",
+    "audit": "Journal d'audit",
+    "sessions": "Sessions",
+    "backToPortal": "Retour au portail",
+    "fleetPage": {
+      "workspace": "Espace de travail",
+      "owner": "Propriétaire",
+      "template": "Modèle",
+      "phase": "État",
+      "created": "Créé",
+      "empty": "Aucun espace de travail dans le parc."
+    },
+    "templatesPage": {
+      "new": "Nouveau modèle",
+      "name": "Nom",
+      "displayName": "Nom d'affichage",
+      "os": "OS",
+      "image": "Image",
+      "homeSize": "Taille du home",
+      "description": "Description",
+      "empty": "Aucun modèle pour l'instant.",
+      "deleteConfirm": "Supprimer ce modèle ?"
+    },
+    "usersPage": {
+      "new": "Nouvel utilisateur",
+      "username": "Nom d'utilisateur",
+      "email": "Email",
+      "password": "Mot de passe",
+      "role": "Rôle",
+      "active": "Actif",
+      "maxWorkspaces": "Quota d'espaces",
+      "lastLogin": "Dernière connexion",
+      "never": "Jamais",
+      "deleteConfirm": "Supprimer cet utilisateur ?"
+    },
+    "auditPage": {
+      "when": "Quand",
+      "actor": "Acteur",
+      "action": "Action",
+      "resource": "Ressource",
+      "ip": "IP",
+      "empty": "Aucune entrée d'audit."
+    }
+  }
+}
