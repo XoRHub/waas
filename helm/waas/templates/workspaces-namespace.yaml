@@ -1,0 +1,11 @@
+{{- if .Values.workspaces.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.workspaces.namespace }}
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+  annotations:
+    # Keep user desktops (and their home PVCs) when the release is removed.
+    helm.sh/resource-policy: keep
+{{- end }}

@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-api-server
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+---
+# The API server only manipulates WaaS CRs — never pods or VMs directly.
+# Its RBAC enforces that boundary at the cluster level.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-api-server
+  namespace: {{ .Values.workspaces.namespace }}
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspaces, workspacetemplates]
+    verbs: [create, delete, get, list, patch, update, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-api-server
+  namespace: {{ .Values.workspaces.namespace }}
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-api-server
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-api-server
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api-server
+  labels:
+    app.kubernetes.io/name: waas-api-server
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.apiServer.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waas-api-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waas-api-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-api-server
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: api-server
+          image: "{{ .Values.image.registry }}/api-server:{{ include "waas.tag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: WAAS_LISTEN_ADDR
+              value: ":8080"
+            - name: WAAS_WORKSPACE_NAMESPACE
+              value: {{ .Values.workspaces.namespace | quote }}
+            - name: WAAS_JWT_ISSUER
+              value: {{ .Values.apiServer.jwtIssuer | quote }}
+            - name: WAAS_ACCESS_TOKEN_TTL
+              value: {{ .Values.apiServer.accessTokenTTL | quote }}
+            - name: WAAS_CONNECTION_TOKEN_TTL
+              value: {{ .Values.apiServer.connectionTokenTTL | quote }}
+            - name: WAAS_JWT_PRIVATE_KEY_FILE
+              value: /etc/waas/keys/jwt-private-key
+            - name: WAAS_ADMIN_USERNAME
+              value: {{ .Values.apiServer.adminUsername | quote }}
+            - name: WAAS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: database-url
+            - name: WAAS_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: internal-token
+            {{- if .Values.apiServer.adminPassword }}
+            - name: WAAS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: admin-password
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+          volumeMounts:
+            - name: keys
+              mountPath: /etc/waas/keys
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          resources:
+            {{- toYaml .Values.apiServer.resources | nindent 12 }}
+      volumes:
+        - name: keys
+          secret:
+            secretName: {{ .Release.Name }}-secrets
+            items:
+              - key: jwt-private-key
+                path: jwt-private-key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-api-server
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: waas-api-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

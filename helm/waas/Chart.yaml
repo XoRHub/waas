@@ -1,0 +1,18 @@
+apiVersion: v2
+name: waas
+description: >-
+  Kubernetes-native Workspace-as-a-Service: browser-accessible Linux (VNC)
+  and Windows (RDP via KubeVirt) desktops, declared as Kubernetes resources.
+  The only external prerequisite is cert-manager.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.26.0-0"
+home: https://github.com/xorhub/waas
+sources:
+  - https://github.com/xorhub/waas
+keywords:
+  - vdi
+  - workspace
+  - remote-desktop
+  - guacamole

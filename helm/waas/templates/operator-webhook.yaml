@@ -1,0 +1,67 @@
+{{- if .Values.operator.webhook.enabled }}
+# Self-signed issuer + certificate for the operator's admission webhook.
+# cert-manager (the chart's only prerequisite) injects the CA bundle.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ .Release.Name }}-selfsigned
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Release.Name }}-operator-webhook
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Release.Name }}-operator-webhook-cert
+  dnsNames:
+    - {{ .Release.Name }}-operator-webhook.{{ .Release.Namespace }}.svc
+    - {{ .Release.Name }}-operator-webhook.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ .Release.Name }}-selfsigned
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-operator-webhook
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: waas-operator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: webhook
+      port: 443
+      targetPort: webhook
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ .Release.Name }}-workspace-validation
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ .Release.Name }}-operator-webhook
+webhooks:
+  - name: vworkspace.waas.xorhub.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        name: {{ .Release.Name }}-operator-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-waas-xorhub-io-v1alpha1-workspace
+    rules:
+      - apiGroups: [waas.xorhub.io]
+        apiVersions: [v1alpha1]
+        operations: [CREATE, UPDATE]
+        resources: [workspaces]
+{{- end }}

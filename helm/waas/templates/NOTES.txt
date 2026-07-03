@@ -1,0 +1,29 @@
+WaaS {{ .Chart.AppVersion }} installed.
+
+1. Open https://{{ .Values.ingress.host }} in a browser.
+
+2. Sign in as "{{ .Values.apiServer.adminUsername }}".
+{{- if not .Values.apiServer.adminPassword }}
+   The bootstrap password was generated on first boot — read it once from
+   the API server logs:
+
+     kubectl logs -n {{ .Release.Namespace }} deploy/{{ .Release.Name }}-api-server | grep "bootstrap admin"
+{{- end }}
+
+3. Create a WorkspaceTemplate (admin console → Templates), or GitOps-style:
+
+     kubectl apply -n {{ .Values.workspaces.namespace }} -f - <<EOF
+     apiVersion: waas.xorhub.io/v1alpha1
+     kind: WorkspaceTemplate
+     metadata:
+       name: xfce
+     spec:
+       displayName: "XFCE Desktop"
+       os: linux
+       image: "your-registry/desktop-xfce:latest"
+       homeSize: 10Gi
+     EOF
+
+Workspaces are plain Kubernetes resources — kubectl, ArgoCD and Flux all
+work. KubeVirt is auto-detected: with it, windows templates provision VMs;
+without it, windows workspaces are rejected at admission time.

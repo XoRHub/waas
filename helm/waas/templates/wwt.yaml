@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-wwt
+  labels:
+    app.kubernetes.io/name: waas-wwt
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.wwt.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waas-wwt
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waas-wwt
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: wwt
+          image: "{{ .Values.image.registry }}/wwt:{{ include "waas.tag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: WWT_LISTEN_ADDR
+              value: ":8081"
+            - name: WWT_GUACD_ADDR
+              value: "{{ .Release.Name }}-guacd:4822"
+            - name: WWT_API_URL
+              value: "http://{{ .Release.Name }}-api-server:8080"
+            - name: WWT_JWT_ISSUER
+              value: {{ .Values.apiServer.jwtIssuer | quote }}
+            - name: WWT_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: internal-token
+          ports:
+            - name: http
+              containerPort: 8081
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          resources:
+            {{- toYaml .Values.wwt.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-wwt
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: waas-wwt
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http

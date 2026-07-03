@@ -1,0 +1,81 @@
+# WaaS chart values. cert-manager is the only mandatory external
+# prerequisite. KubeVirt is auto-detected by the operator at startup —
+# never listed as a prerequisite.
+
+image:
+  registry: ghcr.io/xorhub/waas
+  tag: "" # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+# Namespace where Workspace/WorkspaceTemplate CRs and desktop pods live.
+workspaces:
+  namespace: waas-workspaces
+  create: true
+
+ingress:
+  enabled: true
+  className: ""
+  host: waas.example.com
+  tls:
+    enabled: true
+    # cert-manager issuer used for the public certificate.
+    issuerRef:
+      kind: ClusterIssuer
+      name: ""
+
+operator:
+  replicas: 1
+  webhook:
+    enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+apiServer:
+  replicas: 1
+  jwtIssuer: waas
+  accessTokenTTL: 8h
+  connectionTokenTTL: 5m
+  # Bootstrap admin password. Empty = generated and printed once in the
+  # api-server logs on first boot.
+  adminUsername: admin
+  adminPassword: ""
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+wwt:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+frontend:
+  replicas: 1
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+# guacd is the HTML5 gateway. ClusterIP only — never exposed outside the
+# cluster; the wwt proxy is its sole client.
+guacd:
+  image: guacamole/guacd:1.6.0
+  replicas: 1
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+postgres:
+  # Set enabled=false and fill externalURL to bring your own PostgreSQL 17.
+  enabled: true
+  image: postgres:17-alpine
+  database: waas
+  username: waas
+  # Empty = generated once and kept across upgrades.
+  password: ""
+  storage: 10Gi
+  storageClassName: ""
+  externalURL: ""
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
