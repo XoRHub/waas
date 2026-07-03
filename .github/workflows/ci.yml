@@ -1,0 +1,111 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [shared, operator, api-server, wwt]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: Build
+        working-directory: ${{ matrix.module }}
+        run: go build ./...
+      - name: Vet
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+      - name: Test
+        working-directory: ${{ matrix.module }}
+        run: go test -race ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+      - name: Build (typecheck + bundle)
+        working-directory: frontend
+        run: npm run build
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint chart
+        run: helm lint helm/waas
+      - name: Render chart
+        run: helm template waas helm/waas > /dev/null
+
+  # Multi-arch images to ghcr.io, only on main and version tags.
+  images:
+    if: github.event_name == 'push'
+    needs: [go, frontend, helm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: operator
+            context: operator
+            dockerfile: operator/Dockerfile
+          - name: api-server
+            context: .
+            dockerfile: api-server/Dockerfile
+          - name: wwt
+            context: .
+            dockerfile: wwt/Dockerfile
+          - name: frontend
+            context: frontend
+            dockerfile: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.name }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
