@@ -1,0 +1,33 @@
+# Binaries / build output
+bin/
+dist/
+*.exe
+*.out
+
+# Go
+vendor/
+coverage.txt
+*.test
+
+# Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Local dev
+*.db
+*.sqlite
+.env
+.env.local
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# k3d / kube
+kubeconfig
+*.kubeconfig
+
+# Helm
+*.tgz
