@@ -1,0 +1,94 @@
+package handler
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/xorhub/waas/api-server/internal/middleware"
+	"github.com/xorhub/waas/api-server/internal/service"
+)
+
+// WorkspaceHandler serves /api/v1/workspaces.
+type WorkspaceHandler struct {
+	svc *service.WorkspaceService
+}
+
+func NewWorkspaceHandler(svc *service.WorkspaceService) *WorkspaceHandler {
+	return &WorkspaceHandler{svc: svc}
+}
+
+// List handles GET /api/v1/workspaces.
+func (h *WorkspaceHandler) List(w http.ResponseWriter, r *http.Request) {
+	workspaces, err := h.svc.List(r.Context(), middleware.Actor(r))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	list(w, workspaces, len(workspaces), 1, len(workspaces))
+}
+
+// Create handles POST /api/v1/workspaces.
+func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
+	var in service.CreateWorkspaceInput
+	if err := decode(r, &in); err != nil {
+		fail(w, r, err)
+		return
+	}
+	ws, err := h.svc.Create(r.Context(), middleware.Actor(r), in)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	created(w, ws)
+}
+
+// Get handles GET /api/v1/workspaces/{id}.
+func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
+	ws, err := h.svc.Get(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, ws)
+}
+
+// Delete handles DELETE /api/v1/workspaces/{id}.
+func (h *WorkspaceHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.Delete(r.Context(), middleware.Actor(r), chi.URLParam(r, "id")); err != nil {
+		fail(w, r, err)
+		return
+	}
+	noContent(w)
+}
+
+// Pause handles POST /api/v1/workspaces/{id}/pause.
+func (h *WorkspaceHandler) Pause(w http.ResponseWriter, r *http.Request) {
+	ws, err := h.svc.SetPaused(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), true)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, ws)
+}
+
+// Resume handles POST /api/v1/workspaces/{id}/resume.
+func (h *WorkspaceHandler) Resume(w http.ResponseWriter, r *http.Request) {
+	ws, err := h.svc.SetPaused(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), false)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, ws)
+}
+
+// Connect handles POST /api/v1/workspaces/{id}/connect: records a session
+// and returns the short-lived connection token for the WebSocket proxy.
+func (h *WorkspaceHandler) Connect(w http.ResponseWriter, r *http.Request) {
+	result, err := h.svc.Connect(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	created(w, result)
+}

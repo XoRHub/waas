@@ -30,8 +30,9 @@ generate manifests:
 frontend-build:
 	cd frontend && npm ci && npm run build
 
+# api-server and wwt build from the repo root (module replaces ../shared).
 docker-build:
 	docker build -t ghcr.io/xorhub/waas/operator:dev operator
-	docker build -t ghcr.io/xorhub/waas/api-server:dev api-server
-	docker build -t ghcr.io/xorhub/waas/wwt:dev wwt
+	docker build -t ghcr.io/xorhub/waas/api-server:dev -f api-server/Dockerfile .
+	docker build -t ghcr.io/xorhub/waas/wwt:dev -f wwt/Dockerfile .
 	docker build -t ghcr.io/xorhub/waas/frontend:dev frontend
