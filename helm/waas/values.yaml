@@ -27,6 +27,10 @@ operator:
   replicas: 1
   webhook:
     enabled: true
+  # Comma-separated users/groups exempt from workspace policy checks.
+  # Add your GitOps applier SA here if it manages Workspace CRs, e.g.
+  # "system:masters,system:serviceaccount:argocd:argocd-application-controller".
+  policyBypass: "system:masters"
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { memory: 256Mi }

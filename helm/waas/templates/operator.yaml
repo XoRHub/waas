@@ -18,7 +18,7 @@ rules:
     verbs: [create, patch]
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
-    verbs: [create, get, list, watch]
+    verbs: [create, delete, get, list, watch]
   - apiGroups: [""]
     resources: [pods, services]
     verbs: [create, delete, get, list, watch]
@@ -26,8 +26,11 @@ rules:
     resources: [virtualmachines]
     verbs: [create, delete, get, list, watch]
   - apiGroups: [waas.xorhub.io]
-    resources: [workspaces, workspacetemplates]
+    resources: [workspacetemplates, workspaceimages, workspacepolicies]
     verbs: [get, list, watch]
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspaces]
+    verbs: [delete, get, list, watch]
   - apiGroups: [waas.xorhub.io]
     resources: [workspaces/status]
     verbs: [get, patch, update]
@@ -109,6 +112,14 @@ spec:
           env:
             - name: ENABLE_WEBHOOKS
               value: {{ .Values.operator.webhook.enabled | quote }}
+            # Trusted-writer identity model: only the api-server SA may
+            # set spec.owner and the identity annotations on Workspaces.
+            - name: WAAS_TRUSTED_WRITERS
+              value: "system:serviceaccount:{{ .Release.Namespace }}:{{ .Release.Name }}-api-server"
+            # Users/groups exempt from policy checks (GitOps applier,
+            # break-glass admins). Keep this list short and audited.
+            - name: WAAS_POLICY_BYPASS
+              value: {{ .Values.operator.policyBypass | default "system:masters" | quote }}
           ports:
             - name: webhook
               containerPort: 9443
