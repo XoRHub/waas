@@ -1,0 +1,35 @@
+# Dev catalog — mirrors gitops/governance/images.yaml but points at the
+# waas-local:dev tags produced by `make dev-build-images`, imported straight
+# into the k3d node's containerd by `make dev-load-images` (no registry
+# involved). Only images that actually exist in waas-images/ are seeded here
+# (ubuntu-devtools in the real catalog has no local manifest yet).
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: ubuntu-xfce
+spec:
+  displayName: "Ubuntu 24.04 — XFCE"
+  description: "Bureau XFCE complet (VNC recommandé, RDP disponible)."
+  image: waas-local/ubuntu-xfce:dev
+  protocols: [vnc, rdp]
+  architectures: [amd64, arm64]
+  enabled: true
+  resources:
+    default: { cpu: 500m, memory: 1Gi }
+    min:     { cpu: 250m, memory: 512Mi }
+    max:     { cpu: "2",  memory: 4Gi }
+---
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: ubuntu-firefox
+spec:
+  displayName: "Firefox (navigation isolée)"
+  description: "Firefox durci par policies.json, session jetable idéale."
+  image: waas-local/ubuntu-firefox:dev
+  protocols: [vnc]
+  architectures: [amd64]
+  enabled: true
+  resources:
+    default: { cpu: 500m, memory: 1536Mi }
+    max:     { cpu: "2",  memory: 3Gi }

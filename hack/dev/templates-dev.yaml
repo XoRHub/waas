@@ -1,0 +1,40 @@
+# Dev WorkspaceTemplates consuming the images seeded in images-dev.yaml.
+# `image` must match the corresponding WorkspaceImage verbatim (see its
+# comment) — here that means the waas-local:dev tag, not a registry ref.
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: ubuntu-xfce
+spec:
+  displayName: "Ubuntu 24.04 — XFCE"
+  description: "Full XFCE desktop over VNC (recommended protocol for Linux)."
+  os: linux
+  image: waas-local/ubuntu-xfce:dev
+  port: 5901
+  homeSize: 10Gi
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 4Gi }
+  env:
+    - name: VNC_PW
+      value: "devpassword"
+    - name: VNC_RESOLUTION
+      value: "1920x1080"
+---
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: ubuntu-firefox
+spec:
+  displayName: "Firefox (navigation isolée)"
+  description: "Firefox durci, session jetable."
+  os: linux
+  image: waas-local/ubuntu-firefox:dev
+  port: 5901
+  homeSize: 5Gi
+  resources:
+    requests: { cpu: 500m, memory: 1536Mi }
+    limits: { cpu: "2", memory: 3Gi }
+  env:
+    - name: VNC_PW
+      value: "devpassword"

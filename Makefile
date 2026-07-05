@@ -2,7 +2,23 @@
 
 GO_MODULES := shared operator api-server wwt
 
-.PHONY: all build test lint generate manifests frontend-build docker-build tidy
+# --- local k3d dev environment -------------------------------------------
+CLUSTER_NAME     := waas-dev
+DEV_NAMESPACE    := waas
+WORKSPACE_NS     := waas-workspaces
+IMAGE_TAG        := dev
+DEV_IMAGES       := operator api-server wwt frontend
+
+# Workspace desktop images (waas-images/). Base images are build-time-only
+# (FROM layers); only the leaf images are ever scheduled as pods, so only
+# those get imported into k3d.
+WORKSPACE_BASE_IMAGES := ubuntu-base-rdp
+WORKSPACE_IMAGES      := ubuntu-xfce ubuntu-firefox
+
+.PHONY: all build test lint generate manifests frontend-build docker-build \
+	dev-up dev-down dev-reset dev-build dev-load dev-deploy dev-reload \
+	dev-build-images dev-load-images \
+	dev-status dev-logs dev-url tidy
 
 all: build
 
@@ -36,3 +52,77 @@ docker-build:
 	docker build -t ghcr.io/xorhub/waas/api-server:dev -f api-server/Dockerfile .
 	docker build -t ghcr.io/xorhub/waas/wwt:dev -f wwt/Dockerfile .
 	docker build -t ghcr.io/xorhub/waas/frontend:dev frontend
+
+# --- local k3d dev environment --------------------------------------------
+# Typical flow:
+#   make dev-up                 # create cluster + cert-manager (once)
+#   make dev-build dev-load dev-deploy
+#   make dev-load-images        # workspace desktop images (after dev-deploy: needs the ns)
+#   make dev-reload             # after code changes: rebuild, reimport, restart
+#   make dev-down                # tear down
+
+dev-up:
+	@command -v k3d >/dev/null 2>&1 || { echo "k3d not found: https://k3d.io/#installation"; exit 1; }
+	@command -v helm >/dev/null 2>&1 || { echo "helm not found: https://helm.sh/docs/intro/install/"; exit 1; }
+	k3d cluster list $(CLUSTER_NAME) >/dev/null 2>&1 || k3d cluster create --config hack/dev/k3d-config.yaml
+	helm repo add jetstack https://charts.jetstack.io --force-update
+	helm upgrade --install cert-manager jetstack/cert-manager \
+		--namespace cert-manager --create-namespace \
+		--set crds.enabled=true --wait
+	@echo "==> cluster ready. Next: make dev-build dev-load dev-deploy"
+
+dev-down:
+	k3d cluster delete $(CLUSTER_NAME)
+
+dev-reset: dev-down dev-up
+
+dev-build: docker-build
+
+dev-load:
+	@for img in $(DEV_IMAGES); do \
+		echo "==> import $$img:$(IMAGE_TAG)"; \
+		k3d image import ghcr.io/xorhub/waas/$$img:$(IMAGE_TAG) -c $(CLUSTER_NAME) || exit 1; \
+	done
+
+dev-deploy:
+	helm upgrade --install waas helm/waas \
+		--namespace $(DEV_NAMESPACE) --create-namespace \
+		-f hack/dev/values-dev.yaml
+	@$(MAKE) dev-url
+
+# Rebuild, reimport and restart everything — the fast inner loop while coding.
+dev-reload: dev-build dev-load
+	kubectl -n $(DEV_NAMESPACE) rollout restart \
+		deploy/waas-operator deploy/waas-api-server deploy/waas-wwt deploy/waas-frontend
+
+# Build waas-images/ locally (docker build via its own Makefile).
+dev-build-images:
+	@for img in $(WORKSPACE_BASE_IMAGES) $(WORKSPACE_IMAGES); do \
+		echo "==> build $$img"; \
+		$(MAKE) -C waas-images build IMAGE=$$img || exit 1; \
+	done
+
+# Import the leaf workspace images into k3d and seed the dev catalog
+# (WorkspaceImage/WorkspaceTemplate pointed at waas-local:dev tags) plus the
+# real WorkspacePolicy seeds (image names match, no dev variant needed).
+# Requires the $(WORKSPACE_NS) namespace, i.e. run after dev-deploy.
+dev-load-images: dev-build-images
+	@for img in $(WORKSPACE_IMAGES); do \
+		echo "==> import waas-local/$$img:dev"; \
+		k3d image import waas-local/$$img:dev -c $(CLUSTER_NAME) || exit 1; \
+	done
+	kubectl -n $(WORKSPACE_NS) apply \
+		-f hack/dev/images-dev.yaml \
+		-f hack/dev/templates-dev.yaml \
+		-f gitops/governance/policies.yaml
+	@echo "==> workspace images + templates loaded into $(WORKSPACE_NS)."
+
+dev-status:
+	kubectl -n $(DEV_NAMESPACE) get pods,svc,ingress
+
+# make dev-logs C=api-server
+dev-logs:
+	kubectl -n $(DEV_NAMESPACE) logs -f deploy/waas-$(C)
+
+dev-url:
+	@echo "==> http://waas.127.0.0.1.nip.io:8080  (admin / admin123)"

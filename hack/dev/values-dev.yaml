@@ -1,0 +1,20 @@
+# Dev overrides for `make dev-deploy`. Layered on top of helm/waas/values.yaml.
+# Images are loaded straight into the k3d node's containerd (make dev-load),
+# so pullPolicy is Never — nothing is ever fetched from ghcr.io.
+image:
+  tag: dev
+  pullPolicy: Never
+
+# Traefik ships with k3s/k3d by default; no ingress-nginx install needed.
+# TLS is off here — cert-manager (installed in make dev-up) is only there
+# for the operator's self-signed webhook certificate, which the chart wires
+# up on its own regardless of public ingress TLS.
+ingress:
+  className: traefik
+  host: waas.127.0.0.1.nip.io
+  tls:
+    enabled: false
+
+apiServer:
+  # Fixed for dev convenience instead of grepping the generated one from logs.
+  adminPassword: admin123

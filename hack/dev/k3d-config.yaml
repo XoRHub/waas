@@ -1,0 +1,16 @@
+# k3d cluster for local dev. Traefik (bundled with k3s) is kept as the
+# ingress controller — no extra installs. Host port 8080 is mapped to the
+# loadbalancer's port 80 so the chart's ingress is reachable without root.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: waas-dev
+servers: 1
+agents: 0
+ports:
+  - port: "8080:80"
+    nodeFilters: ["loadbalancer"]
+options:
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true

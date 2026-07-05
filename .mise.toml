@@ -1,3 +1,4 @@
 [tools]
 go = "1.26"
 node = "lts"
+k3d = "latest"
