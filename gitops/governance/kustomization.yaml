@@ -1,0 +1,10 @@
+# Bootstrap governance objects, applied by ArgoCD into the workspaces
+# namespace. IMPORTANT ArgoCD setting for this Application: disable
+# selfHeal (or add these kinds to ignoreDifferences) — the admin console
+# edits WorkspaceImage/WorkspacePolicy live, Git only seeds them.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: waas-workspaces
+resources:
+  - images.yaml
+  - policies.yaml

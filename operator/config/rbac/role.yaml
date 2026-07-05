@@ -15,14 +15,6 @@ rules:
   - ""
   resources:
   - persistentvolumeclaims
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - pods
   - services
   verbs:
@@ -44,9 +36,19 @@ rules:
 - apiGroups:
   - waas.xorhub.io
   resources:
-  - workspaces
+  - workspaceimages
+  - workspacepolicies
   - workspacetemplates
   verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - waas.xorhub.io
+  resources:
+  - workspaces
+  verbs:
+  - delete
   - get
   - list
   - watch

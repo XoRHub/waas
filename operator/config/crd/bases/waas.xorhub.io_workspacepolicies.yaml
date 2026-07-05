@@ -1,0 +1,207 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: workspacepolicies.waas.xorhub.io
+spec:
+  group: waas.xorhub.io
+  names:
+    kind: WorkspacePolicy
+    listKind: WorkspacePolicyList
+    plural: workspacepolicies
+    shortNames:
+    - wsp
+    singular: workspacepolicy
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.priority
+      name: Priority
+      type: integer
+    - jsonPath: .spec.limits.maxWorkspaces
+      name: Max WS
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: WorkspacePolicy is the self-service envelope for a user or group.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              WorkspacePolicySpec is the admin-defined envelope for self-service.
+
+              Resolution rule (deliberate, keep in sync with pkg/policy): among all
+              policies whose subjects match the user, the HIGHEST spec.priority wins
+              and applies as a whole — no field merging between policies. Ties break
+              on the lexicographically smallest name and surface a warning, because
+              two same-priority matches are a configuration smell. A policy with no
+              subjects matches every authenticated user: name one "default" with
+              priority 0 as the restrictive fallback. No matching policy at all
+              means DENY (fail closed).
+            properties:
+              images:
+                description: |-
+                  Images is the subset of catalog entries (WorkspaceImage names)
+                  this policy allows. Empty = the whole enabled catalog (each image's
+                  own allowedGroups still applies).
+                items:
+                  type: string
+                type: array
+              lifecycle:
+                description: Lifecycle bounds workspace longevity to fight accumulation.
+                properties:
+                  idleSuspendAfter:
+                    description: |-
+                      IdleSuspendAfter pauses a workspace with no active session for
+                      this long (compute freed, home kept). Zero/absent = never.
+                    type: string
+                  maxLifetime:
+                    description: |-
+                      MaxLifetime deletes the workspace (home included) this long after
+                      creation. Zero/absent = never. Deletion is announced through the
+                      workspace's Events and status conditions.
+                    type: string
+                type: object
+              limits:
+                description: Limits caps what the matched user can consume.
+                properties:
+                  aggregate:
+                    description: |-
+                      Aggregate caps the SUM across all of the user's workspaces
+                      (paused included for storage; compute of paused workspaces is
+                      released and therefore not counted).
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storage:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Storage caps the sum of home volume sizes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  defaults:
+                    description: |-
+                      Defaults is the sizing the portal proposes when the user does not
+                      choose. Display-only: a per-image default (image.resources.default)
+                      takes precedence, and enforcement is unaffected either way.
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  maxWorkspaces:
+                    description: |-
+                      MaxWorkspaces is the max simultaneous workspaces per user. Paused
+                      workspaces count: their home PVC still holds storage.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  perWorkspace:
+                    description: |-
+                      PerWorkspace caps a single workspace. The effective cap is
+                      min(these, image.resources.max).
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      home:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Home caps the persistent home volume size.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                type: object
+              priority:
+                description: |-
+                  Priority orders competing policies; higher wins. Convention:
+                  0 = default fallback, 100–999 = group policies, 1000+ = per-user
+                  exceptions.
+                format: int32
+                minimum: 0
+                type: integer
+              subjects:
+                description: |-
+                  Subjects this policy applies to (OR). Empty = every authenticated
+                  user.
+                items:
+                  description: |-
+                    PolicySubject binds a policy to an identity. Groups are Authentik
+                    group names carried by the OIDC claims; users match the workspace
+                    owner identity (see the webhook's trusted-writer model).
+                  properties:
+                    kind:
+                      description: SubjectKind says what a policy subject name refers
+                        to.
+                      enum:
+                      - User
+                      - Group
+                      type: string
+                    name:
+                      minLength: 1
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

@@ -1,0 +1,49 @@
+# Policies. Résolution (décision validée) : parmi les policies dont un
+# subject matche l'utilisateur, la PLUS HAUTE priority s'applique EN
+# BLOC — aucun merge de champs. Convention de priorités :
+#   0        default (fallback, subjects vide = tout le monde)
+#   100-999  policies de groupe
+#   1000+    exceptions nominatives (kind: User)
+# Sans policy applicable, la création est REFUSÉE (fail-closed) : ne
+# supprimez jamais `default` sans remplacement.
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspacePolicy
+metadata:
+  name: default
+spec:
+  priority: 0
+  # subjects vide = tout utilisateur authentifié.
+  images: [ubuntu-firefox, ubuntu-xfce]
+  limits:
+    maxWorkspaces: 1
+    perWorkspace: { cpu: "2", memory: 4Gi, home: 10Gi }
+    aggregate:    { cpu: "2", memory: 4Gi, storage: 10Gi }
+    # Dimensionnement proposé par le portail (les defaults de l'image
+    # priment) ; purement indicatif, aucun effet sur l'enforcement.
+    defaults:     { cpu: 500m, memory: 1Gi }
+  lifecycle:
+    idleSuspendAfter: 2h    # pause douce : compute libéré, home conservé
+    maxLifetime: 336h       # 14 j : suppression, home compris
+---
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspacePolicy
+metadata:
+  name: power-user
+spec:
+  priority: 100
+  subjects:
+    # Groupes Authentik, tels qu'émis dans le claim OIDC "groups" et
+    # recopiés dans users.user_groups par l'admin (puis par le login
+    # OIDC quand il sera branché).
+    - kind: Group
+      name: "nymphe:dev"
+    - kind: Group
+      name: "nymphe:ops"
+  images: []               # vide = tout le catalogue (allowedGroups s'applique toujours)
+  limits:
+    maxWorkspaces: 5
+    perWorkspace: { cpu: "4", memory: 8Gi, home: 20Gi }
+    aggregate:    { cpu: "8", memory: 16Gi, storage: 60Gi }
+  lifecycle:
+    idleSuspendAfter: 8h
+    # pas de maxLifetime : les postes de dev vivent tant qu'ils servent

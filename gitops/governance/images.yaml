@@ -1,0 +1,54 @@
+# Catalog: the only images a Workspace may run. The `image` field must
+# match the WorkspaceTemplate's image VERBATIM — pin digests (published
+# as immutable tags by the waas-images pipeline).
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: ubuntu-xfce
+spec:
+  displayName: "Ubuntu 24.04 — XFCE"
+  description: "Bureau XFCE complet (VNC recommandé, RDP disponible)."
+  image: registry.xorhub.io/waas/waas-images/ubuntu-xfce:1.0.0
+  protocols: [vnc, rdp]
+  architectures: [amd64, arm64]
+  enabled: true
+  # allowedGroups vide : visible de tout utilisateur authentifié
+  # (le sous-ensemble `images` de sa policy s'applique toujours).
+  resources:
+    default: { cpu: 500m, memory: 1Gi }
+    min:     { cpu: 250m, memory: 512Mi }
+    max:     { cpu: "2",  memory: 4Gi }
+---
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: ubuntu-firefox
+spec:
+  displayName: "Firefox (navigation isolée)"
+  description: "Firefox durci par policies.json, session jetable idéale."
+  image: registry.xorhub.io/waas/waas-images/ubuntu-firefox:1.0.0
+  protocols: [vnc]
+  architectures: [amd64]   # packages.mozilla.org: arm64 non validé
+  enabled: true
+  resources:
+    default: { cpu: 500m, memory: 1536Mi }
+    max:     { cpu: "2",  memory: 3Gi }
+---
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: ubuntu-devtools
+spec:
+  displayName: "Dev Tools (VS Code, toolchains)"
+  description: "Poste de dev — réservé au groupe Authentik nymphe:dev."
+  image: registry.xorhub.io/waas/waas-images/ubuntu-devtools:1.0.0
+  protocols: [vnc]
+  architectures: [amd64]
+  enabled: true
+  # Restriction globale par groupe Authentik : même une policy listant
+  # cette image ne la donne pas à un utilisateur hors du groupe.
+  allowedGroups: ["nymphe:dev"]
+  resources:
+    default: { cpu: "1",  memory: 2Gi }
+    min:     { cpu: 500m, memory: 1Gi }
+    max:     { cpu: "4",  memory: 8Gi }

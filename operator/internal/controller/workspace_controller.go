@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -20,6 +21,7 @@ import (
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/internal/kubevirt"
+	"github.com/xorhub/waas/operator/pkg/policy"
 )
 
 const (
@@ -44,14 +46,17 @@ type WorkspaceReconciler struct {
 	// normally rejected by the validating webhook when false; the reconciler
 	// re-checks so a bypassed webhook still fails loudly instead of silently.
 	KubeVirtAvailable bool
+	// Recorder emits the audit trail (policy applied/denied, TTL
+	// deletions) as Kubernetes Events on the Workspace.
+	Recorder record.EventRecorder
 }
 
-// +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspaces,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspaces/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspacetemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;delete
-// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines,verbs=get;list;watch;create;delete
 
@@ -90,6 +95,41 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
+	// Lifecycle TTL first: an expired workspace is deleted whatever its
+	// state (paused included — its storage is exactly what TTLs reclaim).
+	deleted, lifetimeRequeue, err := r.enforceLifetime(ctx, ws)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+	}
+	if deleted {
+		return ctrl.Result{}, nil
+	}
+
+	// Governance re-check, second line behind the admission webhook (see
+	// workspace_governance.go). Only gates the creation of NEW compute:
+	// running pods are never torn down by policy (grandfathering).
+	if !ws.Spec.Paused {
+		hasCompute, err := r.computeExists(ctx, ws, tpl)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+		}
+		if !hasCompute {
+			pol, denial := r.evaluateGovernance(ctx, ws, tpl)
+			if denial != nil {
+				r.recordEvent(ws, corev1.EventTypeWarning, string(denial.Reason), denial.Message)
+				if err := r.setUnready(ctx, ws, waasv1alpha1.PhaseFailed, string(denial.Reason), denial.Message); err != nil {
+					return ctrl.Result{}, err
+				}
+				// Policies and catalog can change; retry on a slow loop.
+				return ctrl.Result{RequeueAfter: requeueMissing}, nil
+			}
+			if pol != nil {
+				r.recordEvent(ws, corev1.EventTypeNormal, "PolicyApplied",
+					fmt.Sprintf("workspace admitted under policy %q for owner %s", pol.Name, ws.Spec.Owner))
+			}
+		}
+	}
+
 	pvcName, err := r.ensureHomePVC(ctx, ws, tpl)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
@@ -108,7 +148,8 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, nil
+		// Paused workspaces still age toward their TTL.
+		return ctrl.Result{RequeueAfter: lifetimeRequeue}, nil
 	}
 
 	var ready bool
@@ -148,7 +189,29 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// Transient state: poll until the pod/VM reports ready.
 		return ctrl.Result{RequeueAfter: requeueTransient}, nil
 	}
+	if lifetimeRequeue > 0 {
+		// Wake up exactly when the TTL expires.
+		return ctrl.Result{RequeueAfter: lifetimeRequeue}, nil
+	}
 	return ctrl.Result{}, nil
+}
+
+// computeExists reports whether the workspace already has its pod (linux)
+// or VM (windows) — i.e. whether capacity was already granted.
+func (r *WorkspaceReconciler) computeExists(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) (bool, error) {
+	name := types.NamespacedName{Namespace: ws.Namespace, Name: computeName(ws)}
+	var err error
+	if tpl.Spec.OS == waasv1alpha1.OSWindows {
+		vm := &unstructured.Unstructured{}
+		vm.SetGroupVersionKind(kubevirt.VirtualMachineGVK)
+		err = r.Get(ctx, name, vm)
+	} else {
+		err = r.Get(ctx, name, &corev1.Pod{})
+	}
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // ensureHomePVC creates the user-state volume if missing. Idempotent, and the
@@ -204,6 +267,18 @@ func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Wo
 	if ws.Spec.Resources != nil {
 		resources = *ws.Spec.Resources
 	}
+
+	// Multi-arch scheduling: the catalog entry knows which architectures
+	// the image is published for (amd64 workers vs arm64 control-plane
+	// side); missing catalog entry means no constraint (pre-governance).
+	var affinity *corev1.Affinity
+	catalog := &waasv1alpha1.WorkspaceImageList{}
+	if err := r.List(ctx, catalog, client.InNamespace(ws.Namespace)); err == nil {
+		if img := policy.FindImage(catalog.Items, tpl.Spec.Image); img != nil {
+			affinity = archAffinity(img.Spec.Architectures)
+		}
+	}
+
 	port := tpl.Spec.DesktopPort()
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -213,6 +288,7 @@ func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Wo
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyAlways,
+			Affinity:      affinity,
 			Containers: []corev1.Container{{
 				Name:      "desktop",
 				Image:     tpl.Spec.Image,

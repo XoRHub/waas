@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"os"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -66,13 +67,27 @@ func main() {
 	if err := (&controller.WorkspaceReconciler{
 		Client:            mgr.GetClient(),
 		KubeVirtAvailable: kubeVirtAvailable,
+		Recorder:          mgr.GetEventRecorderFor("waas-operator"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 		os.Exit(1)
 	}
 
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		if err := webhookv1alpha1.SetupWorkspaceWebhookWithManager(mgr, kubeVirtAvailable); err != nil {
+		// Governance wiring (see internal/webhook): WAAS_TRUSTED_WRITERS
+		// lists the SAs whose spec.owner/identity annotations are believed
+		// (the api-server); WAAS_POLICY_BYPASS lists users/groups exempt
+		// from policy (GitOps applier, break-glass admins). Both are set
+		// by the Helm chart; empty trusted-writers means even the
+		// api-server is treated as an untrusted caller — fail closed.
+		trustedWriters := splitEnvList(os.Getenv("WAAS_TRUSTED_WRITERS"))
+		bypassSubjects := splitEnvList(os.Getenv("WAAS_POLICY_BYPASS"))
+		if len(bypassSubjects) == 0 {
+			bypassSubjects = []string{"system:masters"}
+		}
+		setupLog.Info("workspace governance configured",
+			"trustedWriters", trustedWriters, "bypassSubjects", bypassSubjects)
+		if err := webhookv1alpha1.SetupWorkspaceWebhookWithManager(mgr, kubeVirtAvailable, trustedWriters, bypassSubjects); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Workspace")
 			os.Exit(1)
 		}
@@ -92,4 +107,15 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// splitEnvList parses a comma-separated env value, trimming blanks.
+func splitEnvList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
