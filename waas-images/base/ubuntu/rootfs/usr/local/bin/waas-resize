@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# waas-resize WIDTHxHEIGHT — resize the running desktop server-side.
+#
+# Honest limitation: Guacamole's VNC client does not push browser-window
+# resizes to the server (its RDP client does, but our RDP path is an xrdp
+# libvnc bridge that cannot resize the underlying Xvnc either). TigerVNC
+# does support RandR SetDesktopSize, so resolution CAN be changed live —
+# from inside the session (this script) or by anything that can exec into
+# the pod. A future wwt enhancement can call this on browser resize.
+set -euo pipefail
+
+MODE="${1:?usage: waas-resize WIDTHxHEIGHT (e.g. waas-resize 2560x1440)}"
+[[ "${MODE}" =~ ^([0-9]+)x([0-9]+)$ ]] || { echo "invalid mode '${MODE}'" >&2; exit 1; }
+W="${BASH_REMATCH[1]}" H="${BASH_REMATCH[2]}"
+
+export DISPLAY="${DISPLAY:-:1}"
+export XAUTHORITY="${XAUTHORITY:-${WAAS_RUNTIME_DIR:-/tmp/waas}/Xauthority}"
+
+OUTPUT=$(xrandr | awk '/ connected/{print $1; exit}')
+xrandr --newmode "${MODE}" 0 "${W}" 0 0 0 "${H}" 0 0 0 2>/dev/null || true
+xrandr --addmode "${OUTPUT}" "${MODE}" 2>/dev/null || true
+exec xrandr --output "${OUTPUT}" --mode "${MODE}"

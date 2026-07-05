@@ -1,0 +1,33 @@
+# WorkspaceTemplate consuming a waas-images build — the full integration
+# contract in one example.
+#
+# NOTE credentials: the api-server's ConnectionInfo currently reads the
+# password from the *literal* env value on this template (VNC_PW /
+# RDP_PASSWORD) to hand it to guacd. Until it learns to resolve
+# valueFrom/secretKeyRef, the password lives in this CR: restrict who can
+# read WorkspaceTemplates via RBAC, and source this manifest itself from
+# Vault/ESO in GitOps. The image side is already secret-ready (env only,
+# nothing baked).
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: ubuntu-xfce
+spec:
+  displayName: "Ubuntu 24.04 — XFCE"
+  description: "Full XFCE desktop over VNC (recommended protocol for Linux)."
+  os: linux
+  # Pin the digest (or at least the immutable semver tag) — never a
+  # mutable tag; ArgoCD-friendly.
+  image: registry.example.com/waas/waas-images/ubuntu-xfce:1.0.0
+  # 5901 = VNC (default; guacd protocol "vnc"). Set 3389 + WAAS_RDP_ENABLED
+  # to probe/connect over RDP instead.
+  port: 5901
+  homeSize: 10Gi
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 4Gi }
+  env:
+    - name: VNC_PW
+      value: "change-me-via-gitops-secret"
+    - name: VNC_RESOLUTION
+      value: "1920x1080"

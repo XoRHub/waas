@@ -1,0 +1,35 @@
+# Default-deny policy for workspace pods: the desktop protocol runs in
+# clear inside the pod network by design (see README threat model), so
+# NOTHING but guacd may reach the desktop ports, and workspaces cannot
+# talk to each other or to the platform's internal services.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: waas-workspace-isolation
+  namespace: waas
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: waas-operator
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Only guacd may open VNC/RDP to a workspace.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: guacd
+      ports:
+        - port: 5901
+        - port: 3389
+  egress:
+    # DNS...
+    - to: []
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    # ...and the internet (browsing workspaces), but never the cluster's
+    # own networks: adjust the except list to your pod/service CIDRs.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]

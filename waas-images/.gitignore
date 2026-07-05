@@ -1,0 +1,4 @@
+build-pipeline.yml
+# The monorepo root ignores bin/ (Go build output); re-include image
+# rootfs payloads.
+!**/rootfs/usr/local/bin/

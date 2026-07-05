@@ -1,0 +1,15 @@
+name: ubuntu-firefox
+layer: apps
+description: XFCE desktop with managed, policy-hardened Firefox.
+version: "1.0.0"
+from: ubuntu-xfce
+
+# packages.mozilla.org has historically been amd64-first; arm64 stays off
+# until the repo's arm64 debs are verified on the Turing Pi workers.
+archs: [linux/amd64]
+
+variants:
+  - name: ubuntu-firefox
+    smoke:
+      vnc: true
+      rdp: false

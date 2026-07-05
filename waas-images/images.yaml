@@ -1,0 +1,32 @@
+# Global build configuration. Per-image config lives in each directory's
+# manifest.yaml (base/*, desktop/*, apps/*) and is discovered
+# automatically — adding an image means adding a directory, not editing
+# this file.
+#
+# ci/generate_pipeline.py merges this with the discovered manifests and
+# emits the GitLab child pipeline (topologically ordered on `from`).
+
+# Base OS matrix. Manifests may reference an entry via `os:`; today only
+# ubuntu-24.04 exists, a future ubuntu-26.04 or debian-13 is one entry +
+# one build-arg away, no generator change needed.
+os:
+  ubuntu-24.04:
+    buildArgs:
+      UBUNTU_VERSION: "24.04"
+
+defaults:
+  os: ubuntu-24.04
+  # amd64 mandatory (worker), arm64 for the Turing Pi control-plane-adjacent
+  # nodes. Manifests can restrict (see apps/firefox).
+  archs: [linux/amd64, linux/arm64]
+  # Fixed identity baked into every image; must match the operator's
+  # /home/user mount and the recommended pod fsGroup.
+  buildArgs:
+    WAAS_UID: "1000"
+    WAAS_GID: "1000"
+
+scan:
+  # Trivy gate: fail the pipeline on these severities. Override per
+  # pipeline with the TRIVY_SEVERITY / TRIVY_EXIT_CODE CI variables.
+  severity: HIGH,CRITICAL
+  ignoreUnfixed: true

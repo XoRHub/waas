@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# waas-session — the graphical session, run by supervisord on DISPLAY :1.
+#
+# Layering contract: derived images customise the session by setting the
+# WAAS_STARTUP env var (e.g. the XFCE image sets it to startxfce4). The
+# base fallback is openbox + xterm: enough to prove the display pipeline
+# works and to host a single maximised app.
+set -euo pipefail
+
+# vncconfig bridges the X selection to the RFB clipboard (guac <-> apps).
+vncconfig -nowin &
+
+if [[ -n "${WAAS_STARTUP:-}" ]]; then
+    # dbus-launch gives apps/DEs the session bus they expect; it exits
+    # with the session so supervisord restart semantics stay correct.
+    # Word splitting is intentional: WAAS_STARTUP may carry arguments.
+    # shellcheck disable=SC2086
+    exec dbus-launch --exit-with-session ${WAAS_STARTUP}
+fi
+
+openbox &
+exec xterm -geometry 120x30

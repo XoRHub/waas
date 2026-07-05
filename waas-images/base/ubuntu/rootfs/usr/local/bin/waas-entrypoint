@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# waas-entrypoint — renders runtime config from env, then execs supervisord.
+#
+# Everything mutable lives under $WAAS_RUNTIME_DIR (default /tmp/waas) so
+# the image runs with a read-only rootfs given three writable mounts:
+#   /home/user  (PVC, mounted by the operator)
+#   /tmp        (emptyDir/tmpfs)
+#   /run        (emptyDir/tmpfs — only needed when RDP is enabled)
+#
+# Secrets are runtime-only: the desktop password arrives via env
+# (VNC_PW / VNC_PASSWORD / RDP_PASSWORD), is written 0600 into the runtime
+# dir in VNC-hashed form, and is scrubbed from the environment before any
+# service starts.
+set -euo pipefail
+
+log()  { printf 'waas-entrypoint: %s\n' "$*" >&2; }
+fail() { log "FATAL: $*"; exit 1; }
+
+RUNDIR="${WAAS_RUNTIME_DIR:-/tmp/waas}"
+umask 077
+mkdir -p "${RUNDIR}/supervisor.d" "${RUNDIR}/xrdp"
+
+# ---------------------------------------------------------------- password
+# Single session password shared by both protocols (the xrdp libvnc bridge
+# forwards the RDP password as the VNC password, so they cannot differ).
+PASSWORD="${VNC_PW:-${VNC_PASSWORD:-${RDP_PASSWORD:-}}}"
+[[ -n "${PASSWORD}" ]] || fail "no desktop password: set VNC_PW (or RDP_PASSWORD) from a Kubernetes Secret"
+printf '%s\n' "${PASSWORD}" | vncpasswd -f > "${RUNDIR}/vnc.passwd"
+chmod 0600 "${RUNDIR}/vnc.passwd"
+# Scrub: children of supervisord must not inherit the cleartext secret
+# (visible in /proc/*/environ to anything running in the session).
+unset PASSWORD VNC_PW VNC_PASSWORD RDP_PASSWORD
+export VNC_PW='' VNC_PASSWORD='' RDP_PASSWORD=''
+
+# -------------------------------------------------------------- X authority
+# Proper cookie auth for the X display instead of Xvnc -ac.
+export XAUTHORITY="${RUNDIR}/Xauthority"
+: > "${XAUTHORITY}"
+xauth add "${DISPLAY:-:1}" MIT-MAGIC-COOKIE-1 "$(head -c16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+
+# ------------------------------------------------------------------- home
+# First boot on a fresh PVC: the volume shadows the baked home, so seed it.
+if [[ ! -e "${HOME}/.profile" ]]; then
+    log "seeding empty home from /etc/skel"
+    cp -rT /etc/skel "${HOME}" 2>/dev/null || true
+fi
+mkdir -p "${HOME}/Desktop" 2>/dev/null || true
+
+# ------------------------------------------------------------------- Xvnc
+RESOLUTION="${VNC_RESOLUTION:-1920x1080}"
+DEPTH="${VNC_COL_DEPTH:-24}"
+[[ "${RESOLUTION}" =~ ^[0-9]+x[0-9]+$ ]] || fail "VNC_RESOLUTION must look like 1920x1080, got '${RESOLUTION}'"
+
+# Xvnc always runs — it is the display server. WAAS_VNC_ENABLED=0 does not
+# stop it, it binds it to localhost so only the in-pod xrdp bridge can
+# reach it and the operator's TCP probe must target 3389 instead.
+VNC_SCOPE_FLAG=""
+if [[ "${WAAS_VNC_ENABLED:-1}" != "1" ]]; then
+    [[ "${WAAS_RDP_ENABLED:-0}" == "1" ]] || fail "both WAAS_VNC_ENABLED and WAAS_RDP_ENABLED are off: nothing would be reachable"
+    VNC_SCOPE_FLAG="-localhost"
+    log "VNC disabled for external clients (Xvnc bound to localhost for the xrdp bridge)"
+fi
+
+cat > "${RUNDIR}/supervisor.d/10-xvnc.conf" <<EOF
+[program:xvnc]
+command=/usr/bin/Xvnc ${DISPLAY:-:1} -geometry ${RESOLUTION} -depth ${DEPTH} -rfbport 5901 ${VNC_SCOPE_FLAG} -rfbauth ${RUNDIR}/vnc.passwd -SecurityTypes VncAuth -AlwaysShared -auth ${XAUTHORITY} -desktop waas
+priority=10
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+redirect_stderr=true
+EOF
+
+# ---------------------------------------------------------------- session
+cat > "${RUNDIR}/supervisor.d/20-session.conf" <<EOF
+[program:session]
+command=/usr/local/bin/waas-session
+priority=20
+autorestart=true
+startretries=10
+environment=DISPLAY="${DISPLAY:-:1}",XAUTHORITY="${XAUTHORITY}",HOME="${HOME}"
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+redirect_stderr=true
+EOF
+
+# ------------------------------------------------------------------- xrdp
+if [[ "${WAAS_RDP_ENABLED:-0}" == "1" ]]; then
+    command -v xrdp >/dev/null || fail "WAAS_RDP_ENABLED=1 but xrdp is not in this image (build with INSTALL_RDP=1)"
+
+    # xrdp reads /etc/xrdp/xrdp.ini at a fixed path; the image bakes it as
+    # a symlink to /tmp/waas/xrdp/xrdp.ini. Keep that valid if the runtime
+    # dir was relocated.
+    [[ "${RUNDIR}" == "/tmp/waas" ]] || ln -sfn "${RUNDIR}" /tmp/waas
+
+    # TLS: use an operator/ESO-provided cert when mounted, otherwise
+    # generate an ephemeral self-signed pair. Fine for the default threat
+    # model (guacd is the only client, inside the cluster); see README.
+    if [[ -n "${WAAS_TLS_CERT:-}" && -n "${WAAS_TLS_KEY:-}" ]]; then
+        ln -sf "${WAAS_TLS_CERT}" "${RUNDIR}/xrdp/cert.pem"
+        ln -sf "${WAAS_TLS_KEY}"  "${RUNDIR}/xrdp/key.pem"
+    else
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -subj "/CN=waas-workspace" \
+            -keyout "${RUNDIR}/xrdp/key.pem" -out "${RUNDIR}/xrdp/cert.pem" 2>/dev/null
+    fi
+    xrdp-keygen xrdp "${RUNDIR}/xrdp/rsakeys.ini" >/dev/null
+
+    # Render xrdp.ini from the packaged template (the /etc/xrdp/xrdp.ini
+    # symlink baked in the image points at the rendered copy).
+    sed "s|@RUNDIR@|${RUNDIR}|g" /etc/waas/xrdp/xrdp.ini.tpl > "${RUNDIR}/xrdp/xrdp.ini"
+    mkdir -p /run/xrdp/sockdir 2>/dev/null || true
+
+    cat > "${RUNDIR}/supervisor.d/30-xrdp.conf" <<EOF
+[program:xrdp]
+command=/usr/sbin/xrdp --nodaemon
+priority=30
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+redirect_stderr=true
+EOF
+fi
+
+log "starting services (vnc external: ${WAAS_VNC_ENABLED:-1}, rdp: ${WAAS_RDP_ENABLED:-0}, resolution: ${RESOLUTION})"
+exec supervisord -n -c /etc/waas/supervisord.conf

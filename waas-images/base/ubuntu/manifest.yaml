@@ -1,0 +1,30 @@
+# Image manifest — discovered automatically by ci/generate_pipeline.py.
+# One directory = one image family; each variant becomes one published
+# image. Bump `version` on any change (tags are immutable, CI enforces it).
+name: ubuntu-base
+layer: base
+description: >
+  Headless Ubuntu graphical session (TigerVNC Xvnc + openbox fallback),
+  VNC and optional xrdp bridge, non-root, read-only-rootfs friendly.
+version: "1.0.0"
+
+variants:
+  # VNC-only: smallest image, the recommended default for Linux templates.
+  - name: ubuntu-base-vnc
+    buildArgs:
+      INSTALL_RDP: "0"
+    smoke:
+      vnc: true
+      rdp: false
+
+  # xrdp baked in; runtime env decides which protocols are reachable.
+  # Smoke-tested in RDP-only mode to prove that path independently.
+  - name: ubuntu-base-rdp
+    buildArgs:
+      INSTALL_RDP: "1"
+    smoke:
+      vnc: false
+      rdp: true
+      env:
+        WAAS_VNC_ENABLED: "0"
+        WAAS_RDP_ENABLED: "1"

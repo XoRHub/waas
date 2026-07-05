@@ -1,0 +1,55 @@
+# waas-images — parent pipeline.
+#
+# lint      hadolint on every Dockerfile, shellcheck on scripts
+# generate  ci/generate_pipeline.py: manifests -> build-pipeline.yml
+# build     triggers the generated child pipeline (one job per image,
+#           staged by layer depth: base -> desktop -> apps)
+#
+# Behaviour by ref:
+#   merge request / branch: build + smoke + scan, push of -g<sha> tags only
+#   default branch:         + immutable <version> tags + cosign signature
+#
+# Tunables (CI/CD variables):
+#   TRIVY_SEVERITY    gate severities   (default HIGH,CRITICAL)
+#   TRIVY_EXIT_CODE   0 = report only   (default 1 = blocking)
+#   COSIGN_PRIVATE_KEY / COSIGN_PASSWORD  enable signing when set
+
+stages: [lint, generate, build]
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+hadolint:
+  stage: lint
+  image: hadolint/hadolint:2.12.0-alpine
+  script:
+    - hadolint --failure-threshold warning $(find . -name Dockerfile)
+
+shellcheck:
+  stage: lint
+  image: koalaman/shellcheck-alpine:v0.10.0
+  script:
+    - shellcheck ci/*.sh base/*/rootfs/usr/local/bin/*
+
+generate-pipeline:
+  stage: generate
+  image: python:3.12-slim
+  script:
+    - pip install --no-cache-dir pyyaml==6.0.2
+    - python3 ci/generate_pipeline.py
+  artifacts:
+    paths: [build-pipeline.yml]
+    expire_in: 1 week
+
+build-images:
+  stage: build
+  needs: [generate-pipeline, hadolint, shellcheck]
+  trigger:
+    include:
+      - artifact: build-pipeline.yml
+        job: generate-pipeline
+    strategy: depend

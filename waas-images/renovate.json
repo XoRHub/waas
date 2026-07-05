@@ -1,0 +1,34 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "docker:pinDigests"],
+  "description": "Keeps base images (Dockerfile FROM), CI tool images (.gitlab-ci.yml, build_image.sh) and the Firefox package pin fresh.",
+  "gitlabci": { "enabled": true },
+  "dockerfile": { "enabled": true },
+  "packageRules": [
+    {
+      "description": "Ubuntu LTS bumps are a deliberate decision: group and label, never automerge.",
+      "matchPackageNames": ["ubuntu"],
+      "groupName": "ubuntu base image",
+      "labels": ["os-bump"]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Tool images pinned inside ci/build_image.sh (binfmt, trivy, cosign).",
+      "managerFilePatterns": ["/ci/build_image\\.sh/"],
+      "matchStrings": [
+        "(?<depName>[a-z0-9./-]+/(?:binfmt|trivy|cosign)):(?<currentValue>[a-zA-Z0-9.-]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "UBUNTU_VERSION default in the base Dockerfile.",
+      "managerFilePatterns": ["/base/ubuntu/Dockerfile/"],
+      "matchStrings": ["ARG UBUNTU_VERSION=(?<currentValue>[0-9.]+)"],
+      "depNameTemplate": "ubuntu",
+      "datasourceTemplate": "docker"
+    }
+  ]
+}

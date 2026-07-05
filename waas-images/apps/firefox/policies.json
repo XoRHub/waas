@@ -1,0 +1,34 @@
+{
+  "policies": {
+    "DisableAppUpdate": true,
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "DisablePocket": true,
+    "DisableFirefoxAccounts": true,
+    "DisableProfileImport": true,
+    "DisableSetDesktopBackground": true,
+    "DontCheckDefaultBrowser": true,
+    "PasswordManagerEnabled": false,
+    "OfferToSaveLogins": false,
+    "DisableFormHistory": true,
+    "HttpsOnlyMode": "force_enabled",
+    "ExtensionSettings": {
+      "*": { "installation_mode": "blocked" }
+    },
+    "EnableTrackingProtection": {
+      "Value": true,
+      "Locked": true,
+      "Cryptomining": true,
+      "Fingerprinting": true
+    },
+    "PopupBlocking": { "Default": true },
+    "SanitizeOnShutdown": {
+      "Cache": true,
+      "Cookies": false,
+      "History": false
+    },
+    "Preferences": {
+      "browser.aboutConfig.showWarning": { "Value": true, "Status": "locked" }
+    }
+  }
+}
