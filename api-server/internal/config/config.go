@@ -39,6 +39,11 @@ type Config struct {
 
 	// CORSAllowedOrigins is only needed in dev (Vite on another port).
 	CORSAllowedOrigins []string
+
+	// IdleSweepInterval is how often the idle sweeper looks for
+	// workspaces to auto-pause (policy lifecycle.idleSuspendAfter).
+	// Zero disables the sweeper.
+	IdleSweepInterval time.Duration
 }
 
 // Load reads configuration from WAAS_* environment variables.
@@ -57,6 +62,7 @@ func Load() (*Config, error) {
 		AdminPassword:      os.Getenv("WAAS_ADMIN_PASSWORD"),
 		TLSCertFile:        os.Getenv("WAAS_TLS_CERT_FILE"),
 		TLSKeyFile:         os.Getenv("WAAS_TLS_KEY_FILE"),
+		IdleSweepInterval:  durationOr("WAAS_IDLE_SWEEP_INTERVAL", 5*time.Minute),
 	}
 	if origins := os.Getenv("WAAS_CORS_ALLOWED_ORIGINS"); origins != "" {
 		cfg.CORSAllowedOrigins = strings.Split(origins, ",")

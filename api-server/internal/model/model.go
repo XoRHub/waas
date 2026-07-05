@@ -7,10 +7,20 @@ import (
 	"github.com/xorhub/waas/shared/auth"
 )
 
+// UserPreferences is the user-owned UI settings blob (JSON column).
+type UserPreferences struct {
+	// OpenWorkspaceInNewTab: nil means "never asked" — the portal shows
+	// the choice dialog on first open and persists the answer.
+	OpenWorkspaceInNewTab *bool `json:"openWorkspaceInNewTab,omitempty"`
+	// Language is the preferred UI locale (e.g. "en", "fr").
+	Language string `json:"language,omitempty"`
+}
+
 // User is a platform account (local auth).
 type User struct {
 	ID            string     `json:"id"`
 	Username      string     `json:"username"`
+	DisplayName   string     `json:"displayName,omitempty"`
 	Email         string     `json:"email,omitempty"`
 	PasswordHash  string     `json:"-"`
 	Role          auth.Role  `json:"role"`
@@ -19,6 +29,12 @@ type User struct {
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 	LastLoginAt   *time.Time `json:"lastLoginAt,omitempty"`
+	// Groups mirrors the Authentik OIDC groups claim: admin-editable
+	// until SSO login refreshes it automatically. Drives WorkspacePolicy
+	// and WorkspaceImage group matching.
+	Groups []string `json:"groups"`
+	// Preferences is self-service UI state, editable via PATCH /me.
+	Preferences UserPreferences `json:"preferences"`
 }
 
 // Session records one desktop connection through the proxy.
@@ -74,6 +90,75 @@ type WorkspaceTemplate struct {
 	Requests    map[string]string `json:"requests,omitempty"`
 	Limits      map[string]string `json:"limits,omitempty"`
 	CreatedAt   time.Time         `json:"createdAt"`
+}
+
+// CatalogImage is the API projection of a WorkspaceImage CR, already
+// filtered down to what the requesting user may deploy.
+type CatalogImage struct {
+	Name          string            `json:"name"`
+	DisplayName   string            `json:"displayName"`
+	Description   string            `json:"description,omitempty"`
+	Image         string            `json:"image"`
+	Protocols     []string          `json:"protocols"`
+	Architectures []string          `json:"architectures,omitempty"`
+	Enabled       bool              `json:"enabled"`
+	AllowedGroups []string          `json:"allowedGroups,omitempty"`
+	Defaults      map[string]string `json:"defaults,omitempty"`
+	Min           map[string]string `json:"min,omitempty"`
+	Max           map[string]string `json:"max,omitempty"`
+	// Templates using this image, so the portal can go straight from
+	// catalog card to "create workspace".
+	Templates []string `json:"templates,omitempty"`
+}
+
+// QuotaStatus is "where do I stand" for one user: applied policy, hard
+// limits, and current consumption — everything the portal needs to render
+// "2/3 workspaces, 6 Gi RAM left".
+type QuotaStatus struct {
+	Policy         string            `json:"policy"`
+	PolicyPriority int32             `json:"policyPriority"`
+	MaxWorkspaces  *int32            `json:"maxWorkspaces,omitempty"`
+	UsedWorkspaces int               `json:"usedWorkspaces"`
+	Limits         map[string]string `json:"limits,omitempty"`  // aggregate caps (cpu/memory/storage)
+	Used           map[string]string `json:"used,omitempty"`    // current aggregates
+	PerWorkspace   map[string]string `json:"perWorkspace,omitempty"`
+	Defaults       map[string]string `json:"defaults,omitempty"` // policy-proposed sizing (image defaults win)
+	Lifecycle      map[string]string `json:"lifecycle,omitempty"` // idleSuspendAfter / maxLifetime
+}
+
+// PolicyModel is the API projection of a WorkspacePolicy CR for the
+// admin console.
+type PolicyModel struct {
+	Name      string            `json:"name"`
+	Priority  int32             `json:"priority"`
+	Subjects  []PolicySubject   `json:"subjects,omitempty"`
+	Images    []string          `json:"images,omitempty"`
+	Limits    PolicyLimitsModel `json:"limits"`
+	Lifecycle map[string]string `json:"lifecycle,omitempty"`
+}
+
+// PolicySubject mirrors the CRD subject.
+type PolicySubject struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+// PolicyLimitsModel mirrors the CRD limits in string form.
+type PolicyLimitsModel struct {
+	MaxWorkspaces *int32            `json:"maxWorkspaces,omitempty"`
+	PerWorkspace  map[string]string `json:"perWorkspace,omitempty"`
+	Aggregate     map[string]string `json:"aggregate,omitempty"`
+	Defaults      map[string]string `json:"defaults,omitempty"`
+}
+
+// UserUsage is one row of the admin consumption view.
+type UserUsage struct {
+	UserID     string            `json:"userId"`
+	Username   string            `json:"username,omitempty"`
+	Groups     []string          `json:"groups,omitempty"`
+	Policy     string            `json:"policy,omitempty"`
+	Workspaces int               `json:"workspaces"`
+	Used       map[string]string `json:"used,omitempty"`
 }
 
 // ConnectionInfo is what the WebSocket proxy needs to reach a desktop. It is

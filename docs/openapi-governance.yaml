@@ -1,0 +1,249 @@
+openapi: 3.0.3
+info:
+  title: WaaS Governance API
+  description: >
+    Catalog, quota and policy endpoints added by the governance layer.
+    All routes live under the same JWT auth as the rest of /api/v1;
+    /admin routes additionally require the admin role. Responses use the
+    platform envelope {"data": ...}; errors are RFC 7807 problems.
+  version: 1.0.0
+paths:
+  /api/v1/catalog:
+    get:
+      summary: Images the authenticated user may deploy
+      description: >
+        Server-side filtered with the same evaluator the admission
+        webhook uses: enabled entries, within the user's resolved policy
+        image subset, and matching the image's allowedGroups. Includes
+        the templates consuming each image so the portal can jump to
+        "create workspace".
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/CatalogImage" }
+          description: Allowed images (empty when no policy matches).
+  /api/v1/me/quota:
+    get:
+      summary: Applied policy and remaining room for the caller
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/QuotaStatus" }
+          description: Quota snapshot ("2/3 workspaces, 6Gi RAM left").
+  /api/v1/admin/images:
+    get:
+      summary: Full catalog, disabled entries included (admin)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/CatalogImage" }
+          description: Every WorkspaceImage CR.
+  /api/v1/admin/images/{name}:
+    put:
+      summary: Create or update a catalog entry (admin)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpsertImage" }
+      responses:
+        "200": { description: Updated entry. }
+        "400": { description: Invalid payload (unknown protocol, bad quantity). }
+    delete:
+      summary: Remove a catalog entry — prefer disabling (admin)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses:
+        "204": { description: Deleted. }
+        "404": { description: Unknown entry. }
+  /api/v1/admin/images/{name}/enable:
+    post:
+      summary: Enable an image (admin)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses:
+        "200": { description: Entry with enabled=true. }
+  /api/v1/admin/images/{name}/disable:
+    post:
+      summary: Disable an image — blocks NEW workspaces immediately (admin)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses:
+        "200": { description: Entry with enabled=false. }
+  /api/v1/admin/policies:
+    get:
+      summary: Every WorkspacePolicy (admin)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Policy" }
+          description: Policies, unordered (resolution uses priority).
+  /api/v1/admin/policies/{name}:
+    put:
+      summary: Create or update a policy (admin)
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpsertPolicy" }
+      responses:
+        "200": { description: Updated policy. }
+    delete:
+      summary: Delete a policy (admin)
+      description: Users it governed fall through to the next matching
+        policy, or to fail-closed denial if none remains.
+      parameters: [{ $ref: "#/components/parameters/name" }]
+      responses:
+        "204": { description: Deleted. }
+  /api/v1/admin/usage:
+    get:
+      summary: Consumption per user (admin)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/UserUsage" }
+          description: One row per workspace-owning user.
+components:
+  parameters:
+    name:
+      name: name
+      in: path
+      required: true
+      schema: { type: string }
+  schemas:
+    CatalogImage:
+      type: object
+      properties:
+        name: { type: string }
+        displayName: { type: string }
+        description: { type: string }
+        image: { type: string, description: Exact approved reference (digest recommended). }
+        protocols: { type: array, items: { type: string, enum: [vnc, rdp] } }
+        architectures: { type: array, items: { type: string, enum: [amd64, arm64] } }
+        enabled: { type: boolean }
+        allowedGroups: { type: array, items: { type: string } }
+        defaults: { $ref: "#/components/schemas/Size" }
+        min: { $ref: "#/components/schemas/Size" }
+        max: { $ref: "#/components/schemas/Size" }
+        templates:
+          type: array
+          items: { type: string }
+          description: WorkspaceTemplates consuming this image.
+    Size:
+      type: object
+      additionalProperties: { type: string }
+      description: Kubernetes quantities keyed by cpu/memory.
+    QuotaStatus:
+      type: object
+      properties:
+        policy: { type: string, description: Applied policy name ("" = none matches). }
+        policyPriority: { type: integer }
+        maxWorkspaces: { type: integer, nullable: true }
+        usedWorkspaces: { type: integer }
+        limits: { $ref: "#/components/schemas/Size" }
+        used: { $ref: "#/components/schemas/Size" }
+        perWorkspace: { $ref: "#/components/schemas/Size" }
+        defaults:
+          $ref: "#/components/schemas/Size"
+          description: Policy-proposed sizing; per-image defaults win.
+        lifecycle:
+          type: object
+          additionalProperties: { type: string }
+          description: idleSuspendAfter / maxLifetime as Go durations.
+    Policy:
+      type: object
+      properties:
+        name: { type: string }
+        priority: { type: integer }
+        subjects:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string, enum: [User, Group] }
+              name: { type: string }
+        images: { type: array, items: { type: string } }
+        limits:
+          type: object
+          properties:
+            maxWorkspaces: { type: integer, nullable: true }
+            perWorkspace: { $ref: "#/components/schemas/Size" }
+            aggregate: { $ref: "#/components/schemas/Size" }
+            defaults: { $ref: "#/components/schemas/Size" }
+        lifecycle:
+          type: object
+          additionalProperties: { type: string }
+    UpsertImage:
+      type: object
+      required: [displayName, image, protocols]
+      properties:
+        displayName: { type: string }
+        description: { type: string }
+        image: { type: string }
+        protocols: { type: array, items: { type: string, enum: [vnc, rdp] } }
+        architectures: { type: array, items: { type: string } }
+        enabled: { type: boolean, default: true }
+        allowedGroups: { type: array, items: { type: string } }
+        defaults: { $ref: "#/components/schemas/Size" }
+        min: { $ref: "#/components/schemas/Size" }
+        max: { $ref: "#/components/schemas/Size" }
+    UpsertPolicy:
+      type: object
+      properties:
+        priority: { type: integer }
+        subjects:
+          type: array
+          items:
+            type: object
+            required: [kind, name]
+            properties:
+              kind: { type: string, enum: [User, Group] }
+              name: { type: string }
+        images: { type: array, items: { type: string } }
+        limits:
+          type: object
+          properties:
+            maxWorkspaces: { type: integer }
+            perWorkspace: { $ref: "#/components/schemas/Size" }
+            aggregate: { $ref: "#/components/schemas/Size" }
+            defaults: { $ref: "#/components/schemas/Size" }
+        lifecycle:
+          type: object
+          additionalProperties: { type: string }
+          description: Go durations, e.g. {"idleSuspendAfter":"4h","maxLifetime":"720h"}.
+    UserUsage:
+      type: object
+      properties:
+        userId: { type: string }
+        username: { type: string }
+        groups: { type: array, items: { type: string } }
+        policy: { type: string }
+        workspaces: { type: integer }
+        used: { $ref: "#/components/schemas/Size" }

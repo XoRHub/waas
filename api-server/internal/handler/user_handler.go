@@ -69,6 +69,21 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	ok(w, user)
 }
 
+// UpdateProfile handles PATCH /api/v1/me — self-service profile edits.
+func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	var in service.UpdateProfileInput
+	if err := decode(r, &in); err != nil {
+		fail(w, r, err)
+		return
+	}
+	user, err := h.svc.UpdateProfile(r.Context(), middleware.Actor(r), in)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, user)
+}
+
 // Delete handles DELETE /api/v1/users/{id}.
 func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.Delete(r.Context(), middleware.Actor(r), chi.URLParam(r, "id")); err != nil {

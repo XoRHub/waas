@@ -33,6 +33,15 @@ type SessionRepository interface {
 	FindByID(ctx context.Context, id string) (*model.Session, error)
 	End(ctx context.Context, id string, at time.Time) error
 	List(ctx context.Context, page, pageSize int) ([]model.Session, int, error)
+	// Activity summarizes desktop usage per workspace for the idle
+	// sweeper: last observed activity and whether a session is open now.
+	Activity(ctx context.Context) (map[string]WorkspaceActivity, error)
+}
+
+// WorkspaceActivity is one workspace's session summary.
+type WorkspaceActivity struct {
+	LastActivity time.Time
+	ActiveNow    bool
 }
 
 // AuditRepository is append-only: it deliberately exposes no update or

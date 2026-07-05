@@ -54,6 +54,9 @@ type CreateWorkspaceInput struct {
 	// OwnerID lets admins create workspaces for other users; ignored for
 	// non-admin callers.
 	OwnerID string `json:"ownerId"`
+	// Resources is the user-chosen sizing ("cpu"/"memory" quantities).
+	// Bounds are enforced by the admission webhook, not here.
+	Resources map[string]string `json:"resources"`
 }
 
 // ConnectResult carries what the frontend needs to open the desktop stream.
@@ -107,14 +110,6 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 		return nil, fmt.Errorf("fetching template %s: %w", in.TemplateRef, err)
 	}
 
-	owned := &waasv1alpha1.WorkspaceList{}
-	if err := s.kube.List(ctx, owned, client.InNamespace(s.namespace), client.MatchingLabels{ownerLabel: owner.ID}); err != nil {
-		return nil, fmt.Errorf("counting workspaces of %s: %w", owner.Username, err)
-	}
-	if len(owned.Items) >= owner.MaxWorkspaces {
-		return nil, apierror.Conflict(fmt.Sprintf("workspace quota reached (%d)", owner.MaxWorkspaces))
-	}
-
 	name := in.Name
 	if name == "" {
 		name = generateWorkspaceName(owner.Username)
@@ -123,11 +118,20 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 		return nil, apierror.BadRequest("name must be a valid DNS-1123 subdomain")
 	}
 
+	// Quota and catalog rules are enforced by the admission webhook (the
+	// single enforcement point shared with kubectl), not re-implemented
+	// here. The identity annotations below feed its policy resolution:
+	// the webhook only accepts them because this service's SA is a
+	// configured trusted writer, and freezes them afterwards.
 	ws := &waasv1alpha1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: s.namespace,
 			Labels:    map[string]string{ownerLabel: owner.ID},
+			Annotations: map[string]string{
+				waasv1alpha1.AnnotationUsername: owner.Username,
+				waasv1alpha1.AnnotationGroups:   strings.Join(owner.Groups, ","),
+			},
 		},
 		Spec: waasv1alpha1.WorkspaceSpec{
 			TemplateRef: in.TemplateRef,
@@ -135,9 +139,18 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 			DisplayName: in.DisplayName,
 		},
 	}
+	rr, err := requirementsFrom(in.Resources)
+	if err != nil {
+		return nil, err
+	}
+	ws.Spec.Resources = rr
 	if err := s.kube.Create(ctx, ws); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			return nil, apierror.Conflict(fmt.Sprintf("workspace %q already exists", name))
+		}
+		if denial, ok := policyDenial(err); ok {
+			s.audit.Record(ctx, actor, "workspace.denied", "workspace", name, denial)
+			return nil, apierror.Forbidden(denial)
 		}
 		return nil, fmt.Errorf("creating workspace %s: %w", name, err)
 	}
@@ -178,6 +191,12 @@ func (s *WorkspaceService) SetPaused(ctx context.Context, actor Actor, id string
 	}
 	ws.Spec.Paused = paused
 	if err := s.kube.Update(ctx, ws); err != nil {
+		// Resuming re-acquires compute: the webhook may deny it if the
+		// image was disabled or the quota shrank in the meantime.
+		if denial, ok := policyDenial(err); ok {
+			s.audit.Record(ctx, actor, "workspace.denied", "workspace", id, denial)
+			return nil, apierror.Forbidden(denial)
+		}
 		return nil, fmt.Errorf("updating workspace %s: %w", ws.Name, err)
 	}
 	action := "workspace.resumed"
@@ -325,6 +344,21 @@ func workspaceToModel(ws *waasv1alpha1.Workspace) model.Workspace {
 		}
 	}
 	return m
+}
+
+// policyDenial extracts the governance webhook's message from a
+// Forbidden admission error, so the portal shows "denied by policy X:
+// quota reached (3/3)" instead of a raw Kubernetes error dump.
+func policyDenial(err error) (string, bool) {
+	if !apierrors.IsForbidden(err) {
+		return "", false
+	}
+	msg := err.Error()
+	// The webhook formats denials as `[Reason] message`; keep that tail.
+	if idx := strings.Index(msg, "["); idx >= 0 {
+		msg = msg[idx:]
+	}
+	return msg, true
 }
 
 func generateWorkspaceName(username string) string {

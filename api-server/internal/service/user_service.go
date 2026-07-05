@@ -45,6 +45,9 @@ type UpdateUserInput struct {
 	Role          *auth.Role `json:"role"`
 	Active        *bool      `json:"active"`
 	MaxWorkspaces *int       `json:"maxWorkspaces"`
+	// Groups overrides the Authentik group mirror. Temporary admin
+	// affordance until OIDC login syncs it from the IdP.
+	Groups *[]string `json:"groups"`
 }
 
 func (s *UserService) Create(ctx context.Context, actor Actor, in CreateUserInput) (*model.User, error) {
@@ -126,11 +129,62 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	if in.MaxWorkspaces != nil {
 		user.MaxWorkspaces = *in.MaxWorkspaces
 	}
+	if in.Groups != nil {
+		user.Groups = *in.Groups
+	}
 	user.UpdatedAt = time.Now().UTC()
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
 	}
 	s.audit.Record(ctx, actor, "user.updated", "user", user.ID, "")
+	return user, nil
+}
+
+// UpdateProfileInput is the self-service subset of a user record (nil =
+// unchanged). Username, role, groups and quotas stay admin/OIDC-owned.
+type UpdateProfileInput struct {
+	DisplayName *string                 `json:"displayName"`
+	Email       *string                 `json:"email"`
+	Preferences *model.UserPreferences  `json:"preferences"`
+	// Password change requires proving knowledge of the current one.
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
+// UpdateProfile lets the authenticated user edit their own profile.
+func (s *UserService) UpdateProfile(ctx context.Context, actor Actor, in UpdateProfileInput) (*model.User, error) {
+	user, err := s.Get(ctx, actor.ID)
+	if err != nil {
+		return nil, err
+	}
+	if in.DisplayName != nil {
+		user.DisplayName = *in.DisplayName
+	}
+	if in.Email != nil {
+		user.Email = *in.Email
+	}
+	if in.Preferences != nil {
+		user.Preferences = *in.Preferences
+	}
+	if in.NewPassword != "" {
+		ok, err := VerifyPassword(in.CurrentPassword, user.PasswordHash)
+		if err != nil {
+			return nil, fmt.Errorf("verifying current password: %w", err)
+		}
+		if !ok {
+			return nil, apierror.BadRequest("current password is incorrect")
+		}
+		hash, err := HashPassword(in.NewPassword)
+		if err != nil {
+			return nil, fmt.Errorf("hashing password: %w", err)
+		}
+		user.PasswordHash = hash
+	}
+	user.UpdatedAt = time.Now().UTC()
+	if err := s.users.Update(ctx, user); err != nil {
+		return nil, err
+	}
+	s.audit.Record(ctx, actor, "user.profile_updated", "user", user.ID, "")
 	return user, nil
 }
 

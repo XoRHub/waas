@@ -21,6 +21,7 @@ type Handlers struct {
 	Workspaces *handler.WorkspaceHandler
 	Admin      *handler.AdminHandler
 	Internal   *handler.InternalHandler
+	Governance *handler.GovernanceHandler
 }
 
 // New builds the full route tree. Every /api/v1 route except login sits
@@ -47,6 +48,7 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 			r.Use(middleware.Auth(signer, cfg.JWTIssuer))
 
 			r.Get("/auth/me", h.Auth.Me)
+			r.Patch("/me", h.Users.UpdateProfile)
 
 			r.Route("/workspaces", func(r chi.Router) {
 				r.Get("/", h.Workspaces.List)
@@ -57,6 +59,11 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 				r.Post("/{id}/resume", h.Workspaces.Resume)
 				r.Post("/{id}/connect", h.Workspaces.Connect)
 			})
+
+			// Governance, user side: catalog filtered to what the
+			// caller may deploy, and their applied policy/quota.
+			r.Get("/catalog", h.Governance.Catalog)
+			r.Get("/me/quota", h.Governance.Quota)
 
 			r.Route("/workspace-templates", func(r chi.Router) {
 				r.Get("/", h.Templates.List)
@@ -80,6 +87,20 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 				})
 				r.Get("/audit-logs", h.Admin.AuditList)
 				r.Get("/sessions", h.Admin.SessionList)
+
+				// Governance, admin side: catalog and policy CRUD write
+				// straight to the CRDs (ArgoCD only bootstraps them).
+				r.Route("/admin", func(r chi.Router) {
+					r.Get("/images", h.Governance.AdminListImages)
+					r.Put("/images/{name}", h.Governance.AdminUpsertImage)
+					r.Post("/images/{name}/enable", h.Governance.AdminToggleImage(true))
+					r.Post("/images/{name}/disable", h.Governance.AdminToggleImage(false))
+					r.Delete("/images/{name}", h.Governance.AdminDeleteImage)
+					r.Get("/policies", h.Governance.AdminListPolicies)
+					r.Put("/policies/{name}", h.Governance.AdminUpsertPolicy)
+					r.Delete("/policies/{name}", h.Governance.AdminDeletePolicy)
+					r.Get("/usage", h.Governance.AdminUsage)
+				})
 			})
 		})
 	})

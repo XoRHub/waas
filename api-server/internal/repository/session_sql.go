@@ -76,6 +76,34 @@ func (r *SQLSessionRepository) List(ctx context.Context, page, pageSize int) ([]
 	return sessions, total, rows.Err()
 }
 
+// Activity aggregates sessions per workspace. Timestamps are stored as
+// RFC3339 UTC strings on both engines, so MAX() compares correctly.
+func (r *SQLSessionRepository) Activity(ctx context.Context) (map[string]WorkspaceActivity, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT workspace_id,
+		       MAX(COALESCE(ended_at, started_at)) AS last_activity,
+		       SUM(CASE WHEN ended_at IS NULL THEN 1 ELSE 0 END) AS active
+		FROM sessions GROUP BY workspace_id`)
+	if err != nil {
+		return nil, fmt.Errorf("aggregating session activity: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]WorkspaceActivity{}
+	for rows.Next() {
+		var (
+			id     string
+			last   time.Time
+			active int
+		)
+		if err := rows.Scan(&id, scanTime{&last}, &active); err != nil {
+			return nil, fmt.Errorf("scanning activity row: %w", err)
+		}
+		out[id] = WorkspaceActivity{LastActivity: last, ActiveNow: active > 0}
+	}
+	return out, rows.Err()
+}
+
 func scanSession(row rowScanner) (*model.Session, error) {
 	var (
 		s        model.Session

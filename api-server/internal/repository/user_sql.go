@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -21,13 +22,14 @@ func NewSQLUserRepository(db *database.DB) *SQLUserRepository {
 	return &SQLUserRepository{db: db}
 }
 
-const userColumns = "id, username, email, password_hash, role, active, max_workspaces, created_at, updated_at, last_login_at"
+const userColumns = "id, username, email, password_hash, role, active, max_workspaces, created_at, updated_at, last_login_at, user_groups, display_name, preferences"
 
 func (r *SQLUserRepository) Create(ctx context.Context, user *model.User) error {
-	query := r.db.Rebind(`INSERT INTO users (` + userColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	query := r.db.Rebind(`INSERT INTO users (` + userColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	_, err := r.db.ExecContext(ctx, query,
 		user.ID, user.Username, nullable(user.Email), user.PasswordHash, string(user.Role),
-		user.Active, user.MaxWorkspaces, timeArg(user.CreatedAt), timeArg(user.UpdatedAt), timePtrArg(user.LastLoginAt))
+		user.Active, user.MaxWorkspaces, timeArg(user.CreatedAt), timeArg(user.UpdatedAt), timePtrArg(user.LastLoginAt),
+		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("creating user %s: %w", user.Username, ErrDuplicate)
@@ -82,10 +84,11 @@ func (r *SQLUserRepository) List(ctx context.Context, page, pageSize int) ([]mod
 
 func (r *SQLUserRepository) Update(ctx context.Context, user *model.User) error {
 	query := r.db.Rebind(`UPDATE users SET email = ?, password_hash = ?, role = ?, active = ?,
-		max_workspaces = ?, updated_at = ?, last_login_at = ? WHERE id = ?`)
+		max_workspaces = ?, updated_at = ?, last_login_at = ?, user_groups = ?, display_name = ?, preferences = ? WHERE id = ?`)
 	res, err := r.db.ExecContext(ctx, query,
 		nullable(user.Email), user.PasswordHash, string(user.Role), user.Active,
-		user.MaxWorkspaces, timeArg(user.UpdatedAt), timePtrArg(user.LastLoginAt), user.ID)
+		user.MaxWorkspaces, timeArg(user.UpdatedAt), timePtrArg(user.LastLoginAt),
+		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.ID)
 	if err != nil {
 		return fmt.Errorf("updating user %s: %w", user.ID, err)
 	}
@@ -118,18 +121,56 @@ type rowScanner interface{ Scan(dest ...any) error }
 
 func scanUser(row rowScanner) (*model.User, error) {
 	var (
-		user  model.User
-		email sql.NullString
-		role  string
+		user   model.User
+		email  sql.NullString
+		role   string
+		groups string
+		prefs  string
 	)
 	if err := row.Scan(&user.ID, &user.Username, &email, &user.PasswordHash, &role,
 		&user.Active, &user.MaxWorkspaces, scanTime{&user.CreatedAt}, scanTime{&user.UpdatedAt},
-		scanNullTime{&user.LastLoginAt}); err != nil {
+		scanNullTime{&user.LastLoginAt}, &groups, &user.DisplayName, &prefs); err != nil {
 		return nil, err
 	}
 	user.Email = email.String
 	user.Role = auth.Role(role)
+	user.Groups = splitGroups(groups)
+	user.Preferences = unmarshalPreferences(prefs)
 	return &user, nil
+}
+
+// marshalPreferences serializes the preferences JSON column; a zero value
+// round-trips as "{}" so the NOT NULL DEFAULT stays meaningful.
+func marshalPreferences(p model.UserPreferences) string {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+// unmarshalPreferences is tolerant: an empty or corrupt column yields the
+// zero preferences instead of failing the whole user read.
+func unmarshalPreferences(s string) model.UserPreferences {
+	var p model.UserPreferences
+	if s != "" {
+		_ = json.Unmarshal([]byte(s), &p)
+	}
+	return p
+}
+
+// splitGroups parses the comma-joined user_groups column.
+func splitGroups(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, g := range strings.Split(s, ",") {
+		if g = strings.TrimSpace(g); g != "" {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 func nullable(s string) any {

@@ -8,6 +8,7 @@ WORKDIR /src
 COPY shared/ shared/
 COPY operator/go.mod operator/go.sum operator/
 COPY operator/api/ operator/api/
+COPY operator/pkg/ operator/pkg/
 COPY api-server/ api-server/
 WORKDIR /src/api-server
 RUN go mod download

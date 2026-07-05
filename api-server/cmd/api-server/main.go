@@ -64,6 +64,7 @@ func run() error {
 	workspaceSvc := service.NewWorkspaceService(kube, cfg.WorkspaceNamespace, users, sessions, audit, signer,
 		cfg.JWTIssuer, cfg.ConnectionTokenTTL)
 	sessionSvc := service.NewSessionService(sessions)
+	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -72,6 +73,10 @@ func run() error {
 		return err
 	}
 
+	// Idle enforcement lives here (not in the operator) because only the
+	// api-server knows about desktop sessions.
+	go service.NewIdleSweeper(kube, cfg.WorkspaceNamespace, sessions, audit, cfg.IdleSweepInterval).Run(ctx)
+
 	router := server.New(cfg, signer, server.Handlers{
 		Auth:       handler.NewAuthHandler(authSvc, signer),
 		Users:      handler.NewUserHandler(userSvc),
@@ -79,6 +84,7 @@ func run() error {
 		Workspaces: handler.NewWorkspaceHandler(workspaceSvc),
 		Admin:      handler.NewAdminHandler(audit, sessionSvc),
 		Internal:   handler.NewInternalHandler(workspaceSvc),
+		Governance: handler.NewGovernanceHandler(governanceSvc),
 	})
 
 	srv := &http.Server{
