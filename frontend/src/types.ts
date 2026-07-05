@@ -1,8 +1,15 @@
 export type Role = 'admin' | 'user';
 
+export interface UserPreferences {
+  /** null/undefined = never asked: the portal shows the choice dialog. */
+  openWorkspaceInNewTab?: boolean | null;
+  language?: string;
+}
+
 export interface User {
   id: string;
   username: string;
+  displayName?: string;
   email?: string;
   role: Role;
   active: boolean;
@@ -10,6 +17,7 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;
+  preferences?: UserPreferences;
 }
 
 export type WorkspacePhase =
@@ -87,4 +95,61 @@ export interface ListMeta {
   total: number;
   page: number;
   page_size: number;
+}
+
+// ---- Governance (catalog / quotas / policies) ----
+
+export interface CatalogImage {
+  name: string;
+  displayName: string;
+  description?: string;
+  image: string;
+  protocols: string[];
+  architectures?: string[];
+  enabled: boolean;
+  allowedGroups?: string[];
+  defaults?: Record<string, string>;
+  min?: Record<string, string>;
+  max?: Record<string, string>;
+  templates?: string[];
+}
+
+export interface QuotaStatus {
+  policy: string;
+  policyPriority: number;
+  maxWorkspaces?: number | null;
+  usedWorkspaces: number;
+  limits?: Record<string, string>;
+  used?: Record<string, string>;
+  perWorkspace?: Record<string, string>;
+  defaults?: Record<string, string>;
+  lifecycle?: Record<string, string>;
+}
+
+export interface PolicySubject {
+  kind: 'User' | 'Group';
+  name: string;
+}
+
+export interface PolicyModel {
+  name: string;
+  priority: number;
+  subjects?: PolicySubject[];
+  images?: string[];
+  limits: {
+    maxWorkspaces?: number | null;
+    perWorkspace?: Record<string, string>;
+    aggregate?: Record<string, string>;
+    defaults?: Record<string, string>;
+  };
+  lifecycle?: Record<string, string>;
+}
+
+export interface UserUsage {
+  userId: string;
+  username?: string;
+  groups?: string[];
+  policy?: string;
+  workspaces: number;
+  used?: Record<string, string>;
 }

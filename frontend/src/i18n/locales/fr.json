@@ -9,7 +9,8 @@
     "save": "Enregistrer",
     "delete": "Supprimer",
     "create": "Créer",
-    "actions": "Actions"
+    "actions": "Actions",
+    "edit": "Modifier"
   },
   "login": {
     "title": "Connectez-vous à votre espace de travail",
@@ -37,13 +38,44 @@
       "Stopped": "Arrêté",
       "Failed": "Indisponible",
       "Terminating": "Arrêt en cours…"
-    }
+    },
+    "quotaPolicy": "Politique :",
+    "quotaWorkspaces": "Espaces",
+    "cpu": "CPU",
+    "memory": "Mémoire",
+    "max": "max {{value}}",
+    "quotaRemaining": "Quota restant : {{cpu}} vCPU / {{memory}}",
+    "openWhere": "Où ouvrir votre espace de travail ?",
+    "openWhereHint": "Modifiable à tout moment depuis votre profil.",
+    "openSameTab": "Cet onglet",
+    "openNewTab": "Nouvel onglet",
+    "rememberChoice": "Se souvenir de mon choix"
   },
   "connect": {
     "connecting": "Connexion à votre bureau…",
     "disconnected": "La connexion a été fermée.",
     "back": "Retour à mes espaces",
-    "failed": "Impossible de se connecter au bureau."
+    "failed": "Impossible de se connecter au bureau.",
+    "leave": "Quitter la session"
+  },
+  "profile": {
+    "title": "Mon profil",
+    "backToPortal": "Retour au portail",
+    "identity": "Identité",
+    "loginId": "identifiant",
+    "displayName": "Nom affiché",
+    "email": "Email",
+    "oidcNote": "Ces champs seront gérés par votre fournisseur d'identité une fois le SSO activé.",
+    "preferences": "Préférences",
+    "openTarget": "Ouverture des espaces de travail",
+    "openTargetUnset": "Pas encore défini — le choix vous sera demandé à la première ouverture.",
+    "language": "Langue",
+    "security": "Sécurité",
+    "currentPassword": "Mot de passe actuel",
+    "newPassword": "Nouveau mot de passe",
+    "confirmPassword": "Confirmer le nouveau mot de passe",
+    "passwordMismatch": "Les mots de passe ne correspondent pas.",
+    "saved": "Enregistré."
   },
   "admin": {
     "title": "Administration",
@@ -91,6 +123,37 @@
       "resource": "Ressource",
       "ip": "IP",
       "empty": "Aucune entrée d'audit."
-    }
+    },
+    "governance": "Gouvernance"
+  },
+  "governance": {
+    "catalog": "Catalogue d'images",
+    "image": "Image",
+    "reference": "Référence",
+    "protocols": "Protocoles",
+    "groups": "Groupes",
+    "status": "État",
+    "enabled": "Activée",
+    "disabled": "Désactivée",
+    "enable": "Activer",
+    "disable": "Désactiver",
+    "everyone": "Tout le monde",
+    "noImages": "Aucune entrée au catalogue.",
+    "policies": "Politiques",
+    "priority": "priorité",
+    "subjects": "Sujets",
+    "maxWorkspaces": "Espaces max",
+    "images": "Images",
+    "defaults": "Dimensionnement proposé",
+    "allCatalog": "tout le catalogue",
+    "editPolicy": "Modifier la politique",
+    "invalidJson": "JSON invalide",
+    "usage": "Consommation par utilisateur",
+    "user": "Utilisateur",
+    "policy": "Politique",
+    "workspaces": "Espaces",
+    "storage": "Stockage",
+    "noUsage": "Aucun propriétaire d'espace pour l'instant.",
+    "gitopsNote": "Les modifications éditent directement les CRD du cluster ; Git ne fait que les amorcer (selfHeal ArgoCD désactivé pour ces kinds)."
   }
 }

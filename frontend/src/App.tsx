@@ -4,10 +4,12 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { LoginPage } from '@/pages/LoginPage';
 import { PortalPage } from '@/pages/PortalPage';
 import { ConnectPage } from '@/pages/ConnectPage';
+import { ProfilePage } from '@/pages/ProfilePage';
 import { AdminLayout } from '@/pages/admin/AdminLayout';
 import { FleetPage } from '@/pages/admin/FleetPage';
 import { TemplatesPage } from '@/pages/admin/TemplatesPage';
 import { UsersPage } from '@/pages/admin/UsersPage';
+import { GovernancePage } from '@/pages/admin/GovernancePage';
 import { AuditPage } from '@/pages/admin/AuditPage';
 
 const queryClient = new QueryClient({
@@ -24,6 +26,7 @@ export function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<PortalPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
             <Route path="/workspaces/:id/connect" element={<ConnectPage />} />
           </Route>
           <Route element={<ProtectedRoute adminOnly />}>
@@ -31,6 +34,7 @@ export function App() {
               <Route index element={<FleetPage />} />
               <Route path="templates" element={<TemplatesPage />} />
               <Route path="users" element={<UsersPage />} />
+              <Route path="governance" element={<GovernancePage />} />
               <Route path="audit" element={<AuditPage />} />
             </Route>
           </Route>

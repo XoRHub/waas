@@ -16,7 +16,19 @@ export function ConnectPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const displayRef = useRef<HTMLDivElement>(null);
+  const clientRef = useRef<InstanceType<typeof Guacamole.Client> | null>(null);
   const [state, setState] = useState<ConnectionState>('connecting');
+
+  // Back to the portal: close the tab when the portal opened us in a new
+  // one (window.close is only honored for script-opened windows), else
+  // navigate back in place.
+  const leave = () => {
+    clientRef.current?.disconnect();
+    if (window.opener) {
+      window.close();
+    }
+    navigate('/');
+  };
 
   useEffect(() => {
     if (!id || !displayRef.current) {
@@ -50,6 +62,7 @@ export function ConnectPage() {
       });
       const tunnel = new Guacamole.WebSocketTunnel(`/ws?${params.toString()}`);
       client = new Guacamole.Client(tunnel);
+      clientRef.current = client;
 
       client.onstatechange = (clientState) => {
         if (clientState === STATE_CONNECTED) {
@@ -84,12 +97,24 @@ export function ConnectPage() {
         keyboard.onkeyup = null;
       }
       client?.disconnect();
+      clientRef.current = null;
       container.replaceChildren();
     };
   }, [id]);
 
   return (
     <div className="flex h-screen flex-col bg-black">
+      {state === 'connected' && (
+        <div className="group absolute inset-x-0 top-0 z-10 flex justify-center">
+          {/* Grab handle: keeps the bar out of the way until hovered. */}
+          <div className="absolute top-0 h-2 w-40 rounded-b-md bg-white/20 transition group-hover:opacity-0" />
+          <div className="-translate-y-full rounded-b-lg bg-slate-900/90 px-4 py-2 text-sm text-white shadow-lg backdrop-blur transition-transform duration-200 group-hover:translate-y-0">
+            <button onClick={leave} className="font-medium text-blue-400 hover:text-blue-300">
+              {t('connect.leave')}
+            </button>
+          </div>
+        </div>
+      )}
       {state !== 'connected' && (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 text-white">
           <p>

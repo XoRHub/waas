@@ -1,11 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { useAuthStore } from '@/stores/authStore';
 import type {
   AuditLog,
+  CatalogImage,
   ConnectResult,
   LoginResult,
+  PolicyModel,
   Session,
+  QuotaStatus,
   User,
+  UserPreferences,
+  UserUsage,
   Workspace,
   WorkspaceTemplate,
 } from '@/types';
@@ -63,9 +69,16 @@ export function useLogin() {
 export function useCreateWorkspace() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { templateRef: string; name?: string; displayName?: string }) =>
-      api.post<Workspace>('/api/v1/workspaces', input),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+    mutationFn: (input: {
+      templateRef: string;
+      name?: string;
+      displayName?: string;
+      resources?: { cpu: string; memory: string };
+    }) => api.post<Workspace>('/api/v1/workspaces', input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      void queryClient.invalidateQueries({ queryKey: ['quota'] });
+    },
   });
 }
 
@@ -120,6 +133,23 @@ export function useDeleteTemplate() {
   });
 }
 
+export interface UpdateProfileInput {
+  displayName?: string;
+  email?: string;
+  preferences?: UserPreferences;
+  currentPassword?: string;
+  newPassword?: string;
+}
+
+// Updates the caller's own profile and refreshes the persisted auth user.
+export function useUpdateProfile() {
+  const setUser = useAuthStore((s) => s.setUser);
+  return useMutation({
+    mutationFn: (input: UpdateProfileInput) => api.patch<User>('/api/v1/me', input),
+    onSuccess: (res) => setUser(res.data),
+  });
+}
+
 export interface CreateUserInput {
   username: string;
   email?: string;
@@ -141,5 +171,65 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/api/v1/users/${id}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+// ---- Governance ----
+
+export function useCatalog() {
+  return useQuery({
+    queryKey: ['catalog'],
+    queryFn: () => api.get<CatalogImage[]>('/api/v1/catalog'),
+  });
+}
+
+export function useQuota() {
+  return useQuery({
+    queryKey: ['quota'],
+    queryFn: () => api.get<QuotaStatus>('/api/v1/me/quota'),
+    // Quota moves with every create/pause/delete; keep it fresh.
+    refetchInterval: 15000,
+  });
+}
+
+export function useAdminImages() {
+  return useQuery({
+    queryKey: ['admin-images'],
+    queryFn: () => api.get<CatalogImage[]>('/api/v1/admin/images'),
+  });
+}
+
+export function useToggleImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, enabled }: { name: string; enabled: boolean }) =>
+      api.post<CatalogImage>(`/api/v1/admin/images/${name}/${enabled ? 'enable' : 'disable'}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin-images'] });
+      void queryClient.invalidateQueries({ queryKey: ['catalog'] });
+    },
+  });
+}
+
+export function useAdminPolicies() {
+  return useQuery({
+    queryKey: ['admin-policies'],
+    queryFn: () => api.get<PolicyModel[]>('/api/v1/admin/policies'),
+  });
+}
+
+export function useUpsertPolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, body }: { name: string; body: unknown }) =>
+      api.put<PolicyModel>(`/api/v1/admin/policies/${name}`, body),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['admin-policies'] }),
+  });
+}
+
+export function useAdminUsage() {
+  return useQuery({
+    queryKey: ['admin-usage'],
+    queryFn: () => api.get<UserUsage[]>('/api/v1/admin/usage'),
   });
 }

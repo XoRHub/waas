@@ -9,7 +9,8 @@
     "save": "Save",
     "delete": "Delete",
     "create": "Create",
-    "actions": "Actions"
+    "actions": "Actions",
+    "edit": "Edit"
   },
   "login": {
     "title": "Sign in to your workspace",
@@ -37,13 +38,44 @@
       "Stopped": "Stopped",
       "Failed": "Unavailable",
       "Terminating": "Shutting down…"
-    }
+    },
+    "quotaPolicy": "Policy:",
+    "quotaWorkspaces": "Workspaces",
+    "cpu": "CPU",
+    "memory": "Memory",
+    "max": "max {{value}}",
+    "quotaRemaining": "Remaining quota: {{cpu}} vCPU / {{memory}}",
+    "openWhere": "Where should your workspace open?",
+    "openWhereHint": "You can change this anytime from your profile.",
+    "openSameTab": "This tab",
+    "openNewTab": "New tab",
+    "rememberChoice": "Remember my choice"
   },
   "connect": {
     "connecting": "Connecting to your desktop…",
     "disconnected": "The connection was closed.",
     "back": "Back to my workspaces",
-    "failed": "Could not connect to the desktop."
+    "failed": "Could not connect to the desktop.",
+    "leave": "Leave session"
+  },
+  "profile": {
+    "title": "My profile",
+    "backToPortal": "Back to portal",
+    "identity": "Identity",
+    "loginId": "login ID",
+    "displayName": "Display name",
+    "email": "Email",
+    "oidcNote": "These fields will be managed by your identity provider once SSO is enabled.",
+    "preferences": "Preferences",
+    "openTarget": "Workspace opening",
+    "openTargetUnset": "Not set yet — you will be asked on first open.",
+    "language": "Language",
+    "security": "Security",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "passwordMismatch": "Passwords do not match.",
+    "saved": "Saved."
   },
   "admin": {
     "title": "Administration",
@@ -91,6 +123,37 @@
       "resource": "Resource",
       "ip": "IP",
       "empty": "No audit entries."
-    }
+    },
+    "governance": "Governance"
+  },
+  "governance": {
+    "catalog": "Image catalog",
+    "image": "Image",
+    "reference": "Reference",
+    "protocols": "Protocols",
+    "groups": "Groups",
+    "status": "Status",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "enable": "Enable",
+    "disable": "Disable",
+    "everyone": "Everyone",
+    "noImages": "No catalog entries yet.",
+    "policies": "Policies",
+    "priority": "priority",
+    "subjects": "Subjects",
+    "maxWorkspaces": "Max workspaces",
+    "images": "Images",
+    "defaults": "Proposed sizing",
+    "allCatalog": "whole catalog",
+    "editPolicy": "Edit policy",
+    "invalidJson": "Invalid JSON",
+    "usage": "Consumption per user",
+    "user": "User",
+    "policy": "Policy",
+    "workspaces": "Workspaces",
+    "storage": "Storage",
+    "noUsage": "No workspace owners yet.",
+    "gitopsNote": "Changes here edit the cluster CRDs directly; Git only seeds them (ArgoCD selfHeal must stay off for these kinds)."
   }
 }
