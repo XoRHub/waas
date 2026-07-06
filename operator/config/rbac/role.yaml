@@ -33,6 +33,7 @@ rules:
   - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - kubevirt.io
@@ -43,6 +44,7 @@ rules:
   - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - waas.xorhub.io

@@ -22,12 +22,15 @@ rules:
   - apiGroups: [""]
     resources: [pods, services]
     verbs: [create, delete, get, list, watch]
+  # update: pause/resume and the uptime/downtime crons scale the workload
+  # in place (spec.replicas 0/1, VM spec.running) — without it every
+  # scale is Forbidden and pause/resume silently stops working.
   - apiGroups: [apps]
     resources: [deployments, statefulsets]
-    verbs: [create, delete, get, list, watch]
+    verbs: [create, delete, get, list, update, watch]
   - apiGroups: [kubevirt.io]
     resources: [virtualmachines]
-    verbs: [create, delete, get, list, watch]
+    verbs: [create, delete, get, list, update, watch]
   - apiGroups: [waas.xorhub.io]
     resources: [workspacetemplates, workspaceimages, workspacepolicies]
     verbs: [get, list, watch]
