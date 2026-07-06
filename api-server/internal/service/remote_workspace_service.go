@@ -341,6 +341,46 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 	}, nil
 }
 
+// AdminList returns every remote workspace for the admin fleet view:
+// metadata + owner + last connection, never credentials. Admin-only
+// (mounted behind RequireAdmin); the personal ownership rule does not
+// apply to this read since no secret material is exposed.
+func (s *RemoteWorkspaceService) AdminList(ctx context.Context) ([]model.RemoteWorkspaceAdmin, error) {
+	all, err := s.remotes.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	activity, err := s.sessions.Activity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	usernames := map[string]string{}
+	out := make([]model.RemoteWorkspaceAdmin, 0, len(all))
+	for i := range all {
+		rw := &all[i]
+		name, ok := usernames[rw.OwnerID]
+		if !ok {
+			if u, err := s.users.FindByID(ctx, rw.OwnerID); err == nil {
+				name = u.Username
+			}
+			usernames[rw.OwnerID] = name
+		}
+		row := model.RemoteWorkspaceAdmin{
+			ID: rw.ID, OwnerID: rw.OwnerID, OwnerUsername: name,
+			Name: rw.Name, Hostname: rw.Hostname, Port: rw.Port, Protocol: rw.Protocol,
+			MACAddress: rw.MACAddress, HasCredentials: len(rw.CredentialKeys) > 0,
+			CreatedAt: rw.CreatedAt,
+		}
+		if act, ok := activity[rw.ID]; ok {
+			t := act.LastActivity
+			row.LastConnectedAt = &t
+			row.ActiveNow = act.ActiveNow
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
+
 // Wake emits a Wake-on-LAN magic packet for a remote workspace through
 // the configured relay. Requires the feature, ownership, a stored MAC and
 // a configured relay.

@@ -170,7 +170,19 @@
       "template": "Modèle",
       "phase": "État",
       "created": "Créé",
-      "empty": "Aucun espace de travail dans le parc."
+      "empty": "Aucun espace de travail dans le parc.",
+      "tabWorkspaces": "Workspaces",
+      "tabRemote": "Remote workspaces",
+      "remoteEmpty": "Aucun remote workspace enregistré.",
+      "remoteName": "Nom",
+      "target": "Cible",
+      "remoteProtocol": "Protocole",
+      "wol": "MAC (WoL)",
+      "state": "État",
+      "lastConnection": "Dernière connexion",
+      "connected": "Connecté",
+      "idle": "Inactif",
+      "never": "Jamais"
     },
     "templatesPage": {
       "new": "Nouveau modèle",

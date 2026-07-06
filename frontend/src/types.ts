@@ -248,6 +248,22 @@ export interface RemoteWorkspace {
   updatedAt: string;
 }
 
+/** Admin fleet row for a remote workspace (metadata only, no credentials). */
+export interface RemoteWorkspaceAdmin {
+  id: string;
+  ownerId: string;
+  ownerUsername?: string;
+  name: string;
+  hostname: string;
+  port: number;
+  protocol: string;
+  macAddress?: string;
+  hasCredentials: boolean;
+  lastConnectedAt?: string;
+  activeNow: boolean;
+  createdAt: string;
+}
+
 /** Write-only credential payload; omitted field = keep, '' = delete. */
 export interface RemoteCredentialsInput {
   username?: string;

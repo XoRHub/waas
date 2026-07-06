@@ -79,6 +79,16 @@ func (h *RemoteWorkspaceHandler) Delete(w http.ResponseWriter, r *http.Request) 
 	noContent(w)
 }
 
+// AdminList handles GET /api/v1/admin/remote-workspaces (fleet view).
+func (h *RemoteWorkspaceHandler) AdminList(w http.ResponseWriter, r *http.Request) {
+	items, err := h.svc.AdminList(r.Context())
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	list(w, items, len(items), 1, len(items))
+}
+
 // Wake handles POST /api/v1/remote-workspaces/{id}/wake (Wake-on-LAN).
 func (h *RemoteWorkspaceHandler) Wake(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.Wake(r.Context(), middleware.Actor(r), chi.URLParam(r, "id")); err != nil {

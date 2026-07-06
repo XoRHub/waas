@@ -10,6 +10,7 @@ import type {
   LoginResult,
   ProtocolMeta,
   RemoteWorkspace,
+  RemoteWorkspaceAdmin,
   RemoteWorkspaceInput,
   TemplateEnvVar,
   PolicyModel,
@@ -372,6 +373,14 @@ export function useUpsertPolicy() {
     mutationFn: ({ name, body }: { name: string; body: unknown }) =>
       api.put<PolicyModel>(`/api/v1/admin/policies/${name}`, body),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['admin-policies'] }),
+  });
+}
+
+export function useAdminRemoteWorkspaces() {
+  return useQuery({
+    queryKey: ['admin-remote-workspaces'],
+    queryFn: () => api.get<RemoteWorkspaceAdmin[]>('/api/v1/admin/remote-workspaces'),
+    refetchInterval: 15000,
   });
 }
 

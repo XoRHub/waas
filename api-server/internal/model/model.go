@@ -149,6 +149,23 @@ type ScheduledTransition struct {
 	Up   bool      `json:"up"`
 }
 
+// RemoteWorkspaceAdmin is one row of the admin fleet's remote-workspaces
+// tab: metadata + owner + last connection (never credentials).
+type RemoteWorkspaceAdmin struct {
+	ID              string     `json:"id"`
+	OwnerID         string     `json:"ownerId"`
+	OwnerUsername   string     `json:"ownerUsername,omitempty"`
+	Name            string     `json:"name"`
+	Hostname        string     `json:"hostname"`
+	Port            int32      `json:"port"`
+	Protocol        string     `json:"protocol"`
+	MACAddress      string     `json:"macAddress,omitempty"`
+	HasCredentials  bool       `json:"hasCredentials"`
+	LastConnectedAt *time.Time `json:"lastConnectedAt,omitempty"`
+	ActiveNow       bool       `json:"activeNow"`
+	CreatedAt       time.Time  `json:"createdAt"`
+}
+
 // WorkspaceProtocol is one connection option of a workspace.
 type WorkspaceProtocol struct {
 	Name    string `json:"name"`

@@ -125,6 +125,7 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 					r.Delete("/policies/{name}", h.Governance.AdminDeletePolicy)
 					r.Get("/usage", h.Governance.AdminUsage)
 					r.Get("/groups", h.Governance.AdminKnownGroups)
+					r.Get("/remote-workspaces", h.RemoteWorkspaces.AdminList)
 				})
 			})
 		})

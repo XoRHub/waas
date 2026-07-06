@@ -70,6 +70,24 @@ func (r *SQLRemoteWorkspaceRepository) ListByOwner(ctx context.Context, ownerID 
 	return out, rows.Err()
 }
 
+func (r *SQLRemoteWorkspaceRepository) ListAll(ctx context.Context) ([]model.RemoteWorkspace, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+remoteWorkspaceColumns+` FROM remote_workspaces ORDER BY owner_id, name`)
+	if err != nil {
+		return nil, fmt.Errorf("listing all remote workspaces: %w", err)
+	}
+	defer rows.Close()
+
+	out := []model.RemoteWorkspace{}
+	for rows.Next() {
+		rw, err := scanRemoteWorkspace(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning remote workspace row: %w", err)
+		}
+		out = append(out, *rw)
+	}
+	return out, rows.Err()
+}
+
 func (r *SQLRemoteWorkspaceRepository) Update(ctx context.Context, rw *model.RemoteWorkspace) error {
 	query := r.db.Rebind(`UPDATE remote_workspaces
 		SET name = ?, hostname = ?, port = ?, protocol = ?, mac_address = ?, params = ?, credential_keys = ?, updated_at = ?

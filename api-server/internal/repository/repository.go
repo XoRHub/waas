@@ -52,6 +52,9 @@ type RemoteWorkspaceRepository interface {
 	Create(ctx context.Context, rw *model.RemoteWorkspace) error
 	FindByID(ctx context.Context, id string) (*model.RemoteWorkspace, error)
 	ListByOwner(ctx context.Context, ownerID string) ([]model.RemoteWorkspace, error)
+	// ListAll returns every remote workspace (admin fleet view). Metadata
+	// only — credentials never leave their Secret.
+	ListAll(ctx context.Context) ([]model.RemoteWorkspace, error)
 	Update(ctx context.Context, rw *model.RemoteWorkspace) error
 	Delete(ctx context.Context, id string) error
 }
