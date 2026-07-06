@@ -1,0 +1,19 @@
+name: dev-ssh
+layer: apps
+description: >
+  Terminal-first development environment: git/tmux/build tooling plus a
+  hardened non-root OpenSSH server (publickey only, port 2222) for
+  guacd's native ssh protocol. VNC stays available for graphical needs.
+version: "1.0.0"
+from: ubuntu-base-vnc
+
+variants:
+  - name: dev-ssh
+    smoke:
+      vnc: true
+      ssh: true
+      env:
+        # Placeholder (no spaces: SMOKE_ENV is space-split): sshd only
+        # reads authorized_keys at login time, the smoke test checks the
+        # protocol banner.
+        WAAS_SSH_AUTHORIZED_KEYS: "smoke-placeholder-not-a-real-key"

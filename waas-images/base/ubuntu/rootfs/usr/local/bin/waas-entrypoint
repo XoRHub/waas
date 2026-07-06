@@ -130,5 +130,19 @@ redirect_stderr=true
 EOF
 fi
 
+# ------------------------------------------------------------- extensions
+# Layer hook: derived images (dev-ssh, ...) drop scripts into
+# /etc/waas/entrypoint.d/ to render their own supervisor fragments and
+# runtime config. Sourced (not exec'd) so they share this script's env,
+# helpers (log/fail) and strict mode.
+if [[ -d /etc/waas/entrypoint.d ]]; then
+    for hook in /etc/waas/entrypoint.d/*.sh; do
+        [[ -e "${hook}" ]] || continue
+        log "entrypoint hook: $(basename "${hook}")"
+        # shellcheck disable=SC1090
+        source "${hook}"
+    done
+fi
+
 log "starting services (vnc external: ${WAAS_VNC_ENABLED:-1}, rdp: ${WAAS_RDP_ENABLED:-0}, resolution: ${RESOLUTION})"
 exec supervisord -n -c /etc/waas/supervisord.conf

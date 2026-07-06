@@ -12,10 +12,10 @@ DEV_IMAGES       := operator api-server wwt frontend
 # Workspace desktop images (waas-images/). Base images are build-time-only
 # (FROM layers); only the leaf images are ever scheduled as pods, so only
 # those get imported into k3d.
-WORKSPACE_BASE_IMAGES := ubuntu-base-rdp
-WORKSPACE_IMAGES      := ubuntu-xfce ubuntu-firefox
+WORKSPACE_BASE_IMAGES := ubuntu-base-vnc ubuntu-base-rdp
+WORKSPACE_IMAGES      := ubuntu-xfce ubuntu-firefox dev-ssh
 
-.PHONY: all build test lint generate manifests frontend-build docker-build \
+.PHONY: all build test lint generate manifests docs-params frontend-build docker-build \
 	dev-up dev-down dev-reset dev-build dev-load dev-deploy dev-reload \
 	dev-build-images dev-load-images \
 	dev-status dev-logs dev-url tidy
@@ -42,6 +42,11 @@ tidy:
 
 generate manifests:
 	$(MAKE) -C operator $@
+
+# docs/guacd-parameters.md is generated from the parameter registry so the
+# docs can never drift from what the webhook enforces.
+docs-params:
+	cd operator && go run ./cmd/paramsdoc ../docs/guacd-parameters.md
 
 frontend-build:
 	cd frontend && npm ci && npm run build
@@ -111,6 +116,7 @@ dev-load-images: dev-build-images
 		echo "==> import waas-local/$$img:dev"; \
 		k3d image import waas-local/$$img:dev -c $(CLUSTER_NAME) || exit 1; \
 	done
+	sh hack/dev/seed-ssh-secret.sh $(WORKSPACE_NS)
 	kubectl -n $(WORKSPACE_NS) apply \
 		-f hack/dev/images-dev.yaml \
 		-f hack/dev/templates-dev.yaml \

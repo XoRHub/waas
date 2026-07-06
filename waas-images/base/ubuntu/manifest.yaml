@@ -6,7 +6,7 @@ layer: base
 description: >
   Headless Ubuntu graphical session (TigerVNC Xvnc + openbox fallback),
   VNC and optional xrdp bridge, non-root, read-only-rootfs friendly.
-version: "1.0.0"
+version: "1.1.0"
 
 variants:
   # VNC-only: smallest image, the recommended default for Linux templates.

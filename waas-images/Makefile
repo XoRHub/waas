@@ -23,6 +23,9 @@ else ifeq ($(IMAGE),ubuntu-xfce)
 else ifeq ($(IMAGE),ubuntu-firefox)
   CTX := apps/firefox
   ARGS := --build-arg BASE_IMAGE=$(REGISTRY)/ubuntu-xfce:dev
+else ifeq ($(IMAGE),dev-ssh)
+  CTX := apps/dev-ssh
+  ARGS := --build-arg BASE_IMAGE=$(REGISTRY)/ubuntu-base-vnc:dev
 endif
 
 .PHONY: build run smoke lint clean
@@ -43,7 +46,7 @@ smoke: build
 
 lint:
 	hadolint --failure-threshold warning $$(find . -name Dockerfile)
-	shellcheck ci/*.sh base/*/rootfs/usr/local/bin/*
+	shellcheck ci/*.sh base/*/rootfs/usr/local/bin/* $$(find . -path '*/entrypoint.d/*.sh')
 
 clean:
 	docker rmi -f $(TAG) 2>/dev/null || true

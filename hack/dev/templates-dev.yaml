@@ -48,6 +48,43 @@ spec:
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceTemplate
 metadata:
+  name: dev-ssh
+spec:
+  displayName: "Dev env — SSH"
+  description: "Terminal dev env (git, tmux, build tools) over SSH; VNC fallback."
+  os: linux
+  image: waas-local/dev-ssh:dev
+  homeSize: 10Gi
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 4Gi }
+  env:
+    # Keys come from the dev-ssh-credentials Secret, seeded by
+    # hack/dev/seed-ssh-secret.sh (make dev-load-images runs it).
+    - name: WAAS_SSH_AUTHORIZED_KEYS
+      valueFrom:
+        secretKeyRef: { name: dev-ssh-credentials, key: authorized-keys }
+    - name: VNC_PW
+      valueFrom:
+        secretKeyRef: { name: dev-ssh-credentials, key: password }
+  protocols:
+    - name: ssh
+      port: 2222
+      default: true
+      credentialsSecretRef: dev-ssh-credentials
+      params:
+        color-scheme: green-black
+      userParams: [font-size, color-scheme, read-only]
+    - name: vnc
+      port: 5901
+      credentialsSecretRef: dev-ssh-credentials
+      userParams: [color-depth, read-only]
+  overrides:
+    allowedFields: [protocol, protocolParams, resources]
+---
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceTemplate
+metadata:
   name: ubuntu-firefox
 spec:
   displayName: "Firefox (navigation isolée)"

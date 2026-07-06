@@ -1,13 +1,10 @@
 # WorkspaceTemplate consuming a waas-images build — the full integration
 # contract in one example.
 #
-# NOTE credentials: the api-server's ConnectionInfo currently reads the
-# password from the *literal* env value on this template (VNC_PW /
-# RDP_PASSWORD) to hand it to guacd. Until it learns to resolve
-# valueFrom/secretKeyRef, the password lives in this CR: restrict who can
-# read WorkspaceTemplates via RBAC, and source this manifest itself from
-# Vault/ESO in GitOps. The image side is already secret-ready (env only,
-# nothing baked).
+# Credentials: prefer `protocols[].credentialsSecretRef` + env valueFrom
+# (see workspacetemplate-dev-ssh.yaml for the full pattern) — no secret
+# ever lands in the CR. The literal VNC_PW below is the legacy fallback,
+# kept only to show the minimal form.
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceTemplate
 metadata:

@@ -111,6 +111,7 @@ def emit(variants: dict[str, dict], cfg: dict) -> str:
                 ),
                 "SMOKE_VNC": "1" if v["smoke"].get("vnc") else "0",
                 "SMOKE_RDP": "1" if v["smoke"].get("rdp") else "0",
+                "SMOKE_SSH": "1" if v["smoke"].get("ssh") else "0",
                 "SMOKE_ENV": " ".join(
                     f"{k}={val}" for k, val in sorted(v["smoke"].get("env", {}).items())
                 ),

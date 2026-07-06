@@ -1,0 +1,50 @@
+# Terminal-first dev environment over guacd's native ssh protocol, with
+# VNC kept as the graphical fallback. This example shows the
+# secrets-clean credential flow end to end:
+#
+#   ┌ Secret dev-ssh-credentials (ESO/Vault-provided) ────────────────┐
+#   │ username:        user                                           │
+#   │ private-key:     <openssh private key>   → guacd (connect side) │
+#   │ authorized-keys: <matching public key>   → pod (accept side)    │
+#   │ password:        <desktop password>      → pod VNC + guacd vnc  │
+#   └─────────────────────────────────────────────────────────────────┘
+#
+# No credential ever appears in this CR: the pod reads env from the
+# Secret, and the api-server resolves `credentialsSecretRef` server-side
+# at connect time (never exposed to the browser).
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: dev-ssh
+spec:
+  displayName: "Dev environment — SSH"
+  description: "Terminal dev env (git, tmux, build tools) over SSH; VNC fallback."
+  os: linux
+  image: registry.example.com/waas/waas-images/dev-ssh:1.0.0
+  homeSize: 20Gi
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 4Gi }
+  env:
+    - name: WAAS_SSH_AUTHORIZED_KEYS
+      valueFrom:
+        secretKeyRef: { name: dev-ssh-credentials, key: authorized-keys }
+    - name: VNC_PW
+      valueFrom:
+        secretKeyRef: { name: dev-ssh-credentials, key: password }
+  protocols:
+    - name: ssh
+      port: 2222
+      default: true
+      credentialsSecretRef: dev-ssh-credentials
+      params:
+        color-scheme: green-black
+        font-size: "12"
+      # Users may retune the terminal at connect time / in-session.
+      userParams: [font-size, color-scheme, read-only]
+    - name: vnc
+      port: 5901
+      credentialsSecretRef: dev-ssh-credentials
+      userParams: [color-depth, read-only]
+  overrides:
+    allowedFields: [protocol, protocolParams, resources]

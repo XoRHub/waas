@@ -22,6 +22,22 @@ spec:
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceImage
 metadata:
+  name: dev-ssh
+spec:
+  displayName: "Dev env — SSH"
+  description: "Environnement de dev terminal (git, tmux, build tools) via SSH, VNC en secours."
+  image: waas-local/dev-ssh:dev
+  protocols: [ssh, vnc]
+  architectures: [amd64, arm64]
+  enabled: true
+  resources:
+    default: { cpu: 500m, memory: 1Gi }
+    min:     { cpu: 250m, memory: 512Mi }
+    max:     { cpu: "2",  memory: 4Gi }
+---
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
   name: ubuntu-firefox
 spec:
   displayName: "Firefox (navigation isolée)"
