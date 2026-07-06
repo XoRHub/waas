@@ -35,4 +35,9 @@ lib=libvnc.so
 ip=127.0.0.1
 port=5901
 username=na
+; The "ask" value below requires the RDP client to present the session
+; password (RDP authentication ON, the default). The entrypoint replaces
+; it with the literal password ONLY when RDP_AUTH_ENABLED=false was set
+; explicitly at runtime — keep this comment free of that literal, the
+; entrypoint substitutes the first occurrence in the rendered file.
 password=ask

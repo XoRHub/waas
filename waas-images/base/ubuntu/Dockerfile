@@ -103,6 +103,10 @@ ENV WAAS_USER=${WAAS_USER} \
     WAAS_RUNTIME_DIR=/tmp/waas \
     WAAS_VNC_ENABLED=1 \
     WAAS_RDP_ENABLED=${INSTALL_RDP} \
+    # Secure by default: RDP clients must authenticate with the session
+    # password. Only an explicit RDP_AUTH_ENABLED=false at runtime — never
+    # a build — turns it off (see waas-entrypoint / README).
+    RDP_AUTH_ENABLED=true \
     VNC_RESOLUTION=1920x1080 \
     VNC_COL_DEPTH=24 \
     WAAS_STARTUP=

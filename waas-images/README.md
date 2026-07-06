@@ -35,10 +35,24 @@ The web client is guacd/wwt from the platform — no noVNC in the images.
 | User | UID/GID `1000:1000` (build-args `WAAS_UID/WAAS_GID`), home **`/home/user`** = operator's PVC mount; fresh PVCs are seeded from `/etc/skel` |
 | Writable paths | `/home/user` (PVC), `/tmp`, `/run` (emptyDirs) — everything else read-only-safe |
 | Required env | `VNC_PW` (or `VNC_PASSWORD` / `RDP_PASSWORD` — one shared session password). **Refuses to start without it.** |
-| Optional env | `VNC_RESOLUTION` (`1920x1080`), `VNC_COL_DEPTH` (`24`), `WAAS_VNC_ENABLED` (`1`), `WAAS_RDP_ENABLED`, `WAAS_STARTUP` (session command), `WAAS_TLS_CERT`/`WAAS_TLS_KEY` (mounted RDP cert) |
+| Optional env | `VNC_RESOLUTION` (`1920x1080`), `VNC_COL_DEPTH` (`24`), `WAAS_VNC_ENABLED` (`1`), `WAAS_RDP_ENABLED`, `RDP_AUTH_ENABLED` (`true`), `WAAS_STARTUP` (session command), `WAAS_TLS_CERT`/`WAAS_TLS_KEY` (mounted RDP cert) |
 | Recommended pod securityContext | `runAsNonRoot`, `runAsUser/fsGroup: 1000`, `readOnlyRootFilesystem: true`, `capabilities.drop: [ALL]`, `allowPrivilegeEscalation: false`, `seccompProfile: RuntimeDefault` → PodSecurity **restricted** compliant |
 
 See `examples/workspacetemplate-xfce.yaml` for a complete template.
+
+**RDP authentication (`RDP_AUTH_ENABLED`, default `true`)**: images are
+secure by default — every build ships with RDP client authentication ON
+(`ENV RDP_AUTH_ENABLED=true` in the base image), meaning the RDP client
+must present the session password, which the xrdp bridge forwards to
+Xvnc (`password=ask`). There is no build argument to turn it off: an
+image can never leave the pipeline with an open RDP. The only opt-out is
+the **runtime** env `RDP_AUTH_ENABLED=false` (lab/dev setups behind
+their own gate): the bridge then authenticates to Xvnc itself and any
+client reaching `:3389` gets the session — the entrypoint logs a loud
+warning when this mode is active. The value must be exactly `true` or
+`false`; anything else aborts startup. VNC authentication (VncAuth) is
+unaffected in both modes, and a session password is required in every
+configuration.
 
 **Secrets**: nothing is baked into images; the password arrives via env
 at runtime. Today the api-server reads the guacd-side password from the

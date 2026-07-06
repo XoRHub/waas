@@ -23,10 +23,26 @@ mkdir -p "${RUNDIR}/supervisor.d" "${RUNDIR}/xrdp"
 # ---------------------------------------------------------------- password
 # Single session password shared by both protocols (the xrdp libvnc bridge
 # forwards the RDP password as the VNC password, so they cannot differ).
+# A password is ALWAYS required — no image ever boots with an open session.
 PASSWORD="${VNC_PW:-${VNC_PASSWORD:-${RDP_PASSWORD:-}}}"
 [[ -n "${PASSWORD}" ]] || fail "no desktop password: set VNC_PW (or RDP_PASSWORD) from a Kubernetes Secret"
 printf '%s\n' "${PASSWORD}" | vncpasswd -f > "${RUNDIR}/vnc.passwd"
 chmod 0600 "${RUNDIR}/vnc.passwd"
+
+# RDP client authentication. Enabled at build time (ENV RDP_AUTH_ENABLED=true
+# in the base image): the RDP client must present the session password,
+# which the xrdp libvnc bridge forwards to Xvnc (password=ask). Setting
+# RDP_AUTH_ENABLED=false at RUNTIME is the only way to get credential-less
+# RDP: the bridge then authenticates to Xvnc itself and any client reaching
+# :3389 gets the session — an explicit, logged opt-out for lab setups.
+RDP_AUTH="${RDP_AUTH_ENABLED:-true}"
+[[ "${RDP_AUTH}" == "true" || "${RDP_AUTH}" == "false" ]] \
+    || fail "RDP_AUTH_ENABLED must be 'true' or 'false', got '${RDP_AUTH}'"
+RDP_AUTOLOGIN_PASSWORD=""
+if [[ "${RDP_AUTH}" == "false" && "${WAAS_RDP_ENABLED:-0}" == "1" ]]; then
+    RDP_AUTOLOGIN_PASSWORD="${PASSWORD}"
+fi
+
 # Scrub: children of supervisord must not inherit the cleartext secret
 # (visible in /proc/*/environ to anything running in the session).
 unset PASSWORD VNC_PW VNC_PASSWORD RDP_PASSWORD
@@ -117,6 +133,22 @@ if [[ "${WAAS_RDP_ENABLED:-0}" == "1" ]]; then
     # Render xrdp.ini from the packaged template (the /etc/xrdp/xrdp.ini
     # symlink baked in the image points at the rendered copy).
     sed "s|@RUNDIR@|${RUNDIR}|g" /etc/waas/xrdp/xrdp.ini.tpl > "${RUNDIR}/xrdp/xrdp.ini"
+    chmod 0600 "${RUNDIR}/xrdp/xrdp.ini"
+    if [[ "${RDP_AUTH}" == "false" ]]; then
+        # Explicit opt-out (RDP_AUTH_ENABLED=false): bake the session
+        # password into the bridge config so RDP clients connect without
+        # credentials. Whole-line equality in pure bash — no sed/awk, so
+        # the password stays a literal whatever characters it contains,
+        # and comments mentioning the marker can never be corrupted.
+        log "WARNING: RDP authentication DISABLED (RDP_AUTH_ENABLED=false) — any client reaching :3389 gets the session"
+        while IFS= read -r line; do
+            [[ "${line}" == "password=ask" ]] && line="password=${RDP_AUTOLOGIN_PASSWORD}"
+            printf '%s\n' "${line}"
+        done < "${RUNDIR}/xrdp/xrdp.ini" > "${RUNDIR}/xrdp/xrdp.ini.rendered"
+        mv "${RUNDIR}/xrdp/xrdp.ini.rendered" "${RUNDIR}/xrdp/xrdp.ini"
+        chmod 0600 "${RUNDIR}/xrdp/xrdp.ini"
+        unset RDP_AUTOLOGIN_PASSWORD line
+    fi
     mkdir -p /run/xrdp/sockdir 2>/dev/null || true
 
     cat > "${RUNDIR}/supervisor.d/30-xrdp.conf" <<EOF

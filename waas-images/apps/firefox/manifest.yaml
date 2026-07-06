@@ -1,7 +1,7 @@
 name: ubuntu-firefox
 layer: apps
 description: XFCE desktop with managed, policy-hardened Firefox.
-version: "1.0.1"
+version: "1.0.2"
 from: ubuntu-xfce
 
 # packages.mozilla.org has historically been amd64-first; arm64 stays off

@@ -38,6 +38,11 @@ is enforced, so the list is verifiable, not aspirational.
 - [x] **VNC auth always on** (`-SecurityTypes VncAuth`, `-rfbauth`);
       empty password refuses to start. xrdp: `crypt_level=high`,
       `security_layer=negotiate` with TLS cert (provided or ephemeral).
+- [x] **RDP auth on by default** (`RDP_AUTH_ENABLED=true` baked as ENV,
+      no build-time opt-out): the RDP client must present the session
+      password (`password=ask` bridge). Credential-less RDP requires an
+      explicit `RDP_AUTH_ENABLED=false` at runtime and logs a warning —
+      no image can leave the build with an open RDP.
 
 ## To apply on the platform side (documented contract)
 
