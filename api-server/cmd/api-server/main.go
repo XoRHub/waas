@@ -59,6 +59,11 @@ func run() error {
 
 	audit := service.NewAuditService(auditRepo)
 	authSvc := service.NewAuthService(users, signer, audit, cfg.JWTIssuer, cfg.AccessTokenTTL)
+	var oidcSvc *service.OIDCService
+	if cfg.OIDC.Enabled() {
+		oidcSvc = service.NewOIDCService(cfg.OIDC, users, audit, signer, cfg.JWTIssuer, cfg.AccessTokenTTL)
+		slog.Info("OIDC login enabled", "issuer", cfg.OIDC.IssuerURL, "provider", cfg.OIDC.ProviderName)
+	}
 	userSvc := service.NewUserService(users, audit)
 	templateSvc := service.NewTemplateService(kube, cfg.WorkspaceNamespace, audit)
 	workspaceSvc := service.NewWorkspaceService(kube, cfg.WorkspaceNamespace, users, sessions, audit, signer,
@@ -78,13 +83,14 @@ func run() error {
 	go service.NewIdleSweeper(kube, cfg.WorkspaceNamespace, sessions, audit, cfg.IdleSweepInterval).Run(ctx)
 
 	router := server.New(cfg, signer, server.Handlers{
-		Auth:       handler.NewAuthHandler(authSvc, signer),
+		Auth:       handler.NewAuthHandler(authSvc, oidcSvc, cfg.OIDC, signer),
 		Users:      handler.NewUserHandler(userSvc),
 		Templates:  handler.NewTemplateHandler(templateSvc),
 		Workspaces: handler.NewWorkspaceHandler(workspaceSvc),
 		Admin:      handler.NewAdminHandler(audit, sessionSvc),
 		Internal:   handler.NewInternalHandler(workspaceSvc),
 		Governance: handler.NewGovernanceHandler(governanceSvc),
+		Meta:       handler.NewMetaHandler(),
 	})
 
 	srv := &http.Server{

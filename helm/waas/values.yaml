@@ -44,6 +44,29 @@ apiServer:
   # api-server logs on first boot.
   adminUsername: admin
   adminPassword: ""
+  # SSO login (Authentik or any OIDC provider). Optional: local login
+  # always stays available (bootstrap admin, break-glass when the IdP is
+  # down). When enabled, the IdP's groups claim is mirrored into the user
+  # record at every login and drives WorkspacePolicy matching.
+  oidc:
+    # e.g. https://authentik.example.com/application/o/waas/
+    issuerURL: ""
+    clientID: ""
+    # Client secret comes from a Secret (ESO/Vault-friendly). Default:
+    # key "oidc-client-secret" of the chart's own <release>-secrets.
+    existingSecret: ""
+    existingSecretKey: ""
+    # This api-server's public callback, e.g.
+    # https://waas.example.com/api/v1/auth/oidc/callback
+    redirectURL: ""
+    # SPA origin for the post-login redirect ("/" when same-origin).
+    frontendURL: "/"
+    # Authentik ships groups in its default profile scope mapping.
+    scopes: [openid, profile, email]
+    groupsClaim: groups
+    # IdP groups granting the platform admin role (synced each login).
+    adminGroups: []
+    providerName: Authentik
   resources:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { memory: 512Mi }

@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -18,6 +18,8 @@ import (
 	"github.com/xorhub/waas/api-server/internal/model"
 	"github.com/xorhub/waas/api-server/internal/repository"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/params"
+	"github.com/xorhub/waas/operator/pkg/policy"
 	"github.com/xorhub/waas/shared/auth"
 )
 
@@ -76,6 +78,9 @@ type ConnectResult struct {
 	SessionID       string `json:"sessionId"`
 	ConnectionToken string `json:"connectionToken"`
 	Protocol        string `json:"protocol"`
+	// Capabilities mirror what the token/policy actually enforce, so the
+	// in-session overlay can show or grey out its toggles truthfully.
+	Capabilities *model.SessionCapabilities `json:"capabilities,omitempty"`
 }
 
 // List returns the caller's workspaces, or every workspace for admins.
@@ -268,14 +273,12 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 		if entry == nil {
 			return nil, apierror.BadRequest(fmt.Sprintf("protocol %q is not offered by this workspace", protocol))
 		}
-		// Locked parameters stay locked: only allow-listed names may be
-		// overridden by non-admin users.
-		if actor.Role != string(auth.RoleAdmin) {
-			for name := range in.Params {
-				if !slices.Contains(entry.UserParams, name) {
-					return nil, apierror.Forbidden(fmt.Sprintf("parameter %q is not user-configurable for protocol %q", name, protocol))
-				}
-			}
+		// The registry gates names AND values: locked parameters stay
+		// locked (template userParams allow-list, admins bypass it) and
+		// platform-owned parameters are rejected for everyone.
+		isAdmin := actor.Role == string(auth.RoleAdmin)
+		if violation := params.ValidateUserOverrides(protocol, in.Params, entry.UserParams, isAdmin); violation != nil {
+			return nil, apierror.Forbidden(violation.Error())
 		}
 	}
 
@@ -293,13 +296,44 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 		return nil, fmt.Errorf("recording session: %w", err)
 	}
 
-	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, string(ws.UID), s.connectionTTL))
+	// Clipboard rights come from the CONNECTING user's policy and travel
+	// inside the token: wwt enforces them without ever calling back.
+	clipboard := s.clipboardGrant(ctx, actor)
+	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, string(ws.UID), clipboard, s.connectionTTL))
 	if err != nil {
 		return nil, fmt.Errorf("issuing connection token: %w", err)
 	}
 	s.audit.Record(ctx, actor, "session.started", "session", session.ID, "workspace="+ws.Name+" protocol="+protocol)
 
-	return &ConnectResult{SessionID: session.ID, ConnectionToken: token, Protocol: protocol}, nil
+	return &ConnectResult{
+		SessionID:       session.ID,
+		ConnectionToken: token,
+		Protocol:        protocol,
+		Capabilities: &model.SessionCapabilities{
+			ClipboardCopy:  clipboard.Copy,
+			ClipboardPaste: clipboard.Paste,
+		},
+	}, nil
+}
+
+// clipboardGrant resolves the connecting user's clipboard rights from
+// their WorkspacePolicy. Resolution failure (no user record, no matching
+// policy) fails closed: session yes, clipboard no.
+func (s *WorkspaceService) clipboardGrant(ctx context.Context, actor Actor) auth.ClipboardGrant {
+	user, err := s.users.FindByID(ctx, actor.ID)
+	if err != nil {
+		return auth.ClipboardGrant{}
+	}
+	policies := &waasv1alpha1.WorkspacePolicyList{}
+	if err := s.kube.List(ctx, policies, client.InNamespace(s.namespace)); err != nil {
+		return auth.ClipboardGrant{}
+	}
+	pol, _, denial := policy.Resolve(policies.Items, policy.Identity{Owner: user.ID, Username: user.Username, Groups: user.Groups})
+	if denial != nil {
+		return auth.ClipboardGrant{}
+	}
+	copyFrom, pasteTo := policy.ClipboardOf(pol)
+	return auth.ClipboardGrant{Copy: copyFrom, Paste: pasteTo}
 }
 
 // EndSession closes a session record (called by the proxy on disconnect via
@@ -353,6 +387,8 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 	// handed to guacd by the proxy, never exposed to the browser.
 	tpl := &waasv1alpha1.WorkspaceTemplate{}
 	if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: ws.Spec.TemplateRef}, tpl); err == nil {
+		// Legacy path: literal credentials in template env. Prefer
+		// credentialsSecretRef, which keeps secrets out of the CR.
 		for _, env := range tpl.Spec.Env {
 			switch env.Name {
 			case "VNC_PW", "VNC_PASSWORD":
@@ -364,9 +400,9 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 			}
 		}
 		// Template params first (locked), then the session's vetted user
-		// overrides. Env-var overrides from the workspace spec win over
-		// template env for credentials.
-		if entry := tpl.Spec.ProtocolNamed(info.Protocol); entry != nil {
+		// overrides.
+		entry := tpl.Spec.ProtocolNamed(info.Protocol)
+		if entry != nil {
 			info.Params = map[string]string{}
 			for k, v := range entry.Params {
 				info.Params[k] = v
@@ -377,6 +413,16 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 		} else if len(session.Params) > 0 {
 			info.Params = session.Params
 		}
+		// Credentials Secret (username/password/private-key/passphrase):
+		// the platform-blessed source. Resolution failure is a hard error —
+		// silently connecting with stale credentials would be worse.
+		if entry != nil && entry.CredentialsSecretRef != "" {
+			if err := s.applyCredentialsSecret(ctx, entry.CredentialsSecretRef, info); err != nil {
+				return nil, err
+			}
+		}
+		// Workspace env overrides win last: they change the password the
+		// pod actually runs with, so the connection must follow.
 		if ws.Spec.Overrides != nil {
 			for _, env := range ws.Spec.Overrides.Env {
 				switch env.Name {
@@ -389,6 +435,32 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 		}
 	}
 	return info, nil
+}
+
+// applyCredentialsSecret loads a protocol's credentials Secret into the
+// connection info. Key names follow the guacd vocabulary: username,
+// password, private-key, passphrase.
+func (s *WorkspaceService) applyCredentialsSecret(ctx context.Context, name string, info *model.ConnectionInfo) error {
+	secret := &corev1.Secret{}
+	if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, secret); err != nil {
+		return fmt.Errorf("resolving credentials secret %s: %w", name, err)
+	}
+	if v, ok := secret.Data["username"]; ok {
+		info.Username = string(v)
+	}
+	if v, ok := secret.Data["password"]; ok {
+		info.Password = string(v)
+	}
+	if info.Params == nil {
+		info.Params = map[string]string{}
+	}
+	if v, ok := secret.Data["private-key"]; ok {
+		info.Params["private-key"] = string(v)
+	}
+	if v, ok := secret.Data["passphrase"]; ok {
+		info.Params["passphrase"] = string(v)
+	}
+	return nil
 }
 
 func (s *WorkspaceService) fetchByID(ctx context.Context, actor Actor, id string) (*waasv1alpha1.Workspace, error) {

@@ -22,6 +22,7 @@ type Handlers struct {
 	Admin      *handler.AdminHandler
 	Internal   *handler.InternalHandler
 	Governance *handler.GovernanceHandler
+	Meta       *handler.MetaHandler
 }
 
 // New builds the full route tree. Every /api/v1 route except login sits
@@ -43,6 +44,9 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", h.Auth.Login)
+		r.Get("/auth/providers", h.Auth.Providers)
+		r.Get("/auth/oidc/start", h.Auth.OIDCStart)
+		r.Get("/auth/oidc/callback", h.Auth.OIDCCallback)
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Auth(signer, cfg.JWTIssuer))
@@ -64,6 +68,10 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 			// caller may deploy, and their applied policy/quota.
 			r.Get("/catalog", h.Governance.Catalog)
 			r.Get("/me/quota", h.Governance.Quota)
+
+			// Platform metadata: the guacd parameter registry the
+			// frontend derives its forms from.
+			r.Get("/meta/protocols", h.Meta.Protocols)
 
 			r.Route("/workspace-templates", func(r chi.Router) {
 				r.Get("/", h.Templates.List)
@@ -91,6 +99,7 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 				// Governance, admin side: catalog and policy CRUD write
 				// straight to the CRDs (ArgoCD only bootstraps them).
 				r.Route("/admin", func(r chi.Router) {
+					r.Get("/users/{id}/effective-policy", h.Governance.AdminEffectivePolicy)
 					r.Get("/images", h.Governance.AdminListImages)
 					r.Put("/images/{name}", h.Governance.AdminUpsertImage)
 					r.Post("/images/{name}/enable", h.Governance.AdminToggleImage(true))

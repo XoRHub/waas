@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -20,11 +21,15 @@ import (
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
 
-// Scheme registers only the CRD types the API server is allowed to touch.
+// Scheme registers the CRD types the API server is allowed to touch, plus
+// core Secrets: connect-time credential resolution reads the protocol
+// credentialsSecretRef (read-only — RBAC grants get only, in the workspace
+// namespace only).
 var Scheme = runtime.NewScheme()
 
 func init() {
 	utilruntime.Must(waasv1alpha1.AddToScheme(Scheme))
+	utilruntime.Must(corev1.AddToScheme(Scheme))
 }
 
 // NewClient returns a cluster client, or an in-memory fake in dev mode so

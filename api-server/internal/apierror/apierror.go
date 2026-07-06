@@ -52,6 +52,10 @@ func Internal(detail string) *Problem {
 	return newProblem(http.StatusInternalServerError, "internal", "Internal Server Error", detail)
 }
 
+func Unavailable(detail string) *Problem {
+	return newProblem(http.StatusServiceUnavailable, "unavailable", "Service Unavailable", detail)
+}
+
 // Write renders err as an RFC 7807 response. Non-Problem errors become an
 // opaque 500 so internals never leak to clients.
 func Write(w http.ResponseWriter, err error) {

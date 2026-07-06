@@ -23,6 +23,12 @@ rules:
   - apiGroups: [waas.xorhub.io]
     resources: [workspaceimages, workspacepolicies]
     verbs: [create, delete, get, list, patch, update, watch]
+  # Connect-time credential resolution: read the per-protocol
+  # credentialsSecretRef named by templates. Deliberately get-only (no
+  # list/watch) and scoped to the workspace namespace.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -98,6 +104,41 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
                   key: admin-password
+            {{- end }}
+            {{- with .Values.apiServer.oidc }}
+            {{- if .issuerURL }}
+            # SSO (Authentik or any OIDC provider). Local login stays
+            # available as break-glass; groups sync at every SSO login.
+            - name: WAAS_OIDC_ISSUER
+              value: {{ .issuerURL | quote }}
+            - name: WAAS_OIDC_CLIENT_ID
+              value: {{ .clientID | quote }}
+            - name: WAAS_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret | default (printf "%s-secrets" $.Release.Name) }}
+                  key: {{ .existingSecretKey | default "oidc-client-secret" }}
+            - name: WAAS_OIDC_REDIRECT_URL
+              value: {{ .redirectURL | quote }}
+            - name: WAAS_OIDC_FRONTEND_URL
+              value: {{ .frontendURL | default "/" | quote }}
+            {{- if .scopes }}
+            - name: WAAS_OIDC_SCOPES
+              value: {{ join "," .scopes | quote }}
+            {{- end }}
+            {{- if .groupsClaim }}
+            - name: WAAS_OIDC_GROUPS_CLAIM
+              value: {{ .groupsClaim | quote }}
+            {{- end }}
+            {{- if .adminGroups }}
+            - name: WAAS_OIDC_ADMIN_GROUPS
+              value: {{ join "," .adminGroups | quote }}
+            {{- end }}
+            {{- if .providerName }}
+            - name: WAAS_OIDC_PROVIDER_NAME
+              value: {{ .providerName | quote }}
+            {{- end }}
+            {{- end }}
             {{- end }}
           ports:
             - name: http

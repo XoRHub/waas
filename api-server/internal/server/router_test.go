@@ -63,12 +63,13 @@ func newTestServer(t *testing.T) (http.Handler, *auth.Signer) {
 	}
 
 	return New(cfg, signer, Handlers{
-		Auth:       handler.NewAuthHandler(authSvc, signer),
+		Auth:       handler.NewAuthHandler(authSvc, nil, cfg.OIDC, signer),
 		Users:      handler.NewUserHandler(userSvc),
 		Templates:  handler.NewTemplateHandler(templateSvc),
 		Workspaces: handler.NewWorkspaceHandler(workspaceSvc),
 		Admin:      handler.NewAdminHandler(audit, service.NewSessionService(sessions)),
 		Internal:   handler.NewInternalHandler(workspaceSvc),
+		Meta:       handler.NewMetaHandler(),
 	}), signer
 }
 

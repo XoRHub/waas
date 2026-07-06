@@ -121,6 +121,17 @@ func (h *GovernanceHandler) AdminDeletePolicy(w http.ResponseWriter, r *http.Req
 	noContent(w)
 }
 
+// AdminEffectivePolicy handles GET /api/v1/admin/users/{id}/effective-policy
+// — the "why is this user governed by that policy" debug view.
+func (h *GovernanceHandler) AdminEffectivePolicy(w http.ResponseWriter, r *http.Request) {
+	report, err := h.svc.AdminEffectivePolicy(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, report)
+}
+
 // AdminUsage handles GET /api/v1/admin/usage — consumption per user.
 func (h *GovernanceHandler) AdminUsage(w http.ResponseWriter, r *http.Request) {
 	usage, err := h.svc.AdminUsage(r.Context())

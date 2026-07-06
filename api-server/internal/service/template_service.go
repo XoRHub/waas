@@ -16,6 +16,7 @@ import (
 	"github.com/xorhub/waas/api-server/internal/apierror"
 	"github.com/xorhub/waas/api-server/internal/model"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/params"
 )
 
 // TemplateService manages WorkspaceTemplate CRs. Templates live in the
@@ -31,17 +32,47 @@ func NewTemplateService(kube client.Client, namespace string, audit *AuditServic
 	return &TemplateService{kube: kube, namespace: namespace, audit: audit}
 }
 
-// TemplateInput is the create/update payload.
+// TemplateInput is the create/update payload. It deliberately reuses the
+// CR types (corev1.EnvVar, WorkspaceWorkload) for the pod-spec facets:
+// the API accepts exactly what the CR schema accepts, so new CR fields
+// never need a parallel DTO — the "no duplicated schema" decision.
 type TemplateInput struct {
-	Name        string            `json:"name"`
-	DisplayName string            `json:"displayName"`
-	Description string            `json:"description"`
-	OS          string            `json:"os"`
-	Image       string            `json:"image"`
-	Port        int32             `json:"port"`
-	HomeSize    string            `json:"homeSize"`
-	Requests    map[string]string `json:"requests"`
-	Limits      map[string]string `json:"limits"`
+	Name             string            `json:"name"`
+	DisplayName      string            `json:"displayName"`
+	Description      string            `json:"description"`
+	OS               string            `json:"os"`
+	Image            string            `json:"image"`
+	Port             int32             `json:"port"`
+	HomeSize         string            `json:"homeSize"`
+	StorageClassName string            `json:"storageClassName"`
+	Requests         map[string]string `json:"requests"`
+	Limits           map[string]string `json:"limits"`
+
+	// Env is the CR field verbatim — valueFrom/secretKeyRef included, so
+	// credentials can reference Secrets instead of carrying literals.
+	Env []corev1.EnvVar `json:"env,omitempty"`
+	// Workload is the CR field verbatim (kind, security contexts,
+	// volumes, nodeSelector, tolerations, serviceAccountName).
+	Workload *waasv1alpha1.WorkspaceWorkload `json:"workload,omitempty"`
+
+	Protocols []TemplateProtocolInput `json:"protocols,omitempty"`
+	Overrides *TemplateOverridesInput `json:"overrides,omitempty"`
+}
+
+// TemplateProtocolInput mirrors WorkspaceProtocol.
+type TemplateProtocolInput struct {
+	Name                 string            `json:"name"`
+	Port                 int32             `json:"port"`
+	Default              bool              `json:"default"`
+	Params               map[string]string `json:"params,omitempty"`
+	UserParams           []string          `json:"userParams,omitempty"`
+	CredentialsSecretRef string            `json:"credentialsSecretRef,omitempty"`
+}
+
+// TemplateOverridesInput mirrors TemplateOverrides.
+type TemplateOverridesInput struct {
+	AllowedFields []string `json:"allowedFields,omitempty"`
+	Owner         string   `json:"owner,omitempty"`
 }
 
 func (s *TemplateService) List(ctx context.Context) ([]model.WorkspaceTemplate, error) {
@@ -157,6 +188,8 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 		OS:          os,
 		Image:       in.Image,
 		Port:        in.Port,
+		Env:         in.Env,
+		Workload:    in.Workload,
 	}
 	if in.HomeSize != "" {
 		qty, err := resource.ParseQuantity(in.HomeSize)
@@ -164,6 +197,10 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 			return nil, apierror.BadRequest("homeSize must be a valid quantity (e.g. 10Gi)")
 		}
 		spec.HomeSize = &qty
+	}
+	if in.StorageClassName != "" {
+		sc := in.StorageClassName
+		spec.StorageClassName = &sc
 	}
 	requests, err := resourceList(in.Requests)
 	if err != nil {
@@ -174,6 +211,51 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 		return nil, err
 	}
 	spec.Resources = corev1.ResourceRequirements{Requests: requests, Limits: limits}
+
+	// Protocols: same registry gate as the admission webhook, but with
+	// 400s and field-level messages instead of a denied kubectl apply.
+	defaults := 0
+	for _, p := range in.Protocols {
+		if p.Name == "" || p.Port <= 0 {
+			return nil, apierror.BadRequest("each protocol needs a name and a port")
+		}
+		if p.Default {
+			defaults++
+		}
+		if v := params.ValidateTemplateParams(p.Name, p.Params); v != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocols[%s].params: %v", p.Name, v))
+		}
+		if v := params.ValidateUserParamNames(p.Name, p.UserParams); v != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocols[%s].userParams: %v", p.Name, v))
+		}
+		spec.Protocols = append(spec.Protocols, waasv1alpha1.WorkspaceProtocol{
+			Name:                 p.Name,
+			Port:                 p.Port,
+			Default:              p.Default,
+			Params:               p.Params,
+			UserParams:           p.UserParams,
+			CredentialsSecretRef: p.CredentialsSecretRef,
+		})
+	}
+	if defaults > 1 {
+		return nil, apierror.BadRequest("at most one protocol may be marked default")
+	}
+
+	if in.Overrides != nil {
+		ov := &waasv1alpha1.TemplateOverrides{Owner: in.Overrides.Owner}
+		for _, f := range in.Overrides.AllowedFields {
+			field := waasv1alpha1.OverridableField(f)
+			switch field {
+			case waasv1alpha1.FieldEnv, waasv1alpha1.FieldSecurityContext, waasv1alpha1.FieldPodSecurityContext,
+				waasv1alpha1.FieldVolumes, waasv1alpha1.FieldNodeSelector, waasv1alpha1.FieldTolerations,
+				waasv1alpha1.FieldResources, waasv1alpha1.FieldProtocol, waasv1alpha1.FieldProtocolParams:
+				ov.AllowedFields = append(ov.AllowedFields, field)
+			default:
+				return nil, apierror.BadRequest(fmt.Sprintf("unknown overridable field %q", f))
+			}
+		}
+		spec.Overrides = ov
+	}
 	return spec, nil
 }
 
@@ -219,19 +301,27 @@ func templateToModel(tpl *waasv1alpha1.WorkspaceTemplate) model.WorkspaceTemplat
 		}
 	}
 	m.Workload = string(tpl.Spec.WorkloadKindOrDefault())
+	m.WorkloadSpec = tpl.Spec.Workload
+	m.Env = tpl.Spec.Env
+	if tpl.Spec.StorageClassName != nil {
+		m.StorageClassName = *tpl.Spec.StorageClassName
+	}
 	def := tpl.Spec.DefaultProtocol()
 	for _, p := range tpl.Spec.EffectiveProtocols() {
 		m.Protocols = append(m.Protocols, model.WorkspaceProtocol{
-			Name:       p.Name,
-			Port:       p.Port,
-			Default:    p.Name == def.Name,
-			UserParams: p.UserParams,
+			Name:                 p.Name,
+			Port:                 p.Port,
+			Default:              p.Name == def.Name,
+			Params:               p.Params,
+			UserParams:           p.UserParams,
+			CredentialsSecretRef: p.CredentialsSecretRef,
 		})
 	}
 	if tpl.Spec.Overrides != nil {
 		for _, f := range tpl.Spec.Overrides.AllowedFields {
 			m.AllowedOverrides = append(m.AllowedOverrides, string(f))
 		}
+		m.OverridesOwner = tpl.Spec.Overrides.Owner
 	}
 	return m
 }

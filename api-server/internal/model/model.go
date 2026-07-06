@@ -4,6 +4,9 @@ package model
 import (
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+
+	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/shared/auth"
 )
 
@@ -103,9 +106,15 @@ type WorkspaceProtocol struct {
 	Name    string `json:"name"`
 	Port    int32  `json:"port,omitempty"`
 	Default bool   `json:"default,omitempty"`
+	// Params are the template's locked guacd parameters (template views
+	// only; workspace listings omit them).
+	Params map[string]string `json:"params,omitempty"`
 	// UserParams are the guacd parameter names the user may set at
 	// connect time (from the template's allow-list).
 	UserParams []string `json:"userParams,omitempty"`
+	// CredentialsSecretRef names the credentials Secret (reference only,
+	// never its content).
+	CredentialsSecretRef string `json:"credentialsSecretRef,omitempty"`
 }
 
 // WorkspaceTemplate is the API projection of a WorkspaceTemplate CR.
@@ -124,11 +133,22 @@ type WorkspaceTemplate struct {
 	// Workload is the workload kind stamping desktops (Deployment,
 	// StatefulSet or Pod).
 	Workload string `json:"workload,omitempty"`
+	// WorkloadSpec is the CR's workload block verbatim (pod-spec
+	// passthrough), for the template editor's advanced section.
+	WorkloadSpec *waasv1alpha1.WorkspaceWorkload `json:"workloadSpec,omitempty"`
+	// Env is the CR's env verbatim (valueFrom included) so the editor can
+	// round-trip it. Secret VALUES never appear here — only references.
+	Env []corev1.EnvVar `json:"env,omitempty"`
+	// StorageClassName of the home volume, when pinned.
+	StorageClassName string `json:"storageClassName,omitempty"`
 	// Protocols the template declares (or the OS-derived legacy one).
 	Protocols []WorkspaceProtocol `json:"protocols,omitempty"`
 	// AllowedOverrides are the template fields plain users may override
 	// at instantiation.
 	AllowedOverrides []string `json:"allowedOverrides,omitempty"`
+	// OverridesOwner is the username owning this template (may override
+	// everything on workspaces stamped from it).
+	OverridesOwner string `json:"overridesOwner,omitempty"`
 }
 
 // CatalogImage is the API projection of a WorkspaceImage CR, already
@@ -168,12 +188,19 @@ type QuotaStatus struct {
 // PolicyModel is the API projection of a WorkspacePolicy CR for the
 // admin console.
 type PolicyModel struct {
-	Name      string            `json:"name"`
-	Priority  int32             `json:"priority"`
-	Subjects  []PolicySubject   `json:"subjects,omitempty"`
-	Images    []string          `json:"images,omitempty"`
-	Limits    PolicyLimitsModel `json:"limits"`
-	Lifecycle map[string]string `json:"lifecycle,omitempty"`
+	Name      string                `json:"name"`
+	Priority  int32                 `json:"priority"`
+	Subjects  []PolicySubject       `json:"subjects,omitempty"`
+	Images    []string              `json:"images,omitempty"`
+	Limits    PolicyLimitsModel     `json:"limits"`
+	Lifecycle map[string]string     `json:"lifecycle,omitempty"`
+	Clipboard *ClipboardPolicyModel `json:"clipboard,omitempty"`
+}
+
+// ClipboardPolicyModel mirrors the CRD clipboard block (nil = allowed).
+type ClipboardPolicyModel struct {
+	CopyFromWorkspace *bool `json:"copyFromWorkspace,omitempty"`
+	PasteToWorkspace  *bool `json:"pasteToWorkspace,omitempty"`
 }
 
 // PolicySubject mirrors the CRD subject.
@@ -190,6 +217,34 @@ type PolicyLimitsModel struct {
 	Defaults      map[string]string `json:"defaults,omitempty"`
 }
 
+// EffectivePolicy is the admin debug view answering "which policy governs
+// this user, and why": the resolved identity, every policy with its match
+// outcome, and the winner — computed by the same pkg/policy code the
+// admission webhook runs.
+type EffectivePolicy struct {
+	UserID   string   `json:"userId"`
+	Username string   `json:"username"`
+	Groups   []string `json:"groups"`
+	// Evaluated lists every policy in resolution order (priority desc).
+	Evaluated []EvaluatedPolicy `json:"evaluated"`
+	// Effective is the winning policy, absent when nothing matches
+	// (fail-closed: the user cannot create workspaces at all).
+	Effective *PolicyModel `json:"effective,omitempty"`
+	Warnings  []string     `json:"warnings,omitempty"`
+	Denial    string       `json:"denial,omitempty"`
+}
+
+// EvaluatedPolicy is one policy's outcome during resolution.
+type EvaluatedPolicy struct {
+	Name     string `json:"name"`
+	Priority int32  `json:"priority"`
+	Matched  bool   `json:"matched"`
+	// Via is the matching subject ("Group:nymphe:dev", "User:marc") or "*"
+	// for a subjects-less catch-all.
+	Via      string `json:"via,omitempty"`
+	Selected bool   `json:"selected"`
+}
+
 // UserUsage is one row of the admin consumption view.
 type UserUsage struct {
 	UserID     string            `json:"userId"`
@@ -198,6 +253,13 @@ type UserUsage struct {
 	Policy     string            `json:"policy,omitempty"`
 	Workspaces int               `json:"workspaces"`
 	Used       map[string]string `json:"used,omitempty"`
+}
+
+// SessionCapabilities is what the user's policy allows in-session; the
+// overlay reflects it, the proxy enforces it.
+type SessionCapabilities struct {
+	ClipboardCopy  bool `json:"clipboardCopy"`
+	ClipboardPaste bool `json:"clipboardPaste"`
 }
 
 // ConnectionInfo is what the WebSocket proxy needs to reach a desktop. It is

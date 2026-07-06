@@ -43,6 +43,12 @@ func (s *AuthService) Login(ctx context.Context, username, password, clientIP st
 		}
 		return nil, fmt.Errorf("looking up user %s: %w", username, err)
 	}
+	if user.PasswordHash == "" {
+		// SSO-provisioned account: it has no local credential and must
+		// not reveal that fact to a password-guessing caller.
+		s.audit.Record(ctx, Actor{Username: username, ClientIP: clientIP}, "user.login_failed", "user", user.ID, "sso-only account")
+		return nil, apierror.Unauthorized("invalid credentials")
+	}
 	ok, err := VerifyPassword(password, user.PasswordHash)
 	if err != nil {
 		return nil, fmt.Errorf("verifying password for %s: %w", username, err)

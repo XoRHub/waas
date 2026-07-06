@@ -55,9 +55,35 @@ policy at priority 0 as the restrictive fallback. **No matching policy
   (`IdentityViolation`).
 - Both paths: owner and identity annotations are **immutable** after
   creation, whoever calls.
-- Until Authentik OIDC login lands in the api-server, `users.groups` is
-  admin-maintained (PATCH `/api/v1/users/{id}` with `groups`); the OIDC
-  integration will overwrite it from the `groups` claim at each login.
+- The group mirror `users.groups` has two writers, by design:
+  - **OIDC login** (when `apiServer.oidc.*` is configured in Helm): the
+    IdP's `groups` claim overwrites the mirror at **every** SSO login;
+    role can also be synced via `adminGroups`. Local login stays
+    available as break-glass.
+  - **Admin editing** (always available): the Users page or
+    PATCH `/api/v1/users/{id}` with `groups` — the only path when OIDC
+    is not configured.
+  A user whose mirror is empty matches only subjects-less policies:
+  that is the `default`-policy-for-everyone symptom, not a priority
+  bug.
+
+### Clipboard policy
+
+`spec.clipboard` gates the two clipboard directions independently
+(`copyFromWorkspace`, `pasteToWorkspace`; absent = allowed). The
+api-server resolves the CONNECTING user's policy at session start and
+stamps the grant into the connection token; the wwt proxy enforces it by
+filtering `clipboard` streams in both directions and clamps the
+overlay's live toggles to the grant. No policy match = both directions
+denied (fail closed) while the session itself still opens.
+
+### Debugging resolution
+
+`GET /api/v1/admin/users/{id}/effective-policy` replays the exact
+resolution the webhook performs and returns the resolved identity,
+every policy with its match outcome (`via` = matching subject), the
+winner and any tie warnings. The same view is embedded in the admin
+Users page (edit dialog).
 
 ## Admission decision matrix
 

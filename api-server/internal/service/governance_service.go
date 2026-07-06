@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -250,10 +251,12 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 		Architectures: in.Architectures,
 	}
 	for _, p := range in.Protocols {
-		if p != string(waasv1alpha1.ProtocolVNC) && p != string(waasv1alpha1.ProtocolRDP) {
+		switch waasv1alpha1.Protocol(p) {
+		case waasv1alpha1.ProtocolVNC, waasv1alpha1.ProtocolRDP, waasv1alpha1.ProtocolSSH:
+			spec.Protocols = append(spec.Protocols, waasv1alpha1.Protocol(p))
+		default:
 			return nil, apierror.BadRequest(fmt.Sprintf("unknown protocol %q", p))
 		}
-		spec.Protocols = append(spec.Protocols, waasv1alpha1.Protocol(p))
 	}
 	res, err := computeSizes(in.Defaults, in.Min, in.Max)
 	if err != nil {
@@ -333,11 +336,12 @@ func (s *GovernanceService) AdminListPolicies(ctx context.Context) ([]model.Poli
 
 // UpsertPolicyInput is the admin payload for a policy.
 type UpsertPolicyInput struct {
-	Priority  int32                 `json:"priority"`
-	Subjects  []model.PolicySubject `json:"subjects"`
-	Images    []string              `json:"images"`
-	Limits    model.PolicyLimitsModel `json:"limits"`
-	Lifecycle map[string]string     `json:"lifecycle"`
+	Priority  int32                       `json:"priority"`
+	Subjects  []model.PolicySubject       `json:"subjects"`
+	Images    []string                    `json:"images"`
+	Limits    model.PolicyLimitsModel     `json:"limits"`
+	Lifecycle map[string]string           `json:"lifecycle"`
+	Clipboard *model.ClipboardPolicyModel `json:"clipboard"`
 }
 
 // AdminUpsertPolicy creates or updates a WorkspacePolicy.
@@ -391,6 +395,12 @@ func (s *GovernanceService) AdminUpsertPolicy(ctx context.Context, actor Actor, 
 		}
 		spec.Lifecycle = lc
 	}
+	if in.Clipboard != nil {
+		spec.Clipboard = &waasv1alpha1.ClipboardPolicy{
+			CopyFromWorkspace: in.Clipboard.CopyFromWorkspace,
+			PasteToWorkspace:  in.Clipboard.PasteToWorkspace,
+		}
+	}
 
 	pol := &waasv1alpha1.WorkspacePolicy{}
 	err = s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, pol)
@@ -429,6 +439,59 @@ func (s *GovernanceService) AdminDeletePolicy(ctx context.Context, actor Actor, 
 	}
 	s.audit.Record(ctx, actor, "policy.deleted", "workspacepolicy", name, "")
 	return nil
+}
+
+// AdminEffectivePolicy is the debug view behind "why is this user stuck on
+// that policy": it replays the exact resolution the webhook performs and
+// reports every policy's match outcome.
+func (s *GovernanceService) AdminEffectivePolicy(ctx context.Context, userID string) (*model.EffectivePolicy, error) {
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			return nil, apierror.NotFound("user not found")
+		}
+		return nil, err
+	}
+	policies := &waasv1alpha1.WorkspacePolicyList{}
+	if err := s.kube.List(ctx, policies, client.InNamespace(s.namespace)); err != nil {
+		return nil, fmt.Errorf("listing workspace policies: %w", err)
+	}
+
+	id := identityFor(user)
+	out := &model.EffectivePolicy{
+		UserID:   user.ID,
+		Username: user.Username,
+		Groups:   user.Groups,
+	}
+	pol, warnings, denial := policy.Resolve(policies.Items, id)
+	out.Warnings = warnings
+	if denial != nil {
+		out.Denial = denial.Message
+	} else {
+		m := policyToModel(pol)
+		out.Effective = &m
+	}
+
+	// Same order the resolution sorts by: priority desc, then name.
+	items := make([]waasv1alpha1.WorkspacePolicy, len(policies.Items))
+	copy(items, policies.Items)
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Spec.Priority != items[j].Spec.Priority {
+			return items[i].Spec.Priority > items[j].Spec.Priority
+		}
+		return items[i].Name < items[j].Name
+	})
+	for i := range items {
+		via := policy.MatchedVia(items[i].Spec.Subjects, id)
+		out.Evaluated = append(out.Evaluated, model.EvaluatedPolicy{
+			Name:     items[i].Name,
+			Priority: items[i].Spec.Priority,
+			Matched:  via != "",
+			Via:      via,
+			Selected: pol != nil && pol.Name == items[i].Name,
+		})
+	}
+	return out, nil
 }
 
 // AdminUsage is the consumption view: one row per user that owns at
@@ -528,6 +591,12 @@ func policyToModel(pol *waasv1alpha1.WorkspacePolicy) model.PolicyModel {
 		}
 	}
 	m.Limits.Defaults = sizeToMap(pol.Spec.Limits.Defaults)
+	if c := pol.Spec.Clipboard; c != nil {
+		m.Clipboard = &model.ClipboardPolicyModel{
+			CopyFromWorkspace: c.CopyFromWorkspace,
+			PasteToWorkspace:  c.PasteToWorkspace,
+		}
+	}
 	if lc := pol.Spec.Lifecycle; lc != nil {
 		m.Lifecycle = map[string]string{}
 		if lc.IdleSuspendAfter != nil {

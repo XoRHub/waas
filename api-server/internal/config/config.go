@@ -44,7 +44,45 @@ type Config struct {
 	// workspaces to auto-pause (policy lifecycle.idleSuspendAfter).
 	// Zero disables the sweeper.
 	IdleSweepInterval time.Duration
+
+	// OIDC configures the optional SSO login (Authentik or any OIDC
+	// provider). Enabled when IssuerURL and ClientID are both set; local
+	// username/password login always remains available (bootstrap admin,
+	// break-glass when the IdP is down).
+	OIDC OIDCConfig
 }
+
+// OIDCConfig is the SSO provider wiring.
+type OIDCConfig struct {
+	// IssuerURL is the OIDC discovery issuer, e.g.
+	// https://authentik.example.com/application/o/waas/
+	IssuerURL    string
+	ClientID     string
+	ClientSecret string
+	// RedirectURL is this api-server's public callback URL, e.g.
+	// https://waas.example.com/api/v1/auth/oidc/callback
+	RedirectURL string
+	// Scopes requested at authorization. Authentik ships the groups claim
+	// in its default profile scope mapping.
+	Scopes []string
+	// UsernameClaim maps the IdP identity to the platform username.
+	UsernameClaim string
+	// GroupsClaim carries the Authentik group names mirrored into
+	// users.user_groups at every login (drives WorkspacePolicy matching).
+	GroupsClaim string
+	// AdminGroups grant the platform admin role; when set, role is synced
+	// at every login (membership lost = demoted). Empty = roles stay
+	// admin-managed.
+	AdminGroups []string
+	// ProviderName labels the SSO button in the login page.
+	ProviderName string
+	// FrontendURL is where the browser lands after the callback (the SPA
+	// origin). Default "/" works when the frontend shares the origin.
+	FrontendURL string
+}
+
+// Enabled reports whether SSO login is configured.
+func (o OIDCConfig) Enabled() bool { return o.IssuerURL != "" && o.ClientID != "" }
 
 // Load reads configuration from WAAS_* environment variables.
 func Load() (*Config, error) {
@@ -68,6 +106,27 @@ func Load() (*Config, error) {
 		cfg.CORSAllowedOrigins = strings.Split(origins, ",")
 	}
 
+	cfg.OIDC = OIDCConfig{
+		IssuerURL:     os.Getenv("WAAS_OIDC_ISSUER"),
+		ClientID:      os.Getenv("WAAS_OIDC_CLIENT_ID"),
+		ClientSecret:  os.Getenv("WAAS_OIDC_CLIENT_SECRET"),
+		RedirectURL:   os.Getenv("WAAS_OIDC_REDIRECT_URL"),
+		Scopes:        splitList(envOr("WAAS_OIDC_SCOPES", "openid,profile,email")),
+		UsernameClaim: envOr("WAAS_OIDC_USERNAME_CLAIM", "preferred_username"),
+		GroupsClaim:   envOr("WAAS_OIDC_GROUPS_CLAIM", "groups"),
+		AdminGroups:   splitList(os.Getenv("WAAS_OIDC_ADMIN_GROUPS")),
+		ProviderName:  envOr("WAAS_OIDC_PROVIDER_NAME", "SSO"),
+		FrontendURL:   envOr("WAAS_OIDC_FRONTEND_URL", "/"),
+	}
+	if cfg.OIDC.Enabled() {
+		if cfg.OIDC.ClientSecret == "" {
+			return nil, fmt.Errorf("WAAS_OIDC_CLIENT_SECRET is required when OIDC is enabled")
+		}
+		if cfg.OIDC.RedirectURL == "" {
+			return nil, fmt.Errorf("WAAS_OIDC_REDIRECT_URL is required when OIDC is enabled")
+		}
+	}
+
 	if cfg.DatabaseURL == "" {
 		if !cfg.DevMode {
 			return nil, fmt.Errorf("WAAS_DATABASE_URL is required outside dev mode")
@@ -85,6 +144,20 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// splitList parses a comma-separated list, trimming blanks.
+func splitList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func durationOr(key string, fallback time.Duration) time.Duration {
