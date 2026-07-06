@@ -131,6 +131,13 @@ spec:
           env:
             - name: ENABLE_WEBHOOKS
               value: {{ .Values.operator.webhook.enabled | quote }}
+            # Namespace where guacd/wwt run: the bootstrap NetworkPolicy of
+            # placed workload namespaces lets it in (the workspaces
+            # namespace may differ from the release namespace).
+            - name: WAAS_PLATFORM_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             # Trusted-writer identity model: only the api-server SA may
             # set spec.owner and the identity annotations on Workspaces.
             - name: WAAS_TRUSTED_WRITERS

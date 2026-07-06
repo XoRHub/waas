@@ -39,6 +39,7 @@ func placedWorkspace() *waasv1alpha1.Workspace {
 func TestPlacedWorkspaceProvisionsInTargetNamespace(t *testing.T) {
 	ws := placedWorkspace()
 	r, c := newFixture(t, linuxTemplate(), ws)
+	r.PlatformNamespace = "waas-platform" // where guacd/wwt run
 	ctx := context.Background()
 
 	reconcile(t, r, ws)
@@ -57,6 +58,16 @@ func TestPlacedWorkspaceProvisionsInTargetNamespace(t *testing.T) {
 	netpol := &networkingv1.NetworkPolicy{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "waas-alice", Name: "waas-default-ingress"}, netpol); err != nil {
 		t.Fatalf("expected default ingress networkpolicy: %v", err)
+	}
+	// guacd/wwt run in the platform (release) namespace, which may differ
+	// from the CR namespace: BOTH must be allowed in or placed desktops
+	// become unreachable through the proxy.
+	var allowed []string
+	for _, peer := range netpol.Spec.Ingress[0].From {
+		allowed = append(allowed, peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"])
+	}
+	if len(allowed) != 2 || allowed[0] != "default" || allowed[1] != "waas-platform" {
+		t.Fatalf("netpol must admit the CR namespace and the platform namespace, got %v", allowed)
 	}
 
 	// Workload, service and PVC are named after the workspace and live in

@@ -62,11 +62,21 @@ réglages admin ne sont pas écrasés) :
   requests.storage). Défense en profondeur : le webhook reste
   l'enforcement primaire.
 - **NetworkPolicy `waas-default-ingress`** : ingress refusé sauf depuis
-  le namespace plateforme (guacd/wwt doivent joindre les desktops),
-  egress libre.
+  le namespace des CR **et** le namespace release (`WAAS_PLATFORM_NAMESPACE`,
+  injecté par le chart via la downward API) — c'est là que guacd/wwt
+  tournent réellement et ils doivent joindre les desktops. Egress libre.
 - **Pas de RBAC utilisateur** : les utilisateurs ne parlent jamais à
   l'API Kubernetes (tout passe par le portail) ; en créer serait de la
   surface d'attaque gratuite.
+
+⚠️ **Contrainte secretKeyRef** : les `env.valueFrom.secretKeyRef` d'un
+template se résolvent dans le namespace **du pod**, donc dans le
+namespace cible. Un template placé qui référence un Secret du namespace
+plateforme (ex. `dev-ssh-credentials`) casse au démarrage
+(`CreateContainerConfigError`) : provisionner le Secret dans les
+namespaces cibles (External Secrets/Vault) ou ne pas placer ce template.
+Les `credentialsSecretRef` des protocoles ne sont PAS concernés : ils
+sont résolus côté api-server dans le namespace plateforme.
 
 ### GC et cleanup
 

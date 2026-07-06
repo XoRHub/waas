@@ -86,18 +86,26 @@ func (r *WorkspaceReconciler) bootstrapNamespace(ctx context.Context, ws *waasv1
 		}
 	}
 
+	// Peers: the CR namespace AND the platform namespace where guacd/wwt
+	// actually run (they may differ — chart release ns vs workspaces ns).
+	peers := []networkingv1.NetworkPolicyPeer{{
+		NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+			"kubernetes.io/metadata.name": ws.Namespace,
+		}},
+	}}
+	if r.PlatformNamespace != "" && r.PlatformNamespace != ws.Namespace {
+		peers = append(peers, networkingv1.NetworkPolicyPeer{
+			NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+				"kubernetes.io/metadata.name": r.PlatformNamespace,
+			}},
+		})
+	}
 	netpol := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "waas-default-ingress", Namespace: name, Labels: workspaceOwnerLabels(ws)},
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
-			Ingress: []networkingv1.NetworkPolicyIngressRule{{
-				From: []networkingv1.NetworkPolicyPeer{{
-					NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
-						"kubernetes.io/metadata.name": ws.Namespace,
-					}},
-				}},
-			}},
+			Ingress:     []networkingv1.NetworkPolicyIngressRule{{From: peers}},
 		},
 	}
 	if err := r.Create(ctx, netpol); err != nil && !apierrors.IsAlreadyExists(err) {

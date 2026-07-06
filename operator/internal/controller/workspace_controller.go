@@ -60,6 +60,11 @@ type WorkspaceReconciler struct {
 	// Now is the reconciler's clock; nil means time.Now. Injectable so
 	// schedule transitions are testable at a chosen instant.
 	Now func() time.Time
+	// PlatformNamespace is where guacd/wwt run (usually the Helm release
+	// namespace, which may differ from the namespace holding the CRs).
+	// The bootstrap NetworkPolicy of placed namespaces lets it in; empty
+	// = assume everything runs beside the CRs.
+	PlatformNamespace string
 }
 
 func (r *WorkspaceReconciler) now() time.Time {

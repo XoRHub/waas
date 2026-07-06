@@ -68,6 +68,11 @@ func main() {
 		Client:            mgr.GetClient(),
 		KubeVirtAvailable: kubeVirtAvailable,
 		Recorder:          mgr.GetEventRecorderFor("waas-operator"),
+		// Where guacd/wwt run (the release namespace, injected by the
+		// chart via the downward API): the default-deny ingress of placed
+		// workload namespaces must let it in, or placed desktops become
+		// unreachable through the proxy.
+		PlatformNamespace: os.Getenv("WAAS_PLATFORM_NAMESPACE"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 		os.Exit(1)
