@@ -84,13 +84,31 @@ type Session struct {
 // workspaces: no template, no operator lifecycle, no compute. The
 // credentials live in the Kubernetes Secret named SecretName (one per
 // row), never in the database or this struct.
+// RemoteProtocol is one endpoint a remote machine serves — the same
+// shape the frontend already consumes for provisioned workspaces
+// (name/port/default), so cards, forms and the protocol switch treat
+// both kinds identically.
+type RemoteProtocol struct {
+	Name string `json:"name"`
+	Port int32  `json:"port"`
+	// Default marks the protocol used when the user picks none.
+	Default bool `json:"default,omitempty"`
+	// Params are guacd parameters for THIS protocol (registry-gated).
+	Params map[string]string `json:"params,omitempty"`
+}
+
 type RemoteWorkspace struct {
 	ID       string `json:"id"`
 	OwnerID  string `json:"ownerId"`
 	Name     string `json:"name"`
 	Hostname string `json:"hostname"`
+	// Port/Protocol/Params mirror the DEFAULT entry of Protocols — kept
+	// for API and storage compatibility with single-protocol clients.
 	Port     int32  `json:"port"`
 	Protocol string `json:"protocol"`
+	// Protocols are every endpoint the machine serves. Empty on legacy
+	// rows: EffectiveProtocols synthesizes the single legacy entry.
+	Protocols []RemoteProtocol `json:"protocols,omitempty"`
 	// MACAddress enables Wake-on-LAN when set (canonical lower-case,
 	// colon-separated). Empty = no WoL.
 	MACAddress string `json:"macAddress,omitempty"`
@@ -105,6 +123,37 @@ type RemoteWorkspace struct {
 	CredentialKeys []string  `json:"credentialKeys,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// EffectiveProtocols returns the declared endpoints, or the single
+// legacy entry for rows created before multi-protocol support.
+func (rw *RemoteWorkspace) EffectiveProtocols() []RemoteProtocol {
+	if len(rw.Protocols) > 0 {
+		return rw.Protocols
+	}
+	return []RemoteProtocol{{Name: rw.Protocol, Port: rw.Port, Default: true, Params: rw.Params}}
+}
+
+// DefaultProtocol returns the endpoint used when the user picks none.
+func (rw *RemoteWorkspace) DefaultProtocol() RemoteProtocol {
+	protos := rw.EffectiveProtocols()
+	for _, p := range protos {
+		if p.Default {
+			return p
+		}
+	}
+	return protos[0]
+}
+
+// ProtocolNamed returns the endpoint with the given name, or nil.
+func (rw *RemoteWorkspace) ProtocolNamed(name string) *RemoteProtocol {
+	protos := rw.EffectiveProtocols()
+	for i := range protos {
+		if protos[i].Name == name {
+			return &protos[i]
+		}
+	}
+	return nil
 }
 
 // AuditLog is one append-only audit trail entry.

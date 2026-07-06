@@ -549,13 +549,22 @@ func (s *WorkspaceService) remoteConnectionInfo(ctx context.Context, session *mo
 	if err != nil {
 		return nil, err
 	}
+	// The session recorded which endpoint was chosen at connect time;
+	// resolve port and stored params from that entry (default when the
+	// session predates multi-protocol remotes).
+	entry := rw.DefaultProtocol()
+	if session.Protocol != "" {
+		if chosen := rw.ProtocolNamed(session.Protocol); chosen != nil {
+			entry = *chosen
+		}
+	}
 	info := &model.ConnectionInfo{
-		Protocol: rw.Protocol,
+		Protocol: entry.Name,
 		Hostname: rw.Hostname,
-		Port:     rw.Port,
+		Port:     entry.Port,
 		Params:   map[string]string{},
 	}
-	for k, v := range rw.Params {
+	for k, v := range entry.Params {
 		info.Params[k] = v
 	}
 	for k, v := range session.Params {

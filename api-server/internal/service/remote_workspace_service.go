@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -89,12 +90,24 @@ func (c *RemoteCredentialsInput) secretKeys() map[string]*string {
 	}
 }
 
-// RemoteWorkspaceInput is the create/update payload.
+// RemoteProtocolInput is one endpoint of the machine.
+type RemoteProtocolInput struct {
+	Name    string            `json:"name"`
+	Port    int32             `json:"port"`
+	Default bool              `json:"default,omitempty"`
+	Params  map[string]string `json:"params,omitempty"`
+}
+
+// RemoteWorkspaceInput is the create/update payload. Protocols is the
+// multi-endpoint shape; the legacy single Port/Protocol/Params fields
+// stay accepted (used when Protocols is empty) so older clients keep
+// working unchanged.
 type RemoteWorkspaceInput struct {
 	Name        string                  `json:"name"`
 	Hostname    string                  `json:"hostname"`
-	Port        int32                   `json:"port"`
-	Protocol    string                  `json:"protocol"`
+	Port        int32                   `json:"port,omitempty"`
+	Protocol    string                  `json:"protocol,omitempty"`
+	Protocols   []RemoteProtocolInput   `json:"protocols,omitempty"`
 	MACAddress  string                  `json:"macAddress,omitempty"`
 	Params      map[string]string       `json:"params,omitempty"`
 	Credentials *RemoteCredentialsInput `json:"credentials,omitempty"`
@@ -129,6 +142,48 @@ func (s *RemoteWorkspaceService) requireFeature(ctx context.Context, actor Actor
 	return nil
 }
 
+// normalizeRemoteProtocols validates the endpoint list and returns the
+// canonical form: the legacy single-protocol input becomes a one-entry
+// list, exactly one entry is default (the first when none is marked),
+// every entry's params go through the same registry gate as templates.
+func normalizeRemoteProtocols(in RemoteWorkspaceInput) ([]model.RemoteProtocol, error) {
+	entries := in.Protocols
+	if len(entries) == 0 {
+		entries = []RemoteProtocolInput{{Name: in.Protocol, Port: in.Port, Default: true, Params: in.Params}}
+	}
+	out := make([]model.RemoteProtocol, 0, len(entries))
+	seen := map[string]bool{}
+	defaults := 0
+	for _, e := range entries {
+		if !slices.Contains(params.Protocols(), e.Name) {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocol must be one of %v", params.Protocols()))
+		}
+		if seen[e.Name] {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocol %q is declared twice", e.Name))
+		}
+		seen[e.Name] = true
+		if e.Port < 1 || e.Port > 65535 {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocols[%s]: port must be between 1 and 65535", e.Name))
+		}
+		// Same registry gate as templates: unknown and platform-owned
+		// parameters (credentials, gateways, recording…) are rejected.
+		if v := params.ValidateTemplateParams(e.Name, e.Params); v != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocols[%s].params: %v", e.Name, v))
+		}
+		if e.Default {
+			defaults++
+		}
+		out = append(out, model.RemoteProtocol{Name: e.Name, Port: e.Port, Default: e.Default, Params: e.Params})
+	}
+	if defaults > 1 {
+		return nil, apierror.BadRequest("at most one protocol may be marked default")
+	}
+	if defaults == 0 {
+		out[0].Default = true
+	}
+	return out, nil
+}
+
 func validateRemoteInput(in RemoteWorkspaceInput) error {
 	if strings.TrimSpace(in.Name) == "" {
 		return apierror.BadRequest("name is required")
@@ -137,30 +192,20 @@ func validateRemoteInput(in RemoteWorkspaceInput) error {
 	if host == "" || strings.ContainsAny(host, " \t/@") {
 		return apierror.BadRequest("hostname must be a bare host or IP (no scheme, no path, no credentials)")
 	}
-	if in.Port < 1 || in.Port > 65535 {
-		return apierror.BadRequest("port must be between 1 and 65535")
-	}
-	known := false
-	for _, p := range params.Protocols() {
-		if p == in.Protocol {
-			known = true
-			break
-		}
-	}
-	if !known {
-		return apierror.BadRequest(fmt.Sprintf("protocol must be one of %v", params.Protocols()))
-	}
-	// Same registry gate as templates: unknown and platform-owned
-	// parameters (credentials, gateways, recording…) are rejected.
-	if v := params.ValidateTemplateParams(in.Protocol, in.Params); v != nil {
-		return apierror.BadRequest("params: " + v.Error())
-	}
 	if in.MACAddress != "" {
 		if _, err := normalizeMAC(in.MACAddress); err != nil {
 			return apierror.BadRequest("macAddress: " + err.Error())
 		}
 	}
 	return nil
+}
+
+// syncLegacyProtocolFields mirrors the default endpoint into the legacy
+// single-protocol fields, which stay stored and serialized so older
+// clients and the admin fleet view keep a meaningful protocol/port.
+func syncLegacyProtocolFields(rw *model.RemoteWorkspace) {
+	def := rw.DefaultProtocol()
+	rw.Protocol, rw.Port, rw.Params = def.Name, def.Port, def.Params
 }
 
 // normalizeMAC validates and canonicalizes a MAC to lower-case
@@ -191,6 +236,10 @@ func (s *RemoteWorkspaceService) Create(ctx context.Context, actor Actor, in Rem
 	if err := validateRemoteInput(in); err != nil {
 		return nil, err
 	}
+	protocols, err := normalizeRemoteProtocols(in)
+	if err != nil {
+		return nil, err
+	}
 
 	now := time.Now().UTC()
 	rw := &model.RemoteWorkspace{
@@ -198,13 +247,12 @@ func (s *RemoteWorkspaceService) Create(ctx context.Context, actor Actor, in Rem
 		OwnerID:    actor.ID,
 		Name:       strings.TrimSpace(in.Name),
 		Hostname:   strings.TrimSpace(in.Hostname),
-		Port:       in.Port,
-		Protocol:   in.Protocol,
+		Protocols:  protocols,
 		MACAddress: canonicalMAC(in.MACAddress),
-		Params:     in.Params,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
+	syncLegacyProtocolFields(rw)
 	rw.SecretName = "waas-remote-" + rw.ID
 
 	// Secret first (rollback is trivial), row second.
@@ -245,13 +293,16 @@ func (s *RemoteWorkspaceService) Update(ctx context.Context, actor Actor, id str
 	if err := validateRemoteInput(in); err != nil {
 		return nil, err
 	}
+	protocols, err := normalizeRemoteProtocols(in)
+	if err != nil {
+		return nil, err
+	}
 	rw.Name = strings.TrimSpace(in.Name)
 	rw.Hostname = strings.TrimSpace(in.Hostname)
-	rw.Port = in.Port
-	rw.Protocol = in.Protocol
+	rw.Protocols = protocols
 	rw.MACAddress = canonicalMAC(in.MACAddress)
-	rw.Params = in.Params
 	rw.UpdatedAt = time.Now().UTC()
+	syncLegacyProtocolFields(rw)
 
 	keys, err := s.writeCredentials(ctx, rw, in.Credentials, false)
 	if err != nil {
@@ -300,10 +351,21 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 	if err != nil {
 		return nil, err
 	}
+	// The caller may pick any endpoint the machine declares (protocol
+	// quick-switch); default when unspecified — same contract as
+	// provisioned workspaces.
+	entry := rw.DefaultProtocol()
+	if in.Protocol != "" {
+		chosen := rw.ProtocolNamed(in.Protocol)
+		if chosen == nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocol %q is not declared by this remote workspace", in.Protocol))
+		}
+		entry = *chosen
+	}
 	// Connect-time tweaks go through the same registry gate as the stored
 	// params; the owner registered the machine, so no template allow-list
 	// applies beyond the platform tier ban.
-	if v := params.ValidateTemplateParams(rw.Protocol, in.Params); v != nil {
+	if v := params.ValidateTemplateParams(entry.Name, in.Params); v != nil {
 		return nil, apierror.BadRequest("params: " + v.Error())
 	}
 
@@ -312,7 +374,7 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 		UserID:        actor.ID,
 		WorkspaceID:   rw.ID,
 		WorkspaceName: rw.Name,
-		Protocol:      rw.Protocol,
+		Protocol:      entry.Name,
 		ClientIP:      actor.ClientIP,
 		StartedAt:     time.Now().UTC(),
 		Params:        in.Params,
@@ -328,12 +390,12 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 		return nil, fmt.Errorf("issuing connection token: %w", err)
 	}
 	s.audit.Record(ctx, actor, "session.started", "session", session.ID,
-		fmt.Sprintf("remoteWorkspace=%s target=%s:%d protocol=%s", rw.Name, rw.Hostname, rw.Port, rw.Protocol))
+		fmt.Sprintf("remoteWorkspace=%s target=%s:%d protocol=%s", rw.Name, rw.Hostname, entry.Port, entry.Name))
 
 	return &ConnectResult{
 		SessionID:       session.ID,
 		ConnectionToken: token,
-		Protocol:        rw.Protocol,
+		Protocol:        entry.Name,
 		Capabilities: &model.SessionCapabilities{
 			ClipboardCopy:  clipboard.Copy,
 			ClipboardPaste: clipboard.Paste,

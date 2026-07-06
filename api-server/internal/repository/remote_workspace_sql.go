@@ -22,12 +22,12 @@ func NewSQLRemoteWorkspaceRepository(db *database.DB) *SQLRemoteWorkspaceReposit
 	return &SQLRemoteWorkspaceRepository{db: db}
 }
 
-const remoteWorkspaceColumns = "id, owner_id, name, hostname, port, protocol, mac_address, params, secret_name, credential_keys, created_at, updated_at"
+const remoteWorkspaceColumns = "id, owner_id, name, hostname, port, protocol, protocols, mac_address, params, secret_name, credential_keys, created_at, updated_at"
 
 func (r *SQLRemoteWorkspaceRepository) Create(ctx context.Context, rw *model.RemoteWorkspace) error {
-	query := r.db.Rebind(`INSERT INTO remote_workspaces (` + remoteWorkspaceColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	query := r.db.Rebind(`INSERT INTO remote_workspaces (` + remoteWorkspaceColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	_, err := r.db.ExecContext(ctx, query,
-		rw.ID, rw.OwnerID, rw.Name, rw.Hostname, rw.Port, rw.Protocol, rw.MACAddress,
+		rw.ID, rw.OwnerID, rw.Name, rw.Hostname, rw.Port, rw.Protocol, marshalProtocols(rw.Protocols), rw.MACAddress,
 		marshalParams(rw.Params), rw.SecretName, marshalKeys(rw.CredentialKeys),
 		timeArg(rw.CreatedAt), timeArg(rw.UpdatedAt))
 	if err != nil {
@@ -90,10 +90,10 @@ func (r *SQLRemoteWorkspaceRepository) ListAll(ctx context.Context) ([]model.Rem
 
 func (r *SQLRemoteWorkspaceRepository) Update(ctx context.Context, rw *model.RemoteWorkspace) error {
 	query := r.db.Rebind(`UPDATE remote_workspaces
-		SET name = ?, hostname = ?, port = ?, protocol = ?, mac_address = ?, params = ?, credential_keys = ?, updated_at = ?
+		SET name = ?, hostname = ?, port = ?, protocol = ?, protocols = ?, mac_address = ?, params = ?, credential_keys = ?, updated_at = ?
 		WHERE id = ?`)
 	res, err := r.db.ExecContext(ctx, query,
-		rw.Name, rw.Hostname, rw.Port, rw.Protocol, rw.MACAddress,
+		rw.Name, rw.Hostname, rw.Port, rw.Protocol, marshalProtocols(rw.Protocols), rw.MACAddress,
 		marshalParams(rw.Params), marshalKeys(rw.CredentialKeys), timeArg(rw.UpdatedAt), rw.ID)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -120,17 +120,39 @@ func (r *SQLRemoteWorkspaceRepository) Delete(ctx context.Context, id string) er
 
 func scanRemoteWorkspace(row rowScanner) (*model.RemoteWorkspace, error) {
 	var (
-		rw     model.RemoteWorkspace
-		params string
-		keys   string
+		rw        model.RemoteWorkspace
+		params    string
+		protocols string
+		keys      string
 	)
-	if err := row.Scan(&rw.ID, &rw.OwnerID, &rw.Name, &rw.Hostname, &rw.Port, &rw.Protocol, &rw.MACAddress,
+	if err := row.Scan(&rw.ID, &rw.OwnerID, &rw.Name, &rw.Hostname, &rw.Port, &rw.Protocol, &protocols, &rw.MACAddress,
 		&params, &rw.SecretName, &keys, scanTime{&rw.CreatedAt}, scanTime{&rw.UpdatedAt}); err != nil {
 		return nil, err
 	}
 	rw.Params = unmarshalParams(params)
 	rw.CredentialKeys = unmarshalKeys(keys)
+	// Legacy rows (pre multi-protocol) have an empty column: synthesize
+	// the single legacy endpoint so every caller sees the same shape.
+	if protocols != "" && protocols != "[]" {
+		if err := json.Unmarshal([]byte(protocols), &rw.Protocols); err != nil {
+			return nil, fmt.Errorf("decoding protocols of %s: %w", rw.ID, err)
+		}
+	}
+	if len(rw.Protocols) == 0 {
+		rw.Protocols = rw.EffectiveProtocols()
+	}
 	return &rw, nil
+}
+
+func marshalProtocols(protocols []model.RemoteProtocol) string {
+	if len(protocols) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(protocols)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func marshalKeys(keys []string) string {
