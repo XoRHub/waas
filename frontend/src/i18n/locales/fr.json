@@ -114,7 +114,8 @@
     "wake": "Réveiller",
     "wakeHint": "Envoie un magic packet Wake-on-LAN via le relais de la plateforme.",
     "waking": "Réveil de la machine…",
-    "wakeWaitHint": "Paquet Wake-on-LAN envoyé ; on laisse la machine démarrer avant de réessayer."
+    "wakeWaitHint": "Paquet Wake-on-LAN envoyé ; on laisse la machine démarrer avant de réessayer.",
+    "addProtocol": "Ajouter un protocole"
   },
   "connect": {
     "connecting": "Connexion à votre bureau…",

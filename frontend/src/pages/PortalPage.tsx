@@ -16,18 +16,18 @@ import {
   useWorkspaceAction,
   useWorkspaces,
 } from '@/hooks/useApi';
-import { StatusBadge } from '@/components/StatusBadge';
 import { UserMenu } from '@/components/UserMenu';
 import { Dialog } from '@/components/Dialog';
-import { ParamField, tieredParams } from '@/components/ParamField';
 import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
 import { ScheduleEditor, useNextTransitionLabel } from '@/components/ScheduleEditor';
+import { FolderedGrid, SessionCard } from '@/components/SessionCard';
 import { useAuthStore } from '@/stores/authStore';
-import { useEscape } from '@/hooks/useEscape';
 import { effectivePhase } from '@/lib/lifecycle';
+import { targetFromRemote, targetFromWorkspace } from '@/lib/target';
 import { templateAvailability } from '@/lib/templates';
 import { displayCpu, displayMemory, formatCpu, formatMemory, parseCpu, parseMemory } from '@/lib/quantity';
 import type {
+  RemoteProtocol,
   RemoteWorkspace,
   RemoteWorkspaceInput,
   TemplateEnvVar,
@@ -114,26 +114,6 @@ export function PortalPage() {
 function WorkspacesSection({ onCreate }: { onCreate: () => void }) {
   const { t } = useTranslation();
   const workspaces = useWorkspaces();
-  const user = useAuthStore((s) => s.user);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-
-  // User-defined grouping: folder name → workspaces; '' collects the
-  // unfiled ones and is rendered last.
-  const folderOf = user?.preferences?.workspaceFolders ?? {};
-  const groups = new Map<string, Workspace[]>();
-  for (const ws of workspaces.data?.data ?? []) {
-    const folder = folderOf[ws.id] ?? '';
-    groups.set(folder, [...(groups.get(folder) ?? []), ws]);
-  }
-  const folderNames = [...groups.keys()].filter((f) => f !== '').sort();
-
-  const renderCards = (items: Workspace[]) => (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map((ws) => (
-        <WorkspaceCard key={ws.id} workspace={ws} />
-      ))}
-    </div>
-  );
 
   // Three distinct states: skeletons while fetching, an explicit error
   // with a retry, and a first-run empty state with a call to action.
@@ -168,31 +148,10 @@ function WorkspacesSection({ onCreate }: { onCreate: () => void }) {
   }
 
   return (
-    <div className="space-y-6">
-      {folderNames.map((folder) => (
-        <section key={folder}>
-          <button
-            onClick={() => setCollapsed((c) => ({ ...c, [folder]: !c[folder] }))}
-            className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200"
-          >
-            <span className="text-xs">{collapsed[folder] ? '▶' : '▼'}</span>
-            <span>📁 {folder}</span>
-            <span className="font-normal text-slate-400">({groups.get(folder)!.length})</span>
-          </button>
-          {!collapsed[folder] && renderCards(groups.get(folder)!)}
-        </section>
-      ))}
-      {groups.has('') && (
-        <section>
-          {folderNames.length > 0 && (
-            <h2 className="mb-3 text-sm font-semibold text-slate-500 dark:text-slate-400">
-              {t('portal.unfiled')}
-            </h2>
-          )}
-          {renderCards(groups.get('')!)}
-        </section>
-      )}
-    </div>
+    <FolderedGrid
+      items={workspaces.data.data}
+      renderCard={(ws) => <WorkspaceCard key={ws.id} workspace={ws} />}
+    />
   );
 }
 
@@ -269,6 +228,9 @@ function openWorkspace(url: string, newTab: boolean, navigate: (to: string) => v
   }
 }
 
+// WorkspaceCard: the in-cluster wrapper around the shared SessionCard —
+// it only contributes what is specific to provisioned workspaces
+// (lifecycle actions, connection settings, split view, next transition).
 function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -278,10 +240,9 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const updateProfile = useUpdateProfile();
   const nextTransitionLabel = useNextTransitionLabel();
   const [asking, setAsking] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  useEscape(menuOpen, () => setMenuOpen(false));
 
+  const target = targetFromWorkspace(workspace);
   // Badge and buttons follow the DERIVED phase: between a lifecycle
   // action and the operator's reconcile, intent and status disagree and
   // the card shows the transition (Pausing…/Resuming…) instead of a
@@ -289,7 +250,6 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const phase = effectivePhase(workspace);
   const settling = phase === 'Pausing' || phase === 'Resuming' || phase === 'Terminating';
 
-  const url = `/workspaces/${workspace.id}/connect`;
   const onOpen = () => {
     const pref = user?.preferences?.openWorkspaceInNewTab;
     if (pref == null) {
@@ -297,7 +257,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
       setAsking(true);
       return;
     }
-    openWorkspace(url, pref, navigate);
+    openWorkspace(target.connectUrl, pref, navigate);
   };
 
   const onChoice = (newTab: boolean, remember: boolean) => {
@@ -307,214 +267,59 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
         preferences: { ...user?.preferences, openWorkspaceInNewTab: newTab },
       });
     }
-    openWorkspace(url, newTab, navigate);
-  };
-
-  const folders = user?.preferences?.workspaceFolders ?? {};
-  const currentFolder = folders[workspace.id];
-  const existingFolders = [...new Set(Object.values(folders))].sort();
-
-  const moveToFolder = (folder: string | null) => {
-    setMenuOpen(false);
-    const next = { ...folders };
-    if (folder) {
-      next[workspace.id] = folder;
-    } else {
-      delete next[workspace.id];
-    }
-    updateProfile.mutate({
-      preferences: { ...user?.preferences, workspaceFolders: next },
-    });
-  };
-
-  const onNewFolder = () => {
-    const name = window.prompt(t('portal.newFolderPrompt'))?.trim();
-    if (name) moveToFolder(name);
-    else setMenuOpen(false);
-  };
-
-  // Protocol quick-switch (point "switch rapide"): only rendered when the
-  // workspace actually serves several protocols (configured + allowed —
-  // status.protocols is already policy/template-filtered server-side).
-  const cardProtocols = workspace.protocols ?? [];
-  const savedPrefs = user?.preferences?.workspaceSettings?.[workspace.id];
-  const cardDefaultProtocol = cardProtocols.find((p) => p.default)?.name ?? workspace.protocol ?? '';
-  const activeProtocol = savedPrefs?.protocol ?? cardDefaultProtocol;
-  const switchProtocol = (next: string) => {
-    if (next === activeProtocol) return;
-    const byProto = { ...savedPrefs?.paramsByProtocol };
-    if (savedPrefs?.params && activeProtocol) byProto[activeProtocol] = savedPrefs.params;
-    const settings = { ...user?.preferences?.workspaceSettings };
-    settings[workspace.id] = {
-      protocol: next !== cardDefaultProtocol ? next : undefined,
-      params: byProto[next],
-      paramsByProtocol: Object.keys(byProto).length > 0 ? byProto : undefined,
-    };
-    updateProfile.mutate({ preferences: { ...user?.preferences, workspaceSettings: settings } });
+    openWorkspace(target.connectUrl, newTab, navigate);
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="font-medium text-slate-900 dark:text-white">
-            {workspace.displayName || workspace.name}
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {workspace.templateRef}
-            {currentFolder && <span className="ml-2">📁 {currentFolder}</span>}
-          </p>
-        </div>
-        <div className="flex items-center gap-1">
-          <StatusBadge phase={phase} />
-          <div className="relative">
+    <>
+      <SessionCard
+        target={target}
+        phase={phase}
+        message={workspace.message}
+        footerNote={
+          nextTransitionLabel(workspace.nextTransition) ? (
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              ⏰ {nextTransitionLabel(workspace.nextTransition)}
+            </p>
+          ) : undefined
+        }
+        menuItems={[
+          { label: t('portal.connectionSettings'), onClick: () => setSettingsOpen(true) },
+          { label: t('portal.openInSplitView'), onClick: () => navigate(`/view?ws=${workspace.id}`) },
+        ]}
+        buttons={
+          <>
             <button
-              onClick={() => setMenuOpen((v) => !v)}
-              className="rounded px-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
+              onClick={onOpen}
+              disabled={phase === 'Failed' || phase === 'Terminating'}
+              className="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
             >
-              ⋯
+              {phase === 'Running'
+                ? t('portal.open')
+                : phase === 'Paused' || phase === 'Stopped'
+                  ? t('portal.wakeAndOpen')
+                  : t('portal.starting')}
             </button>
-            {menuOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                <div
-                  role="menu"
-                  className="absolute right-0 z-20 mt-1 w-52 overflow-hidden rounded-lg bg-white py-1 text-sm shadow-lg ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
-                >
-                  <CardMenuItem
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setSettingsOpen(true);
-                    }}
-                  >
-                    {t('portal.connectionSettings')}
-                  </CardMenuItem>
-                  <CardMenuItem
-                    onClick={() => {
-                      setMenuOpen(false);
-                      navigate(`/view?ws=${workspace.id}`);
-                    }}
-                  >
-                    {t('portal.openInSplitView')}
-                  </CardMenuItem>
-                  <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
-                  <p className="px-4 py-1 text-xs text-slate-400">{t('portal.moveToFolder')}</p>
-                  {existingFolders
-                    .filter((f) => f !== currentFolder)
-                    .map((f) => (
-                      <CardMenuItem key={f} onClick={() => moveToFolder(f)}>
-                        📁 {f}
-                      </CardMenuItem>
-                    ))}
-                  <CardMenuItem onClick={onNewFolder}>{t('portal.newFolder')}</CardMenuItem>
-                  {currentFolder && (
-                    <CardMenuItem onClick={() => moveToFolder(null)}>
-                      {t('portal.removeFromFolder')}
-                    </CardMenuItem>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-      {cardProtocols.length > 1 && (
-        <div className="flex items-center gap-1" title={t('portal.switchProtocolHint')}>
-          {cardProtocols.map((p) => (
             <button
-              key={p.name}
-              onClick={() => switchProtocol(p.name)}
-              disabled={updateProfile.isPending}
-              className={`rounded-full px-2 py-0.5 text-[11px] font-medium uppercase ${
-                p.name === activeProtocol
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600'
-              }`}
+              onClick={() =>
+                action.mutate({ id: workspace.id, action: workspace.paused ? 'resume' : 'pause' })
+              }
+              disabled={action.isPending || settling}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
             >
-              {p.name}
+              {workspace.paused ? t('portal.resume') : t('portal.pause')}
             </button>
-          ))}
-        </div>
-      )}
-      {workspace.message && (
-        <p className="text-xs text-slate-500 dark:text-slate-400">{workspace.message}</p>
-      )}
-      {nextTransitionLabel(workspace.nextTransition) && (
-        <p className="text-xs text-slate-400 dark:text-slate-500">
-          ⏰ {nextTransitionLabel(workspace.nextTransition)}
-        </p>
-      )}
-      <div className="mt-auto flex gap-2">
-        <button
-          onClick={onOpen}
-          disabled={phase === 'Failed' || phase === 'Terminating'}
-          className="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-        >
-          {phase === 'Running'
-            ? t('portal.open')
-            : phase === 'Paused' || phase === 'Stopped'
-              ? t('portal.wakeAndOpen')
-              : t('portal.starting')}
-        </button>
-        <button
-          onClick={() =>
-            action.mutate({ id: workspace.id, action: workspace.paused ? 'resume' : 'pause' })
-          }
-          disabled={action.isPending || settling}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-        >
-          {workspace.paused ? t('portal.resume') : t('portal.pause')}
-        </button>
-        <button
-          onClick={() => {
-            if (window.confirm(t('portal.deleteConfirm'))) {
-              remove.mutate(workspace.id);
-            }
-          }}
-          disabled={remove.isPending}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"
-        >
-          {t('app.delete')}
-        </button>
-      </div>
+          </>
+        }
+        onDelete={() => remove.mutate(workspace.id)}
+        deletePending={remove.isPending}
+        deleteConfirm={t('portal.deleteConfirm')}
+      />
       {asking && <OpenChoiceDialog onChoice={onChoice} onClose={() => setAsking(false)} />}
       {settingsOpen && (
         <ConnectionSettingsDialog workspace={workspace} onClose={() => setSettingsOpen(false)} />
       )}
-    </div>
-  );
-}
-
-function CardMenuItem({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      role="menuitem"
-      onClick={onClick}
-      className="block w-full px-4 py-1.5 text-left text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
-    >
-      {children}
-    </button>
-  );
-}
-
-// AdvancedParamsToggle: the simple/advanced switch every guacd parameter
-// form shares. Simple mode shows the everyday parameters (registry tier
-// "ui"); advanced mode adds the whole "advanced" tier.
-function AdvancedParamsToggle({
-  value,
-  onChange,
-}: {
-  value: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-      <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
-      {t('portal.showAdvancedParams')}
-    </label>
+    </>
   );
 }
 
@@ -740,9 +545,14 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const [displayName, setDisplayName] = useState('');
   const [cpu, setCpu] = useState<number | null>(null);
   const [memory, setMemory] = useState<number | null>(null);
-  const [protocol, setProtocol] = useState('');
-  const [protoParams, setProtoParams] = useState<Record<string, string>>({});
-  const [showAdvancedParams, setShowAdvancedParams] = useState(false);
+  // Protocol section state: the visited tab, the chosen connection
+  // protocol ('' = template default) and per-protocol param drafts —
+  // switching tabs never loses edits (same model as connection settings).
+  const [chosen, setChosen] = useState('');
+  const [protoTab, setProtoTab] = useState('');
+  const [protoParamsByProto, setProtoParamsByProto] = useState<
+    Record<string, Record<string, string>>
+  >({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [envRows, setEnvRows] = useState<{ name: string; value: string }[]>([]);
   const [scheduleOverride, setScheduleOverride] = useState<WorkspaceSchedule | undefined>(undefined);
@@ -812,8 +622,9 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     // Re-seed sliders, protocol choice and overrides on template change.
     setCpu(null);
     setMemory(null);
-    setProtocol('');
-    setProtoParams({});
+    setChosen('');
+    setProtoTab('');
+    setProtoParamsByProto({});
     setEnvRows([]);
     setScheduleOverride(undefined);
   };
@@ -821,6 +632,7 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   // Protocol section: what the template declares, gated by its override
   // flags. The webhook re-validates server-side — this only mirrors it.
   const tplProtocols = template?.protocols ?? [];
+  const protoNames = tplProtocols.map((p) => p.name);
   const defaultProtocol = tplProtocols.find((p) => p.default)?.name ?? tplProtocols[0]?.name ?? '';
   const isAdmin = user?.role === 'admin';
   // A field is overridable when the template allows it AND the policy
@@ -830,28 +642,19 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const canOverride = (field: string) =>
     isAdmin || ((template?.allowedOverrides?.includes(field) ?? false) && policyAllows(field));
   const protocolOverridable = canOverride('protocol');
-  const effectiveProtocol = protocol || defaultProtocol;
-  const selectedProto = tplProtocols.find((p) => p.name === effectiveProtocol);
-  // Creation-time params from the registry, simple tier by default; the
-  // advanced toggle adds the advanced tier. Non-admins stay inside the
-  // template's userParams allow-list; admins may tune any non-platform
-  // parameter (mirrors the server's admin bypass).
-  const { simple: simpleCreationParams, advanced: advancedCreationParams } = tieredParams(
-    meta.data?.data,
-    effectiveProtocol,
-    isAdmin ? undefined : (selectedProto?.userParams ?? []),
-  );
-  const creationParams = showAdvancedParams
-    ? [...simpleCreationParams, ...advancedCreationParams]
-    : simpleCreationParams;
+  const effectiveProtocol = (protocolOverridable && chosen) || defaultProtocol;
+  const tab = protoNames.includes(protoTab) ? protoTab : effectiveProtocol || protoNames[0] || '';
+  const tabProto = tplProtocols.find((p) => p.name === tab);
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     const chosenProtocol =
       protocolOverridable && effectiveProtocol !== defaultProtocol ? effectiveProtocol : undefined;
-    const cleanedParams = Object.fromEntries(
-      Object.entries(protoParams).filter(([, v]) => v !== ''),
-    );
+    const cleanedByProto: Record<string, Record<string, string>> = {};
+    for (const [proto, draft] of Object.entries(protoParamsByProto)) {
+      const cleaned = Object.fromEntries(Object.entries(draft).filter(([, v]) => v !== ''));
+      if (Object.keys(cleaned).length > 0) cleanedByProto[proto] = cleaned;
+    }
     const env: TemplateEnvVar[] = envRows
       .filter((row) => row.name.trim() !== '')
       .map((row) => ({ name: row.name.trim(), value: row.value }));
@@ -876,11 +679,13 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
           // Connection tuning lives in the profile (as the post-creation
           // "Connection settings" dialog writes it); server re-validates
           // at connect time.
-          if (Object.keys(cleanedParams).length > 0) {
+          if (Object.keys(cleanedByProto).length > 0 || chosenProtocol) {
             const settings = { ...user?.preferences?.workspaceSettings };
             settings[workspace.id] = {
               protocol: chosenProtocol,
-              params: cleanedParams,
+              params: cleanedByProto[effectiveProtocol],
+              paramsByProtocol:
+                Object.keys(cleanedByProto).length > 0 ? cleanedByProto : undefined,
             };
             updateProfile.mutate({
               preferences: { ...user?.preferences, workspaceSettings: settings },
@@ -983,32 +788,32 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
               {t('portal.connection')}
             </legend>
             {tplProtocols.length > 1 ? (
-              <label className="block">
-                <span className="flex items-baseline justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-300">{t('portal.protocol')}</span>
+              <>
+                <ProtocolTabs
+                  protocols={protoNames}
+                  active={tab}
+                  onSelect={setProtoTab}
+                  badge={(p) => (p === effectiveProtocol ? <span className="text-[10px]">●</span> : null)}
+                />
+                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                  <input
+                    type="radio"
+                    name="create-chosen-protocol"
+                    checked={effectiveProtocol === tab}
+                    disabled={!protocolOverridable}
+                    onChange={() => setChosen(tab)}
+                  />
+                  {t('portal.useThisProtocol')}
+                  {tab === defaultProtocol && (
+                    <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
+                  )}
                   {!protocolOverridable && (
                     <span className="text-xs text-slate-400" title={t('portal.protocolLockedHint')}>
                       🔒 {t('portal.protocolLocked')}
                     </span>
                   )}
-                </span>
-                <select
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                  value={effectiveProtocol}
-                  disabled={!protocolOverridable}
-                  onChange={(e) => {
-                    setProtocol(e.target.value);
-                    setProtoParams({});
-                  }}
-                >
-                  {tplProtocols.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name.toUpperCase()}
-                      {p.default ? ` (${t('portal.protocolDefault')})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                </label>
+              </>
             ) : (
               // Single protocol (typically a legacy template with the
               // OS-derived synthesized entry): show it instead of an
@@ -1022,24 +827,23 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                 <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
               </p>
             )}
-            {creationParams.length > 0 ? (
-              <div className="grid grid-cols-2 gap-3">
-                {creationParams.map((pm) => (
-                  <ParamField
-                    key={pm.name}
-                    meta={{ ...pm, default: selectedProto?.params?.[pm.name] ?? pm.default }}
-                    value={protoParams[pm.name] ?? ''}
-                    onChange={(value) => setProtoParams((prev) => ({ ...prev, [pm.name]: value }))}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-slate-400 dark:text-slate-500">
-                {t('portal.noTunableParams')}
-              </p>
-            )}
-            {advancedCreationParams.length > 0 && (
-              <AdvancedParamsToggle value={showAdvancedParams} onChange={setShowAdvancedParams} />
+            {/* The SAME shared per-protocol form as connection settings
+                and the admin template editor: template-locked values as
+                placeholders, userParams allow-list (admins bypass). */}
+            {tabProto && (
+              <ProtocolParamsForm
+                meta={meta.data?.data}
+                protocol={tabProto.name}
+                values={protoParamsByProto[tabProto.name] ?? {}}
+                onChange={(name, value) =>
+                  setProtoParamsByProto((prev) => ({
+                    ...prev,
+                    [tabProto.name]: { ...prev[tabProto.name], [name]: value },
+                  }))
+                }
+                allowList={isAdmin ? undefined : (tabProto.userParams ?? [])}
+                placeholders={tabProto.params}
+              />
             )}
           </fieldset>
         )}
@@ -1182,11 +986,7 @@ function RemoteWorkspacesSection({
   setEditing: (v: RemoteWorkspace | 'new' | null) => void;
 }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const remotes = useRemoteWorkspaces(true);
-  const remove = useDeleteRemoteWorkspace();
-  const wake = useWakeRemoteWorkspace();
-  const user = useAuthStore((s) => s.user);
 
   if (remotes.isPending) return <SkeletonGrid count={3} />;
   if (remotes.isError) {
@@ -1204,10 +1004,6 @@ function RemoteWorkspacesSection({
   }
 
   const items = remotes.data.data;
-  const connect = (rw: RemoteWorkspace) => {
-    const url = `/remote/${rw.id}/connect`;
-    openWorkspace(url, user?.preferences?.openWorkspaceInNewTab ?? false, navigate);
-  };
 
   return (
     <div className="space-y-4">
@@ -1223,62 +1019,10 @@ function RemoteWorkspacesSection({
           </button>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((rw) => (
-            <div key={rw.id} className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h2 className="font-medium text-slate-900 dark:text-white">{rw.name}</h2>
-                  <p className="font-mono text-xs text-slate-500 dark:text-slate-400">
-                    {rw.hostname}:{rw.port}
-                  </p>
-                </div>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                  {rw.protocol}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 dark:text-slate-500">
-                {rw.credentialKeys?.length
-                  ? t('remote.credentialsStored', { keys: rw.credentialKeys.join(', ') })
-                  : t('remote.noCredentials')}
-                {rw.macAddress && <span className="ml-2 font-mono">· WoL {rw.macAddress}</span>}
-              </p>
-              <div className="mt-auto flex gap-2">
-                <button
-                  onClick={() => connect(rw)}
-                  className="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-                >
-                  {t('remote.connect')}
-                </button>
-                {rw.macAddress && (
-                  <button
-                    onClick={() => wake.mutate(rw.id)}
-                    disabled={wake.isPending}
-                    title={t('remote.wakeHint')}
-                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-                  >
-                    {t('remote.wake')}
-                  </button>
-                )}
-                <button
-                  onClick={() => setEditing(rw)}
-                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-                >
-                  {t('app.edit')}
-                </button>
-                <button
-                  onClick={() => {
-                    if (window.confirm(t('remote.deleteConfirm'))) remove.mutate(rw.id);
-                  }}
-                  disabled={remove.isPending}
-                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"
-                >
-                  {t('app.delete')}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+        <FolderedGrid
+          items={items}
+          renderCard={(rw) => <RemoteCard key={rw.id} remote={rw} onEdit={() => setEditing(rw)} />}
+        />
       )}
       {editing && (
         <RemoteWorkspaceDialog
@@ -1290,10 +1034,70 @@ function RemoteWorkspacesSection({
   );
 }
 
+// RemoteCard: the remote wrapper around the shared SessionCard — it only
+// contributes what is specific to registered machines (connect, WoL,
+// endpoint/credentials editing). Chips, folders, menu and delete come
+// from the shared card.
+function RemoteCard({ remote, onEdit }: { remote: RemoteWorkspace; onEdit: () => void }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const remove = useDeleteRemoteWorkspace();
+  const wake = useWakeRemoteWorkspace();
+  const user = useAuthStore((s) => s.user);
+
+  const target = targetFromRemote(remote);
+
+  return (
+    <SessionCard
+      target={target}
+      footerNote={
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          {remote.credentialKeys?.length
+            ? t('remote.credentialsStored', { keys: remote.credentialKeys.join(', ') })
+            : t('remote.noCredentials')}
+          {remote.macAddress && <span className="ml-2 font-mono">· WoL {remote.macAddress}</span>}
+        </p>
+      }
+      menuItems={[{ label: t('app.edit'), onClick: onEdit }]}
+      buttons={
+        <>
+          <button
+            onClick={() =>
+              openWorkspace(
+                target.connectUrl,
+                user?.preferences?.openWorkspaceInNewTab ?? false,
+                navigate,
+              )
+            }
+            className="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            {t('remote.connect')}
+          </button>
+          {target.capabilities.wake && (
+            <button
+              onClick={() => wake.mutate(remote.id)}
+              disabled={wake.isPending}
+              title={t('remote.wakeHint')}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              {t('remote.wake')}
+            </button>
+          )}
+        </>
+      }
+      onDelete={() => remove.mutate(remote.id)}
+      deletePending={remove.isPending}
+      deleteConfirm={t('remote.deleteConfirm')}
+    />
+  );
+}
+
 // RemoteWorkspaceDialog: register/edit one external machine. Credentials
 // are write-only (stored in a Kubernetes Secret server-side, never echoed
-// back); guacd parameters reuse the same registry-driven form as
-// provisioned workspaces.
+// back); the per-protocol endpoints use the SAME tabs + registry-driven
+// form as every other protocol surface.
+const REMOTE_DEFAULT_PORTS: Record<string, number> = { ssh: 22, vnc: 5900, rdp: 3389 };
+
 function RemoteWorkspaceDialog({
   remote,
   onClose,
@@ -1306,25 +1110,52 @@ function RemoteWorkspaceDialog({
   const save = useSaveRemoteWorkspace();
   const [name, setName] = useState(remote?.name ?? '');
   const [hostname, setHostname] = useState(remote?.hostname ?? '');
-  const [port, setPort] = useState(remote ? String(remote.port) : '');
-  const [protocol, setProtocol] = useState(remote?.protocol ?? 'ssh');
   const [macAddress, setMacAddress] = useState(remote?.macAddress ?? '');
-  const [params, setParams] = useState<Record<string, string>>(remote?.params ?? {});
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  // One endpoint per protocol, same rules as the admin template editor:
+  // unique names, one default. Legacy rows are synthesized by the target
+  // adapter (single entry).
+  const [protocols, setProtocols] = useState<RemoteProtocol[]>(() =>
+    remote
+      ? targetFromRemote(remote).protocols.map((p) => ({
+          name: p.name,
+          port: p.port ?? REMOTE_DEFAULT_PORTS[p.name] ?? 0,
+          default: p.default,
+          params: p.params,
+        }))
+      : [{ name: 'ssh', port: 22, default: true }],
+  );
+  const [tab, setTab] = useState(() => protocols[0]?.name ?? 'ssh');
   const [creds, setCreds] = useState({ username: '', password: '', privateKey: '', passphrase: '' });
 
-  const defaultPorts: Record<string, string> = { ssh: '22', vnc: '5900', rdp: '3389' };
-  // The user owns this machine: every non-platform parameter is tunable.
-  const { simple: simpleFields, advanced: advancedFields } = tieredParams(
-    meta.data?.data,
-    protocol,
-    undefined,
-  );
-  const fields = showAdvanced ? [...simpleFields, ...advancedFields] : simpleFields;
+  const names = protocols.map((p) => p.name);
+  const current = protocols.find((p) => p.name === tab);
+  const unused = ['ssh', 'vnc', 'rdp'].filter((p) => !names.includes(p));
+  const patchCurrent = (patch: Partial<RemoteProtocol>) =>
+    setProtocols((prev) => prev.map((p) => (p.name === tab ? { ...p, ...patch } : p)));
+  const addProtocol = () => {
+    const name = unused[0];
+    if (!name) return;
+    setProtocols((prev) => [
+      ...prev,
+      { name, port: REMOTE_DEFAULT_PORTS[name] ?? 0, default: prev.length === 0 },
+    ]);
+    setTab(name);
+  };
+  const removeCurrent = () => {
+    setProtocols((prev) => {
+      const next = prev.filter((p) => p.name !== tab);
+      if (next.length > 0 && !next.some((p) => p.default)) next[0] = { ...next[0], default: true };
+      setTab(next[0]?.name ?? '');
+      return next;
+    });
+  };
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    const cleanedParams = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== ''));
+    const cleanedProtocols = protocols.map((p) => {
+      const cleaned = Object.fromEntries(Object.entries(p.params ?? {}).filter(([, v]) => v !== ''));
+      return { ...p, params: Object.keys(cleaned).length > 0 ? cleaned : undefined };
+    });
     // Empty fields are omitted = "keep the stored value" on edit.
     const credentials = Object.fromEntries(
       Object.entries(creds).filter(([, v]) => v !== ''),
@@ -1332,10 +1163,8 @@ function RemoteWorkspaceDialog({
     const input: RemoteWorkspaceInput = {
       name,
       hostname,
-      port: Number(port || defaultPorts[protocol] || 0),
-      protocol,
+      protocols: cleanedProtocols,
       macAddress: macAddress.trim() || undefined,
-      params: Object.keys(cleanedParams).length > 0 ? cleanedParams : undefined,
       credentials: credentials && Object.keys(credentials).length > 0 ? credentials : undefined,
     };
     save.mutate({ id: remote?.id, input }, { onSuccess: onClose });
@@ -1389,46 +1218,15 @@ function RemoteWorkspaceDialog({
             onChange={(e) => setName(e.target.value)}
           />
         </label>
-        <div className="flex gap-2">
-          <label className="block flex-1">
-            <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.hostname')}</span>
-            <input
-              required
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-              placeholder="203.0.113.10"
-              value={hostname}
-              onChange={(e) => setHostname(e.target.value)}
-            />
-          </label>
-          <label className="block w-24">
-            <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.port')}</span>
-            <input
-              type="number"
-              min={1}
-              max={65535}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-              placeholder={defaultPorts[protocol]}
-              value={port}
-              onChange={(e) => setPort(e.target.value)}
-            />
-          </label>
-        </div>
         <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.protocol')}</span>
-          <select
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-            value={protocol}
-            onChange={(e) => {
-              setProtocol(e.target.value);
-              setParams({});
-            }}
-          >
-            {['ssh', 'vnc', 'rdp'].map((p) => (
-              <option key={p} value={p}>
-                {p.toUpperCase()}
-              </option>
-            ))}
-          </select>
+          <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.hostname')}</span>
+          <input
+            required
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            placeholder="203.0.113.10"
+            value={hostname}
+            onChange={(e) => setHostname(e.target.value)}
+          />
         </label>
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.mac')}</span>
@@ -1443,6 +1241,89 @@ function RemoteWorkspaceDialog({
           </span>
         </label>
 
+        {/* One tab per endpoint the machine serves — the same tabs and
+            registry-driven form as connection settings and the admin
+            template editor. The owner may tune any non-platform param. */}
+        <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
+            {t('portal.connection')}
+          </legend>
+          <ProtocolTabs
+            protocols={names}
+            active={tab}
+            onSelect={setTab}
+            badge={(p) =>
+              protocols.find((x) => x.name === p)?.default ? (
+                <span className="text-[10px]" title={t('portal.protocolDefault')}>
+                  ●
+                </span>
+              ) : null
+            }
+            trailing={
+              unused.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={addProtocol}
+                  className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  + {t('remote.addProtocol')}
+                </button>
+              ) : undefined
+            }
+          />
+          {current && (
+            <>
+              <div className="flex items-end gap-3">
+                <label className="block w-28">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {t('portal.port')}
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    required
+                    className="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                    value={current.port || ''}
+                    onChange={(e) => patchCurrent({ port: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 pb-2 text-sm text-slate-600 dark:text-slate-300">
+                  <input
+                    type="radio"
+                    name="remote-default-protocol"
+                    checked={!!current.default}
+                    onChange={() =>
+                      setProtocols((prev) => prev.map((p) => ({ ...p, default: p.name === tab })))
+                    }
+                  />
+                  {t('portal.protocolDefault')}
+                </label>
+                {protocols.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={removeCurrent}
+                    className="ml-auto pb-2 text-sm text-red-600 hover:underline"
+                  >
+                    {t('app.delete')}
+                  </button>
+                )}
+              </div>
+              <ProtocolParamsForm
+                meta={meta.data?.data}
+                protocol={current.name}
+                values={current.params ?? {}}
+                onChange={(name, value) => {
+                  const params = { ...current.params };
+                  if (value === '') delete params[name];
+                  else params[name] = value;
+                  patchCurrent({ params });
+                }}
+              />
+            </>
+          )}
+        </fieldset>
+
         <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
           <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
             {t('remote.credentials')}
@@ -1450,7 +1331,7 @@ function RemoteWorkspaceDialog({
           <p className="text-xs text-slate-400 dark:text-slate-500">{t('remote.credentialsHint')}</p>
           {credField('username', t('remote.username'))}
           {credField('password', t('remote.password'), 'password')}
-          {protocol === 'ssh' && (
+          {names.includes('ssh') && (
             <>
               <label className="block">
                 <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -1468,29 +1349,6 @@ function RemoteWorkspaceDialog({
               </label>
               {credField('passphrase', t('remote.passphrase'), 'password')}
             </>
-          )}
-        </fieldset>
-
-        <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
-            {t('portal.protocolParams')}
-          </legend>
-          {fields.length > 0 ? (
-            <div className="grid grid-cols-2 gap-3">
-              {fields.map((pm) => (
-                <ParamField
-                  key={pm.name}
-                  meta={pm}
-                  value={params[pm.name] ?? ''}
-                  onChange={(value) => setParams((prev) => ({ ...prev, [pm.name]: value }))}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.noTunableParams')}</p>
-          )}
-          {advancedFields.length > 0 && (
-            <AdvancedParamsToggle value={showAdvanced} onChange={setShowAdvanced} />
           )}
         </fieldset>
 

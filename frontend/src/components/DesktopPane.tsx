@@ -53,9 +53,12 @@ export const DesktopPane = forwardRef<
   // reconnect (used by the overlay to apply reconnect-scoped params).
   const [generation, setGeneration] = useState(0);
   const prefs = useAuthStore((s) => s.user?.preferences?.workspaceSettings?.[workspaceId]);
-  // Remote machines carry their protocol/params server-side; workspace
-  // preferences do not apply to them.
-  const effective = connection ?? (kind === 'workspace' ? prefs : undefined);
+  // The protocol CHOICE is a preference for both kinds (that's what the
+  // quick-switch writes). Params only travel for in-cluster workspaces —
+  // remote params live server-side on the chosen endpoint.
+  const effective =
+    connection ??
+    (kind === 'workspace' ? prefs : prefs?.protocol ? { protocol: prefs.protocol } : undefined);
   // The connection must not restart when unrelated preferences change.
   const effectiveJSON = JSON.stringify(effective ?? {});
 

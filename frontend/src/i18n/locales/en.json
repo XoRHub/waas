@@ -114,7 +114,8 @@
     "wake": "Wake",
     "wakeHint": "Send a Wake-on-LAN magic packet via the platform relay.",
     "waking": "Waking the machine…",
-    "wakeWaitHint": "Sent a Wake-on-LAN packet; giving the machine time to boot before retrying."
+    "wakeWaitHint": "Sent a Wake-on-LAN packet; giving the machine time to boot before retrying.",
+    "addProtocol": "Add protocol"
   },
   "connect": {
     "connecting": "Connecting to your desktop…",

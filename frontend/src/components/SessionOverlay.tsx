@@ -4,9 +4,30 @@ import { useTranslation } from 'react-i18next';
 import { useProtocolMeta, useSaveRemoteWorkspace, useUpdateProfile } from '@/hooks/useApi';
 import { useAuthStore } from '@/stores/authStore';
 import { useEscape } from '@/hooks/useEscape';
+import { useProtocolSwitch } from '@/hooks/useProtocolSwitch';
 import { ParamField, paramsFor } from '@/components/ParamField';
+import { targetFromRemote, targetFromWorkspace, type SessionTarget } from '@/lib/target';
 import type { DesktopPaneHandle } from '@/components/DesktopPane';
 import type { RemoteWorkspace, SessionCapabilities, Workspace } from '@/types';
+
+// Placeholder keeping the hook order stable while neither prop is set.
+const EMPTY_TARGET: SessionTarget = {
+  id: '',
+  kind: 'workspace',
+  displayName: '',
+  subtitle: '',
+  connectUrl: '',
+  protocols: [],
+  defaultProtocol: '',
+  capabilities: {
+    pause: false,
+    wake: false,
+    splitView: false,
+    connectionSettings: false,
+    editEndpoint: false,
+    hasPhase: false,
+  },
+};
 
 /**
  * In-session overlay: the SINGLE session menu for every desktop kind —
@@ -54,22 +75,28 @@ export function SessionOverlay({
   }, []);
   useEscape(open, () => setOpen(false));
 
-  if (!workspace && !remote) return null;
-  const isRemote = !!remote;
+  // ---- unified session descriptor: ONE shape for both kinds -----------
+  // (built before the early return: hooks below must run unconditionally)
+  const maybeTarget = workspace
+    ? targetFromWorkspace(workspace)
+    : remote
+      ? targetFromRemote(remote)
+      : null;
+  const protoSwitch = useProtocolSwitch(maybeTarget ?? EMPTY_TARGET, { confirm: true });
 
-  // ---- unified session descriptor -------------------------------------
-  const saved = workspace ? user?.preferences?.workspaceSettings?.[workspace.id] : undefined;
-  const protocols = workspace?.protocols ?? [];
-  const defaultProtocol = protocols.find((p) => p.default)?.name ?? workspace?.protocol ?? '';
-  const protocol = isRemote
-    ? remote.protocol
-    : (saved?.protocol ?? defaultProtocol);
-  const selected = protocols.find((p) => p.name === protocol);
+  if (!maybeTarget) return null;
+  const target = maybeTarget;
+  const isRemote = !!remote;
+  const saved = user?.preferences?.workspaceSettings?.[target.id];
+  const entry = target.protocols.find((p) => p.name === protoSwitch.active);
+  const protocol = protoSwitch.active;
   const isAdmin = user?.role === 'admin';
   // Remote machines belong to the user: every non-platform parameter is
   // tunable. Workspaces follow the template allow-list (admins bypass).
-  const allowList = isRemote || isAdmin ? undefined : (selected?.userParams ?? []);
-  const savedParams = isRemote ? (remote.params ?? {}) : (saved?.params ?? {});
+  const allowList = isRemote || isAdmin ? undefined : (entry?.userParams ?? []);
+  // In-cluster tuning lives in the profile; remote tuning lives on the
+  // chosen endpoint server-side.
+  const savedParams = isRemote ? (entry?.params ?? {}) : (saved?.params ?? {});
   // Reconnect-scoped tunables (live ones — the clipboard — have their own
   // switches above).
   const reconnectParams = paramsFor(meta.data?.data, protocol, ['ui', 'advanced'], allowList).filter(
@@ -90,17 +117,26 @@ export function SessionOverlay({
     const cleaned = Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== ''));
     if (isRemote) {
       // Remote params live server-side on the entry itself; omitting the
-      // credentials keeps the stored Secret untouched.
+      // credentials keeps the stored Secret untouched. The tweaks land on
+      // the endpoint being used — other protocols keep their own params.
       saveRemote.mutate(
         {
-          id: remote.id,
+          id: remote!.id,
           input: {
-            name: remote.name,
-            hostname: remote.hostname,
-            port: remote.port,
-            protocol: remote.protocol,
-            macAddress: remote.macAddress,
-            params: Object.keys(cleaned).length > 0 ? cleaned : undefined,
+            name: remote!.name,
+            hostname: remote!.hostname,
+            protocols: target.protocols.map((p) => ({
+              name: p.name,
+              port: p.port ?? 0,
+              default: p.default,
+              params:
+                p.name === protocol
+                  ? Object.keys(cleaned).length > 0
+                    ? cleaned
+                    : undefined
+                  : p.params,
+            })),
+            macAddress: remote!.macAddress,
           },
         },
         {
@@ -129,24 +165,7 @@ export function SessionOverlay({
     );
   };
 
-  // Protocol quick-switch (workspaces with several protocols): saving the
-  // preference re-runs the pane's connection effect — that IS the
-  // reconnect, hence the explicit confirmation while a session is open.
-  const switchProtocol = (next: string) => {
-    if (!workspace || next === protocol) return;
-    if (!window.confirm(t('overlay.switchConfirm', { protocol: next.toUpperCase() }))) return;
-    const settings = { ...user?.preferences?.workspaceSettings };
-    const byProto = { ...saved?.paramsByProtocol };
-    if (saved?.params) byProto[protocol] = saved.params;
-    settings[workspace.id] = {
-      protocol: next !== defaultProtocol ? next : undefined,
-      params: byProto[next],
-      paramsByProtocol: byProto,
-    };
-    updateProfile.mutate({ preferences: { ...user?.preferences, workspaceSettings: settings } });
-  };
-
-  const pending = updateProfile.isPending || saveRemote.isPending;
+  const pending = updateProfile.isPending || saveRemote.isPending || protoSwitch.pending;
 
   return (
     <>
@@ -172,27 +191,27 @@ export function SessionOverlay({
               {t('overlay.view')}
             </h4>
             <button
-              onClick={() => workspace && navigate(`/view?ws=${workspace.id}`)}
-              disabled={isRemote}
-              title={isRemote ? t('overlay.notAvailableRemote') : undefined}
+              onClick={() => target.capabilities.splitView && navigate(`/view?ws=${target.id}`)}
+              disabled={!target.capabilities.splitView}
+              title={!target.capabilities.splitView ? t('overlay.notAvailableRemote') : undefined}
               className="w-full rounded-md bg-slate-700/70 px-3 py-1.5 text-left hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('overlay.openSplitView')}
-              {isRemote && <span className="ml-1 text-xs">🔒</span>}
+              {!target.capabilities.splitView && <span className="ml-1 text-xs">🔒</span>}
             </button>
           </section>
 
-          {/* -------- protocol (quick switch) -------- */}
-          {!isRemote && protocols.length > 1 && (
+          {/* -------- protocol (quick switch, any kind) -------- */}
+          {target.protocols.length > 1 && (
             <section className="space-y-2">
               <h4 className="text-xs uppercase tracking-wide text-slate-400">
                 {t('overlay.protocol')}
               </h4>
               <div className="flex gap-1">
-                {protocols.map((p) => (
+                {target.protocols.map((p) => (
                   <button
                     key={p.name}
-                    onClick={() => switchProtocol(p.name)}
+                    onClick={() => protoSwitch.switchTo(p.name)}
                     disabled={pending}
                     className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium uppercase ${
                       p.name === protocol

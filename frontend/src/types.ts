@@ -238,13 +238,25 @@ export interface QuotaStatus {
 
 // ---- Remote workspaces (out-of-cluster machines via guacd) ----
 
+/** One endpoint a remote machine serves — same shape as WorkspaceProtocol
+ * for the fields the UI shares (name/port/default). */
+export interface RemoteProtocol {
+  name: string;
+  port: number;
+  default?: boolean;
+  params?: Record<string, string>;
+}
+
 export interface RemoteWorkspace {
   id: string;
   ownerId: string;
   name: string;
   hostname: string;
+  /** Legacy mirror of the default endpoint (older API shape). */
   port: number;
   protocol: string;
+  /** Every endpoint the machine serves (empty on legacy rows). */
+  protocols?: RemoteProtocol[];
   /** MAC for Wake-on-LAN (empty = no WoL). */
   macAddress?: string;
   params?: Record<string, string>;
@@ -281,8 +293,11 @@ export interface RemoteCredentialsInput {
 export interface RemoteWorkspaceInput {
   name: string;
   hostname: string;
-  port: number;
-  protocol: string;
+  /** Multi-endpoint shape; the legacy port/protocol/params fields stay
+   * accepted server-side when this is empty. */
+  protocols?: RemoteProtocol[];
+  port?: number;
+  protocol?: string;
   macAddress?: string;
   params?: Record<string, string>;
   credentials?: RemoteCredentialsInput;
