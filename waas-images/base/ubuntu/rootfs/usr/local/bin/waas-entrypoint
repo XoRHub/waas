@@ -61,9 +61,17 @@ if [[ "${WAAS_VNC_ENABLED:-1}" != "1" ]]; then
     log "VNC disabled for external clients (Xvnc bound to localhost for the xrdp bridge)"
 fi
 
+# -UseBlacklist=0: the operator's Kubernetes TCP probe against this same
+# port opens a bare connection every few seconds without completing the
+# VncAuth handshake. TigerVNC counts that as a failed auth attempt and,
+# after BlacklistThreshold (default 5), blacklists the probe's source —
+# which then also blocks real guacd connections routed through the same
+# address. The port is never internet-facing (only the in-cluster
+# ClusterIP Service, itself gated by the api-server's connection-token
+# flow), so disabling VNC's own brute-force lockout here is safe.
 cat > "${RUNDIR}/supervisor.d/10-xvnc.conf" <<EOF
 [program:xvnc]
-command=/usr/bin/Xvnc ${DISPLAY:-:1} -geometry ${RESOLUTION} -depth ${DEPTH} -rfbport 5901 ${VNC_SCOPE_FLAG} -rfbauth ${RUNDIR}/vnc.passwd -SecurityTypes VncAuth -AlwaysShared -auth ${XAUTHORITY} -desktop waas
+command=/usr/bin/Xvnc ${DISPLAY:-:1} -geometry ${RESOLUTION} -depth ${DEPTH} -rfbport 5901 ${VNC_SCOPE_FLAG} -rfbauth ${RUNDIR}/vnc.passwd -SecurityTypes VncAuth -AlwaysShared -UseBlacklist=0 -auth ${XAUTHORITY} -desktop waas
 priority=10
 autorestart=true
 stdout_logfile=/dev/stdout
