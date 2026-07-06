@@ -39,6 +39,7 @@
       "Pending": "Pending",
       "Provisioning": "Preparing your desktop…",
       "Running": "Ready",
+      "Paused": "Paused",
       "Stopped": "Stopped",
       "Failed": "Unavailable",
       "Terminating": "Shutting down…"

@@ -136,35 +136,39 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}
 
-	if ws.Spec.Paused {
-		if err := r.teardownCompute(ctx, ws, tpl); err != nil {
-			return ctrl.Result{}, fmt.Errorf("pausing workspace %s: %w", ws.Name, err)
-		}
+	// Pause = scale to 0, NOT delete: the workload object, its spec and
+	// config are kept so resume is a fast scale back to 1 with no
+	// reconstruction. The home volume is retained either way.
+	paused := ws.Spec.Paused
+
+	var ready bool
+	if tpl.Spec.OS == waasv1alpha1.OSWindows {
+		ready, err = r.ensureVirtualMachine(ctx, ws, tpl, pvcName, !paused)
+	} else {
+		ready, err = r.ensureWorkload(ctx, ws, tpl, pvcName, paused)
+	}
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+	}
+	// The Service is kept across pause so the in-cluster DNS name stays
+	// stable and resume needs no endpoint churn.
+	if err := r.ensureService(ctx, ws, tpl); err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+	}
+
+	if paused {
 		if err := r.patchStatus(ctx, ws, func(st *waasv1alpha1.WorkspaceStatus) {
-			st.Phase = waasv1alpha1.PhaseStopped
+			st.Phase = waasv1alpha1.PhasePaused
 			st.OS = tpl.Spec.OS
 			st.PVCName = pvcName
 			st.Address, st.Port, st.Protocol = "", 0, ""
 			st.Protocols = nil
-			setCondition(st, metav1.ConditionFalse, "Paused", "workspace is paused; home volume retained")
+			setCondition(st, metav1.ConditionFalse, "Paused", "workspace is paused (scaled to 0); workload object and home volume retained")
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
 		// Paused workspaces still age toward their TTL.
 		return ctrl.Result{RequeueAfter: lifetimeRequeue}, nil
-	}
-
-	var ready bool
-	if tpl.Spec.OS == waasv1alpha1.OSWindows {
-		ready, err = r.ensureVirtualMachine(ctx, ws, tpl, pvcName)
-	} else {
-		ready, err = r.ensureWorkload(ctx, ws, tpl, pvcName)
-	}
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
-	}
-	if err := r.ensureService(ctx, ws, tpl); err != nil {
-		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}
 
 	phase := waasv1alpha1.PhaseProvisioning
@@ -272,15 +276,27 @@ func (r *WorkspaceReconciler) ensureHomePVC(ctx context.Context, ws *waasv1alpha
 
 // ensurePod creates a bare desktop pod (workload kind "Pod") if missing and
 // reports readiness. Deployment/StatefulSet variants live in workload.go.
-func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string) (bool, error) {
+func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, error) {
 	name := computeName(ws)
 	existing := &corev1.Pod{}
 	err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: name}, existing)
 	if err == nil {
+		// A bare Pod has no replica count: "scale to 0" means delete it
+		// (state lives on the home PVC, so resume recreates it cleanly).
+		if paused {
+			if delErr := r.Delete(ctx, existing); delErr != nil && !apierrors.IsNotFound(delErr) {
+				return false, fmt.Errorf("pausing pod %s: %w", name, delErr)
+			}
+			return false, nil
+		}
 		return podReady(existing), nil
 	}
 	if !apierrors.IsNotFound(err) {
 		return false, fmt.Errorf("fetching pod %s: %w", name, err)
+	}
+	// Not found + paused: nothing to run, stay down.
+	if paused {
+		return false, nil
 	}
 
 	template := r.buildPodTemplate(ctx, ws, tpl, pvcName)
@@ -304,14 +320,25 @@ func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Wo
 // ensureVirtualMachine creates the KubeVirt VM for a windows workspace and
 // reports readiness. Managed as unstructured so the operator has no compile
 // -time dependency on KubeVirt (it is optional at runtime).
-func (r *WorkspaceReconciler) ensureVirtualMachine(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string) (bool, error) {
+func (r *WorkspaceReconciler) ensureVirtualMachine(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, running bool) (bool, error) {
 	name := computeName(ws)
 	existing := &unstructured.Unstructured{}
 	existing.SetGroupVersionKind(kubevirt.VirtualMachineGVK)
 	err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: name}, existing)
 	if err == nil {
+		// Pause/resume a VM by toggling spec.running (keeps the VM object
+		// and its disks; KubeVirt stops/starts the virt-launcher pod).
+		cur, _, _ := unstructured.NestedBool(existing.Object, "spec", "running")
+		if cur != running {
+			if err := unstructured.SetNestedField(existing.Object, running, "spec", "running"); err != nil {
+				return false, fmt.Errorf("setting running on virtualmachine %s: %w", name, err)
+			}
+			if err := r.Update(ctx, existing); err != nil {
+				return false, fmt.Errorf("scaling virtualmachine %s (running=%t): %w", name, running, err)
+			}
+		}
 		ready, _, _ := unstructured.NestedBool(existing.Object, "status", "ready")
-		return ready, nil
+		return ready && running, nil
 	}
 	if !apierrors.IsNotFound(err) {
 		return false, fmt.Errorf("fetching virtualmachine %s: %w", name, err)
@@ -342,7 +369,9 @@ func (r *WorkspaceReconciler) ensureVirtualMachine(ctx context.Context, ws *waas
 			"labels":    labels,
 		},
 		"spec": map[string]any{
-			"runStrategy": "Always",
+			// running toggles start/stop (pause = false); keeps the VM
+			// object and disks. Mutually exclusive with runStrategy.
+			"running": running,
 			"template": map[string]any{
 				"metadata": map[string]any{"labels": labels},
 				"spec": map[string]any{
@@ -423,34 +452,6 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 	return nil
 }
 
-// teardownCompute removes the workload or VM of a paused workspace, keeping
-// PVC and service (the service simply has no endpoints while paused). All
-// linux workload kinds are deleted so pausing also cleans up after a
-// template workload-kind change.
-func (r *WorkspaceReconciler) teardownCompute(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) error {
-	name := computeName(ws)
-	if tpl.Spec.OS == waasv1alpha1.OSWindows {
-		vm := &unstructured.Unstructured{}
-		vm.SetGroupVersionKind(kubevirt.VirtualMachineGVK)
-		vm.SetNamespace(ws.Namespace)
-		vm.SetName(name)
-		if err := r.Delete(ctx, vm); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("deleting virtualmachine %s: %w", name, err)
-		}
-		return nil
-	}
-	meta := metav1.ObjectMeta{Namespace: ws.Namespace, Name: name}
-	for _, obj := range []client.Object{
-		&appsv1.Deployment{ObjectMeta: meta},
-		&appsv1.StatefulSet{ObjectMeta: meta},
-		&corev1.Pod{ObjectMeta: meta},
-	} {
-		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("deleting %T %s: %w", obj, name, err)
-		}
-	}
-	return nil
-}
 
 // patchStatus re-fetches the workspace fresh before writing status, avoiding
 // resource-version conflicts, and only ever uses the status subresource.

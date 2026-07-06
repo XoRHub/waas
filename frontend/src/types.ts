@@ -40,6 +40,7 @@ export type WorkspacePhase =
   | 'Pending'
   | 'Provisioning'
   | 'Running'
+  | 'Paused'
   | 'Stopped'
   | 'Failed'
   | 'Terminating';

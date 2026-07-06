@@ -126,29 +126,48 @@ func effectiveProtocol(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTe
 
 // ensureWorkload creates the desktop workload of the kind the template
 // asks for and reports readiness.
-func (r *WorkspaceReconciler) ensureWorkload(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string) (bool, error) {
+// ensureWorkload reconciles the desktop workload towards the desired
+// replica count (0 when paused, 1 otherwise). It returns whether the
+// desktop is ready to serve — always false while paused.
+func (r *WorkspaceReconciler) ensureWorkload(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, error) {
 	switch tpl.Spec.WorkloadKindOrDefault() {
 	case waasv1alpha1.WorkloadPod:
-		return r.ensurePod(ctx, ws, tpl, pvcName)
+		return r.ensurePod(ctx, ws, tpl, pvcName, paused)
 	case waasv1alpha1.WorkloadStatefulSet:
-		return r.ensureStatefulSet(ctx, ws, tpl, pvcName)
+		return r.ensureStatefulSet(ctx, ws, tpl, pvcName, paused)
 	default:
-		return r.ensureDeployment(ctx, ws, tpl, pvcName)
+		return r.ensureDeployment(ctx, ws, tpl, pvcName, paused)
 	}
 }
 
-func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string) (bool, error) {
+// desiredReplicas is 0 while paused (scale-to-0), 1 otherwise.
+func desiredReplicas(paused bool) int32 {
+	if paused {
+		return 0
+	}
+	return 1
+}
+
+func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, error) {
 	name := computeName(ws)
+	want := desiredReplicas(paused)
 	existing := &appsv1.Deployment{}
 	err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: name}, existing)
 	if err == nil {
-		return existing.Status.ReadyReplicas > 0, nil
+		// Reconcile the replica count in place (pause/resume): keep the
+		// object, only scale it.
+		if existing.Spec.Replicas == nil || *existing.Spec.Replicas != want {
+			existing.Spec.Replicas = &want
+			if err := r.Update(ctx, existing); err != nil {
+				return false, fmt.Errorf("scaling deployment %s to %d: %w", name, want, err)
+			}
+		}
+		return existing.Status.ReadyReplicas > 0 && !paused, nil
 	}
 	if !apierrors.IsNotFound(err) {
 		return false, fmt.Errorf("fetching deployment %s: %w", name, err)
 	}
 
-	one := int32(1)
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -156,7 +175,7 @@ func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1al
 			Labels:    workspaceLabels(ws),
 		},
 		Spec: appsv1.DeploymentSpec{
-			Replicas: &one,
+			Replicas: &want,
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{labelWorkspace: ws.Name}},
 			// Recreate: the home PVC is RWO, two desktop pods must never
 			// overlap during a rollout.
@@ -173,18 +192,24 @@ func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1al
 	return false, nil
 }
 
-func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string) (bool, error) {
+func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, error) {
 	name := computeName(ws)
+	want := desiredReplicas(paused)
 	existing := &appsv1.StatefulSet{}
 	err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: name}, existing)
 	if err == nil {
-		return existing.Status.ReadyReplicas > 0, nil
+		if existing.Spec.Replicas == nil || *existing.Spec.Replicas != want {
+			existing.Spec.Replicas = &want
+			if err := r.Update(ctx, existing); err != nil {
+				return false, fmt.Errorf("scaling statefulset %s to %d: %w", name, want, err)
+			}
+		}
+		return existing.Status.ReadyReplicas > 0 && !paused, nil
 	}
 	if !apierrors.IsNotFound(err) {
 		return false, fmt.Errorf("fetching statefulset %s: %w", name, err)
 	}
 
-	one := int32(1)
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -192,7 +217,7 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 			Labels:    workspaceLabels(ws),
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas:    &one,
+			Replicas:    &want,
 			ServiceName: name,
 			Selector:    &metav1.LabelSelector{MatchLabels: map[string]string{labelWorkspace: ws.Name}},
 			Template:    r.buildPodTemplate(ctx, ws, tpl, pvcName),

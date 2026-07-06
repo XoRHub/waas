@@ -6,7 +6,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -151,7 +150,9 @@ func TestReconcileReportsRunningWhenPodReady(t *testing.T) {
 	}
 }
 
-func TestReconcilePausedDeletesPodKeepsPVC(t *testing.T) {
+// Pause scales the Deployment to 0 (not delete): the object and its spec
+// survive so resume is a fast scale back to 1, and the home PVC is kept.
+func TestReconcilePausedScalesToZeroKeepsWorkloadAndPVC(t *testing.T) {
 	ws := workspace()
 	r, c := newFixture(t, linuxTemplate(), ws)
 	ctx := context.Background()
@@ -169,10 +170,13 @@ func TestReconcilePausedDeletesPodKeepsPVC(t *testing.T) {
 
 	reconcile(t, r, got)
 
+	// Deployment must still exist, scaled to 0.
 	dep := &appsv1.Deployment{}
-	err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep)
-	if !apierrors.IsNotFound(err) {
-		t.Fatalf("expected deployment to be deleted while paused, got err=%v", err)
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatalf("deployment must survive pause (scale-to-0), got err=%v", err)
+	}
+	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 0 {
+		t.Fatalf("paused deployment must be scaled to 0, got replicas=%v", dep.Spec.Replicas)
 	}
 	pvc := &corev1.PersistentVolumeClaim{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc-home"}, pvc); err != nil {
@@ -182,8 +186,24 @@ func TestReconcilePausedDeletesPodKeepsPVC(t *testing.T) {
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, got); err != nil {
 		t.Fatalf("fetching workspace: %v", err)
 	}
-	if got.Status.Phase != waasv1alpha1.PhaseStopped {
-		t.Fatalf("expected Stopped, got %s", got.Status.Phase)
+	if got.Status.Phase != waasv1alpha1.PhasePaused {
+		t.Fatalf("expected Paused, got %s", got.Status.Phase)
+	}
+	if got.Status.Address != "" || got.Status.Port != 0 {
+		t.Fatalf("paused workspace must clear reachability, got %+v", got.Status)
+	}
+
+	// Resume: scale back to 1, object reused (not recreated).
+	got.Spec.Paused = false
+	if err := c.Update(ctx, got); err != nil {
+		t.Fatalf("resuming workspace: %v", err)
+	}
+	reconcile(t, r, got)
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatalf("fetching deployment after resume: %v", err)
+	}
+	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 1 {
+		t.Fatalf("resumed deployment must be scaled to 1, got replicas=%v", dep.Spec.Replicas)
 	}
 }
 

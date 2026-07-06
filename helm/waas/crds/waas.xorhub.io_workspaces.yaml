@@ -2841,6 +2841,7 @@ spec:
                 - Pending
                 - Provisioning
                 - Running
+                - Paused
                 - Stopped
                 - Failed
                 - Terminating

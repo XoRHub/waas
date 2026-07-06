@@ -39,6 +39,7 @@
       "Pending": "En attente",
       "Provisioning": "Préparation de votre bureau…",
       "Running": "Prêt",
+      "Paused": "En pause",
       "Stopped": "Arrêté",
       "Failed": "Indisponible",
       "Terminating": "Arrêt en cours…"

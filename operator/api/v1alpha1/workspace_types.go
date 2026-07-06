@@ -6,16 +6,23 @@ import (
 )
 
 // WorkspacePhase is the coarse lifecycle state surfaced to the fleet dashboard.
-// +kubebuilder:validation:Enum=Pending;Provisioning;Running;Stopped;Failed;Terminating
+// +kubebuilder:validation:Enum=Pending;Provisioning;Running;Paused;Stopped;Failed;Terminating
 type WorkspacePhase string
 
 const (
 	PhasePending      WorkspacePhase = "Pending"
 	PhaseProvisioning WorkspacePhase = "Provisioning"
 	PhaseRunning      WorkspacePhase = "Running"
-	PhaseStopped      WorkspacePhase = "Stopped"
-	PhaseFailed       WorkspacePhase = "Failed"
-	PhaseTerminating  WorkspacePhase = "Terminating"
+	// PhasePaused: the user manually paused the workspace. Compute is
+	// scaled to 0 (the Deployment/StatefulSet and all its config are
+	// kept), the home volume is retained; resume is a scale back to 1.
+	PhasePaused WorkspacePhase = "Paused"
+	// PhaseStopped: the workspace is down because of a scheduled downtime
+	// window (see spec.schedule), not a manual action. Same scale-to-0
+	// mechanism as Paused; the distinction is why it is down.
+	PhaseStopped     WorkspacePhase = "Stopped"
+	PhaseFailed      WorkspacePhase = "Failed"
+	PhaseTerminating WorkspacePhase = "Terminating"
 )
 
 // Condition types set on Workspace.
