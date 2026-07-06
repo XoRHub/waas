@@ -90,6 +90,10 @@ dev-load:
 	done
 
 dev-deploy:
+	# Helm only installs CRDs on first install, never on upgrade — apply
+	# them explicitly so schema changes (new fields, validation) always
+	# reach the cluster.
+	kubectl apply -f helm/waas/crds/
 	helm upgrade --install waas helm/waas \
 		--namespace $(DEV_NAMESPACE) --create-namespace \
 		-f hack/dev/values-dev.yaml
