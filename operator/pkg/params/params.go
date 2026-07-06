@@ -179,7 +179,7 @@ var registry = []Param{
 			"ro-ro-qwerty", "sv-se-qwerty", "tr-tr-qwerty", "failsafe",
 		},
 		Default: "en-us-qwerty", Tier: TierUI,
-		Description: "Keyboard layout the RDP server expects (failsafe sends Unicode events).",
+		Description: "Keyboard layout the RDP server expects. Left unset, the platform auto-detects it from the browser locale (failsafe sends Unicode events).",
 	},
 	{
 		Name: "console", Protocols: []string{"rdp"}, Kind: KindBool,

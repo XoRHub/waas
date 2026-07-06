@@ -26,6 +26,10 @@ type ConnectionParams struct {
 	Width  int
 	Height int
 	DPI    int
+	// ClientLayout is the keyboard layout auto-detected from the browser
+	// locale (a client display characteristic, like DPI). Used as the RDP
+	// server-layout default when neither the template nor the user set one.
+	ClientLayout string
 }
 
 // Handshake drives the client side of the guacd handshake:
@@ -113,6 +117,10 @@ func paramValue(name string, params ConnectionParams) string {
 		return params.Password
 	case name == "ignore-cert" && params.Protocol == "rdp":
 		return "true"
+	case name == "server-layout" && params.Protocol == "rdp":
+		// Client-detected keyboard layout as the auto default (only when
+		// the template/user did not set server-layout via Extra above).
+		return params.ClientLayout
 	default:
 		return ""
 	}

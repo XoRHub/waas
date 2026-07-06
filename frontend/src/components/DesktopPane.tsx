@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 import Guacamole from 'guacamole-common-js';
 import { api } from '@/lib/api';
+import { detectServerLayout } from '@/lib/keyboard';
 import { useAuthStore } from '@/stores/authStore';
 import type { ConnectResult, SessionCapabilities, WorkspaceConnectionPrefs } from '@/types';
 
@@ -120,6 +121,10 @@ export const DesktopPane = forwardRef<
         width: String(container.clientWidth || window.innerWidth),
         height: String(container.clientHeight || window.innerHeight),
         dpi: '96',
+        // Auto keyboard layout (client display characteristic): wwt uses
+        // it as the RDP server-layout default unless the template/user
+        // set one explicitly.
+        layout: detectServerLayout(),
       });
       const tunnel = new Guacamole.WebSocketTunnel(`/ws?${params.toString()}`);
       client = new Guacamole.Client(tunnel);

@@ -101,15 +101,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := guac.ConnectionParams{
-		Protocol: info.Protocol,
-		Hostname: info.Hostname,
-		Port:     info.Port,
-		Username: info.Username,
-		Password: info.Password,
-		Extra:    info.Params,
-		Width:    intQuery(r, "width"),
-		Height:   intQuery(r, "height"),
-		DPI:      intQuery(r, "dpi"),
+		Protocol:     info.Protocol,
+		Hostname:     info.Hostname,
+		Port:         info.Port,
+		Username:     info.Username,
+		Password:     info.Password,
+		Extra:        info.Params,
+		Width:        intQuery(r, "width"),
+		Height:       intQuery(r, "height"),
+		DPI:          intQuery(r, "dpi"),
+		ClientLayout: r.URL.Query().Get("layout"),
 	}
 	connID, guacdReader, err := guac.Handshake(conn, params)
 	if err != nil {
