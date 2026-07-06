@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,6 +58,17 @@ type CreateWorkspaceInput struct {
 	// Resources is the user-chosen sizing ("cpu"/"memory" quantities).
 	// Bounds are enforced by the admission webhook, not here.
 	Resources map[string]string `json:"resources"`
+	// Overrides are template deviations (env, security contexts, volumes,
+	// protocol...). Passed verbatim to the CR: the admission webhook is
+	// the single judge of what this creator may override.
+	Overrides *waasv1alpha1.WorkspaceOverrides `json:"overrides,omitempty"`
+}
+
+// ConnectInput is the optional connect-time payload: a protocol choice and
+// guacd parameter overrides among the template's user-tunable names.
+type ConnectInput struct {
+	Protocol string            `json:"protocol,omitempty"`
+	Params   map[string]string `json:"params,omitempty"`
 }
 
 // ConnectResult carries what the frontend needs to open the desktop stream.
@@ -76,9 +88,18 @@ func (s *WorkspaceService) List(ctx context.Context, actor Actor) ([]model.Works
 	if err := s.kube.List(ctx, list, opts...); err != nil {
 		return nil, fmt.Errorf("listing workspaces: %w", err)
 	}
+	// One template list feeds the protocol/userParams enrichment of every
+	// workspace row (best-effort: nil template just means no enrichment).
+	templates := map[string]*waasv1alpha1.WorkspaceTemplate{}
+	tplList := &waasv1alpha1.WorkspaceTemplateList{}
+	if err := s.kube.List(ctx, tplList, client.InNamespace(s.namespace)); err == nil {
+		for i := range tplList.Items {
+			templates[tplList.Items[i].Name] = &tplList.Items[i]
+		}
+	}
 	out := make([]model.Workspace, 0, len(list.Items))
 	for i := range list.Items {
-		out = append(out, workspaceToModel(&list.Items[i]))
+		out = append(out, workspaceToModel(&list.Items[i], templates[list.Items[i].Spec.TemplateRef]))
 	}
 	return out, nil
 }
@@ -131,12 +152,16 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 			Annotations: map[string]string{
 				waasv1alpha1.AnnotationUsername: owner.Username,
 				waasv1alpha1.AnnotationGroups:   strings.Join(owner.Groups, ","),
+				// The creator's platform role: it lets the webhook grant
+				// admins full override rights on any template.
+				waasv1alpha1.AnnotationRole: actor.Role,
 			},
 		},
 		Spec: waasv1alpha1.WorkspaceSpec{
 			TemplateRef: in.TemplateRef,
 			Owner:       owner.ID,
 			DisplayName: in.DisplayName,
+			Overrides:   in.Overrides,
 		},
 	}
 	rr, err := requirementsFrom(in.Resources)
@@ -155,7 +180,7 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 		return nil, fmt.Errorf("creating workspace %s: %w", name, err)
 	}
 	s.audit.Record(ctx, actor, "workspace.created", "workspace", string(ws.UID), "name="+name)
-	m := workspaceToModel(ws)
+	m := workspaceToModel(ws, tpl)
 	return &m, nil
 }
 
@@ -165,8 +190,17 @@ func (s *WorkspaceService) Get(ctx context.Context, actor Actor, id string) (*mo
 	if err != nil {
 		return nil, err
 	}
-	m := workspaceToModel(ws)
+	m := workspaceToModel(ws, s.templateOf(ctx, ws))
 	return &m, nil
+}
+
+// templateOf resolves a workspace's template, best-effort (nil when gone).
+func (s *WorkspaceService) templateOf(ctx context.Context, ws *waasv1alpha1.Workspace) *waasv1alpha1.WorkspaceTemplate {
+	tpl := &waasv1alpha1.WorkspaceTemplate{}
+	if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: ws.Spec.TemplateRef}, tpl); err != nil {
+		return nil
+	}
+	return tpl
 }
 
 // Delete removes the Workspace CR. The operator tears down compute; the home
@@ -204,14 +238,15 @@ func (s *WorkspaceService) SetPaused(ctx context.Context, actor Actor, id string
 		action = "workspace.paused"
 	}
 	s.audit.Record(ctx, actor, action, "workspace", id, "name="+ws.Name)
-	m := workspaceToModel(ws)
+	m := workspaceToModel(ws, s.templateOf(ctx, ws))
 	return &m, nil
 }
 
 // Connect opens a desktop session: it records the session and issues the
 // short-lived connection token the WebSocket proxy will validate before
-// dialing guacd.
-func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string) (*ConnectResult, error) {
+// dialing guacd. The caller may pick any protocol the template declares
+// and override the guacd parameters the template allow-lists.
+func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, in ConnectInput) (*ConnectResult, error) {
 	ws, err := s.fetchByID(ctx, actor, id)
 	if err != nil {
 		return nil, err
@@ -220,14 +255,39 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string) 
 		return nil, apierror.Conflict(fmt.Sprintf("workspace is %s, not Running", ws.Status.Phase))
 	}
 
+	protocol := ws.Status.Protocol
+	if in.Protocol != "" {
+		protocol = in.Protocol
+	}
+	if len(in.Params) > 0 || in.Protocol != "" {
+		tpl := &waasv1alpha1.WorkspaceTemplate{}
+		if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: ws.Spec.TemplateRef}, tpl); err != nil {
+			return nil, fmt.Errorf("fetching template %s: %w", ws.Spec.TemplateRef, err)
+		}
+		entry := tpl.Spec.ProtocolNamed(protocol)
+		if entry == nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocol %q is not offered by this workspace", protocol))
+		}
+		// Locked parameters stay locked: only allow-listed names may be
+		// overridden by non-admin users.
+		if actor.Role != string(auth.RoleAdmin) {
+			for name := range in.Params {
+				if !slices.Contains(entry.UserParams, name) {
+					return nil, apierror.Forbidden(fmt.Sprintf("parameter %q is not user-configurable for protocol %q", name, protocol))
+				}
+			}
+		}
+	}
+
 	session := &model.Session{
 		ID:            uuid.NewString(),
 		UserID:        actor.ID,
 		WorkspaceID:   string(ws.UID),
 		WorkspaceName: ws.Name,
-		Protocol:      ws.Status.Protocol,
+		Protocol:      protocol,
 		ClientIP:      actor.ClientIP,
 		StartedAt:     time.Now().UTC(),
+		Params:        in.Params,
 	}
 	if err := s.sessions.Create(ctx, session); err != nil {
 		return nil, fmt.Errorf("recording session: %w", err)
@@ -237,9 +297,9 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string) 
 	if err != nil {
 		return nil, fmt.Errorf("issuing connection token: %w", err)
 	}
-	s.audit.Record(ctx, actor, "session.started", "session", session.ID, "workspace="+ws.Name)
+	s.audit.Record(ctx, actor, "session.started", "session", session.ID, "workspace="+ws.Name+" protocol="+protocol)
 
-	return &ConnectResult{SessionID: session.ID, ConnectionToken: token, Protocol: ws.Status.Protocol}, nil
+	return &ConnectResult{SessionID: session.ID, ConnectionToken: token, Protocol: protocol}, nil
 }
 
 // EndSession closes a session record (called by the proxy on disconnect via
@@ -279,6 +339,16 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 		Hostname: ws.Status.Address,
 		Port:     ws.Status.Port,
 	}
+	// The session may target any protocol the workspace serves, not just
+	// the default one recorded in status.
+	if session.Protocol != "" && session.Protocol != info.Protocol {
+		for _, p := range ws.Status.Protocols {
+			if p.Name == session.Protocol {
+				info.Protocol, info.Port = p.Name, p.Port
+				break
+			}
+		}
+	}
 	// Desktop credentials stay server-side: resolved from the template and
 	// handed to guacd by the proxy, never exposed to the browser.
 	tpl := &waasv1alpha1.WorkspaceTemplate{}
@@ -291,6 +361,30 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 				info.Username = env.Value
 			case "RDP_PASSWORD":
 				info.Password = env.Value
+			}
+		}
+		// Template params first (locked), then the session's vetted user
+		// overrides. Env-var overrides from the workspace spec win over
+		// template env for credentials.
+		if entry := tpl.Spec.ProtocolNamed(info.Protocol); entry != nil {
+			info.Params = map[string]string{}
+			for k, v := range entry.Params {
+				info.Params[k] = v
+			}
+			for k, v := range session.Params {
+				info.Params[k] = v
+			}
+		} else if len(session.Params) > 0 {
+			info.Params = session.Params
+		}
+		if ws.Spec.Overrides != nil {
+			for _, env := range ws.Spec.Overrides.Env {
+				switch env.Name {
+				case "VNC_PW", "VNC_PASSWORD", "RDP_PASSWORD":
+					info.Password = env.Value
+				case "RDP_USERNAME":
+					info.Username = env.Value
+				}
 			}
 		}
 	}
@@ -322,7 +416,7 @@ func (s *WorkspaceService) findByUID(ctx context.Context, uid string) (*waasv1al
 	return nil, apierror.NotFound("workspace not found")
 }
 
-func workspaceToModel(ws *waasv1alpha1.Workspace) model.Workspace {
+func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) model.Workspace {
 	m := model.Workspace{
 		ID:          string(ws.UID),
 		Name:        ws.Name,
@@ -334,6 +428,28 @@ func workspaceToModel(ws *waasv1alpha1.Workspace) model.Workspace {
 		Protocol:    ws.Status.Protocol,
 		Paused:      ws.Spec.Paused,
 		CreatedAt:   ws.CreationTimestamp.Time,
+	}
+	for _, p := range ws.Status.Protocols {
+		m.Protocols = append(m.Protocols, model.WorkspaceProtocol{
+			Name: p.Name, Port: p.Port, Default: p.Default,
+		})
+	}
+	if tpl != nil {
+		if len(m.Protocols) == 0 {
+			// Not provisioned yet: surface the template's declared
+			// protocols so the UI can already offer the choice.
+			def := tpl.Spec.DefaultProtocol()
+			for _, p := range tpl.Spec.EffectiveProtocols() {
+				m.Protocols = append(m.Protocols, model.WorkspaceProtocol{
+					Name: p.Name, Port: p.Port, Default: p.Name == def.Name,
+				})
+			}
+		}
+		for i := range m.Protocols {
+			if entry := tpl.Spec.ProtocolNamed(m.Protocols[i].Name); entry != nil {
+				m.Protocols[i].UserParams = entry.UserParams
+			}
+		}
 	}
 	if m.Phase == "" {
 		m.Phase = string(waasv1alpha1.PhasePending)

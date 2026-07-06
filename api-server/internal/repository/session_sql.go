@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -20,13 +21,13 @@ func NewSQLSessionRepository(db *database.DB) *SQLSessionRepository {
 	return &SQLSessionRepository{db: db}
 }
 
-const sessionColumns = "id, user_id, workspace_id, workspace_name, protocol, client_ip, started_at, ended_at"
+const sessionColumns = "id, user_id, workspace_id, workspace_name, protocol, client_ip, started_at, ended_at, params"
 
 func (r *SQLSessionRepository) Create(ctx context.Context, s *model.Session) error {
-	query := r.db.Rebind(`INSERT INTO sessions (` + sessionColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	query := r.db.Rebind(`INSERT INTO sessions (` + sessionColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	_, err := r.db.ExecContext(ctx, query,
 		s.ID, s.UserID, s.WorkspaceID, s.WorkspaceName, s.Protocol, nullable(s.ClientIP),
-		timeArg(s.StartedAt), timePtrArg(s.EndedAt))
+		timeArg(s.StartedAt), timePtrArg(s.EndedAt), marshalParams(s.Params))
 	if err != nil {
 		return fmt.Errorf("creating session %s: %w", s.ID, err)
 	}
@@ -108,11 +109,38 @@ func scanSession(row rowScanner) (*model.Session, error) {
 	var (
 		s        model.Session
 		clientIP sql.NullString
+		params   string
 	)
 	if err := row.Scan(&s.ID, &s.UserID, &s.WorkspaceID, &s.WorkspaceName, &s.Protocol,
-		&clientIP, scanTime{&s.StartedAt}, scanNullTime{&s.EndedAt}); err != nil {
+		&clientIP, scanTime{&s.StartedAt}, scanNullTime{&s.EndedAt}, &params); err != nil {
 		return nil, err
 	}
 	s.ClientIP = clientIP.String
+	s.Params = unmarshalParams(params)
 	return &s, nil
+}
+
+// marshalParams serializes the connect-time params JSON column.
+func marshalParams(p map[string]string) string {
+	if len(p) == 0 {
+		return "{}"
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+// unmarshalParams is tolerant: an empty or corrupt column yields nil
+// instead of failing the whole session read.
+func unmarshalParams(raw string) map[string]string {
+	if raw == "" || raw == "{}" {
+		return nil
+	}
+	var out map[string]string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
 }

@@ -84,8 +84,17 @@ func (h *WorkspaceHandler) Resume(w http.ResponseWriter, r *http.Request) {
 
 // Connect handles POST /api/v1/workspaces/{id}/connect: records a session
 // and returns the short-lived connection token for the WebSocket proxy.
+// The body is optional: {protocol, params} picks a non-default protocol
+// and overrides the template's user-tunable guacd parameters.
 func (h *WorkspaceHandler) Connect(w http.ResponseWriter, r *http.Request) {
-	result, err := h.svc.Connect(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"))
+	var in service.ConnectInput
+	if r.ContentLength > 0 {
+		if err := decode(r, &in); err != nil {
+			fail(w, r, err)
+			return
+		}
+	}
+	result, err := h.svc.Connect(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), in)
 	if err != nil {
 		fail(w, r, err)
 		return

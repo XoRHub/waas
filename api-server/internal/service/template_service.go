@@ -218,5 +218,20 @@ func templateToModel(tpl *waasv1alpha1.WorkspaceTemplate) model.WorkspaceTemplat
 			m.Limits[string(name)] = qty.String()
 		}
 	}
+	m.Workload = string(tpl.Spec.WorkloadKindOrDefault())
+	def := tpl.Spec.DefaultProtocol()
+	for _, p := range tpl.Spec.EffectiveProtocols() {
+		m.Protocols = append(m.Protocols, model.WorkspaceProtocol{
+			Name:       p.Name,
+			Port:       p.Port,
+			Default:    p.Name == def.Name,
+			UserParams: p.UserParams,
+		})
+	}
+	if tpl.Spec.Overrides != nil {
+		for _, f := range tpl.Spec.Overrides.AllowedFields {
+			m.AllowedOverrides = append(m.AllowedOverrides, string(f))
+		}
+	}
 	return m
 }

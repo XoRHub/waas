@@ -14,6 +14,21 @@ type UserPreferences struct {
 	OpenWorkspaceInNewTab *bool `json:"openWorkspaceInNewTab,omitempty"`
 	// Language is the preferred UI locale (e.g. "en", "fr").
 	Language string `json:"language,omitempty"`
+	// Theme is "light" or "dark"; empty follows the system preference.
+	Theme string `json:"theme,omitempty"`
+	// WorkspaceFolders maps workspace ID → folder name, the user's own
+	// portal grouping ("infra", "dev", ...). Purely presentational.
+	WorkspaceFolders map[string]string `json:"workspaceFolders,omitempty"`
+	// WorkspaceSettings stores per-workspace connection choices; the
+	// server still validates them against the template at connect time.
+	WorkspaceSettings map[string]WorkspaceConnectionPrefs `json:"workspaceSettings,omitempty"`
+}
+
+// WorkspaceConnectionPrefs is the user's saved connection tuning for one
+// workspace: preferred protocol and guacd parameter overrides.
+type WorkspaceConnectionPrefs struct {
+	Protocol string            `json:"protocol,omitempty"`
+	Params   map[string]string `json:"params,omitempty"`
 }
 
 // User is a platform account (local auth).
@@ -47,6 +62,9 @@ type Session struct {
 	ClientIP      string     `json:"clientIp,omitempty"`
 	StartedAt     time.Time  `json:"startedAt"`
 	EndedAt       *time.Time `json:"endedAt,omitempty"`
+	// Params are the user's connect-time guacd parameter overrides,
+	// already validated against the template's userParams allow-list.
+	Params map[string]string `json:"params,omitempty"`
 }
 
 // AuditLog is one append-only audit trail entry.
@@ -75,6 +93,19 @@ type Workspace struct {
 	Paused      bool      `json:"paused"`
 	Message     string    `json:"message,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
+	// Protocols the workspace serves, with the user-tunable guacd
+	// parameter names per protocol (resolved from the template).
+	Protocols []WorkspaceProtocol `json:"protocols,omitempty"`
+}
+
+// WorkspaceProtocol is one connection option of a workspace.
+type WorkspaceProtocol struct {
+	Name    string `json:"name"`
+	Port    int32  `json:"port,omitempty"`
+	Default bool   `json:"default,omitempty"`
+	// UserParams are the guacd parameter names the user may set at
+	// connect time (from the template's allow-list).
+	UserParams []string `json:"userParams,omitempty"`
 }
 
 // WorkspaceTemplate is the API projection of a WorkspaceTemplate CR.
@@ -90,6 +121,14 @@ type WorkspaceTemplate struct {
 	Requests    map[string]string `json:"requests,omitempty"`
 	Limits      map[string]string `json:"limits,omitempty"`
 	CreatedAt   time.Time         `json:"createdAt"`
+	// Workload is the workload kind stamping desktops (Deployment,
+	// StatefulSet or Pod).
+	Workload string `json:"workload,omitempty"`
+	// Protocols the template declares (or the OS-derived legacy one).
+	Protocols []WorkspaceProtocol `json:"protocols,omitempty"`
+	// AllowedOverrides are the template fields plain users may override
+	// at instantiation.
+	AllowedOverrides []string `json:"allowedOverrides,omitempty"`
 }
 
 // CatalogImage is the API projection of a WorkspaceImage CR, already
@@ -119,10 +158,10 @@ type QuotaStatus struct {
 	PolicyPriority int32             `json:"policyPriority"`
 	MaxWorkspaces  *int32            `json:"maxWorkspaces,omitempty"`
 	UsedWorkspaces int               `json:"usedWorkspaces"`
-	Limits         map[string]string `json:"limits,omitempty"`  // aggregate caps (cpu/memory/storage)
-	Used           map[string]string `json:"used,omitempty"`    // current aggregates
+	Limits         map[string]string `json:"limits,omitempty"` // aggregate caps (cpu/memory/storage)
+	Used           map[string]string `json:"used,omitempty"`   // current aggregates
 	PerWorkspace   map[string]string `json:"perWorkspace,omitempty"`
-	Defaults       map[string]string `json:"defaults,omitempty"` // policy-proposed sizing (image defaults win)
+	Defaults       map[string]string `json:"defaults,omitempty"`  // policy-proposed sizing (image defaults win)
 	Lifecycle      map[string]string `json:"lifecycle,omitempty"` // idleSuspendAfter / maxLifetime
 }
 
@@ -169,4 +208,8 @@ type ConnectionInfo struct {
 	Port     int32  `json:"port"`
 	Password string `json:"password,omitempty"`
 	Username string `json:"username,omitempty"`
+	// Params are extra guacd connection parameters: the template's locked
+	// params merged with the session's user overrides (user wins only on
+	// allow-listed names).
+	Params map[string]string `json:"params,omitempty"`
 }
