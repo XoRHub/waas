@@ -61,6 +61,24 @@ spec:
               priority 0 as the restrictive fallback. No matching policy at all
               means DENY (fail closed).
             properties:
+              clipboard:
+                description: |-
+                  Clipboard controls the clipboard bridge between the user's machine
+                  and their workspace sessions. Absent = both directions allowed.
+                  Enforced by the WebSocket proxy (instruction filtering, rights
+                  stamped into the connection token) — the portal only reflects it.
+                properties:
+                  copyFromWorkspace:
+                    description: |-
+                      CopyFromWorkspace permits copying FROM the workspace to the local
+                      clipboard (data exfiltration direction).
+                    type: boolean
+                  pasteToWorkspace:
+                    description: |-
+                      PasteToWorkspace permits pasting the local clipboard INTO the
+                      workspace (data injection direction).
+                    type: boolean
+                type: object
               images:
                 description: |-
                   Images is the subset of catalog entries (WorkspaceImage names)

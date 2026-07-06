@@ -59,6 +59,26 @@ type WorkspacePolicySpec struct {
 	// Lifecycle bounds workspace longevity to fight accumulation.
 	// +optional
 	Lifecycle *PolicyLifecycle `json:"lifecycle,omitempty"`
+
+	// Clipboard controls the clipboard bridge between the user's machine
+	// and their workspace sessions. Absent = both directions allowed.
+	// Enforced by the WebSocket proxy (instruction filtering, rights
+	// stamped into the connection token) — the portal only reflects it.
+	// +optional
+	Clipboard *ClipboardPolicy `json:"clipboard,omitempty"`
+}
+
+// ClipboardPolicy gates the two clipboard directions independently.
+// Absent booleans default to true (allowed).
+type ClipboardPolicy struct {
+	// CopyFromWorkspace permits copying FROM the workspace to the local
+	// clipboard (data exfiltration direction).
+	// +optional
+	CopyFromWorkspace *bool `json:"copyFromWorkspace,omitempty"`
+	// PasteToWorkspace permits pasting the local clipboard INTO the
+	// workspace (data injection direction).
+	// +optional
+	PasteToWorkspace *bool `json:"pasteToWorkspace,omitempty"`
 }
 
 // PolicyLimits — absent fields mean "unlimited" so the restrictive

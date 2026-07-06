@@ -48,10 +48,43 @@ spec:
       params:            # locked guacd connection parameters
         color-depth: "24"
       userParams: [color-depth, cursor]   # user-tunable at connect time
+      credentialsSecretRef: my-creds      # username/password/private-key/passphrase
 ```
 
 When `protocols` is empty, one protocol is synthesized from `os`/`port`
 (linux → vnc:5901, windows → rdp:3389) so older templates keep working.
+
+Every `params` key is a guacd wire name, validated by the template
+admission webhook against the platform registry (`operator/pkg/params`):
+unknown names, malformed values and platform-owned parameters
+(credentials, gateways, repeaters, `enable-sftp`, …) are rejected for
+every caller, kubectl included. The full mapping with exposure tiers
+lives in [guacd-parameters.md](guacd-parameters.md) (generated —
+`make docs-params`).
+
+### Credentials (`credentialsSecretRef`)
+
+Desktop credentials never live in a CR. Each protocol entry may name a
+Secret (workspace namespace) with the keys `username`, `password`,
+`private-key`, `passphrase` (all optional). The api-server resolves it
+server-side when a session starts and hands the values to guacd via the
+proxy — the browser never sees them. Ship the Secret with External
+Secrets/Vault. The same Secret typically also feeds the pod via env
+`valueFrom` (e.g. `VNC_PW`, `WAAS_SSH_AUTHORIZED_KEYS`) so both sides of
+the connection agree; see
+`waas-images/examples/workspacetemplate-dev-ssh.yaml` for the complete
+pattern. Literal `VNC_PW`/`RDP_PASSWORD` env values remain supported as
+a legacy fallback only.
+
+### SSH
+
+`ssh` is a first-class protocol: guacd renders the terminal, so the
+portal needs nothing special. The `dev-ssh` image (waas-images) ships a
+fully non-root sshd on port 2222, public-key only (an unprivileged sshd
+cannot read /etc/shadow, so password auth is impossible by
+construction); authorized keys and the guacd private key come from the
+same credentials Secret. Terminal look (`font-size`, `color-scheme`) is
+user-tunable via `userParams`.
 
 - The workspace **Service exposes every declared port**; status carries
   the full list (`status.protocols`) plus the effective default.

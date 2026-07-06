@@ -24,6 +24,12 @@ spec:
   lifecycle:
     idleSuspendAfter: 2h    # pause douce : compute libéré, home conservé
     maxLifetime: 336h       # 14 j : suppression, home compris
+  # Presse-papiers, par direction (absent = tout autorisé). Appliqué par
+  # le proxy wwt (droits embarqués dans le connection token), l'IHM ne
+  # fait que le refléter. Ex. : couper l'exfiltration pour le fallback :
+  # clipboard:
+  #   copyFromWorkspace: false   # workspace → poste local
+  #   pasteToWorkspace: true     # poste local → workspace
 ---
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspacePolicy

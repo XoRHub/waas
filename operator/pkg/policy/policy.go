@@ -120,8 +120,16 @@ func Resolve(policies []waasv1alpha1.WorkspacePolicy, id Identity) (*waasv1alpha
 }
 
 func subjectsMatch(subjects []waasv1alpha1.PolicySubject, id Identity) bool {
+	return MatchedVia(subjects, id) != ""
+}
+
+// MatchedVia explains how a policy's subjects match the identity: the
+// matching subject as "Kind:name", "*" for a subjects-less (catch-all)
+// policy, or "" when it does not match. Powers the effective-policy debug
+// endpoint, so resolution and explanation can never disagree.
+func MatchedVia(subjects []waasv1alpha1.PolicySubject, id Identity) string {
 	if len(subjects) == 0 {
-		return true // fallback policy: every authenticated user
+		return "*" // fallback policy: every authenticated user
 	}
 	for _, s := range subjects {
 		switch s.Kind {
@@ -130,15 +138,30 @@ func subjectsMatch(subjects []waasv1alpha1.PolicySubject, id Identity) bool {
 			// or the human username, so admins can write whichever they
 			// see in their tooling.
 			if s.Name == id.Owner || (id.Username != "" && s.Name == id.Username) {
-				return true
+				return string(s.Kind) + ":" + s.Name
 			}
 		case waasv1alpha1.SubjectGroup:
 			if slices.Contains(id.Groups, s.Name) {
-				return true
+				return string(s.Kind) + ":" + s.Name
 			}
 		}
 	}
-	return false
+	return ""
+}
+
+// ClipboardOf returns the clipboard rights a policy grants: absent policy
+// or absent fields mean allowed; a nil policy (no match, fail-closed
+// context) means denied.
+func ClipboardOf(pol *waasv1alpha1.WorkspacePolicy) (copyFromWorkspace, pasteToWorkspace bool) {
+	if pol == nil {
+		return false, false
+	}
+	c := pol.Spec.Clipboard
+	if c == nil {
+		return true, true
+	}
+	return c.CopyFromWorkspace == nil || *c.CopyFromWorkspace,
+		c.PasteToWorkspace == nil || *c.PasteToWorkspace
 }
 
 // ImageAllowed says whether one catalog entry is usable by the identity

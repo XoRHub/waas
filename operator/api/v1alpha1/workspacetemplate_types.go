@@ -101,8 +101,11 @@ type WorkspaceProtocol struct {
 	Default bool `json:"default,omitempty"`
 
 	// Params are guacd connection parameters for this protocol (e.g.
-	// color-depth, security, enable-sftp). hostname/port/width/height/dpi
-	// are always managed by the platform and ignored here.
+	// color-depth, security). Keys are the guacd wire names, validated
+	// against the platform registry (operator/pkg/params) by the
+	// admission webhook: unknown, malformed or platform-owned parameters
+	// (credentials, gateways, repeaters) are rejected. hostname/port/
+	// width/height/dpi are always managed by the platform.
 	// +optional
 	Params map[string]string `json:"params,omitempty"`
 
@@ -110,6 +113,15 @@ type WorkspaceProtocol struct {
 	// override when connecting. Anything not listed is locked to Params.
 	// +optional
 	UserParams []string `json:"userParams,omitempty"`
+
+	// CredentialsSecretRef names a Secret (in the workspace namespace)
+	// holding the desktop credentials for this protocol, under the keys
+	// username, password, private-key and passphrase (all optional).
+	// Resolved server-side at connect time and handed to guacd by the
+	// proxy: credentials never appear in a CR and never reach the
+	// browser. Ship the Secret via External Secrets/Vault.
+	// +optional
+	CredentialsSecretRef string `json:"credentialsSecretRef,omitempty"`
 }
 
 // TemplateOverrides controls what workspace creators may deviate from the

@@ -64,4 +64,21 @@ webhooks:
         apiVersions: [v1alpha1]
         operations: [CREATE, UPDATE]
         resources: [workspaces]
+  # Templates are gated against the guacd parameter registry: unknown
+  # params, malformed values and platform-owned params are rejected for
+  # kubectl/GitOps exactly as for the portal.
+  - name: vworkspacetemplate.waas.xorhub.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        name: {{ .Release.Name }}-operator-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-waas-xorhub-io-v1alpha1-workspacetemplate
+    rules:
+      - apiGroups: [waas.xorhub.io]
+        apiVersions: [v1alpha1]
+        operations: [CREATE, UPDATE]
+        resources: [workspacetemplates]
 {{- end }}
