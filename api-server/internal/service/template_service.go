@@ -17,6 +17,7 @@ import (
 	"github.com/xorhub/waas/api-server/internal/model"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/pkg/params"
+	"github.com/xorhub/waas/operator/pkg/schedule"
 )
 
 // TemplateService manages WorkspaceTemplate CRs. Templates live in the
@@ -57,6 +58,9 @@ type TemplateInput struct {
 
 	Protocols []TemplateProtocolInput `json:"protocols,omitempty"`
 	Overrides *TemplateOverridesInput `json:"overrides,omitempty"`
+
+	// Schedule is the CR field verbatim (timezone + uptime/downtime crons).
+	Schedule *waasv1alpha1.WorkspaceSchedule `json:"schedule,omitempty"`
 }
 
 // TemplateProtocolInput mirrors WorkspaceProtocol.
@@ -248,13 +252,21 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 			switch field {
 			case waasv1alpha1.FieldEnv, waasv1alpha1.FieldSecurityContext, waasv1alpha1.FieldPodSecurityContext,
 				waasv1alpha1.FieldVolumes, waasv1alpha1.FieldNodeSelector, waasv1alpha1.FieldTolerations,
-				waasv1alpha1.FieldResources, waasv1alpha1.FieldProtocol, waasv1alpha1.FieldProtocolParams:
+				waasv1alpha1.FieldResources, waasv1alpha1.FieldProtocol, waasv1alpha1.FieldProtocolParams,
+				waasv1alpha1.FieldSchedule:
 				ov.AllowedFields = append(ov.AllowedFields, field)
 			default:
 				return nil, apierror.BadRequest(fmt.Sprintf("unknown overridable field %q", f))
 			}
 		}
 		spec.Overrides = ov
+	}
+
+	if in.Schedule != nil {
+		if v := (schedule.Spec{Timezone: in.Schedule.Timezone, Uptime: in.Schedule.Uptime, Downtime: in.Schedule.Downtime}).Validate(); v != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("schedule: %v", v))
+		}
+		spec.Schedule = in.Schedule
 	}
 	return spec, nil
 }
@@ -323,5 +335,6 @@ func templateToModel(tpl *waasv1alpha1.WorkspaceTemplate) model.WorkspaceTemplat
 		}
 		m.OverridesOwner = tpl.Spec.Overrides.Owner
 	}
+	m.Schedule = tpl.Spec.Schedule
 	return m
 }

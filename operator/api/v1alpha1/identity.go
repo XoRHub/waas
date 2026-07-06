@@ -22,4 +22,10 @@ const (
 	// field; the webhook trusts this only from trusted writers, like the
 	// other identity annotations.
 	AnnotationRole = "waas.xorhub.io/role"
+
+	// AnnotationManualStateAt is the RFC3339 timestamp of the last manual
+	// pause/resume, stamped by the api-server. The schedule evaluator uses
+	// it to apply conflict rule B (a manual action wins until the next
+	// opposite scheduled edge). Not part of the trusted-identity contract.
+	AnnotationManualStateAt = "waas.xorhub.io/manual-state-at"
 )

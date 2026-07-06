@@ -88,9 +88,13 @@ export function useCreateWorkspace() {
       name?: string;
       displayName?: string;
       resources?: { cpu: string; memory: string };
-      // Template deviations (protocol, env…); the admission webhook is the
-      // single judge of what this creator may override.
-      overrides?: { protocol?: string; env?: TemplateEnvVar[] };
+      // Template deviations (protocol, env, schedule…); the admission
+      // webhook is the single judge of what this creator may override.
+      overrides?: {
+        protocol?: string;
+        env?: TemplateEnvVar[];
+        schedule?: { timezone?: string; uptime?: string[]; downtime?: string[] };
+      };
     }) => api.post<Workspace>('/api/v1/workspaces', input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
@@ -184,6 +188,7 @@ export interface TemplateInput {
   workload?: Record<string, unknown>;
   protocols?: TemplateProtocolInput[];
   overrides?: { allowedFields?: string[]; owner?: string };
+  schedule?: { timezone?: string; uptime?: string[]; downtime?: string[] };
 }
 
 export function useSaveTemplate() {

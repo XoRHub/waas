@@ -97,6 +97,11 @@ type WorkspaceOverrides struct {
 	// template's declared protocols.
 	// +optional
 	Protocol string `json:"protocol,omitempty"`
+
+	// Schedule replaces the template's uptime/downtime schedule for this
+	// workspace (allowed only when the template delegates "schedule").
+	// +optional
+	Schedule *WorkspaceSchedule `json:"schedule,omitempty"`
 }
 
 // WorkspaceStatus is the observed state, written exclusively via the status
@@ -135,11 +140,24 @@ type WorkspaceStatus struct {
 	// +optional
 	PVCName string `json:"pvcName,omitempty"`
 
+	// NextTransition is the next scheduled up/down transition, when the
+	// workspace has a schedule. Shown on the portal card and detail view.
+	// +optional
+	NextTransition *ScheduledTransition `json:"nextTransition,omitempty"`
+
 	// Conditions follow the standard Kubernetes condition conventions.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// ScheduledTransition is the next planned lifecycle change.
+type ScheduledTransition struct {
+	// Time is when the transition fires.
+	Time metav1.Time `json:"time"`
+	// Up is true for a start (uptime) edge, false for a stop (downtime) edge.
+	Up bool `json:"up"`
 }
 
 // WorkspaceProtocolStatus is one protocol endpoint of a running workspace.

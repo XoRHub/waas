@@ -133,6 +133,17 @@ type Workspace struct {
 	// Protocols the workspace serves, with the user-tunable guacd
 	// parameter names per protocol (resolved from the template).
 	Protocols []WorkspaceProtocol `json:"protocols,omitempty"`
+	// Schedule is the effective uptime/downtime schedule (override or
+	// template), so the UI can show and edit it.
+	Schedule *waasv1alpha1.WorkspaceSchedule `json:"schedule,omitempty"`
+	// NextTransition is the next planned lifecycle change (from status).
+	NextTransition *ScheduledTransition `json:"nextTransition,omitempty"`
+}
+
+// ScheduledTransition is the next planned up/down change of a workspace.
+type ScheduledTransition struct {
+	Time time.Time `json:"time"`
+	Up   bool      `json:"up"`
 }
 
 // WorkspaceProtocol is one connection option of a workspace.
@@ -183,6 +194,8 @@ type WorkspaceTemplate struct {
 	// OverridesOwner is the username owning this template (may override
 	// everything on workspaces stamped from it).
 	OverridesOwner string `json:"overridesOwner,omitempty"`
+	// Schedule is the CR's uptime/downtime schedule verbatim.
+	Schedule *waasv1alpha1.WorkspaceSchedule `json:"schedule,omitempty"`
 }
 
 // CatalogImage is the API projection of a WorkspaceImage CR, already

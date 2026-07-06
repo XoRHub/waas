@@ -466,6 +466,31 @@ spec:
                       Protocol picks this workspace's default protocol among the
                       template's declared protocols.
                     type: string
+                  schedule:
+                    description: |-
+                      Schedule replaces the template's uptime/downtime schedule for this
+                      workspace (allowed only when the template delegates "schedule").
+                    properties:
+                      downtime:
+                        description: |-
+                          Downtime cron expressions (standard 5-field). Each fires a stop edge
+                          (scale the workspace to 0, phase Stopped).
+                        items:
+                          type: string
+                        type: array
+                      timezone:
+                        description: |-
+                          Timezone is an IANA name (e.g. "Europe/Paris"). REQUIRED when any
+                          cron is set: the controller never falls back to its own timezone.
+                        type: string
+                      uptime:
+                        description: |-
+                          Uptime cron expressions (standard 5-field). Each fires a start edge
+                          (bring the workspace up / scale to 1).
+                        items:
+                          type: string
+                        type: array
+                    type: object
                   securityContext:
                     description: SecurityContext replaces the template container security
                       context.
@@ -2824,6 +2849,23 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              nextTransition:
+                description: |-
+                  NextTransition is the next scheduled up/down transition, when the
+                  workspace has a schedule. Shown on the portal card and detail view.
+                properties:
+                  time:
+                    description: Time is when the transition fires.
+                    format: date-time
+                    type: string
+                  up:
+                    description: Up is true for a start (uptime) edge, false for a
+                      stop (downtime) edge.
+                    type: boolean
+                required:
+                - time
+                - up
+                type: object
               observedGeneration:
                 description: ObservedGeneration is the spec generation last acted
                   upon.

@@ -27,7 +27,7 @@ const (
 
 // OverridableField names one template facet that workspace creators may be
 // allowed to override at instantiation time.
-// +kubebuilder:validation:Enum=env;securityContext;podSecurityContext;volumes;nodeSelector;tolerations;resources;protocol;protocolParams
+// +kubebuilder:validation:Enum=env;securityContext;podSecurityContext;volumes;nodeSelector;tolerations;resources;protocol;protocolParams;schedule
 type OverridableField string
 
 const (
@@ -40,7 +40,29 @@ const (
 	FieldResources          OverridableField = "resources"
 	FieldProtocol           OverridableField = "protocol"
 	FieldProtocolParams     OverridableField = "protocolParams"
+	FieldSchedule           OverridableField = "schedule"
 )
+
+// WorkspaceSchedule declares planned uptime/downtime by cron. Downtime
+// scales the workspace to 0 (same mechanism as pause); a manual action
+// wins until the next opposite scheduled edge (conflict rule B). Empty
+// lists mean "no schedule". See docs/workspace-lifecycle.md.
+type WorkspaceSchedule struct {
+	// Timezone is an IANA name (e.g. "Europe/Paris"). REQUIRED when any
+	// cron is set: the controller never falls back to its own timezone.
+	// +optional
+	Timezone string `json:"timezone,omitempty"`
+
+	// Uptime cron expressions (standard 5-field). Each fires a start edge
+	// (bring the workspace up / scale to 1).
+	// +optional
+	Uptime []string `json:"uptime,omitempty"`
+
+	// Downtime cron expressions (standard 5-field). Each fires a stop edge
+	// (scale the workspace to 0, phase Stopped).
+	// +optional
+	Downtime []string `json:"downtime,omitempty"`
+}
 
 // WorkspaceWorkload shapes the workload wrapping the desktop container,
 // beyond image and resources: how it is deployed and with which pod spec.
@@ -199,6 +221,11 @@ type WorkspaceTemplateSpec struct {
 	// Absent means nothing is overridable except by admins.
 	// +optional
 	Overrides *TemplateOverrides `json:"overrides,omitempty"`
+
+	// Schedule plans uptime/downtime by cron to cap resource use. Empty =
+	// always available (subject to manual pause and lifecycle).
+	// +optional
+	Schedule *WorkspaceSchedule `json:"schedule,omitempty"`
 }
 
 // DesktopPort returns the effective default desktop port for this template.

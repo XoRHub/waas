@@ -261,5 +261,14 @@
     "protocolParams": "Paramètres {{protocol}}",
     "applyReconnect": "Appliquer et reconnecter",
     "reconnectHint": "Ces paramètres sont figés à la connexion par guacd : appliquer reconnecte la session."
+  },
+  "schedule": {
+    "title": "Planning (uptime / downtime)",
+    "hint": "Démarrage/arrêt planifiés par cron (5 champs standard), dans un fuseau explicite. Le downtime scale à 0 ; une action manuelle prime jusqu'au prochain edge planifié opposé.",
+    "timezone": "Fuseau horaire (IANA)",
+    "uptime": "Crons d'uptime (un par ligne)",
+    "downtime": "Crons de downtime (un par ligne)",
+    "nextUp": "prochain démarrage {{when}}",
+    "nextDown": "prochain arrêt {{when}}"
   }
 }

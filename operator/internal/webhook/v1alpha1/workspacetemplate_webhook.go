@@ -10,6 +10,7 @@ import (
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/pkg/params"
+	"github.com/xorhub/waas/operator/pkg/schedule"
 )
 
 // +kubebuilder:webhook:path=/validate-waas-xorhub-io-v1alpha1-workspacetemplate,mutating=false,failurePolicy=Fail,sideEffects=None,groups=waas.xorhub.io,resources=workspacetemplates,verbs=create;update,versions=v1alpha1,name=vworkspacetemplate.waas.xorhub.io,admissionReviewVersions=v1
@@ -66,6 +67,11 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 	}
 	if defaults > 1 {
 		return nil, v.deny(tpl, "at most one protocol may be marked default")
+	}
+	if s := tpl.Spec.Schedule; s != nil {
+		if err := (schedule.Spec{Timezone: s.Timezone, Uptime: s.Uptime, Downtime: s.Downtime}).Validate(); err != nil {
+			return nil, v.deny(tpl, fmt.Sprintf("schedule: %v", err))
+		}
 	}
 	return nil, nil
 }

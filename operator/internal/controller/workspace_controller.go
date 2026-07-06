@@ -22,6 +22,7 @@ import (
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/internal/kubevirt"
+	"github.com/xorhub/waas/operator/pkg/schedule"
 )
 
 const (
@@ -136,16 +137,28 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}
 
-	// Pause = scale to 0, NOT delete: the workload object, its spec and
-	// config are kept so resume is a fast scale back to 1 with no
-	// reconstruction. The home volume is retained either way.
-	paused := ws.Spec.Paused
+	// Effective down-state = manual pause OR a scheduled downtime window,
+	// resolved by conflict rule B (see pkg/schedule). Down = scale to 0,
+	// NOT delete: the workload object and config are kept so resume is a
+	// fast scale back to 1. The home volume is retained either way.
+	sched := effectiveSchedule(ws, tpl)
+	decision := sched.Resolve(time.Now(), ws.Spec.Paused, manualStateAt(ws))
+	down := decision.Down
+	nextTransition := transitionStatus(decision.NextEdge)
+	// Requeue when the next scheduled edge fires so the transition is
+	// applied on time.
+	var scheduleRequeue time.Duration
+	if decision.NextEdge != nil {
+		if d := time.Until(decision.NextEdge.Time); d > 0 {
+			scheduleRequeue = d
+		}
+	}
 
 	var ready bool
 	if tpl.Spec.OS == waasv1alpha1.OSWindows {
-		ready, err = r.ensureVirtualMachine(ctx, ws, tpl, pvcName, !paused)
+		ready, err = r.ensureVirtualMachine(ctx, ws, tpl, pvcName, !down)
 	} else {
-		ready, err = r.ensureWorkload(ctx, ws, tpl, pvcName, paused)
+		ready, err = r.ensureWorkload(ctx, ws, tpl, pvcName, down)
 	}
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
@@ -156,19 +169,26 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}
 
-	if paused {
+	if down {
+		phase := waasv1alpha1.PhaseStopped
+		condReason, condMsg := "ScheduledDowntime", "workspace is in a scheduled downtime window (scaled to 0); resumes at the next uptime edge"
+		if decision.Manual {
+			phase = waasv1alpha1.PhasePaused
+			condReason, condMsg = "Paused", "workspace is paused (scaled to 0); workload object and home volume retained"
+		}
 		if err := r.patchStatus(ctx, ws, func(st *waasv1alpha1.WorkspaceStatus) {
-			st.Phase = waasv1alpha1.PhasePaused
+			st.Phase = phase
 			st.OS = tpl.Spec.OS
 			st.PVCName = pvcName
 			st.Address, st.Port, st.Protocol = "", 0, ""
 			st.Protocols = nil
-			setCondition(st, metav1.ConditionFalse, "Paused", "workspace is paused (scaled to 0); workload object and home volume retained")
+			st.NextTransition = nextTransition
+			setCondition(st, metav1.ConditionFalse, condReason, condMsg)
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		// Paused workspaces still age toward their TTL.
-		return ctrl.Result{RequeueAfter: lifetimeRequeue}, nil
+		// Requeue at the next schedule edge, or on the TTL loop.
+		return ctrl.Result{RequeueAfter: earliestRequeue(scheduleRequeue, lifetimeRequeue)}, nil
 	}
 
 	phase := waasv1alpha1.PhaseProvisioning
@@ -190,6 +210,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				Name: p.Name, Port: p.Port, Default: p.Name == def.Name,
 			})
 		}
+		st.NextTransition = nextTransition
 		if ready {
 			setCondition(st, metav1.ConditionTrue, "WorkspaceReady", "desktop is up and reachable")
 		} else {
@@ -201,13 +222,59 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	if !ready {
 		// Transient state: poll until the pod/VM reports ready.
-		return ctrl.Result{RequeueAfter: requeueTransient}, nil
+		return ctrl.Result{RequeueAfter: earliestRequeue(requeueTransient, scheduleRequeue)}, nil
 	}
-	if lifetimeRequeue > 0 {
-		// Wake up exactly when the TTL expires.
-		return ctrl.Result{RequeueAfter: lifetimeRequeue}, nil
+	// Wake up at whichever comes first: the next schedule edge or the TTL.
+	if rq := earliestRequeue(scheduleRequeue, lifetimeRequeue); rq > 0 {
+		return ctrl.Result{RequeueAfter: rq}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// effectiveSchedule resolves the workspace's schedule: its override when
+// present (the webhook vets the "schedule" override right), else the
+// template's.
+func effectiveSchedule(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) schedule.Spec {
+	src := tpl.Spec.Schedule
+	if ws.Spec.Overrides != nil && ws.Spec.Overrides.Schedule != nil {
+		src = ws.Spec.Overrides.Schedule
+	}
+	if src == nil {
+		return schedule.Spec{}
+	}
+	return schedule.Spec{Timezone: src.Timezone, Uptime: src.Uptime, Downtime: src.Downtime}
+}
+
+// manualStateAt reads the api-server's manual pause/resume timestamp.
+func manualStateAt(ws *waasv1alpha1.Workspace) *time.Time {
+	v := ws.Annotations[waasv1alpha1.AnnotationManualStateAt]
+	if v == "" {
+		return nil
+	}
+	ts, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return nil
+	}
+	return &ts
+}
+
+func transitionStatus(e *schedule.Edge) *waasv1alpha1.ScheduledTransition {
+	if e == nil {
+		return nil
+	}
+	return &waasv1alpha1.ScheduledTransition{Time: metav1.NewTime(e.Time), Up: e.Up}
+}
+
+// earliestRequeue returns the smallest strictly-positive duration, or 0
+// when none is positive (meaning "no timed requeue").
+func earliestRequeue(durs ...time.Duration) time.Duration {
+	var best time.Duration
+	for _, d := range durs {
+		if d > 0 && (best == 0 || d < best) {
+			best = d
+		}
+	}
+	return best
 }
 
 // computeExists reports whether the workspace already has its workload
@@ -451,7 +518,6 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 	}
 	return nil
 }
-
 
 // patchStatus re-fetches the workspace fresh before writing status, avoiding
 // resource-version conflicts, and only ever uses the status subresource.

@@ -18,6 +18,7 @@ import (
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/pkg/policy"
+	"github.com/xorhub/waas/operator/pkg/schedule"
 )
 
 // +kubebuilder:webhook:path=/validate-waas-xorhub-io-v1alpha1-workspace,mutating=false,failurePolicy=Fail,sideEffects=None,groups=waas.xorhub.io,resources=workspaces,verbs=create;update,versions=v1alpha1,name=vworkspace.waas.xorhub.io,admissionReviewVersions=v1
@@ -217,6 +218,12 @@ func (v *WorkspaceValidator) enforce(ctx context.Context, ws *waasv1alpha1.Works
 	}
 	if d := policy.CheckOverrides(ws, tpl, pol, id); d != nil {
 		return warnings, d
+	}
+	if ws.Spec.Overrides != nil && ws.Spec.Overrides.Schedule != nil {
+		s := ws.Spec.Overrides.Schedule
+		if err := (schedule.Spec{Timezone: s.Timezone, Uptime: s.Uptime, Downtime: s.Downtime}).Validate(); err != nil {
+			return warnings, &policy.Denial{Reason: policy.ReasonOverrideNotAllowed, Message: fmt.Sprintf("schedule override: %v", err)}
+		}
 	}
 
 	load, known := policy.LoadOf(ws, tpl, img)

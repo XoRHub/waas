@@ -10,6 +10,7 @@ import {
   type TemplateProtocolInput,
 } from '@/hooks/useApi';
 import { ParamField, paramsFor } from '@/components/ParamField';
+import { ScheduleEditor } from '@/components/ScheduleEditor';
 import { YamlEditor, parseYaml, type YamlIssue } from '@/components/YamlEditor';
 import type { TemplateEnvVar, WorkspaceTemplate } from '@/types';
 
@@ -42,6 +43,7 @@ const OVERRIDABLE_FIELDS = [
   'protocol',
   'protocolParams',
   'resources',
+  'schedule',
   'env',
   'securityContext',
   'podSecurityContext',
@@ -186,6 +188,7 @@ function toInput(tpl: WorkspaceTemplate): TemplateInput {
       tpl.allowedOverrides || tpl.overridesOwner
         ? { allowedFields: tpl.allowedOverrides, owner: tpl.overridesOwner }
         : undefined,
+    schedule: tpl.schedule,
   };
 }
 
@@ -566,6 +569,14 @@ function TemplateDialog({
               onChange={(e) => set({ overrides: { ...input.overrides, owner: e.target.value } })}
             />
           </label>
+        </fieldset>
+
+        {/* ---------------- schedule (uptime/downtime) ---------------- */}
+        <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+            {t('schedule.title')}
+          </legend>
+          <ScheduleEditor value={input.schedule} onChange={(schedule) => set({ schedule })} />
         </fieldset>
 
         {/* ---------------- workload (advanced) ---------------- */}

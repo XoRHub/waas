@@ -55,3 +55,46 @@ phase `Stopped`. No manual migration is needed:
   1 as usual.
 - Nothing is destroyed and no data is touched; the change is transparent
   to running and to already-paused workspaces.
+
+## Scheduled uptime / downtime
+
+A template can plan start/stop by cron to cap resource use:
+
+```yaml
+spec:
+  schedule:
+    timezone: Europe/Paris        # IANA name, REQUIRED when crons are set
+    uptime:   ["0 8 * * 1-5"]     # start weekdays at 08:00
+    downtime: ["0 20 * * *"]      # stop every day at 20:00
+```
+
+- **Standard 5-field cron**, evaluated in the template's explicit
+  timezone — the controller never uses its own TZ (validated by the
+  webhook and the api-server via `operator/pkg/schedule`).
+- **Downtime uses the pause mechanism** (scale to 0); the phase is
+  `Stopped` (scheduled) rather than `Paused` (manual).
+- **Overridable / locked** like any template option: add `schedule` to
+  `overrides.allowedFields` to let creators set their own schedule at
+  instantiation (intersected with the policy's allow-list, as usual).
+- The operator requeues exactly at the next edge, so transitions fire on
+  time; `status.nextTransition` carries the next change and is shown on
+  the portal card ("⏰ next stop …") and in the detail view.
+
+### Conflict between a manual action and the schedule (rule B)
+
+A manual pause/resume **wins until the next scheduled edge of the
+opposite kind**, then the schedule regains control:
+
+- Manual **resume** during a downtime window → stays up until the next
+  **downtime** edge (e.g. you wake it after hours; it runs until the next
+  scheduled stop, not just until the next tick).
+- Manual **pause** during an uptime window → stays down until the next
+  **uptime** edge (e.g. "I'm done for today"; it comes back on schedule
+  tomorrow morning).
+
+The api-server stamps the manual action time in the
+`waas.xorhub.io/manual-state-at` annotation; the operator never mutates
+`spec.paused`, so a stale manual state simply stops winning once its
+opposite edge passes. With no schedule, `spec.paused` is the only signal
+(pure manual pause/resume).
+

@@ -206,6 +206,7 @@ spec:
                       - resources
                       - protocol
                       - protocolParams
+                      - schedule
                       type: string
                     type: array
                 type: object

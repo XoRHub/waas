@@ -45,6 +45,21 @@ export type WorkspacePhase =
   | 'Failed'
   | 'Terminating';
 
+/** Uptime/downtime schedule (cron), timezone-explicit. */
+export interface WorkspaceSchedule {
+  timezone?: string;
+  uptime?: string[];
+  downtime?: string[];
+}
+
+/** Next planned lifecycle change of a workspace. */
+export interface ScheduledTransition {
+  /** RFC3339 instant. */
+  time: string;
+  /** true = start (uptime) edge, false = stop (downtime) edge. */
+  up: boolean;
+}
+
 /** One connection option of a workspace, with its user-tunable guacd params. */
 export interface WorkspaceProtocol {
   name: string;
@@ -96,6 +111,8 @@ export interface Workspace {
   message?: string;
   createdAt: string;
   protocols?: WorkspaceProtocol[];
+  schedule?: WorkspaceSchedule;
+  nextTransition?: ScheduledTransition;
 }
 
 /** One env var of a template — the CR type verbatim (references only,
@@ -128,6 +145,7 @@ export interface WorkspaceTemplate {
   protocols?: WorkspaceProtocol[];
   allowedOverrides?: string[];
   overridesOwner?: string;
+  schedule?: WorkspaceSchedule;
 }
 
 export interface AuditLog {

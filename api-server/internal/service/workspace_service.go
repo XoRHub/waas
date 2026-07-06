@@ -286,6 +286,13 @@ func (s *WorkspaceService) SetPaused(ctx context.Context, actor Actor, id string
 		return nil, err
 	}
 	ws.Spec.Paused = paused
+	// Stamp the manual-action time so the schedule evaluator can apply
+	// conflict rule B (a manual pause/resume wins until the next opposite
+	// scheduled edge). Both pause and resume record it.
+	if ws.Annotations == nil {
+		ws.Annotations = map[string]string{}
+	}
+	ws.Annotations[waasv1alpha1.AnnotationManualStateAt] = time.Now().UTC().Format(time.RFC3339)
 	if err := s.kube.Update(ctx, ws); err != nil {
 		// Resuming re-acquires compute: the webhook may deny it if the
 		// image was disabled or the quota shrank in the meantime.
@@ -623,6 +630,15 @@ func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTem
 				m.Protocols[i].UserParams = entry.UserParams
 			}
 		}
+		// Effective schedule: the workspace override wins over the
+		// template's (the webhook vetted the override right).
+		m.Schedule = tpl.Spec.Schedule
+	}
+	if ws.Spec.Overrides != nil && ws.Spec.Overrides.Schedule != nil {
+		m.Schedule = ws.Spec.Overrides.Schedule
+	}
+	if nt := ws.Status.NextTransition; nt != nil {
+		m.NextTransition = &model.ScheduledTransition{Time: nt.Time.Time, Up: nt.Up}
 	}
 	if m.Phase == "" {
 		m.Phase = string(waasv1alpha1.PhasePending)

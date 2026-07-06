@@ -18,10 +18,17 @@ import {
 import { StatusBadge } from '@/components/StatusBadge';
 import { UserMenu } from '@/components/UserMenu';
 import { ParamField, tieredParams } from '@/components/ParamField';
+import { ScheduleEditor, useNextTransitionLabel } from '@/components/ScheduleEditor';
 import { useAuthStore } from '@/stores/authStore';
 import { templateAvailability } from '@/lib/templates';
 import { displayCpu, displayMemory, formatCpu, formatMemory, parseCpu, parseMemory } from '@/lib/quantity';
-import type { RemoteWorkspace, RemoteWorkspaceInput, TemplateEnvVar, Workspace } from '@/types';
+import type {
+  RemoteWorkspace,
+  RemoteWorkspaceInput,
+  TemplateEnvVar,
+  Workspace,
+  WorkspaceSchedule,
+} from '@/types';
 
 export function PortalPage() {
   const { t } = useTranslation();
@@ -262,6 +269,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const remove = useDeleteWorkspace();
   const user = useAuthStore((s) => s.user);
   const updateProfile = useUpdateProfile();
+  const nextTransitionLabel = useNextTransitionLabel();
   const [asking, setAsking] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -379,6 +387,11 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
       </div>
       {workspace.message && (
         <p className="text-xs text-slate-500 dark:text-slate-400">{workspace.message}</p>
+      )}
+      {nextTransitionLabel(workspace.nextTransition) && (
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          ⏰ {nextTransitionLabel(workspace.nextTransition)}
+        </p>
       )}
       <div className="mt-auto flex gap-2">
         <button
@@ -667,6 +680,7 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const [showAdvancedParams, setShowAdvancedParams] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [envRows, setEnvRows] = useState<{ name: string; value: string }[]>([]);
+  const [scheduleOverride, setScheduleOverride] = useState<WorkspaceSchedule | undefined>(undefined);
 
   // Every template is listed whatever its protocol; the ones the policy
   // excludes are visible but disabled with the reason (never silently
@@ -736,6 +750,7 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     setProtocol('');
     setProtoParams({});
     setEnvRows([]);
+    setScheduleOverride(undefined);
   };
 
   // Protocol section: what the template declares, gated by its override
@@ -775,9 +790,14 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     const env: TemplateEnvVar[] = envRows
       .filter((row) => row.name.trim() !== '')
       .map((row) => ({ name: row.name.trim(), value: row.value }));
+    const scheduleOv = canOverride('schedule') ? scheduleOverride : undefined;
     const overrides =
-      chosenProtocol || env.length > 0
-        ? { protocol: chosenProtocol, env: env.length > 0 ? env : undefined }
+      chosenProtocol || env.length > 0 || scheduleOv
+        ? {
+            protocol: chosenProtocol,
+            env: env.length > 0 ? env : undefined,
+            schedule: scheduleOv,
+          }
         : undefined;
     create.mutate(
       {
@@ -945,8 +965,8 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
 
         {/* Advanced panel (template overrides): only rendered for users
             whose template ∩ policy rights (or admin role) allow at least
-            env overrides — invisible to everyone else. */}
-        {template && canOverride('env') && (
+            one overridable field — invisible to everyone else. */}
+        {template && (canOverride('env') || canOverride('schedule')) && (
           <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
             <legend className="px-1">
               <button
@@ -963,6 +983,7 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                 <p className="text-xs text-slate-400 dark:text-slate-500">
                   {t('portal.advancedModeHint')}
                 </p>
+                {canOverride('env') && (
                 <div className="space-y-2">
                   <span className="text-sm text-slate-600 dark:text-slate-300">
                     {t('portal.envOverrides')}
@@ -1007,6 +1028,18 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                     + {t('portal.addEnvVar')}
                   </button>
                 </div>
+                )}
+                {canOverride('schedule') && (
+                  <div className="space-y-2">
+                    <span className="text-sm text-slate-600 dark:text-slate-300">
+                      {t('schedule.title')}
+                    </span>
+                    <ScheduleEditor
+                      value={scheduleOverride ?? template?.schedule}
+                      onChange={setScheduleOverride}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </fieldset>

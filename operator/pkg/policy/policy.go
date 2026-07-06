@@ -394,6 +394,7 @@ func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTempl
 		waasv1alpha1.FieldNodeSelector:       len(ov.NodeSelector) > 0,
 		waasv1alpha1.FieldTolerations:        len(ov.Tolerations) > 0,
 		waasv1alpha1.FieldProtocol:           ov.Protocol != "",
+		waasv1alpha1.FieldSchedule:           ov.Schedule != nil,
 	}
 	for field, set := range used {
 		if !set {

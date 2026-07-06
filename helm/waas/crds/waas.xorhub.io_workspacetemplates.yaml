@@ -269,6 +269,7 @@ spec:
                       - resources
                       - protocol
                       - protocolParams
+                      - schedule
                       type: string
                     type: array
                   owner:
@@ -405,6 +406,31 @@ spec:
                       otherwise to an implementation-defined value. Requests cannot exceed Limits.
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
+                type: object
+              schedule:
+                description: |-
+                  Schedule plans uptime/downtime by cron to cap resource use. Empty =
+                  always available (subject to manual pause and lifecycle).
+                properties:
+                  downtime:
+                    description: |-
+                      Downtime cron expressions (standard 5-field). Each fires a stop edge
+                      (scale the workspace to 0, phase Stopped).
+                    items:
+                      type: string
+                    type: array
+                  timezone:
+                    description: |-
+                      Timezone is an IANA name (e.g. "Europe/Paris"). REQUIRED when any
+                      cron is set: the controller never falls back to its own timezone.
+                    type: string
+                  uptime:
+                    description: |-
+                      Uptime cron expressions (standard 5-field). Each fires a start edge
+                      (bring the workspace up / scale to 1).
+                    items:
+                      type: string
+                    type: array
                 type: object
               storageClassName:
                 description: StorageClassName selects the storage class for home volumes.

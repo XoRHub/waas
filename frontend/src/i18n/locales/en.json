@@ -261,5 +261,14 @@
     "protocolParams": "{{protocol}} parameters",
     "applyReconnect": "Apply & reconnect",
     "reconnectHint": "These parameters are fixed at connect time by guacd: applying reconnects the session."
+  },
+  "schedule": {
+    "title": "Schedule (uptime / downtime)",
+    "hint": "Planned start/stop by cron (standard 5-field), in an explicit timezone. Downtime scales the workspace to 0; a manual action wins until the next opposite scheduled edge.",
+    "timezone": "Timezone (IANA)",
+    "uptime": "Uptime crons (one per line)",
+    "downtime": "Downtime crons (one per line)",
+    "nextUp": "next start {{when}}",
+    "nextDown": "next stop {{when}}"
   }
 }
