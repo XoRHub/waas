@@ -36,6 +36,9 @@ export function PortalPage() {
   const navigate = useNavigate();
   const quota = useQuota();
   const [creating, setCreating] = useState(false);
+  // Remote create/edit state lives here so the primary action button
+  // stays in the same header slot whatever the active tab.
+  const [remoteEditing, setRemoteEditing] = useState<RemoteWorkspace | 'new' | null>(null);
   const [tab, setTab] = useState<'workspaces' | 'remote'>('workspaces');
 
   // Remote Workspaces is policy-gated: the tab only exists when the
@@ -75,14 +78,13 @@ export function PortalPage() {
           >
             {t('portal.splitView')}
           </button>
-          {activeTab === 'workspaces' && (
-            <button
-              onClick={() => setCreating(true)}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              {t('portal.newWorkspace')}
-            </button>
-          )}
+          {/* Single primary action, same slot on every tab. */}
+          <button
+            onClick={() => (activeTab === 'workspaces' ? setCreating(true) : setRemoteEditing('new'))}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            {activeTab === 'workspaces' ? t('portal.newWorkspace') : t('remote.add')}
+          </button>
           <UserMenu />
         </div>
       </header>
@@ -94,7 +96,7 @@ export function PortalPage() {
             <WorkspacesSection onCreate={() => setCreating(true)} />
           </>
         ) : (
-          <RemoteWorkspacesSection />
+          <RemoteWorkspacesSection editing={remoteEditing} setEditing={setRemoteEditing} />
         )}
       </main>
 
@@ -1116,14 +1118,19 @@ function ResourceSlider({
 // RemoteWorkspacesSection: machines OUTSIDE the cluster reachable through
 // guacd. A separate entity with its own lifecycle — nothing here
 // provisions or deletes cluster resources.
-function RemoteWorkspacesSection() {
+function RemoteWorkspacesSection({
+  editing,
+  setEditing,
+}: {
+  editing: RemoteWorkspace | 'new' | null;
+  setEditing: (v: RemoteWorkspace | 'new' | null) => void;
+}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const remotes = useRemoteWorkspaces(true);
   const remove = useDeleteRemoteWorkspace();
   const wake = useWakeRemoteWorkspace();
   const user = useAuthStore((s) => s.user);
-  const [editing, setEditing] = useState<RemoteWorkspace | 'new' | null>(null);
 
   if (remotes.isPending) return <SkeletonGrid count={3} />;
   if (remotes.isError) {
@@ -1148,18 +1155,16 @@ function RemoteWorkspacesSection() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500 dark:text-slate-400">{t('remote.hint')}</p>
-        <button
-          onClick={() => setEditing('new')}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          {t('remote.add')}
-        </button>
-      </div>
+      <p className="text-sm text-slate-500 dark:text-slate-400">{t('remote.hint')}</p>
       {items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center dark:border-slate-700">
-          <p className="text-slate-500 dark:text-slate-400">{t('remote.empty')}</p>
+          <p className="mb-4 text-slate-500 dark:text-slate-400">{t('remote.empty')}</p>
+          <button
+            onClick={() => setEditing('new')}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            {t('remote.add')}
+          </button>
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
