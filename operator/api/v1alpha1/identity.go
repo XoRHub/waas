@@ -29,3 +29,30 @@ const (
 	// opposite scheduled edge). Not part of the trusted-identity contract.
 	AnnotationManualStateAt = "waas.xorhub.io/manual-state-at"
 )
+
+// Platform labels stamped on every object the operator manages (workloads,
+// services, PVCs, bootstrapped namespaces). Shared between the operator
+// (stamping), the webhook (namespace-ownership enforcement) and the
+// api-server; user metadata can never carry these keys (pkg/metakeys).
+const (
+	// LabelManagedBy marks operator-managed objects
+	// (app.kubernetes.io/managed-by = waas-operator).
+	LabelManagedBy = "app.kubernetes.io/managed-by"
+
+	// LabelWorkspace carries the owning Workspace CR name.
+	LabelWorkspace = "waas.xorhub.io/workspace"
+
+	// LabelWorkspaceNamespace carries the namespace of the Workspace CR
+	// itself (the platform namespace). Needed on cross-namespace workloads,
+	// where owner references are illegal: the controller maps watch events
+	// back to the CR through this label.
+	LabelWorkspaceNamespace = "waas.xorhub.io/workspace-namespace"
+
+	// LabelOwner carries the platform user (UUID) owning the object. On a
+	// bootstrapped namespace it is the ownership proof the webhook checks
+	// before letting a workspace target it.
+	LabelOwner = "waas.xorhub.io/owner"
+
+	// ManagerName is the LabelManagedBy value.
+	ManagerName = "waas-operator"
+)

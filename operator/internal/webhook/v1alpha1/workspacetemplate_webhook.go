@@ -9,6 +9,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/metakeys"
+	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/params"
 	"github.com/xorhub/waas/operator/pkg/schedule"
 )
@@ -71,6 +73,29 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 	if s := tpl.Spec.Schedule; s != nil {
 		if err := (schedule.Spec{Timezone: s.Timezone, Uptime: s.Uptime, Downtime: s.Downtime}).Validate(); err != nil {
 			return nil, v.deny(tpl, fmt.Sprintf("schedule: %v", err))
+		}
+	}
+	if p := tpl.Spec.Placement; p != nil {
+		if p.Namespace != "" {
+			// The tokens expand to sanitized values by construction; what
+			// needs vetting is the literal part of the pattern.
+			if _, err := naming.ResolveNamespace(p.Namespace, "sample-user", "sample-workspace"); err != nil {
+				return nil, v.deny(tpl, fmt.Sprintf("placement.namespace: %v", err))
+			}
+		}
+		if err := metakeys.Check(p.NamespaceLabels); err != nil {
+			return nil, v.deny(tpl, fmt.Sprintf("placement.namespaceLabels: %v", err))
+		}
+		if err := metakeys.Check(p.NamespaceAnnotations); err != nil {
+			return nil, v.deny(tpl, fmt.Sprintf("placement.namespaceAnnotations: %v", err))
+		}
+	}
+	if w := tpl.Spec.Workload; w != nil {
+		if err := metakeys.Check(w.Labels); err != nil {
+			return nil, v.deny(tpl, fmt.Sprintf("workload.labels: %v", err))
+		}
+		if err := metakeys.Check(w.Annotations); err != nil {
+			return nil, v.deny(tpl, fmt.Sprintf("workload.annotations: %v", err))
 		}
 	}
 	return nil, nil

@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/naming"
 )
 
 // DefaultHomeSize mirrors the reconciler's default when a template does
@@ -66,7 +67,10 @@ const (
 	ReasonQuotaExceeded      Reason = "QuotaExceeded"
 	ReasonIdentityViolation  Reason = "IdentityViolation"
 	ReasonOverrideNotAllowed Reason = "OverrideNotAllowed"
-	ReasonInternalError      Reason = "PolicyCheckFailed"
+	// ReasonPlacementDenied covers target-namespace/workload-name rules:
+	// immutability, ownership, and name collisions.
+	ReasonPlacementDenied Reason = "PlacementDenied"
+	ReasonInternalError   Reason = "PolicyCheckFailed"
 )
 
 // Denial is a policy rejection with an operator-friendly reason code and
@@ -371,10 +375,6 @@ func CheckProtocol(tpl *waasv1alpha1.WorkspaceTemplate, img *waasv1alpha1.Worksp
 // the policy's overrides.allowedFields (a nil policy block = no policy
 // restriction; pol itself may be nil in policy-less clusters).
 func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pol *waasv1alpha1.WorkspacePolicy, id Identity) *Denial {
-	ov := ws.Spec.Overrides
-	if ov == nil {
-		return nil
-	}
 	if ws.Annotations[waasv1alpha1.AnnotationRole] == "admin" {
 		return nil
 	}
@@ -386,6 +386,34 @@ func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTempl
 		}
 		return slices.Contains(pol.Spec.Overrides.AllowedFields, field)
 	}
+	checkField := func(field waasv1alpha1.OverridableField) *Denial {
+		if !isOwner && !tpl.Spec.FieldOverridable(field) {
+			return denyf(ReasonOverrideNotAllowed,
+				"template %q does not allow overriding %q (allowed: %v)", tpl.Name, field, allowedFields(tpl))
+		}
+		if !policyAllows(field) {
+			return denyf(ReasonOverrideNotAllowed,
+				"policy %q does not allow overriding %q (policy allows: %v)", pol.Name, field, pol.Spec.Overrides.AllowedFields)
+		}
+		return nil
+	}
+
+	// A target namespace deviating from the template's resolved pattern
+	// counts as a "placement" override. Rights only: the webhook enforces
+	// separately that any value, allowed or not, belongs to the owner.
+	if ws.Spec.TargetNamespace != "" {
+		def, _ := naming.ResolveNamespace(tpl.Spec.PlacementNamespacePattern(), id.Username, ws.Spec.DisplayName)
+		if ws.Spec.TargetNamespace != def {
+			if d := checkField(waasv1alpha1.FieldPlacement); d != nil {
+				return d
+			}
+		}
+	}
+
+	ov := ws.Spec.Overrides
+	if ov == nil {
+		return nil
+	}
 	used := map[waasv1alpha1.OverridableField]bool{
 		waasv1alpha1.FieldEnv:                len(ov.Env) > 0,
 		waasv1alpha1.FieldSecurityContext:    ov.SecurityContext != nil,
@@ -395,18 +423,14 @@ func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTempl
 		waasv1alpha1.FieldTolerations:        len(ov.Tolerations) > 0,
 		waasv1alpha1.FieldProtocol:           ov.Protocol != "",
 		waasv1alpha1.FieldSchedule:           ov.Schedule != nil,
+		waasv1alpha1.FieldMetadata:           len(ov.Labels) > 0 || len(ov.Annotations) > 0,
 	}
 	for field, set := range used {
 		if !set {
 			continue
 		}
-		if !isOwner && !tpl.Spec.FieldOverridable(field) {
-			return denyf(ReasonOverrideNotAllowed,
-				"template %q does not allow overriding %q (allowed: %v)", tpl.Name, field, allowedFields(tpl))
-		}
-		if !policyAllows(field) {
-			return denyf(ReasonOverrideNotAllowed,
-				"policy %q does not allow overriding %q (policy allows: %v)", pol.Name, field, pol.Spec.Overrides.AllowedFields)
+		if d := checkField(field); d != nil {
+			return d
 		}
 	}
 	if ov.Protocol != "" && tpl.Spec.ProtocolNamed(ov.Protocol) == nil {

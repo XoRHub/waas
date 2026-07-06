@@ -207,6 +207,8 @@ spec:
                       - protocol
                       - protocolParams
                       - schedule
+                      - placement
+                      - metadata
                       type: string
                     type: array
                 type: object

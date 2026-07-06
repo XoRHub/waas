@@ -270,6 +270,8 @@ spec:
                       - protocol
                       - protocolParams
                       - schedule
+                      - placement
+                      - metadata
                       type: string
                     type: array
                   owner:
@@ -277,6 +279,43 @@ spec:
                       Owner is the platform username owning this template: that user may
                       override any field on workspaces stamped from it, like an admin.
                     type: string
+                type: object
+              placement:
+                description: |-
+                  Placement moves workloads into a dedicated namespace (pattern with
+                  {user}/{workspace} tokens) with an operator-managed bootstrap
+                  (Pod Security labels, ResourceQuota from the owner's policy,
+                  default-deny NetworkPolicy). Absent = platform namespace.
+                properties:
+                  cleanup:
+                    description: Cleanup picks the namespace end-of-life policy. Defaults
+                      to Retain.
+                    enum:
+                    - Retain
+                    - DeleteWhenEmpty
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace is the target-namespace pattern. Tokens: {user}
+                      (sanitized username) and {workspace} (sanitized workspace display
+                      name); the recommended default is "waas-{user}" — one namespace per
+                      user, matching the per-user policy limits. Empty = workloads stay
+                      in the platform namespace (legacy behavior). Resolved once at
+                      creation into workspace.spec.targetNamespace and frozen there.
+                    type: string
+                  namespaceAnnotations:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  namespaceLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      NamespaceLabels/NamespaceAnnotations are stamped on namespaces the
+                      operator creates. Reserved keys (kubernetes.io, the platform
+                      domain, injectors...) are rejected at admission; operator-owned
+                      labels always win.
+                    type: object
                 type: object
               port:
                 description: |-
@@ -440,6 +479,10 @@ spec:
                   Workload shapes how the desktop is deployed (Deployment by default)
                   and the pod spec passthrough (security contexts, volumes, ...).
                 properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    type: object
                   kind:
                     description: |-
                       Kind is the workload type stamping the desktop pod. Defaults to
@@ -450,6 +493,14 @@ spec:
                     - StatefulSet
                     - Pod
                     type: string
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Labels/Annotations are stamped on the workload object AND its pod
+                      template. Reserved keys are rejected at admission; the operator's
+                      own labels (ownership, selectors) always win.
+                    type: object
                   nodeSelector:
                     additionalProperties:
                       type: string

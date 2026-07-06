@@ -27,7 +27,7 @@ const (
 
 // OverridableField names one template facet that workspace creators may be
 // allowed to override at instantiation time.
-// +kubebuilder:validation:Enum=env;securityContext;podSecurityContext;volumes;nodeSelector;tolerations;resources;protocol;protocolParams;schedule
+// +kubebuilder:validation:Enum=env;securityContext;podSecurityContext;volumes;nodeSelector;tolerations;resources;protocol;protocolParams;schedule;placement;metadata
 type OverridableField string
 
 const (
@@ -41,7 +41,67 @@ const (
 	FieldProtocol           OverridableField = "protocol"
 	FieldProtocolParams     OverridableField = "protocolParams"
 	FieldSchedule           OverridableField = "schedule"
+	// FieldPlacement lets the creator pick a target namespace deviating
+	// from the template's placement pattern (still owner-checked).
+	FieldPlacement OverridableField = "placement"
+	// FieldMetadata lets the creator add labels/annotations to the
+	// workload (denylist-checked).
+	FieldMetadata OverridableField = "metadata"
 )
+
+// AllOverridableFields enumerates every valid OverridableField. Keep in
+// sync with the kubebuilder Enum marker above; validators and scaffold
+// hints derive from this single list.
+func AllOverridableFields() []OverridableField {
+	return []OverridableField{
+		FieldEnv, FieldSecurityContext, FieldPodSecurityContext, FieldVolumes,
+		FieldNodeSelector, FieldTolerations, FieldResources, FieldProtocol,
+		FieldProtocolParams, FieldSchedule, FieldPlacement, FieldMetadata,
+	}
+}
+
+// NamespaceCleanupPolicy says what happens to an operator-created
+// namespace once its last workspace is gone.
+// +kubebuilder:validation:Enum=Retain;DeleteWhenEmpty
+type NamespaceCleanupPolicy string
+
+const (
+	// CleanupRetain keeps the namespace forever (default): namespace
+	// deletion also deletes home PVCs, which the platform promises to
+	// keep across workspace deletion — Retain is the only default that
+	// cannot destroy user data.
+	CleanupRetain NamespaceCleanupPolicy = "Retain"
+	// CleanupDeleteWhenEmpty deletes the namespace when the operator
+	// created it AND no waas-labeled object (home PVCs included) remains.
+	CleanupDeleteWhenEmpty NamespaceCleanupPolicy = "DeleteWhenEmpty"
+)
+
+// WorkspacePlacement controls where the workspace workloads land. The
+// Workspace CR itself always stays in the platform namespace (with the
+// templates, policies and webhook); only the Deployment/Service/PVC move.
+type WorkspacePlacement struct {
+	// Namespace is the target-namespace pattern. Tokens: {user}
+	// (sanitized username) and {workspace} (sanitized workspace display
+	// name); the recommended default is "waas-{user}" — one namespace per
+	// user, matching the per-user policy limits. Empty = workloads stay
+	// in the platform namespace (legacy behavior). Resolved once at
+	// creation into workspace.spec.targetNamespace and frozen there.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// NamespaceLabels/NamespaceAnnotations are stamped on namespaces the
+	// operator creates. Reserved keys (kubernetes.io, the platform
+	// domain, injectors...) are rejected at admission; operator-owned
+	// labels always win.
+	// +optional
+	NamespaceLabels map[string]string `json:"namespaceLabels,omitempty"`
+	// +optional
+	NamespaceAnnotations map[string]string `json:"namespaceAnnotations,omitempty"`
+
+	// Cleanup picks the namespace end-of-life policy. Defaults to Retain.
+	// +optional
+	Cleanup NamespaceCleanupPolicy `json:"cleanup,omitempty"`
+}
 
 // WorkspaceSchedule declares planned uptime/downtime by cron. Downtime
 // scales the workspace to 0 (same mechanism as pause); a manual action
@@ -102,6 +162,14 @@ type WorkspaceWorkload struct {
 	// ServiceAccountName runs the desktop pod under a specific SA.
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// Labels/Annotations are stamped on the workload object AND its pod
+	// template. Reserved keys are rejected at admission; the operator's
+	// own labels (ownership, selectors) always win.
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // WorkspaceProtocol declares one way to reach the desktop, described in
@@ -226,6 +294,30 @@ type WorkspaceTemplateSpec struct {
 	// always available (subject to manual pause and lifecycle).
 	// +optional
 	Schedule *WorkspaceSchedule `json:"schedule,omitempty"`
+
+	// Placement moves workloads into a dedicated namespace (pattern with
+	// {user}/{workspace} tokens) with an operator-managed bootstrap
+	// (Pod Security labels, ResourceQuota from the owner's policy,
+	// default-deny NetworkPolicy). Absent = platform namespace.
+	// +optional
+	Placement *WorkspacePlacement `json:"placement,omitempty"`
+}
+
+// PlacementNamespacePattern returns the placement pattern, or "".
+func (s *WorkspaceTemplateSpec) PlacementNamespacePattern() string {
+	if s.Placement == nil {
+		return ""
+	}
+	return s.Placement.Namespace
+}
+
+// CleanupPolicyOrDefault returns the namespace cleanup policy (Retain
+// when unset).
+func (s *WorkspaceTemplateSpec) CleanupPolicyOrDefault() NamespaceCleanupPolicy {
+	if s.Placement == nil || s.Placement.Cleanup == "" {
+		return CleanupRetain
+	}
+	return s.Placement.Cleanup
 }
 
 // DesktopPort returns the effective default desktop port for this template.

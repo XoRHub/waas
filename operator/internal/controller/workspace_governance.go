@@ -142,7 +142,7 @@ func (r *WorkspaceReconciler) enforceLifetime(ctx context.Context, ws *waasv1alp
 	// The home PVC deliberately has no owner reference; a TTL delete is
 	// the one case where user state goes too.
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
-		Namespace: ws.Namespace, Name: computeName(ws) + "-home",
+		Namespace: computeNamespace(ws), Name: computeName(ws) + "-home",
 	}}
 	if err := r.Delete(ctx, pvc); err != nil && !apierrors.IsNotFound(err) {
 		return false, 0, fmt.Errorf("deleting expired home pvc: %w", err)

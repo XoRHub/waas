@@ -22,6 +22,18 @@ rules:
   - apiGroups: [""]
     resources: [pods, services]
     verbs: [create, delete, get, list, watch]
+  # Placement: the operator creates the per-user workload namespaces and
+  # their bootstrap (quota from the owner's policy, default-deny ingress);
+  # delete only fires for the opt-in DeleteWhenEmpty cleanup policy.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create, delete, get, list, watch]
+  - apiGroups: [""]
+    resources: [resourcequotas]
+    verbs: [create, get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create, get, list, watch]
   # update: pause/resume and the uptime/downtime crons scale the workload
   # in place (spec.replicas 0/1, VM spec.running) — without it every
   # scale is Forbidden and pause/resume silently stops working.
@@ -34,9 +46,10 @@ rules:
   - apiGroups: [waas.xorhub.io]
     resources: [workspacetemplates, workspaceimages, workspacepolicies]
     verbs: [get, list, watch]
+  # update: the teardown finalizer of cross-namespace placements.
   - apiGroups: [waas.xorhub.io]
     resources: [workspaces]
-    verbs: [delete, get, list, watch]
+    verbs: [delete, get, list, update, watch]
   - apiGroups: [waas.xorhub.io]
     resources: [workspaces/status]
     verbs: [get, patch, update]

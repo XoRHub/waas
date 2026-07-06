@@ -64,6 +64,10 @@ spec:
                   spec. The admission webhook rejects any field the template's
                   override policy does not allow for this creator.
                 properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    type: object
                   env:
                     description: Env entries are merged over the template's env (same
                       name wins).
@@ -223,6 +227,14 @@ spec:
                       - name
                       type: object
                     type: array
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Labels/Annotations are merged under the template's workload
+                      metadata (allowed only when the template delegates "metadata";
+                      reserved keys rejected, operator labels always win).
+                    type: object
                   nodeSelector:
                     additionalProperties:
                       type: string
@@ -2771,11 +2783,26 @@ spec:
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
                 type: object
+              targetNamespace:
+                description: |-
+                  TargetNamespace is where the workloads (Deployment/Service/PVC)
+                  live. Resolved from the template placement pattern at creation and
+                  IMMUTABLE afterwards (webhook-enforced, like owner): moving
+                  workloads across namespaces is a recreate, never a mutation. Empty
+                  = the CR's own namespace (legacy/platform placement).
+                type: string
               templateRef:
                 description: |-
                   TemplateRef names the WorkspaceTemplate (same namespace) this
                   workspace is stamped from.
                 minLength: 1
+                type: string
+              workloadName:
+                description: |-
+                  WorkloadName names the Deployment/Service ("<name>") and home PVC
+                  ("<name>-home"). Derived from the display name at creation
+                  (sanitized, collision-suffixed) and IMMUTABLE: renaming the display
+                  name later never renames compute. Empty = legacy "ws-<CR name>".
                 type: string
             required:
             - owner

@@ -51,6 +51,21 @@ type WorkspaceSpec struct {
 	// +optional
 	Paused bool `json:"paused,omitempty"`
 
+	// TargetNamespace is where the workloads (Deployment/Service/PVC)
+	// live. Resolved from the template placement pattern at creation and
+	// IMMUTABLE afterwards (webhook-enforced, like owner): moving
+	// workloads across namespaces is a recreate, never a mutation. Empty
+	// = the CR's own namespace (legacy/platform placement).
+	// +optional
+	TargetNamespace string `json:"targetNamespace,omitempty"`
+
+	// WorkloadName names the Deployment/Service ("<name>") and home PVC
+	// ("<name>-home"). Derived from the display name at creation
+	// (sanitized, collision-suffixed) and IMMUTABLE: renaming the display
+	// name later never renames compute. Empty = legacy "ws-<CR name>".
+	// +optional
+	WorkloadName string `json:"workloadName,omitempty"`
+
 	// Resources overrides the template resources for this workspace only.
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
@@ -102,6 +117,14 @@ type WorkspaceOverrides struct {
 	// workspace (allowed only when the template delegates "schedule").
 	// +optional
 	Schedule *WorkspaceSchedule `json:"schedule,omitempty"`
+
+	// Labels/Annotations are merged under the template's workload
+	// metadata (allowed only when the template delegates "metadata";
+	// reserved keys rejected, operator labels always win).
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // WorkspaceStatus is the observed state, written exclusively via the status
@@ -185,6 +208,25 @@ type Workspace struct {
 	Spec WorkspaceSpec `json:"spec"`
 	// +optional
 	Status WorkspaceStatus `json:"status,omitempty"`
+}
+
+// EffectiveTargetNamespace is where this workspace's workloads live: the
+// frozen spec.targetNamespace, or the CR's namespace (legacy placement).
+func (w *Workspace) EffectiveTargetNamespace() string {
+	if w.Spec.TargetNamespace != "" {
+		return w.Spec.TargetNamespace
+	}
+	return w.Namespace
+}
+
+// EffectiveWorkloadName names this workspace's Deployment/Service (the
+// home PVC appends "-home"): the frozen spec.workloadName, or the legacy
+// "ws-<CR name>".
+func (w *Workspace) EffectiveWorkloadName() string {
+	if w.Spec.WorkloadName != "" {
+		return w.Spec.WorkloadName
+	}
+	return "ws-" + w.Name
 }
 
 // +kubebuilder:object:root=true

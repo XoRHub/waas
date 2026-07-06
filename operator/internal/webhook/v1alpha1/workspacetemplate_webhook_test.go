@@ -86,3 +86,37 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 		}
 	}
 }
+
+func TestTemplateWebhookValidatesPlacement(t *testing.T) {
+	v := &WorkspaceTemplateValidator{}
+	ctx := context.Background()
+
+	good := tplWith()
+	good.Spec.Placement = &waasv1alpha1.WorkspacePlacement{Namespace: "waas-{user}"}
+	if _, err := v.ValidateCreate(ctx, good); err != nil {
+		t.Fatalf("valid placement pattern must pass: %v", err)
+	}
+
+	badPattern := tplWith()
+	badPattern.Spec.Placement = &waasv1alpha1.WorkspacePlacement{Namespace: "WAAS-{user}"}
+	if _, err := v.ValidateCreate(ctx, badPattern); err == nil || !strings.Contains(err.Error(), "placement.namespace") {
+		t.Fatalf("invalid literal in pattern must be denied, got %v", err)
+	}
+
+	badLabel := tplWith()
+	badLabel.Spec.Placement = &waasv1alpha1.WorkspacePlacement{
+		Namespace:       "waas-{user}",
+		NamespaceLabels: map[string]string{"pod-security.kubernetes.io/enforce": "privileged"},
+	}
+	if _, err := v.ValidateCreate(ctx, badLabel); err == nil || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("PSA escalation through namespaceLabels must be denied, got %v", err)
+	}
+
+	badWorkload := tplWith()
+	badWorkload.Spec.Workload = &waasv1alpha1.WorkspaceWorkload{
+		Annotations: map[string]string{"sidecar.istio.io/inject": "true"},
+	}
+	if _, err := v.ValidateCreate(ctx, badWorkload); err == nil || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("injector annotations must be denied, got %v", err)
+	}
+}

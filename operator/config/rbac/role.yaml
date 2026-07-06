@@ -14,12 +14,22 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
   - persistentvolumeclaims
   - pods
   - services
   verbs:
   - create
   - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - resourcequotas
+  verbs:
+  - create
   - get
   - list
   - watch
@@ -47,6 +57,15 @@ rules:
   - update
   - watch
 - apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
   - waas.xorhub.io
   resources:
   - workspaceimages
@@ -64,6 +83,7 @@ rules:
   - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - waas.xorhub.io

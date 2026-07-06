@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -17,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/metakeys"
+	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/policy"
 	"github.com/xorhub/waas/operator/pkg/schedule"
 )
@@ -24,6 +27,7 @@ import (
 // +kubebuilder:webhook:path=/validate-waas-xorhub-io-v1alpha1-workspace,mutating=false,failurePolicy=Fail,sideEffects=None,groups=waas.xorhub.io,resources=workspaces,verbs=create;update,versions=v1alpha1,name=vworkspace.waas.xorhub.io,admissionReviewVersions=v1
 // +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspaceimages,verbs=get;list;watch
 // +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspacepolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 // WorkspaceValidator is the enforcement point for workspace governance.
 // FailurePolicy=Fail: if this webhook is down nobody creates workspaces —
@@ -102,6 +106,23 @@ func (v *WorkspaceValidator) validate(ctx context.Context, oldWS, ws *waasv1alph
 					fmt.Sprintf("identity annotation %s is immutable", ann))
 			}
 		}
+		// Placement and workload naming are frozen at creation: moving
+		// compute or renaming it is a recreate, never a mutation (the
+		// operator's cleanup/watch model depends on it).
+		if ws.Spec.TargetNamespace != oldWS.Spec.TargetNamespace {
+			return nil, v.deny(ws, policy.ReasonPlacementDenied,
+				fmt.Sprintf("spec.targetNamespace is immutable (was %q)", oldWS.Spec.TargetNamespace))
+		}
+		if ws.Spec.WorkloadName != oldWS.Spec.WorkloadName {
+			return nil, v.deny(ws, policy.ReasonPlacementDenied,
+				fmt.Sprintf("spec.workloadName is immutable (was %q)", oldWS.Spec.WorkloadName))
+		}
+	}
+
+	// Structural validity of placement/naming/metadata: not policy —
+	// applies to every caller, bypass subjects included.
+	if denial := v.validateShape(ws); denial != nil {
+		return nil, v.deny(ws, denial.Reason, denial.Message)
 	}
 
 	// Grandfathering (validated design): pre-governance workspaces keep
@@ -185,8 +206,92 @@ func (v *WorkspaceValidator) resolveIdentity(req admission.Request, ws *waasv1al
 	}, nil
 }
 
+// validateShape rejects structurally invalid placement, workload naming
+// and reserved metadata keys. These are validity rules, not policy: they
+// hold for every caller.
+func (v *WorkspaceValidator) validateShape(ws *waasv1alpha1.Workspace) *policy.Denial {
+	if tns := ws.Spec.TargetNamespace; tns != "" {
+		if err := naming.ValidateLabel(tns); err != nil {
+			return &policy.Denial{Reason: policy.ReasonPlacementDenied, Message: fmt.Sprintf("spec.targetNamespace: %v", err)}
+		}
+		// The platform namespace holds the CRs and governance; explicit
+		// placement must go elsewhere ("" already means "platform").
+		if tns == ws.Namespace || strings.HasPrefix(tns, "kube-") {
+			return &policy.Denial{Reason: policy.ReasonPlacementDenied,
+				Message: fmt.Sprintf("spec.targetNamespace %q is a platform or system namespace", tns)}
+		}
+	}
+	if wn := ws.Spec.WorkloadName; wn != "" {
+		if err := naming.ValidateLabel(wn); err != nil {
+			return &policy.Denial{Reason: policy.ReasonPlacementDenied, Message: fmt.Sprintf("spec.workloadName: %v", err)}
+		}
+	}
+	if ov := ws.Spec.Overrides; ov != nil {
+		if err := metakeys.Check(ov.Labels); err != nil {
+			return &policy.Denial{Reason: policy.ReasonOverrideNotAllowed, Message: fmt.Sprintf("overrides.labels: %v", err)}
+		}
+		if err := metakeys.Check(ov.Annotations); err != nil {
+			return &policy.Denial{Reason: policy.ReasonOverrideNotAllowed, Message: fmt.Sprintf("overrides.annotations: %v", err)}
+		}
+	}
+	return nil
+}
+
+// checkPlacementOwnership guarantees a user can only target their own
+// namespace: either it matches the identity-derived "waas-<user>" prefix
+// (recomputed from the TRUSTED identity, never from a user-supplied
+// value), or it already exists and carries this owner's ownership label.
+// Admins may place anywhere.
+func (v *WorkspaceValidator) checkPlacementOwnership(ctx context.Context, ws *waasv1alpha1.Workspace, id policy.Identity) *policy.Denial {
+	tns := ws.Spec.TargetNamespace
+	if tns == "" || ws.Annotations[waasv1alpha1.AnnotationRole] == "admin" {
+		return nil
+	}
+	userNS := "waas-" + naming.Sanitize(id.Username)
+	if tns == userNS || strings.HasPrefix(tns, userNS+"-") {
+		return nil
+	}
+	existing := &corev1.Namespace{}
+	if err := v.Client.Get(ctx, types.NamespacedName{Name: tns}, existing); err == nil {
+		if existing.Labels[waasv1alpha1.LabelOwner] == ws.Spec.Owner {
+			return nil
+		}
+	}
+	return &policy.Denial{Reason: policy.ReasonPlacementDenied, Message: fmt.Sprintf(
+		"spec.targetNamespace %q does not belong to you (expected %q or a namespace labeled %s=%s)",
+		tns, userNS, waasv1alpha1.LabelOwner, ws.Spec.Owner)}
+}
+
+// checkWorkloadNameCollision refuses two workspaces sharing a workload
+// name inside the same target namespace (their Deployment/Service/PVC
+// names would collide). Legacy names ("ws-<CR name>") are covered too.
+func (v *WorkspaceValidator) checkWorkloadNameCollision(ctx context.Context, ws *waasv1alpha1.Workspace) *policy.Denial {
+	all := &waasv1alpha1.WorkspaceList{}
+	if err := v.Client.List(ctx, all, client.InNamespace(ws.Namespace)); err != nil {
+		return &policy.Denial{Reason: policy.ReasonInternalError, Message: fmt.Sprintf("listing workspaces: %v", err)}
+	}
+	name, namespace := ws.EffectiveWorkloadName(), ws.EffectiveTargetNamespace()
+	for i := range all.Items {
+		sib := &all.Items[i]
+		if sib.Name == ws.Name {
+			continue
+		}
+		if sib.EffectiveTargetNamespace() == namespace && sib.EffectiveWorkloadName() == name {
+			return &policy.Denial{Reason: policy.ReasonPlacementDenied, Message: fmt.Sprintf(
+				"workload name %q is already used in namespace %q by workspace %q", name, namespace, sib.Name)}
+		}
+	}
+	return nil
+}
+
 // enforce runs the full governance decision for one workspace.
 func (v *WorkspaceValidator) enforce(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, id policy.Identity) (admission.Warnings, *policy.Denial) {
+	if d := v.checkPlacementOwnership(ctx, ws, id); d != nil {
+		return nil, d
+	}
+	if d := v.checkWorkloadNameCollision(ctx, ws); d != nil {
+		return nil, d
+	}
 	catalog := &waasv1alpha1.WorkspaceImageList{}
 	if err := v.Client.List(ctx, catalog, client.InNamespace(ws.Namespace)); err != nil {
 		return nil, &policy.Denial{Reason: policy.ReasonInternalError, Message: fmt.Sprintf("listing workspace images: %v", err)}

@@ -8,12 +8,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/metakeys"
 	"github.com/xorhub/waas/operator/pkg/policy"
 )
 
@@ -73,9 +72,11 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 		podSecurityContext = ov.PodSecurityContext
 	}
 
+	labels, annotations := workloadMeta(ws, tpl)
 	return corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
-			Labels: workspaceLabels(ws),
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy:      corev1.RestartPolicyAlways,
@@ -110,6 +111,22 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 			Volumes: volumes,
 		},
 	}
+}
+
+// workloadMeta merges the template's workload metadata and the
+// workspace's metadata overrides under the platform labels. The webhook
+// already rejected reserved keys; MergeAllowed re-filters here (second
+// line) and guarantees operator labels always win.
+func workloadMeta(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) (labels, annotations map[string]string) {
+	var userLabels, userAnnotations map[string]string
+	if wl := tpl.Spec.Workload; wl != nil {
+		userLabels, userAnnotations = wl.Labels, wl.Annotations
+	}
+	if ov := ws.Spec.Overrides; ov != nil {
+		userLabels = mergeStringMap(userLabels, ov.Labels)
+		userAnnotations = mergeStringMap(userAnnotations, ov.Annotations)
+	}
+	return metakeys.MergeAllowed(userLabels, workspaceLabels(ws)), metakeys.MergeAllowed(userAnnotations, nil)
 }
 
 // effectiveProtocol resolves the workspace's default protocol: the
@@ -152,7 +169,7 @@ func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1al
 	name := computeName(ws)
 	want := desiredReplicas(paused)
 	existing := &appsv1.Deployment{}
-	err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: name}, existing)
+	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
 		// Reconcile the replica count in place (pause/resume): keep the
 		// object, only scale it.
@@ -168,11 +185,13 @@ func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1al
 		return false, fmt.Errorf("fetching deployment %s: %w", name, err)
 	}
 
+	template := r.buildPodTemplate(ctx, ws, tpl, pvcName)
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ws.Namespace,
-			Labels:    workspaceLabels(ws),
+			Name:        name,
+			Namespace:   computeNamespace(ws),
+			Labels:      template.Labels,
+			Annotations: template.Annotations,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &want,
@@ -180,10 +199,10 @@ func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1al
 			// Recreate: the home PVC is RWO, two desktop pods must never
 			// overlap during a rollout.
 			Strategy: appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
-			Template: r.buildPodTemplate(ctx, ws, tpl, pvcName),
+			Template: template,
 		},
 	}
-	if err := controllerutil.SetControllerReference(ws, dep, r.Scheme()); err != nil {
+	if err := r.setOwnerIfLocal(ws, dep); err != nil {
 		return false, fmt.Errorf("setting owner on deployment %s: %w", name, err)
 	}
 	if err := r.Create(ctx, dep); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -196,7 +215,7 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 	name := computeName(ws)
 	want := desiredReplicas(paused)
 	existing := &appsv1.StatefulSet{}
-	err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: name}, existing)
+	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
 		if existing.Spec.Replicas == nil || *existing.Spec.Replicas != want {
 			existing.Spec.Replicas = &want
@@ -210,20 +229,22 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 		return false, fmt.Errorf("fetching statefulset %s: %w", name, err)
 	}
 
+	template := r.buildPodTemplate(ctx, ws, tpl, pvcName)
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ws.Namespace,
-			Labels:    workspaceLabels(ws),
+			Name:        name,
+			Namespace:   computeNamespace(ws),
+			Labels:      template.Labels,
+			Annotations: template.Annotations,
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas:    &want,
 			ServiceName: name,
 			Selector:    &metav1.LabelSelector{MatchLabels: map[string]string{labelWorkspace: ws.Name}},
-			Template:    r.buildPodTemplate(ctx, ws, tpl, pvcName),
+			Template:    template,
 		},
 	}
-	if err := controllerutil.SetControllerReference(ws, sts, r.Scheme()); err != nil {
+	if err := r.setOwnerIfLocal(ws, sts); err != nil {
 		return false, fmt.Errorf("setting owner on statefulset %s: %w", name, err)
 	}
 	if err := r.Create(ctx, sts); err != nil && !apierrors.IsAlreadyExists(err) {

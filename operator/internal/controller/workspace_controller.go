@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
@@ -26,16 +27,22 @@ import (
 )
 
 const (
-	labelManagedBy = "app.kubernetes.io/managed-by"
-	labelWorkspace = "waas.xorhub.io/workspace"
-	labelOwner     = "waas.xorhub.io/owner"
-	managerName    = "waas-operator"
+	labelManagedBy   = waasv1alpha1.LabelManagedBy
+	labelWorkspace   = waasv1alpha1.LabelWorkspace
+	labelWorkspaceNS = waasv1alpha1.LabelWorkspaceNamespace
+	labelOwner       = waasv1alpha1.LabelOwner
+	managerName      = waasv1alpha1.ManagerName
 
 	requeueTransient = 5 * time.Second
 	requeueMissing   = 30 * time.Second
 
 	defaultHomeSize = "10Gi"
 	homeMountPath   = "/home/user"
+
+	// finalizerTeardown marks workspaces whose workloads live outside the
+	// CR's namespace: owner references are illegal across namespaces, so
+	// the operator deletes those objects explicitly at workspace deletion.
+	finalizerTeardown = "waas.xorhub.io/teardown"
 )
 
 // WorkspaceReconciler reconciles a Workspace object into a pod + service +
@@ -62,7 +69,7 @@ func (r *WorkspaceReconciler) now() time.Time {
 	return time.Now()
 }
 
-// +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspaces,verbs=get;list;watch;delete
+// +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspaces,verbs=get;list;watch;update;delete
 // +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspaces/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspacetemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
@@ -71,6 +78,9 @@ func (r *WorkspaceReconciler) now() time.Time {
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=resourcequotas,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create
 
 // Reconcile drives a Workspace toward its desired state.
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -79,10 +89,29 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !ws.DeletionTimestamp.IsZero() {
-		// Compute (pod/VM/service) is garbage-collected through owner
-		// references. The home PVC carries no owner reference on purpose:
-		// user state must survive workspace deletion and recreation.
+		// Same-namespace compute (pod/VM/service) is garbage-collected
+		// through owner references. Cross-namespace workloads cannot carry
+		// one: the teardown finalizer deletes them explicitly. The home
+		// PVC is deliberately skipped in BOTH paths: user state must
+		// survive workspace deletion and recreation.
+		if controllerutil.ContainsFinalizer(ws, finalizerTeardown) {
+			if err := r.teardownPlacement(ctx, ws); err != nil {
+				return ctrl.Result{}, fmt.Errorf("tearing down workspace %s: %w", ws.Name, err)
+			}
+			controllerutil.RemoveFinalizer(ws, finalizerTeardown)
+			if err := r.Update(ctx, ws); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+		}
 		return ctrl.Result{}, nil
+	}
+	// Placed workspaces need the teardown finalizer before any compute
+	// exists, or a fast create+delete could leak cross-namespace objects.
+	if computeNamespace(ws) != ws.Namespace && !controllerutil.ContainsFinalizer(ws, finalizerTeardown) {
+		controllerutil.AddFinalizer(ws, finalizerTeardown)
+		if err := r.Update(ctx, ws); err != nil {
+			return ctrl.Result{}, fmt.Errorf("adding finalizer to workspace %s: %w", ws.Name, err)
+		}
 	}
 
 	tpl := &waasv1alpha1.WorkspaceTemplate{}
@@ -140,6 +169,13 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 					fmt.Sprintf("workspace admitted under policy %q for owner %s", pol.Name, ws.Spec.Owner))
 			}
 		}
+	}
+
+	// Placement first: the target namespace (and its bootstrap: Pod
+	// Security labels, ResourceQuota, default NetworkPolicy) must exist
+	// before anything lands in it.
+	if err := r.ensureNamespace(ctx, ws, tpl); err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}
 
 	pvcName, err := r.ensureHomePVC(ctx, ws, tpl)
@@ -210,7 +246,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		st.Phase = phase
 		st.OS = tpl.Spec.OS
 		st.PVCName = pvcName
-		st.Address = fmt.Sprintf("%s.%s.svc.cluster.local", computeName(ws), ws.Namespace)
+		st.Address = fmt.Sprintf("%s.%s.svc.cluster.local", computeName(ws), computeNamespace(ws))
 		def := effectiveProtocol(ws, tpl)
 		st.Port = def.Port
 		st.Protocol = def.Name
@@ -291,7 +327,7 @@ func earliestRequeue(durs ...time.Duration) time.Duration {
 // computeExists reports whether the workspace already has its workload
 // (linux) or VM (windows) — i.e. whether capacity was already granted.
 func (r *WorkspaceReconciler) computeExists(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) (bool, error) {
-	name := types.NamespacedName{Namespace: ws.Namespace, Name: computeName(ws)}
+	name := computeKey(ws)
 	if tpl.Spec.OS == waasv1alpha1.OSWindows {
 		vm := &unstructured.Unstructured{}
 		vm.SetGroupVersionKind(kubevirt.VirtualMachineGVK)
@@ -320,7 +356,7 @@ func (r *WorkspaceReconciler) computeExists(ctx context.Context, ws *waasv1alpha
 func (r *WorkspaceReconciler) ensureHomePVC(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) (string, error) {
 	name := computeName(ws) + "-home"
 	existing := &corev1.PersistentVolumeClaim{}
-	err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: name}, existing)
+	err := r.Get(ctx, types.NamespacedName{Namespace: computeNamespace(ws), Name: name}, existing)
 	if err == nil {
 		return name, nil
 	}
@@ -335,7 +371,7 @@ func (r *WorkspaceReconciler) ensureHomePVC(ctx context.Context, ws *waasv1alpha
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: ws.Namespace,
+			Namespace: computeNamespace(ws),
 			Labels:    workspaceLabels(ws),
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -357,7 +393,7 @@ func (r *WorkspaceReconciler) ensureHomePVC(ctx context.Context, ws *waasv1alpha
 func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, error) {
 	name := computeName(ws)
 	existing := &corev1.Pod{}
-	err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: name}, existing)
+	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
 		// A bare Pod has no replica count: "scale to 0" means delete it
 		// (state lives on the home PVC, so resume recreates it cleanly).
@@ -380,13 +416,14 @@ func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Wo
 	template := r.buildPodTemplate(ctx, ws, tpl, pvcName)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ws.Namespace,
-			Labels:    workspaceLabels(ws),
+			Name:        name,
+			Namespace:   computeNamespace(ws),
+			Labels:      template.Labels,
+			Annotations: template.Annotations,
 		},
 		Spec: template.Spec,
 	}
-	if err := controllerutil.SetControllerReference(ws, pod, r.Scheme()); err != nil {
+	if err := r.setOwnerIfLocal(ws, pod); err != nil {
 		return false, fmt.Errorf("setting owner on pod %s: %w", name, err)
 	}
 	if err := r.Create(ctx, pod); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -402,7 +439,7 @@ func (r *WorkspaceReconciler) ensureVirtualMachine(ctx context.Context, ws *waas
 	name := computeName(ws)
 	existing := &unstructured.Unstructured{}
 	existing.SetGroupVersionKind(kubevirt.VirtualMachineGVK)
-	err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: name}, existing)
+	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
 		// Pause/resume a VM by toggling spec.running (keeps the VM object
 		// and its disks; KubeVirt stops/starts the virt-launcher pod).
@@ -443,7 +480,7 @@ func (r *WorkspaceReconciler) ensureVirtualMachine(ctx context.Context, ws *waas
 		"kind":       kubevirt.VirtualMachineGVK.Kind,
 		"metadata": map[string]any{
 			"name":      name,
-			"namespace": ws.Namespace,
+			"namespace": computeNamespace(ws),
 			"labels":    labels,
 		},
 		"spec": map[string]any{
@@ -476,7 +513,7 @@ func (r *WorkspaceReconciler) ensureVirtualMachine(ctx context.Context, ws *waas
 			},
 		},
 	}}
-	if err := controllerutil.SetControllerReference(ws, vm, r.Scheme()); err != nil {
+	if err := r.setOwnerIfLocal(ws, vm); err != nil {
 		return false, fmt.Errorf("setting owner on virtualmachine %s: %w", name, err)
 	}
 	if err := r.Create(ctx, vm); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -492,7 +529,7 @@ func (r *WorkspaceReconciler) ensureVirtualMachine(ctx context.Context, ws *waas
 func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) error {
 	name := computeName(ws)
 	existing := &corev1.Service{}
-	err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: name}, existing)
+	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
 		return nil
 	}
@@ -512,7 +549,7 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: ws.Namespace,
+			Namespace: computeNamespace(ws),
 			Labels:    workspaceLabels(ws),
 		},
 		Spec: corev1.ServiceSpec{
@@ -521,7 +558,7 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 			Ports:    ports,
 		},
 	}
-	if err := controllerutil.SetControllerReference(ws, svc, r.Scheme()); err != nil {
+	if err := r.setOwnerIfLocal(ws, svc); err != nil {
 		return fmt.Errorf("setting owner on service %s: %w", name, err)
 	}
 	if err := r.Create(ctx, svc); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -573,15 +610,36 @@ func setCondition(st *waasv1alpha1.WorkspaceStatus, status metav1.ConditionStatu
 }
 
 func computeName(ws *waasv1alpha1.Workspace) string {
-	return "ws-" + ws.Name
+	return ws.EffectiveWorkloadName()
+}
+
+// computeNamespace is where the workloads live; the CR itself always
+// stays in the platform namespace.
+func computeNamespace(ws *waasv1alpha1.Workspace) string {
+	return ws.EffectiveTargetNamespace()
+}
+
+func computeKey(ws *waasv1alpha1.Workspace) types.NamespacedName {
+	return types.NamespacedName{Namespace: computeNamespace(ws), Name: computeName(ws)}
 }
 
 func workspaceLabels(ws *waasv1alpha1.Workspace) map[string]string {
 	return map[string]string{
-		labelManagedBy: managerName,
-		labelWorkspace: ws.Name,
-		labelOwner:     ws.Spec.Owner,
+		labelManagedBy:   managerName,
+		labelWorkspace:   ws.Name,
+		labelWorkspaceNS: ws.Namespace,
+		labelOwner:       ws.Spec.Owner,
 	}
+}
+
+// setOwnerIfLocal puts the usual controller reference on obj — unless the
+// workload is placed in another namespace, where owner references are
+// illegal; the teardown finalizer covers deletion there instead.
+func (r *WorkspaceReconciler) setOwnerIfLocal(ws *waasv1alpha1.Workspace, obj client.Object) error {
+	if obj.GetNamespace() != ws.Namespace {
+		return nil
+	}
+	return controllerutil.SetControllerReference(ws, obj, r.Scheme())
 }
 
 func podReady(pod *corev1.Pod) bool {
@@ -597,15 +655,34 @@ func podReady(pod *corev1.Pod) bool {
 }
 
 // SetupWithManager wires the controller. GenerationChangedPredicate keeps
-// status-only updates from re-triggering reconciliation; owned pods and
-// services still wake the controller on state changes.
+// status-only updates from re-triggering reconciliation. Workloads are
+// mapped back to their Workspace through the platform labels rather than
+// Owns(): placed workloads live in another namespace and cannot carry an
+// owner reference (the labels cover the legacy same-namespace objects too).
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	mapFn := handler.EnqueueRequestsFromMapFunc(r.mapObjectToWorkspace)
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&waasv1alpha1.Workspace{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Owns(&corev1.Pod{}).
-		Owns(&appsv1.Deployment{}).
-		Owns(&appsv1.StatefulSet{}).
-		Owns(&corev1.Service{}).
+		Watches(&corev1.Pod{}, mapFn).
+		Watches(&appsv1.Deployment{}, mapFn).
+		Watches(&appsv1.StatefulSet{}, mapFn).
+		Watches(&corev1.Service{}, mapFn).
 		Named("workspace").
 		Complete(r)
+}
+
+// mapObjectToWorkspace resolves the Workspace behind a watched workload:
+// the CR name comes from the workspace label, the CR namespace from the
+// workspace-namespace label (falling back to the object's own namespace
+// for legacy objects, which always sit beside their CR).
+func (r *WorkspaceReconciler) mapObjectToWorkspace(_ context.Context, obj client.Object) []ctrl.Request {
+	labels := obj.GetLabels()
+	if labels[labelManagedBy] != managerName || labels[labelWorkspace] == "" {
+		return nil
+	}
+	ns := labels[labelWorkspaceNS]
+	if ns == "" {
+		ns = obj.GetNamespace()
+	}
+	return []ctrl.Request{{NamespacedName: types.NamespacedName{Namespace: ns, Name: labels[labelWorkspace]}}}
 }
