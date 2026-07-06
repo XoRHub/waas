@@ -74,6 +74,7 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 				r.Put("/{id}", h.RemoteWorkspaces.Update)
 				r.Delete("/{id}", h.RemoteWorkspaces.Delete)
 				r.Post("/{id}/connect", h.RemoteWorkspaces.Connect)
+				r.Post("/{id}/wake", h.RemoteWorkspaces.Wake)
 			})
 
 			// Governance, user side: catalog filtered to what the

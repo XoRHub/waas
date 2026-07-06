@@ -104,7 +104,13 @@
     "credentialsStored": "Credentials stored: {{keys}}",
     "noCredentials": "No credentials stored — the target will prompt you.",
     "connect": "Connect",
-    "deleteConfirm": "Remove this remote workspace? Its stored credentials will be deleted. The machine itself is not touched."
+    "deleteConfirm": "Remove this remote workspace? Its stored credentials will be deleted. The machine itself is not touched.",
+    "mac": "MAC address (Wake-on-LAN)",
+    "macHint": "Optional. Enables powering the machine on via the platform relay. WoL only works if the relay is on the same L2 network as the target.",
+    "wake": "Wake",
+    "wakeHint": "Send a Wake-on-LAN magic packet via the platform relay.",
+    "waking": "Waking the machine…",
+    "wakeWaitHint": "Sent a Wake-on-LAN packet; giving the machine time to boot before retrying."
   },
   "connect": {
     "connecting": "Connecting to your desktop…",

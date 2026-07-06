@@ -85,6 +85,68 @@ func remotePolicy(enabled bool) waasv1alpha1.WorkspacePolicy {
 
 func strp(s string) *string { return &s }
 
+// fakeWoL records the MACs it was asked to wake.
+type fakeWoL struct {
+	woke []string
+	err  error
+}
+
+func (f *fakeWoL) Wake(_ context.Context, mac string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.woke = append(f.woke, mac)
+	return nil
+}
+
+func TestRemoteWorkspaceMACAndWake(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{{ID: "u1", Username: "u1"}}, []waasv1alpha1.WorkspacePolicy{remotePolicy(true)})
+	actor := Actor{ID: "u1", Username: "u1", Role: "user"}
+
+	// Invalid MAC is rejected.
+	if _, err := f.remote.Create(ctx, actor, RemoteWorkspaceInput{
+		Name: "bad", Hostname: "h", Port: 22, Protocol: "ssh", MACAddress: "not-a-mac",
+	}); !apierror.IsBadRequest(err) {
+		t.Fatalf("invalid MAC must be rejected, got %v", err)
+	}
+
+	// Valid MAC is normalized to lower colon form.
+	rw, err := f.remote.Create(ctx, actor, RemoteWorkspaceInput{
+		Name: "lab", Hostname: "10.0.0.5", Port: 22, Protocol: "ssh", MACAddress: "AA-BB-CC-DD-EE-FF",
+	})
+	if err != nil {
+		t.Fatalf("create with MAC: %v", err)
+	}
+	if rw.MACAddress != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("MAC must be normalized, got %q", rw.MACAddress)
+	}
+
+	// Wake without a relay configured -> unavailable.
+	if err := f.remote.Wake(ctx, actor, rw.ID); err == nil {
+		t.Fatal("wake without a relay must fail")
+	}
+
+	// With a relay, Wake sends the normalized MAC.
+	relay := &fakeWoL{}
+	f.remote = f.remote.WithWoL(relay)
+	if err := f.remote.Wake(ctx, actor, rw.ID); err != nil {
+		t.Fatalf("wake with relay: %v", err)
+	}
+	if len(relay.woke) != 1 || relay.woke[0] != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("relay must receive the normalized MAC, got %v", relay.woke)
+	}
+
+	// A remote without a MAC cannot be woken.
+	noMac, err := f.remote.Create(ctx, actor, RemoteWorkspaceInput{Name: "nomac", Hostname: "h2", Port: 22, Protocol: "ssh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.remote.Wake(ctx, actor, noMac.ID); !apierror.IsBadRequest(err) {
+		t.Fatalf("wake without MAC must be a bad request, got %v", err)
+	}
+}
+
 func TestRemoteWorkspacesFailClosed(t *testing.T) {
 	ctx := context.Background()
 	actor := Actor{ID: "u1", Username: "u1", Role: "user"}

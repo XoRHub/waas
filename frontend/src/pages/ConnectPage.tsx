@@ -3,12 +3,20 @@ import { useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { DesktopPane, type ConnectionState, type DesktopPaneHandle } from '@/components/DesktopPane';
 import { SessionOverlay } from '@/components/SessionOverlay';
-import { useWorkspaceAction, useWorkspaces } from '@/hooks/useApi';
+import {
+  useRemoteWorkspaces,
+  useWakeRemoteWorkspace,
+  useWorkspaceAction,
+  useWorkspaces,
+} from '@/hooks/useApi';
 import type { SessionCapabilities, Workspace } from '@/types';
 
 // How long we wait for a woken workspace to become Running before giving
 // up with a clear error (no infinite spinner).
 const WAKE_TIMEOUT_MS = 180_000;
+// After a Wake-on-LAN, how long to let a remote machine boot before the
+// automatic connection retry.
+const WOL_BOOT_WAIT_MS = 20_000;
 
 // Full-screen single-desktop view. The split view (/view) reuses the same
 // DesktopPane with several workspaces side by side. kind="remote" drives
@@ -16,12 +24,57 @@ const WAKE_TIMEOUT_MS = 180_000;
 export function ConnectPage({ kind = 'workspace' }: { kind?: 'workspace' | 'remote' }) {
   const { id } = useParams<{ id: string }>();
   if (!id) return null;
-  // Remote wake (Wake-on-LAN) is handled separately; remote sessions go
-  // straight to the pane.
   if (kind === 'remote') {
-    return <DesktopView id={id} kind="remote" workspace={undefined} />;
+    return <RemoteConnect id={id} />;
   }
   return <WorkspaceConnect id={id} />;
+}
+
+// RemoteConnect drives an external machine. If the connection fails and
+// the machine has a MAC address, it tries Wake-on-LAN once, waits for the
+// machine to boot, then retries the connection.
+function RemoteConnect({ id }: { id: string }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const remotes = useRemoteWorkspaces(true);
+  const wake = useWakeRemoteWorkspace();
+  const [attempt, setAttempt] = useState(0);
+  const [waking, setWaking] = useState(false);
+  const autoWokeRef = useRef(false);
+
+  const remote = remotes.data?.data.find((r) => r.id === id);
+
+  const onFailed = useCallback(() => {
+    // Auto Wake-on-LAN once on first failure, if the machine has a MAC.
+    if (!remote?.macAddress || autoWokeRef.current) return;
+    autoWokeRef.current = true;
+    setWaking(true);
+    wake.mutate(id, {
+      onSettled: () => {
+        setTimeout(() => {
+          setWaking(false);
+          setAttempt((a) => a + 1);
+        }, WOL_BOOT_WAIT_MS);
+      },
+    });
+  }, [remote, id, wake]);
+
+  if (remotes.isPending) return <WaitScreen title={t('connect.connecting')} />;
+  if (!remote) {
+    return (
+      <ErrorScreen
+        message={t('connect.notFound')}
+        actionLabel={t('connect.back')}
+        onAction={() => navigate('/')}
+      />
+    );
+  }
+  if (waking) {
+    return <WaitScreen title={t('remote.waking')} subtitle={t('remote.wakeWaitHint')} />;
+  }
+  return (
+    <DesktopView key={attempt} id={id} kind="remote" workspace={undefined} onFailed={onFailed} />
+  );
 }
 
 // WorkspaceConnect wakes a stopped/paused workspace on open, shows a
@@ -118,10 +171,12 @@ function DesktopView({
   id,
   kind,
   workspace,
+  onFailed,
 }: {
   id: string;
   kind: 'workspace' | 'remote';
   workspace: Workspace | undefined;
+  onFailed?: () => void;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -130,6 +185,11 @@ function DesktopView({
   const [capabilities, setCapabilities] = useState<SessionCapabilities | null>(null);
   const onStateChange = useCallback((s: ConnectionState) => setState(s), []);
   const onCapabilities = useCallback((caps: SessionCapabilities) => setCapabilities(caps), []);
+
+  // Bubble a connection failure up (drives the remote Wake-on-LAN retry).
+  useEffect(() => {
+    if (state === 'failed') onFailed?.();
+  }, [state, onFailed]);
 
   const leave = () => {
     if (window.opener) {

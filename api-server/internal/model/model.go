@@ -91,6 +91,9 @@ type RemoteWorkspace struct {
 	Hostname string `json:"hostname"`
 	Port     int32  `json:"port"`
 	Protocol string `json:"protocol"`
+	// MACAddress enables Wake-on-LAN when set (canonical lower-case,
+	// colon-separated). Empty = no WoL.
+	MACAddress string `json:"macAddress,omitempty"`
 	// Params are guacd connection parameters, validated against the
 	// platform registry (non-platform tiers only).
 	Params map[string]string `json:"params,omitempty"`

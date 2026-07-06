@@ -143,6 +143,21 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+            {{- with .Values.apiServer.wol }}
+            {{- if .relayURL }}
+            # Wake-on-LAN relay for remote workspaces (magic packet must
+            # be emitted on the target's L2; a pod cannot — see docs).
+            - name: WAAS_WOL_RELAY_URL
+              value: {{ .relayURL | quote }}
+            {{- if .existingSecret }}
+            - name: WAAS_WOL_RELAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret | quote }}
+                  key: {{ .existingSecretKey | default "wol-relay-token" | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080

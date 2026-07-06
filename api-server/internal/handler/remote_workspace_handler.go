@@ -79,6 +79,15 @@ func (h *RemoteWorkspaceHandler) Delete(w http.ResponseWriter, r *http.Request) 
 	noContent(w)
 }
 
+// Wake handles POST /api/v1/remote-workspaces/{id}/wake (Wake-on-LAN).
+func (h *RemoteWorkspaceHandler) Wake(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.Wake(r.Context(), middleware.Actor(r), chi.URLParam(r, "id")); err != nil {
+		fail(w, r, err)
+		return
+	}
+	noContent(w)
+}
+
 // Connect handles POST /api/v1/remote-workspaces/{id}/connect.
 func (h *RemoteWorkspaceHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	var in service.ConnectInput

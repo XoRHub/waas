@@ -63,6 +63,40 @@ Les sessions portent `kind = "remote"` (colonne `sessions.kind`,
 migration `20260707100001`) ; audit : `remote_workspace.created/updated/
 deleted` + `session.started` (cible incluse, jamais les credentials).
 
+## Wake-on-LAN (relais externe)
+
+Une machine remote peut être allumée par Wake-on-LAN si une **adresse
+MAC** est renseignée (`macAddress`, validée et normalisée en
+`aa:bb:cc:dd:ee:ff` par l'api-server).
+
+**D'où part le magic packet.** Un pod du cluster ne peut pas broadcaster
+sur le L2 physique des machines cibles. L'émission est donc **déléguée à
+un relais externe** sur le LAN de la cible (équipement manageable,
+routeur WoL, ou petit agent), que l'api-server déclenche en HTTP :
+
+```
+POST $WAAS_WOL_RELAY_URL   {"mac": "aa:bb:cc:dd:ee:ff"}
+Authorization: Bearer $WAAS_WOL_RELAY_TOKEN   # si défini
+```
+
+Config api-server : `WAAS_WOL_RELAY_URL` (active la feature),
+`WAAS_WOL_RELAY_TOKEN` (optionnel). Sans URL, le réveil renvoie
+`503 Unavailable` et le bouton Wake reste sans effet.
+
+**Limite réseau (à documenter pour l'exploitant).** Le magic packet
+n'atteint sa cible que si le relais est sur le **même domaine L2** que la
+machine. En multi-site, prévoir **un relais par site/VLAN** ; le mapping
+machine → relais est aujourd'hui global (un seul relais) — pour du
+multi-site, router côté relais (par sous-réseau) ou étendre le modèle
+avec un sélecteur de site sur le RemoteWorkspace.
+
+**Flux.** Bouton « Réveiller » manuel sur la card (dès qu'une MAC est
+renseignée). À l'ouverture (open-desktop) d'un remote avec MAC : si la
+connexion guacd échoue (machine éteinte), l'UI tente automatiquement un
+WoL une fois, laisse ~20 s à la machine pour démarrer, puis réessaie la
+connexion — un magic packet vers une machine déjà allumée est sans effet,
+donc l'opération est idempotente. Audit : `remote_workspace.woke`.
+
 ## Réseau & RBAC (à prévoir côté plateforme)
 
 - guacd doit pouvoir **sortir** vers les machines cibles : adapter les

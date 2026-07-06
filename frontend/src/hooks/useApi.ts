@@ -132,6 +132,13 @@ export function useDeleteRemoteWorkspace() {
   });
 }
 
+// Wake-on-LAN a remote workspace via the platform relay.
+export function useWakeRemoteWorkspace() {
+  return useMutation({
+    mutationFn: (id: string) => api.post<void>(`/api/v1/remote-workspaces/${id}/wake`),
+  });
+}
+
 export function useWorkspaceAction() {
   const queryClient = useQueryClient();
   return useMutation({

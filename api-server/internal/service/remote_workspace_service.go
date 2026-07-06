@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -40,6 +41,9 @@ type RemoteWorkspaceService struct {
 	sessions  repository.SessionRepository
 	audit     *AuditService
 	signer    *auth.Signer
+	// wol emits Wake-on-LAN packets via an external relay; nil = feature
+	// disabled (no relay configured).
+	wol WoLSender
 
 	issuer        string
 	connectionTTL time.Duration
@@ -52,6 +56,13 @@ func NewRemoteWorkspaceService(kube client.Client, namespace string, users repos
 		kube: kube, namespace: namespace, users: users, remotes: remotes, sessions: sessions,
 		audit: audit, signer: signer, issuer: issuer, connectionTTL: connectionTTL,
 	}
+}
+
+// WithWoL wires the Wake-on-LAN relay (kept out of the constructor to
+// leave existing call sites untouched).
+func (s *RemoteWorkspaceService) WithWoL(wol WoLSender) *RemoteWorkspaceService {
+	s.wol = wol
+	return s
 }
 
 // RemoteCredentialsInput carries the secret material for one remote
@@ -84,8 +95,16 @@ type RemoteWorkspaceInput struct {
 	Hostname    string                  `json:"hostname"`
 	Port        int32                   `json:"port"`
 	Protocol    string                  `json:"protocol"`
+	MACAddress  string                  `json:"macAddress,omitempty"`
 	Params      map[string]string       `json:"params,omitempty"`
 	Credentials *RemoteCredentialsInput `json:"credentials,omitempty"`
+}
+
+// WoLSender emits a Wake-on-LAN magic packet for a MAC address. The
+// packet must originate on the target's L2 network, which a pod cannot
+// reach — so this is delegated to an external relay (see HTTPWoLRelay).
+type WoLSender interface {
+	Wake(ctx context.Context, mac string) error
 }
 
 // requireFeature enforces the policy gate. Fail closed: no user record,
@@ -136,7 +155,22 @@ func validateRemoteInput(in RemoteWorkspaceInput) error {
 	if v := params.ValidateTemplateParams(in.Protocol, in.Params); v != nil {
 		return apierror.BadRequest("params: " + v.Error())
 	}
+	if in.MACAddress != "" {
+		if _, err := normalizeMAC(in.MACAddress); err != nil {
+			return apierror.BadRequest("macAddress: " + err.Error())
+		}
+	}
 	return nil
+}
+
+// normalizeMAC validates and canonicalizes a MAC to lower-case
+// colon-separated form (net.ParseMAC accepts colon/hyphen/dot notations).
+func normalizeMAC(mac string) (string, error) {
+	hw, err := net.ParseMAC(strings.TrimSpace(mac))
+	if err != nil {
+		return "", fmt.Errorf("not a valid MAC address (expected aa:bb:cc:dd:ee:ff)")
+	}
+	return hw.String(), nil
 }
 
 // List returns the caller's remote workspaces (strictly own entries —
@@ -160,15 +194,16 @@ func (s *RemoteWorkspaceService) Create(ctx context.Context, actor Actor, in Rem
 
 	now := time.Now().UTC()
 	rw := &model.RemoteWorkspace{
-		ID:        uuid.NewString(),
-		OwnerID:   actor.ID,
-		Name:      strings.TrimSpace(in.Name),
-		Hostname:  strings.TrimSpace(in.Hostname),
-		Port:      in.Port,
-		Protocol:  in.Protocol,
-		Params:    in.Params,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:         uuid.NewString(),
+		OwnerID:    actor.ID,
+		Name:       strings.TrimSpace(in.Name),
+		Hostname:   strings.TrimSpace(in.Hostname),
+		Port:       in.Port,
+		Protocol:   in.Protocol,
+		MACAddress: canonicalMAC(in.MACAddress),
+		Params:     in.Params,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 	rw.SecretName = "waas-remote-" + rw.ID
 
@@ -214,6 +249,7 @@ func (s *RemoteWorkspaceService) Update(ctx context.Context, actor Actor, id str
 	rw.Hostname = strings.TrimSpace(in.Hostname)
 	rw.Port = in.Port
 	rw.Protocol = in.Protocol
+	rw.MACAddress = canonicalMAC(in.MACAddress)
 	rw.Params = in.Params
 	rw.UpdatedAt = time.Now().UTC()
 
@@ -303,6 +339,46 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 			ClipboardPaste: clipboard.Paste,
 		},
 	}, nil
+}
+
+// Wake emits a Wake-on-LAN magic packet for a remote workspace through
+// the configured relay. Requires the feature, ownership, a stored MAC and
+// a configured relay.
+func (s *RemoteWorkspaceService) Wake(ctx context.Context, actor Actor, id string) error {
+	if err := s.requireFeature(ctx, actor); err != nil {
+		return err
+	}
+	rw, err := s.fetchOwned(ctx, actor, id)
+	if err != nil {
+		return err
+	}
+	if rw.MACAddress == "" {
+		return apierror.BadRequest("this remote workspace has no MAC address; set one to enable Wake-on-LAN")
+	}
+	if s.wol == nil {
+		return apierror.Unavailable("Wake-on-LAN is not configured on this platform (no relay)")
+	}
+	if err := s.wol.Wake(ctx, rw.MACAddress); err != nil {
+		return apierror.Unavailable(fmt.Sprintf("wake relay failed: %v", err))
+	}
+	s.audit.Record(ctx, actor, "remote_workspace.woke", "remote_workspace", rw.ID,
+		fmt.Sprintf("name=%s mac=%s", rw.Name, rw.MACAddress))
+	return nil
+}
+
+// WoLEnabled reports whether the platform can emit WoL packets (relay set).
+func (s *RemoteWorkspaceService) WoLEnabled() bool { return s.wol != nil }
+
+// canonicalMAC normalizes a MAC (already validated) to colon form; empty
+// stays empty.
+func canonicalMAC(mac string) string {
+	if mac == "" {
+		return ""
+	}
+	if n, err := normalizeMAC(mac); err == nil {
+		return n
+	}
+	return mac
 }
 
 func (s *RemoteWorkspaceService) fetchOwned(ctx context.Context, actor Actor, id string) (*model.RemoteWorkspace, error) {

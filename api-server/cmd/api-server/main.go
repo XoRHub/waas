@@ -71,6 +71,10 @@ func run() error {
 		cfg.JWTIssuer, cfg.ConnectionTokenTTL).WithRemoteWorkspaces(remotes)
 	remoteSvc := service.NewRemoteWorkspaceService(kube, cfg.WorkspaceNamespace, users, remotes, sessions,
 		audit, signer, cfg.JWTIssuer, cfg.ConnectionTokenTTL)
+	if relay := service.NewHTTPWoLRelay(cfg.WoL.RelayURL, cfg.WoL.AuthToken); relay != nil {
+		remoteSvc = remoteSvc.WithWoL(relay)
+		slog.Info("Wake-on-LAN relay enabled", "url", cfg.WoL.RelayURL)
+	}
 	sessionSvc := service.NewSessionService(sessions)
 	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit)
 

@@ -50,7 +50,25 @@ type Config struct {
 	// username/password login always remains available (bootstrap admin,
 	// break-glass when the IdP is down).
 	OIDC OIDCConfig
+
+	// WoL configures the Wake-on-LAN relay used to power on remote
+	// workspaces. Disabled when RelayURL is empty.
+	WoL WoLConfig
 }
+
+// WoLConfig points at an external relay that emits the magic packet on
+// the target's L2 network (a K8s pod cannot broadcast onto the office
+// LAN). See docs/remote-workspaces.md for the network contract.
+type WoLConfig struct {
+	// RelayURL is the relay's HTTP endpoint. The api-server POSTs
+	// {"mac": "..."} to it; the relay broadcasts the magic packet.
+	RelayURL string
+	// AuthToken is sent as a Bearer token to the relay when set.
+	AuthToken string
+}
+
+// Enabled reports whether a WoL relay is configured.
+func (w WoLConfig) Enabled() bool { return w.RelayURL != "" }
 
 // OIDCConfig is the SSO provider wiring.
 type OIDCConfig struct {
@@ -118,6 +136,11 @@ func Load() (*Config, error) {
 		ProviderName:  envOr("WAAS_OIDC_PROVIDER_NAME", "SSO"),
 		FrontendURL:   envOr("WAAS_OIDC_FRONTEND_URL", "/"),
 	}
+	cfg.WoL = WoLConfig{
+		RelayURL:  os.Getenv("WAAS_WOL_RELAY_URL"),
+		AuthToken: os.Getenv("WAAS_WOL_RELAY_TOKEN"),
+	}
+
 	if cfg.OIDC.Enabled() {
 		if cfg.OIDC.ClientSecret == "" {
 			return nil, fmt.Errorf("WAAS_OIDC_CLIENT_SECRET is required when OIDC is enabled")

@@ -67,6 +67,16 @@ apiServer:
     # IdP groups granting the platform admin role (synced each login).
     adminGroups: []
     providerName: Authentik
+  # Wake-on-LAN relay for remote workspaces. A magic packet must be
+  # emitted on the target machine's L2 network, which a pod cannot reach —
+  # so it is delegated to an external relay (device or agent on that LAN)
+  # that the api-server calls over HTTP. Empty relayURL = feature off.
+  wol:
+    relayURL: ""
+    # Optional bearer token for the relay, from a Secret. Default key
+    # "wol-relay-token".
+    existingSecret: ""
+    existingSecretKey: ""
   resources:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { memory: 512Mi }

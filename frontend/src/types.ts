@@ -239,6 +239,8 @@ export interface RemoteWorkspace {
   hostname: string;
   port: number;
   protocol: string;
+  /** MAC for Wake-on-LAN (empty = no WoL). */
+  macAddress?: string;
   params?: Record<string, string>;
   /** Which credential fields are stored (never their values). */
   credentialKeys?: string[];
@@ -259,6 +261,7 @@ export interface RemoteWorkspaceInput {
   hostname: string;
   port: number;
   protocol: string;
+  macAddress?: string;
   params?: Record<string, string>;
   credentials?: RemoteCredentialsInput;
 }

@@ -104,7 +104,13 @@
     "credentialsStored": "Identifiants stockés : {{keys}}",
     "noCredentials": "Aucun identifiant stocké — la machine vous les demandera.",
     "connect": "Se connecter",
-    "deleteConfirm": "Supprimer ce remote workspace ? Ses identifiants stockés seront effacés. La machine elle-même n'est pas touchée."
+    "deleteConfirm": "Supprimer ce remote workspace ? Ses identifiants stockés seront effacés. La machine elle-même n'est pas touchée.",
+    "mac": "Adresse MAC (Wake-on-LAN)",
+    "macHint": "Optionnel. Permet d'allumer la machine via le relais de la plateforme. Le WoL ne fonctionne que si le relais est sur le même réseau L2 que la cible.",
+    "wake": "Réveiller",
+    "wakeHint": "Envoie un magic packet Wake-on-LAN via le relais de la plateforme.",
+    "waking": "Réveil de la machine…",
+    "wakeWaitHint": "Paquet Wake-on-LAN envoyé ; on laisse la machine démarrer avant de réessayer."
   },
   "connect": {
     "connecting": "Connexion à votre bureau…",

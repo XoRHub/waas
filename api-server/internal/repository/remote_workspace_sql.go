@@ -22,12 +22,12 @@ func NewSQLRemoteWorkspaceRepository(db *database.DB) *SQLRemoteWorkspaceReposit
 	return &SQLRemoteWorkspaceRepository{db: db}
 }
 
-const remoteWorkspaceColumns = "id, owner_id, name, hostname, port, protocol, params, secret_name, credential_keys, created_at, updated_at"
+const remoteWorkspaceColumns = "id, owner_id, name, hostname, port, protocol, mac_address, params, secret_name, credential_keys, created_at, updated_at"
 
 func (r *SQLRemoteWorkspaceRepository) Create(ctx context.Context, rw *model.RemoteWorkspace) error {
-	query := r.db.Rebind(`INSERT INTO remote_workspaces (` + remoteWorkspaceColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	query := r.db.Rebind(`INSERT INTO remote_workspaces (` + remoteWorkspaceColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	_, err := r.db.ExecContext(ctx, query,
-		rw.ID, rw.OwnerID, rw.Name, rw.Hostname, rw.Port, rw.Protocol,
+		rw.ID, rw.OwnerID, rw.Name, rw.Hostname, rw.Port, rw.Protocol, rw.MACAddress,
 		marshalParams(rw.Params), rw.SecretName, marshalKeys(rw.CredentialKeys),
 		timeArg(rw.CreatedAt), timeArg(rw.UpdatedAt))
 	if err != nil {
@@ -72,10 +72,10 @@ func (r *SQLRemoteWorkspaceRepository) ListByOwner(ctx context.Context, ownerID 
 
 func (r *SQLRemoteWorkspaceRepository) Update(ctx context.Context, rw *model.RemoteWorkspace) error {
 	query := r.db.Rebind(`UPDATE remote_workspaces
-		SET name = ?, hostname = ?, port = ?, protocol = ?, params = ?, credential_keys = ?, updated_at = ?
+		SET name = ?, hostname = ?, port = ?, protocol = ?, mac_address = ?, params = ?, credential_keys = ?, updated_at = ?
 		WHERE id = ?`)
 	res, err := r.db.ExecContext(ctx, query,
-		rw.Name, rw.Hostname, rw.Port, rw.Protocol,
+		rw.Name, rw.Hostname, rw.Port, rw.Protocol, rw.MACAddress,
 		marshalParams(rw.Params), marshalKeys(rw.CredentialKeys), timeArg(rw.UpdatedAt), rw.ID)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -106,7 +106,7 @@ func scanRemoteWorkspace(row rowScanner) (*model.RemoteWorkspace, error) {
 		params string
 		keys   string
 	)
-	if err := row.Scan(&rw.ID, &rw.OwnerID, &rw.Name, &rw.Hostname, &rw.Port, &rw.Protocol,
+	if err := row.Scan(&rw.ID, &rw.OwnerID, &rw.Name, &rw.Hostname, &rw.Port, &rw.Protocol, &rw.MACAddress,
 		&params, &rw.SecretName, &keys, scanTime{&rw.CreatedAt}, scanTime{&rw.UpdatedAt}); err != nil {
 		return nil, err
 	}

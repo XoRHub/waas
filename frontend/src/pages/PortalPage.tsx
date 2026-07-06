@@ -10,6 +10,7 @@ import {
   useQuota,
   useRemoteWorkspaces,
   useSaveRemoteWorkspace,
+  useWakeRemoteWorkspace,
   useTemplates,
   useUpdateProfile,
   useWorkspaceAction,
@@ -1120,6 +1121,7 @@ function RemoteWorkspacesSection() {
   const navigate = useNavigate();
   const remotes = useRemoteWorkspaces(true);
   const remove = useDeleteRemoteWorkspace();
+  const wake = useWakeRemoteWorkspace();
   const user = useAuthStore((s) => s.user);
   const [editing, setEditing] = useState<RemoteWorkspace | 'new' | null>(null);
 
@@ -1178,6 +1180,7 @@ function RemoteWorkspacesSection() {
                 {rw.credentialKeys?.length
                   ? t('remote.credentialsStored', { keys: rw.credentialKeys.join(', ') })
                   : t('remote.noCredentials')}
+                {rw.macAddress && <span className="ml-2 font-mono">· WoL {rw.macAddress}</span>}
               </p>
               <div className="mt-auto flex gap-2">
                 <button
@@ -1186,6 +1189,16 @@ function RemoteWorkspacesSection() {
                 >
                   {t('remote.connect')}
                 </button>
+                {rw.macAddress && (
+                  <button
+                    onClick={() => wake.mutate(rw.id)}
+                    disabled={wake.isPending}
+                    title={t('remote.wakeHint')}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    {t('remote.wake')}
+                  </button>
+                )}
                 <button
                   onClick={() => setEditing(rw)}
                   className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -1234,6 +1247,7 @@ function RemoteWorkspaceDialog({
   const [hostname, setHostname] = useState(remote?.hostname ?? '');
   const [port, setPort] = useState(remote ? String(remote.port) : '');
   const [protocol, setProtocol] = useState(remote?.protocol ?? 'ssh');
+  const [macAddress, setMacAddress] = useState(remote?.macAddress ?? '');
   const [params, setParams] = useState<Record<string, string>>(remote?.params ?? {});
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [creds, setCreds] = useState({ username: '', password: '', privateKey: '', passphrase: '' });
@@ -1259,6 +1273,7 @@ function RemoteWorkspaceDialog({
       hostname,
       port: Number(port || defaultPorts[protocol] || 0),
       protocol,
+      macAddress: macAddress.trim() || undefined,
       params: Object.keys(cleanedParams).length > 0 ? cleanedParams : undefined,
       credentials: credentials && Object.keys(credentials).length > 0 ? credentials : undefined,
     };
@@ -1337,6 +1352,18 @@ function RemoteWorkspaceDialog({
               </option>
             ))}
           </select>
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.mac')}</span>
+          <input
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            placeholder="aa:bb:cc:dd:ee:ff"
+            value={macAddress}
+            onChange={(e) => setMacAddress(e.target.value)}
+          />
+          <span className="mt-0.5 block text-xs text-slate-400 dark:text-slate-500">
+            {t('remote.macHint')}
+          </span>
         </label>
 
         <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
