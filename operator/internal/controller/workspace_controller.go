@@ -50,6 +50,16 @@ type WorkspaceReconciler struct {
 	// Recorder emits the audit trail (policy applied/denied, TTL
 	// deletions) as Kubernetes Events on the Workspace.
 	Recorder record.EventRecorder
+	// Now is the reconciler's clock; nil means time.Now. Injectable so
+	// schedule transitions are testable at a chosen instant.
+	Now func() time.Time
+}
+
+func (r *WorkspaceReconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
 }
 
 // +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspaces,verbs=get;list;watch;delete
@@ -142,14 +152,15 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// NOT delete: the workload object and config are kept so resume is a
 	// fast scale back to 1. The home volume is retained either way.
 	sched := effectiveSchedule(ws, tpl)
-	decision := sched.Resolve(time.Now(), ws.Spec.Paused, manualStateAt(ws))
+	now := r.now()
+	decision := sched.Resolve(now, ws.Spec.Paused, manualStateAt(ws))
 	down := decision.Down
 	nextTransition := transitionStatus(decision.NextEdge)
 	// Requeue when the next scheduled edge fires so the transition is
 	// applied on time.
 	var scheduleRequeue time.Duration
 	if decision.NextEdge != nil {
-		if d := time.Until(decision.NextEdge.Time); d > 0 {
+		if d := decision.NextEdge.Time.Sub(now); d > 0 {
 			scheduleRequeue = d
 		}
 	}
