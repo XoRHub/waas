@@ -10,7 +10,6 @@ spec:
   description: "Full XFCE desktop over VNC (recommended protocol for Linux)."
   os: linux
   image: waas-local/ubuntu-xfce:dev
-  port: 5901
   homeSize: 10Gi
   resources:
     requests: { cpu: 500m, memory: 1Gi }
@@ -20,6 +19,31 @@ spec:
       value: "devpassword"
     - name: VNC_RESOLUTION
       value: "1920x1080"
+  # Desktops are stamped as a Deployment (the default kind) with an
+  # explicit non-root pod spec.
+  workload:
+    kind: Deployment
+    podSecurityContext:
+      runAsNonRoot: true
+  # Both protocols the image serves; users may pick either and tune the
+  # allow-listed guacd parameters from the portal.
+  protocols:
+    - name: vnc
+      port: 5901
+      default: true
+      params:
+        color-depth: "24"
+      userParams: [color-depth, cursor, swap-red-blue]
+    - name: rdp
+      port: 3389
+      params:
+        security: any
+        ignore-cert: "true"
+      userParams: [color-depth, resize-method]
+  # What workspace creators may deviate from this template (admins and
+  # the template owner may override anything).
+  overrides:
+    allowedFields: [env, resources, protocol, protocolParams]
 ---
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceTemplate
