@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -425,14 +426,11 @@ func (s *GovernanceService) AdminUpsertPolicy(ctx context.Context, actor Actor, 
 		ov := &waasv1alpha1.PolicyOverrides{}
 		for _, f := range in.Overrides.AllowedFields {
 			field := waasv1alpha1.OverridableField(f)
-			switch field {
-			case waasv1alpha1.FieldEnv, waasv1alpha1.FieldSecurityContext, waasv1alpha1.FieldPodSecurityContext,
-				waasv1alpha1.FieldVolumes, waasv1alpha1.FieldNodeSelector, waasv1alpha1.FieldTolerations,
-				waasv1alpha1.FieldResources, waasv1alpha1.FieldProtocol, waasv1alpha1.FieldProtocolParams:
-				ov.AllowedFields = append(ov.AllowedFields, field)
-			default:
-				return nil, apierror.BadRequest(fmt.Sprintf("overrides.allowedFields: unknown field %q", f))
+			if !slices.Contains(waasv1alpha1.AllOverridableFields(), field) {
+				return nil, apierror.BadRequest(fmt.Sprintf("overrides.allowedFields: unknown field %q (known: %v)",
+					f, waasv1alpha1.AllOverridableFields()))
 			}
+			ov.AllowedFields = append(ov.AllowedFields, field)
 		}
 		spec.Overrides = ov
 	}
