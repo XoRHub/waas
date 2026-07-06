@@ -185,8 +185,53 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 		return nil, fmt.Errorf("creating workspace %s: %w", name, err)
 	}
 	s.audit.Record(ctx, actor, "workspace.created", "workspace", string(ws.UID), "name="+name)
+	// Overrides get their own audit line: "who deviated from the template,
+	// on what" must be answerable without diffing CRs. Values are omitted
+	// on purpose (an env override may carry a credential).
+	if summary := overridesSummary(in.Overrides); summary != "" {
+		s.audit.Record(ctx, actor, "workspace.overrides_applied", "workspace", string(ws.UID),
+			"name="+name+" "+summary)
+	}
 	m := workspaceToModel(ws, tpl)
 	return &m, nil
+}
+
+// overridesSummary renders an audit-safe description of template
+// deviations: field names and env var NAMES, never values.
+func overridesSummary(ov *waasv1alpha1.WorkspaceOverrides) string {
+	if ov == nil {
+		return ""
+	}
+	var parts []string
+	if len(ov.Env) > 0 {
+		names := make([]string, 0, len(ov.Env))
+		for _, e := range ov.Env {
+			names = append(names, e.Name)
+		}
+		parts = append(parts, "env="+strings.Join(names, ","))
+	}
+	if ov.SecurityContext != nil {
+		parts = append(parts, "securityContext")
+	}
+	if ov.PodSecurityContext != nil {
+		parts = append(parts, "podSecurityContext")
+	}
+	if len(ov.Volumes) > 0 || len(ov.VolumeMounts) > 0 {
+		parts = append(parts, fmt.Sprintf("volumes=%d mounts=%d", len(ov.Volumes), len(ov.VolumeMounts)))
+	}
+	if len(ov.NodeSelector) > 0 {
+		parts = append(parts, "nodeSelector")
+	}
+	if len(ov.Tolerations) > 0 {
+		parts = append(parts, "tolerations")
+	}
+	if ov.Protocol != "" {
+		parts = append(parts, "protocol="+ov.Protocol)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "overrides: " + strings.Join(parts, " ")
 }
 
 // Get returns one workspace by ID, enforcing ownership for non-admins.

@@ -183,6 +183,12 @@ type QuotaStatus struct {
 	PerWorkspace   map[string]string `json:"perWorkspace,omitempty"`
 	Defaults       map[string]string `json:"defaults,omitempty"`  // policy-proposed sizing (image defaults win)
 	Lifecycle      map[string]string `json:"lifecycle,omitempty"` // idleSuspendAfter / maxLifetime
+	// Features flags what the resolved policy opts the user into (e.g.
+	// "remoteWorkspaces"); the UI hides gated tabs from it.
+	Features map[string]bool `json:"features,omitempty"`
+	// AllowedOverrides is the policy-level override allow-list (nil = the
+	// template's own list applies alone).
+	AllowedOverrides []string `json:"allowedOverrides,omitempty"`
 }
 
 // PolicyModel is the API projection of a WorkspacePolicy CR for the
@@ -195,6 +201,17 @@ type PolicyModel struct {
 	Limits    PolicyLimitsModel     `json:"limits"`
 	Lifecycle map[string]string     `json:"lifecycle,omitempty"`
 	Clipboard *ClipboardPolicyModel `json:"clipboard,omitempty"`
+	// Overrides is the policy-level restriction on template overrides
+	// (nil = no restriction; empty list = all overrides forbidden).
+	Overrides *PolicyOverridesModel `json:"overrides,omitempty"`
+	// RemoteWorkspaces opts governed users into the remote workspaces
+	// feature.
+	RemoteWorkspaces bool `json:"remoteWorkspaces,omitempty"`
+}
+
+// PolicyOverridesModel mirrors the CRD overrides block.
+type PolicyOverridesModel struct {
+	AllowedFields []string `json:"allowedFields"`
 }
 
 // ClipboardPolicyModel mirrors the CRD clipboard block (nil = allowed).

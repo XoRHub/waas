@@ -77,6 +77,24 @@ filtering `clipboard` streams in both directions and clamps the
 overlay's live toggles to the grant. No policy match = both directions
 denied (fail closed) while the session itself still opens.
 
+### Override restriction (`spec.overrides`)
+
+`spec.overrides.allowedFields` bounds instantiation-time template
+overrides for the governed users; the effective allow-list is the
+intersection with the template's own `overrides.allowedFields` (see
+`docs/templates-and-protocols.md`). Block absent = no policy
+restriction; empty list = all overrides forbidden. Admins bypass both
+lists, template owners only the template one.
+
+### Remote Workspaces opt-in (`spec.remoteWorkspaces`)
+
+`spec.remoteWorkspaces: true` opts the governed users into the Remote
+Workspaces feature (out-of-cluster machines via guacd, see
+`docs/remote-workspaces.md`). Absent/false = the feature is invisible in
+the portal and refused by the API (fail closed); platform admins always
+have it. The flag reaches the portal through `GET /api/v1/me/quota`
+(`features.remoteWorkspaces`).
+
 ### Debugging resolution
 
 `GET /api/v1/admin/users/{id}/effective-policy` replays the exact

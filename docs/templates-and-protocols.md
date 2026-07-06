@@ -121,17 +121,59 @@ Merge semantics: env/volumes/mounts merge by name (workspace wins),
 nodeSelector merges key-wise, tolerations append, security contexts
 replace.
 
+On top of the template list, the **policy** may restrict overrides for
+the users it governs (`WorkspacePolicy.spec.overrides.allowedFields`).
+The effective allow-list is the **intersection** template ∩ policy:
+
+- policy block absent → the template list applies alone;
+- block present with an empty list → the policy forbids every override;
+- platform admins bypass both lists; the template `overrides.owner`
+  bypasses the template list but **stays subject to the policy list**.
+
 Enforcement is the usual two-line defense:
 
 - the **admission webhook** denies `[OverrideNotAllowed]` when a set field
-  is not in `allowedFields` — unless the creator is a platform admin
-  (`waas.xorhub.io/role: admin` annotation, trusted-writer only, frozen
-  like the other identity annotations) or the template `overrides.owner`;
+  is not in the effective allow-list — unless the creator is a platform
+  admin (`waas.xorhub.io/role: admin` annotation, trusted-writer only,
+  frozen like the other identity annotations);
 - the **reconciler** re-checks before creating compute (deferred-template
   case).
 
+Every applied override is journaled: the api-server records a
+`workspace.overrides_applied` audit entry listing the overridden fields
+and env var **names** (never values — they may carry credentials).
+
 Note: allow-listing `volumes` lets users mount arbitrary volume sources —
 including hostPath. Only enable it on templates aimed at trusted groups.
+
+### Portal "Advanced" panel
+
+The workspace-creation dialog shows a collapsible **Advanced (template
+overrides)** panel — env var editor today, protocol choice in the
+connection section — only to users whose effective allow-list (or admin
+role) permits it; everyone else never sees it. The panel mirrors the
+webhook's decision, it never replaces it.
+
+## Parameter forms: simple vs advanced
+
+Every guacd parameter form (creation dialog, per-workspace connection
+settings, remote workspaces) is generated from the platform registry
+(`operator/pkg/params`, served by `GET /api/v1/meta/protocols`):
+
+- **simple mode** (default) shows the registry tier `ui` — the everyday
+  parameters: resize method, keyboard layout, color depth, audio, font
+  size, read-only…;
+- the **"Show advanced parameters"** toggle adds the whole `advanced`
+  tier;
+- the `platform` tier never reaches a form (hostname/port/credentials/
+  gateways/recording are platform-owned and rejected server-side).
+
+Adding a guacd parameter = one entry in the registry table; the forms,
+the validation (webhook + connect) and `docs/guacd-parameters.md`
+(`make docs-params`) all follow without UI code changes. Non-admin users
+additionally stay inside the template's `userParams` allow-list whatever
+the tier; the browser-managed resolution (width/height/dpi) is sent at
+handshake time and is not a form parameter.
 
 ## Portal UX shipped alongside
 

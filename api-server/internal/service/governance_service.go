@@ -117,8 +117,11 @@ func (s *GovernanceService) Quota(ctx context.Context, actor Actor) (*model.Quot
 
 	id := identityFor(user)
 	pol, _, denial := policy.Resolve(policies.Items, id)
+	isAdmin := string(user.Role) == "admin"
 	if denial != nil {
-		return &model.QuotaStatus{Policy: ""}, nil
+		// Fail-closed for self-service — but admins keep their feature
+		// flags (they bypass policy gates everywhere else too).
+		return &model.QuotaStatus{Policy: "", Features: featureFlags(nil, isAdmin)}, nil
 	}
 
 	count, used, err := s.usageOf(ctx, user.ID, images.Items)
@@ -132,6 +135,13 @@ func (s *GovernanceService) Quota(ctx context.Context, actor Actor) (*model.Quot
 		MaxWorkspaces:  pol.Spec.Limits.MaxWorkspaces,
 		UsedWorkspaces: count,
 		Used:           used,
+		Features:       featureFlags(pol, isAdmin),
+	}
+	if pol.Spec.Overrides != nil {
+		status.AllowedOverrides = []string{}
+		for _, f := range pol.Spec.Overrides.AllowedFields {
+			status.AllowedOverrides = append(status.AllowedOverrides, string(f))
+		}
 	}
 	if agg := pol.Spec.Limits.Aggregate; agg != nil {
 		status.Limits = map[string]string{}
@@ -168,6 +178,14 @@ func (s *GovernanceService) Quota(ctx context.Context, actor Actor) (*model.Quot
 		}
 	}
 	return status, nil
+}
+
+// featureFlags projects the policy's opt-in features; admins get them
+// all regardless of policy.
+func featureFlags(pol *waasv1alpha1.WorkspacePolicy, isAdmin bool) map[string]bool {
+	return map[string]bool{
+		"remoteWorkspaces": isAdmin || policy.RemoteWorkspacesAllowed(pol),
+	}
 }
 
 // usageOf computes one owner's live aggregates (same math as pkg/policy).
@@ -336,12 +354,14 @@ func (s *GovernanceService) AdminListPolicies(ctx context.Context) ([]model.Poli
 
 // UpsertPolicyInput is the admin payload for a policy.
 type UpsertPolicyInput struct {
-	Priority  int32                       `json:"priority"`
-	Subjects  []model.PolicySubject       `json:"subjects"`
-	Images    []string                    `json:"images"`
-	Limits    model.PolicyLimitsModel     `json:"limits"`
-	Lifecycle map[string]string           `json:"lifecycle"`
-	Clipboard *model.ClipboardPolicyModel `json:"clipboard"`
+	Priority         int32                       `json:"priority"`
+	Subjects         []model.PolicySubject       `json:"subjects"`
+	Images           []string                    `json:"images"`
+	Limits           model.PolicyLimitsModel     `json:"limits"`
+	Lifecycle        map[string]string           `json:"lifecycle"`
+	Clipboard        *model.ClipboardPolicyModel `json:"clipboard"`
+	Overrides        *model.PolicyOverridesModel `json:"overrides"`
+	RemoteWorkspaces bool                        `json:"remoteWorkspaces"`
 }
 
 // AdminUpsertPolicy creates or updates a WorkspacePolicy.
@@ -401,6 +421,22 @@ func (s *GovernanceService) AdminUpsertPolicy(ctx context.Context, actor Actor, 
 			PasteToWorkspace:  in.Clipboard.PasteToWorkspace,
 		}
 	}
+	if in.Overrides != nil {
+		ov := &waasv1alpha1.PolicyOverrides{}
+		for _, f := range in.Overrides.AllowedFields {
+			field := waasv1alpha1.OverridableField(f)
+			switch field {
+			case waasv1alpha1.FieldEnv, waasv1alpha1.FieldSecurityContext, waasv1alpha1.FieldPodSecurityContext,
+				waasv1alpha1.FieldVolumes, waasv1alpha1.FieldNodeSelector, waasv1alpha1.FieldTolerations,
+				waasv1alpha1.FieldResources, waasv1alpha1.FieldProtocol, waasv1alpha1.FieldProtocolParams:
+				ov.AllowedFields = append(ov.AllowedFields, field)
+			default:
+				return nil, apierror.BadRequest(fmt.Sprintf("overrides.allowedFields: unknown field %q", f))
+			}
+		}
+		spec.Overrides = ov
+	}
+	spec.RemoteWorkspaces = in.RemoteWorkspaces
 
 	pol := &waasv1alpha1.WorkspacePolicy{}
 	err = s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, pol)
@@ -606,6 +642,13 @@ func policyToModel(pol *waasv1alpha1.WorkspacePolicy) model.PolicyModel {
 			m.Lifecycle["maxLifetime"] = lc.MaxLifetime.Duration.String()
 		}
 	}
+	if ov := pol.Spec.Overrides; ov != nil {
+		m.Overrides = &model.PolicyOverridesModel{AllowedFields: []string{}}
+		for _, f := range ov.AllowedFields {
+			m.Overrides.AllowedFields = append(m.Overrides.AllowedFields, string(f))
+		}
+	}
+	m.RemoteWorkspaces = pol.Spec.RemoteWorkspaces
 	return m
 }
 

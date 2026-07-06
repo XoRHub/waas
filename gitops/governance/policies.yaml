@@ -57,3 +57,8 @@ spec:
   lifecycle:
     idleSuspendAfter: 8h
     # pas de maxLifetime : les postes de dev vivent tant qu'ils servent
+  # Mode avancé à l'instanciation : les devs peuvent dévier des templates
+  # sur ces champs UNIQUEMENT (intersection avec l'allow-list du template ;
+  # bloc absent = seule l'allow-list du template s'applique).
+  overrides:
+    allowedFields: [env, resources, protocol, protocolParams]
