@@ -11,11 +11,17 @@ import (
 // ConnectionParams describes the desktop guacd should connect to, plus the
 // client display characteristics forwarded from the browser.
 type ConnectionParams struct {
-	Protocol string // "vnc" or "rdp"
+	Protocol string // "vnc", "rdp" or "ssh"
 	Hostname string
 	Port     int32
 	Username string
 	Password string
+
+	// Extra are additional guacd connection parameters resolved by the
+	// API server (template params merged with vetted user overrides).
+	// They win over the built-in defaults but never over the
+	// platform-managed hostname/port.
+	Extra map[string]string
 
 	Width  int
 	Height int
@@ -90,10 +96,17 @@ func paramValue(name string, params ConnectionParams) string {
 	switch {
 	case strings.HasPrefix(name, "VERSION_"):
 		return name
+	// hostname/port are platform-managed: guacd must always dial the
+	// workspace service, whatever extra params say.
 	case name == "hostname":
 		return params.Hostname
 	case name == "port":
 		return strconv.Itoa(int(params.Port))
+	}
+	if v, ok := params.Extra[name]; ok {
+		return v
+	}
+	switch {
 	case name == "username":
 		return params.Username
 	case name == "password":

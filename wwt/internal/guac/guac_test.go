@@ -108,6 +108,36 @@ func TestHandshake(t *testing.T) {
 	}
 }
 
+func TestParamValueExtraPrecedence(t *testing.T) {
+	params := ConnectionParams{
+		Protocol: "vnc",
+		Hostname: "ws.svc",
+		Port:     5901,
+		Password: "server-side",
+		Extra: map[string]string{
+			"color-depth": "16",
+			"password":    "user-supplied",
+			"hostname":    "evil.example.com",
+			"port":        "22",
+		},
+	}
+	if got := paramValue("color-depth", params); got != "16" {
+		t.Fatalf("extra param must be forwarded, got %q", got)
+	}
+	if got := paramValue("password", params); got != "user-supplied" {
+		t.Fatalf("extra must win over built-in credentials, got %q", got)
+	}
+	if got := paramValue("hostname", params); got != "ws.svc" {
+		t.Fatalf("hostname is platform-managed, got %q", got)
+	}
+	if got := paramValue("port", params); got != "5901" {
+		t.Fatalf("port is platform-managed, got %q", got)
+	}
+	if got := paramValue("unknown", params); got != "" {
+		t.Fatalf("unknown params stay empty, got %q", got)
+	}
+}
+
 func TestHandshakeGuacdError(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()

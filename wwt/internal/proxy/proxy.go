@@ -37,6 +37,9 @@ type ConnectionInfo struct {
 	Port     int32  `json:"port"`
 	Username string `json:"username,omitempty"`
 	Password string `json:"password,omitempty"`
+	// Params are extra guacd connection parameters (template + vetted
+	// user overrides), resolved server-side.
+	Params map[string]string `json:"params,omitempty"`
 }
 
 // Handler upgrades /ws requests and relays them to guacd.
@@ -102,6 +105,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Port:     info.Port,
 		Username: info.Username,
 		Password: info.Password,
+		Extra:    info.Params,
 		Width:    intQuery(r, "width"),
 		Height:   intQuery(r, "height"),
 		DPI:      intQuery(r, "dpi"),
