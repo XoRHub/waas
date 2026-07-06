@@ -619,13 +619,20 @@ func (s *WorkspaceService) findByUID(ctx context.Context, uid string) (*waasv1al
 }
 
 func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) model.Workspace {
+	phase := string(ws.Status.Phase)
+	// A CR being deleted keeps its last phase until the finalizer/GC
+	// finishes: surface the truth so the portal shows "Terminating"
+	// instead of a live-looking card that vanishes seconds later.
+	if !ws.DeletionTimestamp.IsZero() {
+		phase = string(waasv1alpha1.PhaseTerminating)
+	}
 	m := model.Workspace{
 		ID:          string(ws.UID),
 		Name:        ws.Name,
 		DisplayName: ws.Spec.DisplayName,
 		TemplateRef: ws.Spec.TemplateRef,
 		OwnerID:     ws.Spec.Owner,
-		Phase:       string(ws.Status.Phase),
+		Phase:       phase,
 		OS:          string(ws.Status.OS),
 		Protocol:    ws.Status.Protocol,
 		Paused:      ws.Spec.Paused,

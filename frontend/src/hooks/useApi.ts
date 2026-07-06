@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { isTransient } from '@/lib/lifecycle';
 import { useAuthStore } from '@/stores/authStore';
 import type {
   AuditLog,
@@ -23,17 +24,16 @@ import type {
   WorkspaceTemplate,
 } from '@/types';
 
-// Workspace phases move fast while provisioning; poll while any workspace
-// is in a transient state.
-const TRANSIENT_PHASES = new Set(['Pending', 'Provisioning', 'Terminating']);
-
+// Poll fast while any workspace is converging (provisioning, terminating,
+// or a lifecycle action whose spec intent the operator has not reconciled
+// yet — see lib/lifecycle), slow otherwise.
 export function useWorkspaces() {
   return useQuery({
     queryKey: ['workspaces'],
     queryFn: () => api.get<Workspace[]>('/api/v1/workspaces'),
     refetchInterval: (query) => {
       const items = query.state.data?.data ?? [];
-      return items.some((ws) => TRANSIENT_PHASES.has(ws.phase)) ? 3000 : 15000;
+      return items.some(isTransient) ? 3000 : 15000;
     },
   });
 }
@@ -131,6 +131,9 @@ export function useRemoteWorkspaces(enabled: boolean) {
     queryKey: ['remote-workspaces'],
     queryFn: () => api.get<RemoteWorkspace[]>('/api/v1/remote-workspaces'),
     enabled,
+    // Remote entries carry no lifecycle phase, but edits from another
+    // tab/device should still land without a manual reload.
+    refetchInterval: 30000,
   });
 }
 

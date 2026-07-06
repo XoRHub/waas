@@ -1,11 +1,15 @@
 import { useTranslation } from 'react-i18next';
-import type { WorkspacePhase } from '@/types';
+import type { EffectivePhase } from '@/lib/lifecycle';
 
 // Traffic-light colors for the fleet dashboard and the portal cards.
-const PHASE_STYLES: Record<WorkspacePhase, string> = {
+// Pausing/Resuming are DERIVED transitional states (spec intent vs CR
+// status, see lib/lifecycle) — amber like the other converging phases.
+const PHASE_STYLES: Record<EffectivePhase, string> = {
   Running: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
   Provisioning: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
   Pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  Pausing: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  Resuming: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
   // Paused = manual scale-to-0 (blue, user-driven); Stopped = scheduled
   // downtime (grey, system-driven).
   Paused: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
@@ -14,7 +18,7 @@ const PHASE_STYLES: Record<WorkspacePhase, string> = {
   Terminating: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
 };
 
-export function StatusBadge({ phase }: { phase: WorkspacePhase }) {
+export function StatusBadge({ phase }: { phase: EffectivePhase }) {
   const { t } = useTranslation();
   const style = PHASE_STYLES[phase] ?? PHASE_STYLES.Stopped;
   return (

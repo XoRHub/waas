@@ -42,7 +42,9 @@
       "Paused": "Paused",
       "Stopped": "Stopped",
       "Failed": "Unavailable",
-      "Terminating": "Shutting down…"
+      "Terminating": "Shutting down…",
+      "Pausing": "Pausing…",
+      "Resuming": "Resuming…"
     },
     "quotaPolicy": "Policy:",
     "quotaWorkspaces": "Workspaces",

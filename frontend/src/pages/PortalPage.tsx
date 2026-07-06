@@ -24,6 +24,7 @@ import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
 import { ScheduleEditor, useNextTransitionLabel } from '@/components/ScheduleEditor';
 import { useAuthStore } from '@/stores/authStore';
 import { useEscape } from '@/hooks/useEscape';
+import { effectivePhase } from '@/lib/lifecycle';
 import { templateAvailability } from '@/lib/templates';
 import { displayCpu, displayMemory, formatCpu, formatMemory, parseCpu, parseMemory } from '@/lib/quantity';
 import type {
@@ -281,6 +282,13 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   useEscape(menuOpen, () => setMenuOpen(false));
 
+  // Badge and buttons follow the DERIVED phase: between a lifecycle
+  // action and the operator's reconcile, intent and status disagree and
+  // the card shows the transition (Pausing…/Resuming…) instead of a
+  // stale steady state. The fast poll converges it to the CR status.
+  const phase = effectivePhase(workspace);
+  const settling = phase === 'Pausing' || phase === 'Resuming' || phase === 'Terminating';
+
   const url = `/workspaces/${workspace.id}/connect`;
   const onOpen = () => {
     const pref = user?.preferences?.openWorkspaceInNewTab;
@@ -358,7 +366,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <StatusBadge phase={workspace.phase} />
+          <StatusBadge phase={phase} />
           <div className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}
@@ -441,12 +449,12 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
       <div className="mt-auto flex gap-2">
         <button
           onClick={onOpen}
-          disabled={workspace.phase === 'Failed' || workspace.phase === 'Terminating'}
+          disabled={phase === 'Failed' || phase === 'Terminating'}
           className="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
         >
-          {workspace.phase === 'Running'
+          {phase === 'Running'
             ? t('portal.open')
-            : workspace.phase === 'Paused' || workspace.phase === 'Stopped'
+            : phase === 'Paused' || phase === 'Stopped'
               ? t('portal.wakeAndOpen')
               : t('portal.starting')}
         </button>
@@ -454,8 +462,8 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
           onClick={() =>
             action.mutate({ id: workspace.id, action: workspace.paused ? 'resume' : 'pause' })
           }
-          disabled={action.isPending}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+          disabled={action.isPending || settling}
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
         >
           {workspace.paused ? t('portal.resume') : t('portal.pause')}
         </button>

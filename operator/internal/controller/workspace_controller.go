@@ -659,15 +659,23 @@ func podReady(pod *corev1.Pod) bool {
 	return false
 }
 
-// SetupWithManager wires the controller. GenerationChangedPredicate keeps
-// status-only updates from re-triggering reconciliation. Workloads are
-// mapped back to their Workspace through the platform labels rather than
-// Owns(): placed workloads live in another namespace and cannot carry an
-// owner reference (the labels cover the legacy same-namespace objects too).
+// SetupWithManager wires the controller. The Workspace predicate fires on
+// spec changes (generation) OR annotation changes — a manual resume of a
+// cron-Stopped workspace only touches the manual-state-at annotation
+// (spec.paused is already false), and filtering it out would leave the
+// workspace down until the next scheduled edge. Status-only updates stay
+// filtered. Workloads are mapped back to their Workspace through the
+// platform labels rather than Owns(): placed workloads live in another
+// namespace and cannot carry an owner reference (the labels cover the
+// legacy same-namespace objects too).
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	mapFn := handler.EnqueueRequestsFromMapFunc(r.mapObjectToWorkspace)
+	wsPredicate := predicate.Or[client.Object](
+		predicate.GenerationChangedPredicate{},
+		predicate.AnnotationChangedPredicate{},
+	)
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&waasv1alpha1.Workspace{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&waasv1alpha1.Workspace{}, builder.WithPredicates(wsPredicate)).
 		Watches(&corev1.Pod{}, mapFn).
 		Watches(&appsv1.Deployment{}, mapFn).
 		Watches(&appsv1.StatefulSet{}, mapFn).
