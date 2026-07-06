@@ -1,7 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { DesktopPane, type ConnectionState } from '@/components/DesktopPane';
+import { DesktopPane, type ConnectionState, type DesktopPaneHandle } from '@/components/DesktopPane';
+import { SessionOverlay } from '@/components/SessionOverlay';
+import { useWorkspaces } from '@/hooks/useApi';
+import type { SessionCapabilities } from '@/types';
 
 // Full-screen single-desktop view. The split view (/view) reuses the same
 // DesktopPane with several workspaces side by side.
@@ -9,8 +12,12 @@ export function ConnectPage() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const workspaces = useWorkspaces();
+  const pane = useRef<DesktopPaneHandle>(null);
   const [state, setState] = useState<ConnectionState>('connecting');
+  const [capabilities, setCapabilities] = useState<SessionCapabilities | null>(null);
   const onStateChange = useCallback((s: ConnectionState) => setState(s), []);
+  const onCapabilities = useCallback((caps: SessionCapabilities) => setCapabilities(caps), []);
 
   // Back to the portal: close the tab when the portal opened us in a new
   // one (window.close is only honored for script-opened windows), else
@@ -23,6 +30,7 @@ export function ConnectPage() {
   };
 
   if (!id) return null;
+  const workspace = workspaces.data?.data.find((ws) => ws.id === id);
 
   return (
     <div className="relative h-screen bg-black">
@@ -37,7 +45,16 @@ export function ConnectPage() {
           </div>
         </div>
       )}
-      <DesktopPane workspaceId={id} onStateChange={onStateChange} autoFocus />
+      <DesktopPane
+        ref={pane}
+        workspaceId={id}
+        onStateChange={onStateChange}
+        onCapabilities={onCapabilities}
+        autoFocus
+      />
+      {state === 'connected' && (
+        <SessionOverlay workspace={workspace} capabilities={capabilities} pane={pane} />
+      )}
       {(state === 'disconnected' || state === 'failed') && (
         <div className="absolute inset-x-0 bottom-10 flex justify-center">
           <button

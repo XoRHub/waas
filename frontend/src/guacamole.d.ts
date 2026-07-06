@@ -3,6 +3,9 @@ declare module 'guacamole-common-js' {
   namespace Guacamole {
     class WebSocketTunnel {
       constructor(url: string);
+      /** Sends one instruction; first element '' is the tunnel-internal
+       * opcode (used for the WaaS clipboard controls). */
+      sendMessage(...elements: (string | number)[]): void;
     }
 
     interface Status {
@@ -13,6 +16,7 @@ declare module 'guacamole-common-js' {
     class Display {
       getElement(): HTMLElement;
       scale(scale: number): void;
+      getScale(): number;
       getWidth(): number;
       getHeight(): number;
     }
@@ -22,7 +26,7 @@ declare module 'guacamole-common-js' {
       connect(data?: string): void;
       disconnect(): void;
       getDisplay(): Display;
-      sendMouseState(state: unknown): void;
+      sendMouseState(state: Mouse.State): void;
       sendKeyEvent(pressed: number, keysym: number): void;
       onstatechange: ((state: number) => void) | null;
       onerror: ((status: Status) => void) | null;
@@ -30,9 +34,30 @@ declare module 'guacamole-common-js' {
 
     class Mouse {
       constructor(element: HTMLElement);
-      onmousedown: ((state: unknown) => void) | null;
-      onmouseup: ((state: unknown) => void) | null;
-      onmousemove: ((state: unknown) => void) | null;
+      onmousedown: ((state: Mouse.State) => void) | null;
+      onmouseup: ((state: Mouse.State) => void) | null;
+      onmousemove: ((state: Mouse.State) => void) | null;
+    }
+
+    namespace Mouse {
+      class State {
+        constructor(
+          x: number,
+          y: number,
+          left: boolean,
+          middle: boolean,
+          right: boolean,
+          up: boolean,
+          down: boolean,
+        );
+        x: number;
+        y: number;
+        left: boolean;
+        middle: boolean;
+        right: boolean;
+        up: boolean;
+        down: boolean;
+      }
     }
 
     class Keyboard {

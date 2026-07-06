@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Guacamole from 'guacamole-common-js';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
-import type { ConnectResult, WorkspaceConnectionPrefs } from '@/types';
+import type { ConnectResult, SessionCapabilities, WorkspaceConnectionPrefs } from '@/types';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'failed';
 
@@ -13,6 +13,10 @@ const STATE_DISCONNECTED = 5;
 
 export interface DesktopPaneHandle {
   disconnect: () => void;
+  /** Tear down and re-open the session (applies reconnect-scoped params). */
+  reconnect: () => void;
+  /** Live clipboard toggle, enforced by wwt (clamped to the policy grant). */
+  setClipboard: (direction: 'copy' | 'paste', enabled: boolean) => void;
 }
 
 /**
@@ -21,26 +25,39 @@ export interface DesktopPaneHandle {
  * view without fighting over keystrokes. The desktop image is scaled to
  * fit the pane and re-scaled when the pane is resized.
  */
-export function DesktopPane({
-  workspaceId,
-  connection,
-  onStateChange,
-  autoFocus,
-}: {
-  workspaceId: string;
-  /** Saved protocol/params override; defaults to the profile preference. */
-  connection?: WorkspaceConnectionPrefs;
-  onStateChange?: (state: ConnectionState) => void;
-  autoFocus?: boolean;
-}) {
+export const DesktopPane = forwardRef<
+  DesktopPaneHandle,
+  {
+    workspaceId: string;
+    /** Saved protocol/params override; defaults to the profile preference. */
+    connection?: WorkspaceConnectionPrefs;
+    onStateChange?: (state: ConnectionState) => void;
+    /** Reports what the session token actually allows (overlay toggles). */
+    onCapabilities?: (caps: SessionCapabilities) => void;
+    autoFocus?: boolean;
+  }
+>(function DesktopPane({ workspaceId, connection, onStateChange, onCapabilities, autoFocus }, ref) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLDivElement>(null);
+  const tunnelRef = useRef<InstanceType<typeof Guacamole.WebSocketTunnel> | null>(null);
+  const clientRef = useRef<InstanceType<typeof Guacamole.Client> | null>(null);
   const [state, setState] = useState<ConnectionState>('connecting');
+  // Bumping the generation re-runs the connection effect: that IS the
+  // reconnect (used by the overlay to apply reconnect-scoped params).
+  const [generation, setGeneration] = useState(0);
   const prefs = useAuthStore((s) => s.user?.preferences?.workspaceSettings?.[workspaceId]);
   const effective = connection ?? prefs;
   // The connection must not restart when unrelated preferences change.
   const effectiveJSON = JSON.stringify(effective ?? {});
+
+  useImperativeHandle(ref, () => ({
+    disconnect: () => clientRef.current?.disconnect(),
+    reconnect: () => setGeneration((g) => g + 1),
+    setClipboard: (direction, enabled) => {
+      tunnelRef.current?.sendMessage('', 'waas-clipboard', direction, enabled ? '1' : '0');
+    },
+  }));
 
   useEffect(() => {
     const container = containerRef.current;
@@ -85,6 +102,7 @@ export function DesktopPane({
         return;
       }
       if (cancelled) return;
+      if (result.capabilities) onCapabilities?.(result.capabilities);
 
       const params = new URLSearchParams({
         token: result.connectionToken,
@@ -94,6 +112,8 @@ export function DesktopPane({
       });
       const tunnel = new Guacamole.WebSocketTunnel(`/ws?${params.toString()}`);
       client = new Guacamole.Client(tunnel);
+      tunnelRef.current = tunnel;
+      clientRef.current = client;
 
       client.onstatechange = (clientState) => {
         if (clientState === STATE_CONNECTED) {
@@ -110,8 +130,24 @@ export function DesktopPane({
       client.connect();
 
       const mouse = new Guacamole.Mouse(displayHost);
-      const sendMouse = (mouseState: unknown) => client?.sendMouseState(mouseState);
-      mouse.onmousedown = (mouseState: unknown) => {
+      // The display is scaled to fit the pane: pointer coordinates are in
+      // scaled pixels and must be mapped back to desktop pixels.
+      const sendMouse = (mouseState: InstanceType<typeof Guacamole.Mouse.State>) => {
+        if (!client) return;
+        const scale = client.getDisplay().getScale() || 1;
+        client.sendMouseState(
+          new Guacamole.Mouse.State(
+            mouseState.x / scale,
+            mouseState.y / scale,
+            mouseState.left,
+            mouseState.middle,
+            mouseState.right,
+            mouseState.up,
+            mouseState.down,
+          ),
+        );
+      };
+      mouse.onmousedown = (mouseState) => {
         container.focus();
         sendMouse(mouseState);
       };
@@ -139,9 +175,11 @@ export function DesktopPane({
         keyboard.onkeyup = null;
       }
       client?.disconnect();
+      tunnelRef.current = null;
+      clientRef.current = null;
       displayHost.replaceChildren();
     };
-  }, [workspaceId, effectiveJSON, onStateChange, autoFocus]);
+  }, [workspaceId, effectiveJSON, onStateChange, onCapabilities, autoFocus, generation]);
 
   return (
     <div
@@ -161,4 +199,4 @@ export function DesktopPane({
       )}
     </div>
   );
-}
+});

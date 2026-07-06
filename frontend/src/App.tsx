@@ -6,6 +6,7 @@ import { applyTheme, storedTheme, watchSystemTheme } from '@/lib/theme';
 import { useAuthStore } from '@/stores/authStore';
 import type { Theme } from '@/types';
 import { LoginPage } from '@/pages/LoginPage';
+import { AuthCallbackPage } from '@/pages/AuthCallbackPage';
 import { PortalPage } from '@/pages/PortalPage';
 import { ConnectPage } from '@/pages/ConnectPage';
 import { SplitViewPage } from '@/pages/SplitViewPage';
@@ -42,6 +43,7 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<PortalPage />} />
             <Route path="/profile" element={<ProfilePage />} />

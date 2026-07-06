@@ -5,6 +5,7 @@ import {
   useCatalog,
   useCreateWorkspace,
   useDeleteWorkspace,
+  useProtocolMeta,
   useQuota,
   useTemplates,
   useUpdateProfile,
@@ -13,6 +14,7 @@ import {
 } from '@/hooks/useApi';
 import { StatusBadge } from '@/components/StatusBadge';
 import { UserMenu } from '@/components/UserMenu';
+import { ParamField, paramsFor } from '@/components/ParamField';
 import { useAuthStore } from '@/stores/authStore';
 import { displayCpu, displayMemory, formatCpu, formatMemory, parseCpu, parseMemory } from '@/lib/quantity';
 import type { Workspace } from '@/types';
@@ -338,6 +340,7 @@ function ConnectionSettingsDialog({
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const updateProfile = useUpdateProfile();
+  const meta = useProtocolMeta();
   const saved = user?.preferences?.workspaceSettings?.[workspace.id];
   const protocols = workspace.protocols ?? [];
   const defaultProtocol = protocols.find((p) => p.default)?.name ?? workspace.protocol ?? '';
@@ -345,7 +348,14 @@ function ConnectionSettingsDialog({
   const [params, setParams] = useState<Record<string, string>>(saved?.params ?? {});
 
   const selected = protocols.find((p) => p.name === protocol);
-  const tunable = selected?.userParams ?? [];
+  // Typed fields from the registry; post-creation settings may tune the
+  // advanced-tier params too when the template delegates them.
+  const tunable = paramsFor(
+    meta.data?.data,
+    protocol,
+    ['ui', 'advanced'],
+    selected?.userParams ?? [],
+  );
 
   const onSave = () => {
     const cleaned = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== ''));
@@ -390,16 +400,13 @@ function ConnectionSettingsDialog({
             <legend className="text-sm text-slate-600 dark:text-slate-300">
               {t('portal.protocolParams')}
             </legend>
-            {tunable.map((name) => (
-              <label key={name} className="block">
-                <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{name}</span>
-                <input
-                  className="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                  value={params[name] ?? ''}
-                  onChange={(e) => setParams((p) => ({ ...p, [name]: e.target.value }))}
-                  placeholder={t('portal.protocolParamDefault')}
-                />
-              </label>
+            {tunable.map((pm) => (
+              <ParamField
+                key={pm.name}
+                meta={pm}
+                value={params[pm.name] ?? ''}
+                onChange={(value) => setParams((p) => ({ ...p, [pm.name]: value }))}
+              />
             ))}
           </fieldset>
         ) : (
@@ -514,11 +521,16 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const templates = useTemplates();
   const catalog = useCatalog();
   const quota = useQuota();
+  const meta = useProtocolMeta();
   const create = useCreateWorkspace();
+  const user = useAuthStore((s) => s.user);
+  const updateProfile = useUpdateProfile();
   const [templateRef, setTemplateRef] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [cpu, setCpu] = useState<number | null>(null);
   const [memory, setMemory] = useState<number | null>(null);
+  const [protocol, setProtocol] = useState('');
+  const [protoParams, setProtoParams] = useState<Record<string, string>>({});
 
   const availableTemplates = templates.isSuccess
     ? templates.data.data.filter(
@@ -579,20 +591,61 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
 
   const selectTemplate = (name: string) => {
     setTemplateRef(name);
-    // Re-seed the sliders on template change: bounds and defaults differ.
+    // Re-seed sliders and protocol choice on template change.
     setCpu(null);
     setMemory(null);
+    setProtocol('');
+    setProtoParams({});
   };
+
+  // Protocol section: what the template declares, gated by its override
+  // flags. The webhook re-validates server-side — this only mirrors it.
+  const tplProtocols = template?.protocols ?? [];
+  const defaultProtocol = tplProtocols.find((p) => p.default)?.name ?? tplProtocols[0]?.name ?? '';
+  const protocolOverridable = template?.allowedOverrides?.includes('protocol') ?? false;
+  const effectiveProtocol = protocol || defaultProtocol;
+  const selectedProto = tplProtocols.find((p) => p.name === effectiveProtocol);
+  // Creation-time params: UI-tier registry entries the template delegates,
+  // pre-filled with the template's locked values as placeholders.
+  const creationParams = paramsFor(
+    meta.data?.data,
+    effectiveProtocol,
+    ['ui'],
+    selectedProto?.userParams ?? [],
+  );
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
+    const chosenProtocol =
+      protocolOverridable && effectiveProtocol !== defaultProtocol ? effectiveProtocol : undefined;
+    const cleanedParams = Object.fromEntries(
+      Object.entries(protoParams).filter(([, v]) => v !== ''),
+    );
     create.mutate(
       {
         templateRef,
         displayName: displayName || undefined,
         resources: { cpu: formatCpu(cpuValue), memory: formatMemory(memValue) },
+        overrides: chosenProtocol ? { protocol: chosenProtocol } : undefined,
       },
-      { onSuccess: onClose },
+      {
+        onSuccess: ({ data: workspace }) => {
+          // Connection tuning lives in the profile (as the post-creation
+          // "Connection settings" dialog writes it); server re-validates
+          // at connect time.
+          if (Object.keys(cleanedParams).length > 0) {
+            const settings = { ...user?.preferences?.workspaceSettings };
+            settings[workspace.id] = {
+              protocol: chosenProtocol,
+              params: cleanedParams,
+            };
+            updateProfile.mutate({
+              preferences: { ...user?.preferences, workspaceSettings: settings },
+            });
+          }
+          onClose();
+        },
+      },
     );
   };
 
@@ -659,6 +712,54 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                   memory: displayMemory(remaining('memory', parseMemory) ?? 0),
                 })}
               </p>
+            )}
+          </fieldset>
+        )}
+
+        {templateRef && tplProtocols.length > 0 && (
+          <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
+              {t('portal.connection')}
+            </legend>
+            {tplProtocols.length > 1 && (
+              <label className="block">
+                <span className="flex items-baseline justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-300">{t('portal.protocol')}</span>
+                  {!protocolOverridable && (
+                    <span className="text-xs text-slate-400" title={t('portal.protocolLockedHint')}>
+                      🔒 {t('portal.protocolLocked')}
+                    </span>
+                  )}
+                </span>
+                <select
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                  value={effectiveProtocol}
+                  disabled={!protocolOverridable}
+                  onChange={(e) => {
+                    setProtocol(e.target.value);
+                    setProtoParams({});
+                  }}
+                >
+                  {tplProtocols.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name.toUpperCase()}
+                      {p.default ? ` (${t('portal.protocolDefault')})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {creationParams.length > 0 && (
+              <div className="grid grid-cols-2 gap-3">
+                {creationParams.map((pm) => (
+                  <ParamField
+                    key={pm.name}
+                    meta={{ ...pm, default: selectedProto?.params?.[pm.name] ?? pm.default }}
+                    value={protoParams[pm.name] ?? ''}
+                    onChange={(value) => setProtoParams((prev) => ({ ...prev, [pm.name]: value }))}
+                  />
+                ))}
+              </div>
             )}
           </fieldset>
         )}

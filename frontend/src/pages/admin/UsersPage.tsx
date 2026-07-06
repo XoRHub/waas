@@ -1,7 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useCreateUser, useDeleteUser, useUsers, type CreateUserInput } from '@/hooks/useApi';
+import {
+  useCreateUser,
+  useDeleteUser,
+  useEffectivePolicy,
+  useUpdateUser,
+  useUsers,
+  type CreateUserInput,
+} from '@/hooks/useApi';
 import { useAuthStore } from '@/stores/authStore';
+import type { User } from '@/types';
 
 export function UsersPage() {
   const { t } = useTranslation();
@@ -9,6 +17,7 @@ export function UsersPage() {
   const remove = useDeleteUser();
   const me = useAuthStore((s) => s.user);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<User | null>(null);
 
   return (
     <div className="space-y-4">
@@ -31,6 +40,7 @@ export function UsersPage() {
               <tr>
                 <th className="px-4 py-3">{t('admin.usersPage.username')}</th>
                 <th className="px-4 py-3">{t('admin.usersPage.role')}</th>
+                <th className="px-4 py-3">{t('admin.usersPage.groups')}</th>
                 <th className="px-4 py-3">{t('admin.usersPage.maxWorkspaces')}</th>
                 <th className="px-4 py-3">{t('admin.usersPage.lastLogin')}</th>
                 <th className="px-4 py-3">{t('app.actions')}</th>
@@ -44,6 +54,22 @@ export function UsersPage() {
                 >
                   <td className="px-4 py-3 font-medium">{user.username}</td>
                   <td className="px-4 py-3">{user.role}</td>
+                  <td className="px-4 py-3">
+                    {user.groups && user.groups.length > 0 ? (
+                      <span className="flex flex-wrap gap-1">
+                        {user.groups.map((g) => (
+                          <span
+                            key={g}
+                            className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                          >
+                            {g}
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">{user.maxWorkspaces}</td>
                   <td className="px-4 py-3">
                     {user.lastLoginAt
@@ -51,18 +77,26 @@ export function UsersPage() {
                       : t('admin.usersPage.never')}
                   </td>
                   <td className="px-4 py-3">
-                    {user.id !== me?.id && (
+                    <span className="flex gap-3">
                       <button
-                        onClick={() => {
-                          if (window.confirm(t('admin.usersPage.deleteConfirm'))) {
-                            remove.mutate(user.id);
-                          }
-                        }}
-                        className="text-sm text-red-600 hover:underline"
+                        onClick={() => setEditing(user)}
+                        className="text-sm text-blue-600 hover:underline"
                       >
-                        {t('app.delete')}
+                        {t('app.edit')}
                       </button>
-                    )}
+                      {user.id !== me?.id && (
+                        <button
+                          onClick={() => {
+                            if (window.confirm(t('admin.usersPage.deleteConfirm'))) {
+                              remove.mutate(user.id);
+                            }
+                          }}
+                          className="text-sm text-red-600 hover:underline"
+                        >
+                          {t('app.delete')}
+                        </button>
+                      )}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -72,6 +106,135 @@ export function UsersPage() {
       )}
 
       {creating && <CreateUserDialog onClose={() => setCreating(false)} />}
+      {editing && <EditUserDialog user={editing} onClose={() => setEditing(null)} />}
+    </div>
+  );
+}
+
+/**
+ * Edit an account's platform-owned fields. Groups are the WorkspacePolicy
+ * matching key: editable here as long as (or in complement of) SSO login,
+ * which overwrites them at each login. The dialog shows live which policy
+ * the current groups resolve to, via the same evaluator the webhook runs.
+ */
+function EditUserDialog({ user, onClose }: { user: User; onClose: () => void }) {
+  const { t } = useTranslation();
+  const update = useUpdateUser();
+  const effective = useEffectivePolicy(user.id);
+  const [role, setRole] = useState<string>(user.role);
+  const [maxWorkspaces, setMaxWorkspaces] = useState(user.maxWorkspaces);
+  const [groupsText, setGroupsText] = useState((user.groups ?? []).join(', '));
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    const groups = groupsText
+      .split(',')
+      .map((g) => g.trim())
+      .filter(Boolean);
+    update.mutate(
+      { id: user.id, input: { role, maxWorkspaces, groups } },
+      { onSuccess: onClose },
+    );
+  };
+
+  const field =
+    'mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white';
+  const report = effective.data?.data;
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
+      <form
+        onSubmit={onSubmit}
+        className="w-full max-w-lg space-y-3 rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800"
+      >
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+          {t('admin.usersPage.edit', { username: user.username })}
+        </h2>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('admin.usersPage.role')}
+          </span>
+          <select className={field} value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="user">user</option>
+            <option value="admin">admin</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('admin.usersPage.maxWorkspaces')}
+          </span>
+          <input
+            type="number"
+            min={0}
+            className={field}
+            value={maxWorkspaces}
+            onChange={(e) => setMaxWorkspaces(Number(e.target.value))}
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('admin.usersPage.groups')}
+          </span>
+          <input
+            className={field}
+            value={groupsText}
+            onChange={(e) => setGroupsText(e.target.value)}
+            placeholder="nymphe:dev, nymphe:ops"
+          />
+          <span className="mt-1 block text-xs text-slate-400">
+            {t('admin.usersPage.groupsHint')}
+          </span>
+        </label>
+
+        {report && (
+          <div className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-700/50">
+            <p className="font-medium text-slate-700 dark:text-slate-200">
+              {t('admin.usersPage.effectivePolicy')}:{' '}
+              {report.effective ? (
+                <span className="text-blue-600 dark:text-blue-400">
+                  {report.effective.name} (priority {report.effective.priority})
+                </span>
+              ) : (
+                <span className="text-red-600 dark:text-red-400">
+                  {t('admin.usersPage.noPolicy')}
+                </span>
+              )}
+            </p>
+            <ul className="mt-1 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+              {report.evaluated.map((p) => (
+                <li key={p.name}>
+                  {p.selected ? '▶ ' : p.matched ? '✓ ' : '✗ '}
+                  {p.name} (prio {p.priority}
+                  {p.via ? `, via ${p.via}` : ''})
+                </li>
+              ))}
+            </ul>
+            {report.warnings?.map((warning) => (
+              <p key={warning} className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                ⚠ {warning}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {update.isError && <p className="text-sm text-red-600">{update.error.message}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+          >
+            {t('app.cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={update.isPending}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {t('app.save')}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

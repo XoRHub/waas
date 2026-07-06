@@ -3,9 +3,13 @@ import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import type {
   AuditLog,
+  AuthProviders,
   CatalogImage,
   ConnectResult,
+  EffectivePolicy,
   LoginResult,
+  ProtocolMeta,
+  TemplateEnvVar,
   PolicyModel,
   Session,
   QuotaStatus,
@@ -66,6 +70,14 @@ export function useLogin() {
   });
 }
 
+export function useAuthProviders() {
+  return useQuery({
+    queryKey: ['auth-providers'],
+    queryFn: () => api.get<AuthProviders>('/api/v1/auth/providers'),
+    staleTime: Infinity,
+  });
+}
+
 export function useCreateWorkspace() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -74,6 +86,9 @@ export function useCreateWorkspace() {
       name?: string;
       displayName?: string;
       resources?: { cpu: string; memory: string };
+      // Template deviations (e.g. protocol); the admission webhook is the
+      // single judge of what this creator may override.
+      overrides?: { protocol?: string };
     }) => api.post<Workspace>('/api/v1/workspaces', input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
@@ -105,6 +120,25 @@ export function useConnectWorkspace() {
   });
 }
 
+// The guacd parameter registry — cached hard: it only changes with a
+// platform deployment.
+export function useProtocolMeta() {
+  return useQuery({
+    queryKey: ['protocol-meta'],
+    queryFn: () => api.get<ProtocolMeta[]>('/api/v1/meta/protocols'),
+    staleTime: Infinity,
+  });
+}
+
+export interface TemplateProtocolInput {
+  name: string;
+  port: number;
+  default?: boolean;
+  params?: Record<string, string>;
+  userParams?: string[];
+  credentialsSecretRef?: string;
+}
+
 export interface TemplateInput {
   name: string;
   displayName: string;
@@ -112,6 +146,13 @@ export interface TemplateInput {
   os: string;
   image: string;
   homeSize?: string;
+  storageClassName?: string;
+  requests?: Record<string, string>;
+  limits?: Record<string, string>;
+  env?: TemplateEnvVar[];
+  workload?: Record<string, unknown>;
+  protocols?: TemplateProtocolInput[];
+  overrides?: { allowedFields?: string[]; owner?: string };
 }
 
 export function useSaveTemplate() {
@@ -171,6 +212,36 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/api/v1/users/${id}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+export interface UpdateUserInput {
+  email?: string;
+  password?: string;
+  role?: string;
+  active?: boolean;
+  maxWorkspaces?: number;
+  groups?: string[];
+}
+
+export function useUpdateUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateUserInput }) =>
+      api.patch<User>(`/api/v1/users/${id}`, input),
+    onSuccess: (_res, { id }) => {
+      void queryClient.invalidateQueries({ queryKey: ['users'] });
+      void queryClient.invalidateQueries({ queryKey: ['effective-policy', id] });
+    },
+  });
+}
+
+// Admin debug: which policy governs this user, and why.
+export function useEffectivePolicy(userId: string | null) {
+  return useQuery({
+    queryKey: ['effective-policy', userId],
+    queryFn: () => api.get<EffectivePolicy>(`/api/v1/admin/users/${userId}/effective-policy`),
+    enabled: userId !== null,
   });
 }
 

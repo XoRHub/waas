@@ -17,7 +17,11 @@
     "username": "Username",
     "password": "Password",
     "submit": "Sign in",
-    "failed": "Sign-in failed. Check your username and password."
+    "failed": "Sign-in failed. Check your username and password.",
+    "or": "or",
+    "sso": "Sign in with {{provider}}",
+    "ssoFailed": "SSO login failed",
+    "ssoCompleting": "Completing sign-in…"
   },
   "portal": {
     "title": "My workspaces",
@@ -63,7 +67,10 @@
     "protocolDefault": "default",
     "protocolParams": "Connection parameters",
     "protocolParamDefault": "template default",
-    "noTunableParams": "This protocol has no user-tunable parameters on this template."
+    "noTunableParams": "This protocol has no user-tunable parameters on this template.",
+    "connection": "Connection",
+    "protocolLocked": "locked by template",
+    "protocolLockedHint": "This template does not allow overriding the protocol."
   },
   "connect": {
     "connecting": "Connecting to your desktop…",
@@ -129,7 +136,29 @@
       "homeSize": "Home size",
       "description": "Description",
       "empty": "No template yet.",
-      "deleteConfirm": "Delete this template?"
+      "deleteConfirm": "Delete this template?",
+      "edit": "Edit {{name}}",
+      "protocols": "Protocols",
+      "protocolsHint": "Each protocol maps to guacd; parameters come from the platform registry. Check \"user-adjustable\" to let workspace users override a parameter.",
+      "port": "Port",
+      "credentialsSecret": "Credentials Secret",
+      "credentialsSecretHint": "Secret with username/password/private-key (resolved server-side)",
+      "userOverridable": "user-adjustable",
+      "advanced": "advanced",
+      "addProtocol": "Add protocol",
+      "env": "Environment",
+      "envHint": "Literal values or Secret references — secrets must come from a Secret, never inline.",
+      "addEnv": "Add variable",
+      "fromSecret": "from Secret",
+      "overrides": "User overrides",
+      "overridesHint": "Fields workspace creators may deviate from this template (admins may always override everything).",
+      "overridesOwner": "Template owner (may override everything)",
+      "workload": "Workload (advanced)",
+      "workloadHint": "CR workload block as JSON: kind, security contexts, volumes, nodeSelector, tolerations, serviceAccountName.",
+      "workloadInvalid": "Workload must be valid JSON",
+      "resources": "Resources",
+      "storageClass": "Storage class",
+      "storageClassDefault": "(cluster default)"
     },
     "usersPage": {
       "new": "New user",
@@ -141,7 +170,12 @@
       "maxWorkspaces": "Workspace quota",
       "lastLogin": "Last sign-in",
       "never": "Never",
-      "deleteConfirm": "Delete this user?"
+      "deleteConfirm": "Delete this user?",
+      "groups": "Groups",
+      "groupsHint": "Comma-separated Authentik group names. Overwritten at each SSO login when OIDC is enabled.",
+      "edit": "Edit {{username}}",
+      "effectivePolicy": "Effective policy",
+      "noPolicy": "no policy matches — workspace creation is denied"
     },
     "auditPage": {
       "when": "When",
@@ -182,5 +216,17 @@
     "storage": "Storage",
     "noUsage": "No workspace owners yet.",
     "gitopsNote": "Changes here edit the cluster CRDs directly; Git only seeds them (ArgoCD selfHeal must stay off for these kinds)."
+  },
+  "overlay": {
+    "title": "Session menu",
+    "view": "View",
+    "openSplitView": "Open in split view",
+    "clipboard": "Clipboard",
+    "clipboardCopy": "Copy from workspace",
+    "clipboardPaste": "Paste to workspace",
+    "deniedByPolicy": "Denied by your policy",
+    "protocolParams": "{{protocol}} parameters",
+    "applyReconnect": "Apply & reconnect",
+    "reconnectHint": "These parameters are fixed at connect time by guacd: applying reconnects the session."
   }
 }

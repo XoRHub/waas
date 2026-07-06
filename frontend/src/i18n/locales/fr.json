@@ -17,7 +17,11 @@
     "username": "Nom d'utilisateur",
     "password": "Mot de passe",
     "submit": "Se connecter",
-    "failed": "Échec de la connexion. Vérifiez vos identifiants."
+    "failed": "Échec de la connexion. Vérifiez vos identifiants.",
+    "or": "ou",
+    "sso": "Se connecter avec {{provider}}",
+    "ssoFailed": "Échec de la connexion SSO",
+    "ssoCompleting": "Connexion en cours…"
   },
   "portal": {
     "title": "Mes espaces de travail",
@@ -63,7 +67,10 @@
     "protocolDefault": "défaut",
     "protocolParams": "Paramètres de connexion",
     "protocolParamDefault": "valeur du modèle",
-    "noTunableParams": "Ce protocole n'a aucun paramètre modifiable sur ce modèle."
+    "noTunableParams": "Ce protocole n'a aucun paramètre modifiable sur ce modèle.",
+    "connection": "Connexion",
+    "protocolLocked": "verrouillé par le template",
+    "protocolLockedHint": "Ce template n'autorise pas le changement de protocole."
   },
   "connect": {
     "connecting": "Connexion à votre bureau…",
@@ -129,7 +136,29 @@
       "homeSize": "Taille du home",
       "description": "Description",
       "empty": "Aucun modèle pour l'instant.",
-      "deleteConfirm": "Supprimer ce modèle ?"
+      "deleteConfirm": "Supprimer ce modèle ?",
+      "edit": "Modifier {{name}}",
+      "protocols": "Protocoles",
+      "protocolsHint": "Chaque protocole correspond à guacd ; les paramètres viennent du registre de la plateforme. Cochez « modifiable par l’utilisateur » pour déléguer un paramètre.",
+      "port": "Port",
+      "credentialsSecret": "Secret d’identifiants",
+      "credentialsSecretHint": "Secret avec username/password/private-key (résolu côté serveur)",
+      "userOverridable": "modifiable par l’utilisateur",
+      "advanced": "avancé",
+      "addProtocol": "Ajouter un protocole",
+      "env": "Environnement",
+      "envHint": "Valeurs littérales ou références Secret — les secrets doivent venir d’un Secret, jamais en clair.",
+      "addEnv": "Ajouter une variable",
+      "fromSecret": "depuis un Secret",
+      "overrides": "Overrides utilisateur",
+      "overridesHint": "Champs que les créateurs de workspace peuvent modifier (les admins peuvent toujours tout modifier).",
+      "overridesOwner": "Propriétaire du template (peut tout modifier)",
+      "workload": "Workload (avancé)",
+      "workloadHint": "Bloc workload du CR en JSON : kind, security contexts, volumes, nodeSelector, tolerations, serviceAccountName.",
+      "workloadInvalid": "Le workload doit être un JSON valide",
+      "resources": "Ressources",
+      "storageClass": "Classe de stockage",
+      "storageClassDefault": "(défaut du cluster)"
     },
     "usersPage": {
       "new": "Nouvel utilisateur",
@@ -141,7 +170,12 @@
       "maxWorkspaces": "Quota d'espaces",
       "lastLogin": "Dernière connexion",
       "never": "Jamais",
-      "deleteConfirm": "Supprimer cet utilisateur ?"
+      "deleteConfirm": "Supprimer cet utilisateur ?",
+      "groups": "Groupes",
+      "groupsHint": "Noms de groupes Authentik, séparés par des virgules. Écrasés à chaque login SSO quand OIDC est activé.",
+      "edit": "Modifier {{username}}",
+      "effectivePolicy": "Policy effective",
+      "noPolicy": "aucune policy ne correspond — création de workspace refusée"
     },
     "auditPage": {
       "when": "Quand",
@@ -182,5 +216,17 @@
     "storage": "Stockage",
     "noUsage": "Aucun propriétaire d'espace pour l'instant.",
     "gitopsNote": "Les modifications éditent directement les CRD du cluster ; Git ne fait que les amorcer (selfHeal ArgoCD désactivé pour ces kinds)."
+  },
+  "overlay": {
+    "title": "Menu de session",
+    "view": "Affichage",
+    "openSplitView": "Ouvrir en vue partagée",
+    "clipboard": "Presse-papiers",
+    "clipboardCopy": "Copier depuis le workspace",
+    "clipboardPaste": "Coller vers le workspace",
+    "deniedByPolicy": "Refusé par votre policy",
+    "protocolParams": "Paramètres {{protocol}}",
+    "applyReconnect": "Appliquer et reconnecter",
+    "reconnectHint": "Ces paramètres sont figés à la connexion par guacd : appliquer reconnecte la session."
   }
 }
