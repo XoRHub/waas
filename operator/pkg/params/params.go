@@ -113,6 +113,16 @@ var registry = []Param{
 		Description: "Force lossless compression (sharp text, higher bandwidth).",
 	},
 	{
+		Name: "enable-audio", Protocols: []string{"vnc"}, Kind: KindBool,
+		Default: "false", Tier: TierUI,
+		Description: "Stream audio from the workspace's PulseAudio server (requires the image to run one).",
+	},
+	{
+		Name: "audio-servername", Protocols: []string{"vnc"}, Kind: KindString,
+		Tier:        TierAdvanced,
+		Description: "PulseAudio server name when it differs from the VNC hostname.",
+	},
+	{
 		Name: "encodings", Protocols: []string{"vnc"}, Kind: KindString,
 		Tier:        TierAdvanced,
 		Description: "Space-separated VNC encodings offered to the server (expert tuning).",
@@ -130,9 +140,11 @@ var registry = []Param{
 
 	// ---------------------------------------------------------------- rdp
 	{
+		// TierUI (was advanced): automatic window resize is one of the
+		// "simple mode" parameters the portal must offer directly.
 		Name: "resize-method", Protocols: []string{"rdp"}, Kind: KindEnum,
-		Enum: []string{"display-update", "reconnect"}, Default: "display-update", Tier: TierAdvanced,
-		Description: "How guacd propagates browser resizes to the RDP server.",
+		Enum: []string{"display-update", "reconnect"}, Default: "display-update", Tier: TierUI,
+		Description: "How guacd propagates browser resizes to the RDP server (display-update = live resize).",
 	},
 	{
 		Name: "security", Protocols: []string{"rdp"}, Kind: KindEnum,
@@ -155,9 +167,19 @@ var registry = []Param{
 		Description: "Redirect the local microphone into the remote session.",
 	},
 	{
-		Name: "server-layout", Protocols: []string{"rdp"}, Kind: KindString,
-		Tier:        TierAdvanced,
-		Description: "Keyboard layout the RDP server expects (e.g. fr-fr-azerty).",
+		// TierUI (was advanced, free string): keyboard layout is a "simple
+		// mode" parameter; the enum is the list guacd 1.5 actually ships.
+		Name: "server-layout", Protocols: []string{"rdp"}, Kind: KindEnum,
+		Enum: []string{
+			"en-us-qwerty", "en-gb-qwerty", "cs-cz-qwertz", "da-dk-qwerty",
+			"de-ch-qwertz", "de-de-qwertz", "es-es-qwerty", "es-latam-qwerty",
+			"fr-be-azerty", "fr-ca-qwerty", "fr-ch-qwertz", "fr-fr-azerty",
+			"hu-hu-qwertz", "it-it-qwerty", "ja-jp-qwerty", "nl-nl-qwerty",
+			"no-no-qwerty", "pl-pl-qwertz", "pt-br-qwerty", "pt-pt-qwerty",
+			"ro-ro-qwerty", "sv-se-qwerty", "tr-tr-qwerty", "failsafe",
+		},
+		Default: "en-us-qwerty", Tier: TierUI,
+		Description: "Keyboard layout the RDP server expects (failsafe sends Unicode events).",
 	},
 	{
 		Name: "console", Protocols: []string{"rdp"}, Kind: KindBool,
@@ -173,6 +195,66 @@ var registry = []Param{
 		Name: "enable-font-smoothing", Protocols: []string{"rdp"}, Kind: KindBool,
 		Default: "false", Tier: TierAdvanced,
 		Description: "Enable ClearType font smoothing.",
+	},
+	{
+		Name: "enable-desktop-composition", Protocols: []string{"rdp"}, Kind: KindBool,
+		Default: "false", Tier: TierAdvanced,
+		Description: "Enable Windows Aero desktop composition effects.",
+	},
+	{
+		Name: "enable-full-window-drag", Protocols: []string{"rdp"}, Kind: KindBool,
+		Default: "false", Tier: TierAdvanced,
+		Description: "Render window contents while dragging (bandwidth for comfort).",
+	},
+	{
+		Name: "enable-menu-animations", Protocols: []string{"rdp"}, Kind: KindBool,
+		Default: "false", Tier: TierAdvanced,
+		Description: "Enable menu open/close animations.",
+	},
+	{
+		Name: "enable-theming", Protocols: []string{"rdp"}, Kind: KindBool,
+		Default: "false", Tier: TierAdvanced,
+		Description: "Enable desktop/window theming.",
+	},
+	{
+		Name: "disable-bitmap-caching", Protocols: []string{"rdp"}, Kind: KindBool,
+		Default: "false", Tier: TierAdvanced,
+		Description: "Disable the RDP bitmap cache (workaround for buggy servers).",
+	},
+	{
+		Name: "disable-offscreen-caching", Protocols: []string{"rdp"}, Kind: KindBool,
+		Default: "false", Tier: TierAdvanced,
+		Description: "Disable caching of off-screen regions (workaround for buggy servers).",
+	},
+	{
+		Name: "disable-glyph-caching", Protocols: []string{"rdp"}, Kind: KindBool,
+		Default: "false", Tier: TierAdvanced,
+		Description: "Disable glyph caching (workaround for text rendering glitches).",
+	},
+	{
+		Name: "normalize-clipboard", Protocols: []string{"rdp"}, Kind: KindEnum,
+		Enum: []string{"preserve", "text"}, Default: "preserve", Tier: TierAdvanced,
+		Description: "Line-ending normalization applied to clipboard text.",
+	},
+	{
+		Name: "initial-program", Protocols: []string{"rdp"}, Kind: KindString,
+		Tier:        TierAdvanced,
+		Description: "Program launched instead of the full desktop (kiosk-style templates).",
+	},
+	{
+		Name: "client-name", Protocols: []string{"rdp"}, Kind: KindString,
+		Tier:        TierAdvanced,
+		Description: "Client hostname announced to the RDP server (some session brokers key on it).",
+	},
+	{
+		Name: "console-audio", Protocols: []string{"rdp"}, Kind: KindBool,
+		Default: "false", Tier: TierAdvanced,
+		Description: "Play audio on the server console instead of streaming it to the client.",
+	},
+	{
+		Name: "timezone", Protocols: []string{"rdp", "ssh"}, Kind: KindString,
+		Tier:        TierAdvanced,
+		Description: "IANA timezone forwarded to the session (e.g. Europe/Paris).",
 	},
 
 	// ---------------------------------------------------------------- ssh
@@ -211,6 +293,21 @@ var registry = []Param{
 		Name: "server-alive-interval", Protocols: []string{"ssh"}, Kind: KindInt,
 		Min: intp(0), Max: intp(3600), Tier: TierAdvanced,
 		Description: "SSH keep-alive interval in seconds.",
+	},
+	{
+		Name: "backspace", Protocols: []string{"ssh"}, Kind: KindInt,
+		Min: intp(1), Max: intp(255), Default: "127", Tier: TierAdvanced,
+		Description: "Code sent by the backspace key (127 = ASCII DEL, 8 = BS for legacy hosts).",
+	},
+	{
+		Name: "locale", Protocols: []string{"ssh"}, Kind: KindString,
+		Tier:        TierAdvanced,
+		Description: "LANG value forwarded to the SSH session (server must accept env forwarding).",
+	},
+	{
+		Name: "host-key", Protocols: []string{"ssh"}, Kind: KindString,
+		Tier:        TierAdvanced,
+		Description: "Expected server host key (Base64); connection is refused on mismatch.",
 	},
 
 	// ----------------------------------------------------- platform-owned
@@ -275,6 +372,42 @@ var registry = []Param{
 	{
 		Name: "wol-send-packet", Protocols: []string{"vnc", "rdp", "ssh"}, Kind: KindBool, Tier: TierPlatform,
 		Description: "Wake-on-LAN — meaningless in-cluster, banned.",
+	},
+	{
+		Name: "domain", Protocols: []string{"rdp"}, Kind: KindString, Tier: TierPlatform,
+		Description: "RDP credential — comes from the protocol's credentials Secret, never from a CR param.",
+	},
+	{
+		Name: "disable-auth", Protocols: []string{"rdp"}, Kind: KindBool, Tier: TierPlatform,
+		Description: "Disables RDP authentication entirely — banned: authentication is platform policy (see RDP_AUTH_ENABLED image contract).",
+	},
+	{
+		Name: "static-channels", Protocols: []string{"rdp"}, Kind: KindString, Tier: TierPlatform,
+		Description: "Raw static virtual channel pass-through — banned: uncontrolled side channel.",
+	},
+	{
+		Name: "load-balance-info", Protocols: []string{"rdp"}, Kind: KindString, Tier: TierPlatform,
+		Description: "RDP broker routing token — platform topology concern, banned in CRs.",
+	},
+	{
+		Name: "recording-path", Protocols: []string{"vnc", "rdp", "ssh"}, Kind: KindString, Tier: TierPlatform,
+		Description: "Session recording — platform-owned until the recording feature ships with its own policy gate.",
+	},
+	{
+		Name: "recording-name", Protocols: []string{"vnc", "rdp", "ssh"}, Kind: KindString, Tier: TierPlatform,
+		Description: "Session recording — platform-owned (see recording-path).",
+	},
+	{
+		Name: "create-recording-path", Protocols: []string{"vnc", "rdp", "ssh"}, Kind: KindBool, Tier: TierPlatform,
+		Description: "Session recording — platform-owned (see recording-path).",
+	},
+	{
+		Name: "typescript-path", Protocols: []string{"ssh"}, Kind: KindString, Tier: TierPlatform,
+		Description: "Terminal typescript recording — platform-owned (see recording-path).",
+	},
+	{
+		Name: "sftp-hostname", Protocols: []string{"vnc", "rdp"}, Kind: KindString, Tier: TierPlatform,
+		Description: "SFTP side-channel to an arbitrary host — banned (the whole sftp-* family is unregistered on purpose).",
 	},
 }
 
