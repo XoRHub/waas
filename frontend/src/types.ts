@@ -5,7 +5,13 @@ export type Theme = 'light' | 'dark' | 'system';
 /** Saved connection tuning for one workspace (validated server-side). */
 export interface WorkspaceConnectionPrefs {
   protocol?: string;
+  /** Params of the CHOSEN protocol — what the connect call sends. */
   params?: Record<string, string>;
+  /**
+   * Params kept per protocol, so the settings tabs round-trip values for
+   * protocols other than the chosen one (quick-switching restores them).
+   */
+  paramsByProtocol?: Record<string, Record<string, string>>;
 }
 
 export interface UserPreferences {

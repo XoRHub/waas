@@ -9,6 +9,7 @@ import {
   useUsers,
   type CreateUserInput,
 } from '@/hooks/useApi';
+import { Dialog } from '@/components/Dialog';
 import { useAuthStore } from '@/stores/authStore';
 import type { User } from '@/types';
 
@@ -143,14 +144,31 @@ function EditUserDialog({ user, onClose }: { user: User; onClose: () => void }) 
   const report = effective.data?.data;
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-lg space-y-3 rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800"
-      >
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-          {t('admin.usersPage.edit', { username: user.username })}
-        </h2>
+    <Dialog
+      title={t('admin.usersPage.edit', { username: user.username })}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      maxWidth="max-w-lg"
+      footer={
+        <>
+          {update.isError && <p className="mr-auto text-sm text-red-600">{update.error.message}</p>}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+          >
+            {t('app.cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={update.isPending}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {t('app.save')}
+          </button>
+        </>
+      }
+    >
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">
             {t('admin.usersPage.role')}
@@ -218,25 +236,7 @@ function EditUserDialog({ user, onClose }: { user: User; onClose: () => void }) 
           </div>
         )}
 
-        {update.isError && <p className="text-sm text-red-600">{update.error.message}</p>}
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
-          >
-            {t('app.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={update.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {t('app.save')}
-          </button>
-        </div>
-      </form>
-    </div>
+    </Dialog>
   );
 }
 
@@ -276,14 +276,30 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
     'mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white';
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-md space-y-3 rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800"
-      >
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-          {t('admin.usersPage.new')}
-        </h2>
+    <Dialog
+      title={t('admin.usersPage.new')}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      footer={
+        <>
+          {create.isError && <p className="mr-auto text-sm text-red-600">{create.error.message}</p>}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+          >
+            {t('app.cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={create.isPending}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {t('app.create')}
+          </button>
+        </>
+      }
+    >
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">
             {t('admin.usersPage.username')}
@@ -388,24 +404,6 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
             {t('admin.usersPage.createGroupsHint')}
           </p>
         </div>
-        {create.isError && <p className="text-sm text-red-600">{create.error.message}</p>}
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
-          >
-            {t('app.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={create.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {t('app.create')}
-          </button>
-        </div>
-      </form>
-    </div>
+    </Dialog>
   );
 }

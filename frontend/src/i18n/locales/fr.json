@@ -83,7 +83,9 @@
     "envValue": "valeur",
     "addEnvVar": "Ajouter une variable",
     "port": "port",
-    "wakeAndOpen": "Réveiller et ouvrir"
+    "wakeAndOpen": "Réveiller et ouvrir",
+    "useThisProtocol": "Se connecter avec ce protocole",
+    "switchProtocolHint": "Basculer le protocole de connexion"
   },
   "remote": {
     "tab": "Remote workspaces",
@@ -301,7 +303,11 @@
     "deniedByPolicy": "Refusé par votre policy",
     "protocolParams": "Paramètres {{protocol}}",
     "applyReconnect": "Appliquer et reconnecter",
-    "reconnectHint": "Ces paramètres sont figés à la connexion par guacd : appliquer reconnecte la session."
+    "reconnectHint": "Ces paramètres sont figés à la connexion par guacd : appliquer reconnecte la session.",
+    "protocol": "Protocole",
+    "switchConfirm": "Basculer en {{protocol}} ? La session en cours va se reconnecter.",
+    "switchHint": "La bascule reconnecte la session avec le protocole choisi.",
+    "notAvailableRemote": "Indisponible pour les machines distantes"
   },
   "schedule": {
     "title": "Planning (uptime / downtime)",
@@ -310,6 +316,8 @@
     "uptime": "Crons d'uptime (un par ligne)",
     "downtime": "Crons de downtime (un par ligne)",
     "nextUp": "prochain démarrage {{when}}",
-    "nextDown": "prochain arrêt {{when}}"
+    "nextDown": "prochain arrêt {{when}}",
+    "invalidCron": "Expression cron invalide : {{cron}}",
+    "invalidTimezone": "Timezone IANA inconnue"
   }
 }

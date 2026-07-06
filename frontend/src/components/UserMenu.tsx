@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
 import { useUpdateProfile } from '@/hooks/useApi';
+import { useEscape } from '@/hooks/useEscape';
 import { applyTheme } from '@/lib/theme';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -14,6 +15,7 @@ export function UserMenu() {
   const logout = useAuthStore((s) => s.logout);
   const updateProfile = useUpdateProfile();
   const [open, setOpen] = useState(false);
+  useEscape(open, () => setOpen(false));
 
   if (!user) return null;
 

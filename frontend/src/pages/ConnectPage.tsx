@@ -9,7 +9,7 @@ import {
   useWorkspaceAction,
   useWorkspaces,
 } from '@/hooks/useApi';
-import type { SessionCapabilities, Workspace } from '@/types';
+import type { RemoteWorkspace, SessionCapabilities, Workspace } from '@/types';
 
 // How long we wait for a woken workspace to become Running before giving
 // up with a clear error (no infinite spinner).
@@ -73,7 +73,14 @@ function RemoteConnect({ id }: { id: string }) {
     return <WaitScreen title={t('remote.waking')} subtitle={t('remote.wakeWaitHint')} />;
   }
   return (
-    <DesktopView key={attempt} id={id} kind="remote" workspace={undefined} onFailed={onFailed} />
+    <DesktopView
+      key={attempt}
+      id={id}
+      kind="remote"
+      workspace={undefined}
+      remote={remote}
+      onFailed={onFailed}
+    />
   );
 }
 
@@ -171,11 +178,13 @@ function DesktopView({
   id,
   kind,
   workspace,
+  remote,
   onFailed,
 }: {
   id: string;
   kind: 'workspace' | 'remote';
   workspace: Workspace | undefined;
+  remote?: RemoteWorkspace;
   onFailed?: () => void;
 }) {
   const { t } = useTranslation();
@@ -219,7 +228,12 @@ function DesktopView({
         autoFocus
       />
       {state === 'connected' && (
-        <SessionOverlay workspace={workspace} capabilities={capabilities} pane={pane} />
+        <SessionOverlay
+          workspace={workspace}
+          remote={remote}
+          capabilities={capabilities}
+          pane={pane}
+        />
       )}
       {(state === 'disconnected' || state === 'failed') && (
         <div className="absolute inset-x-0 bottom-10 flex justify-center">

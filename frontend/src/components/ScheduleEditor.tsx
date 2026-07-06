@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { nextOccurrence, validateCron, validateTimezone } from '@/lib/cron';
 import type { WorkspaceSchedule } from '@/types';
 
 const fieldSm =
@@ -15,8 +16,9 @@ function linesToCrons(text: string): string[] {
 /**
  * Editor for a workspace uptime/downtime schedule: an explicit IANA
  * timezone plus one standard 5-field cron per line for uptime (start)
- * and downtime (stop). Server-side validation (operator/pkg/schedule) is
- * authoritative; this only shapes the payload.
+ * and downtime (stop). Each side is validated live and previews its next
+ * occurrence ("next stop: tonight 22:00"); server-side validation
+ * (operator/pkg/schedule) stays authoritative.
  */
 export function ScheduleEditor({
   value,
@@ -37,6 +39,33 @@ export function ScheduleEditor({
     }
   };
 
+  const hasCrons = (schedule.uptime?.length ?? 0) > 0 || (schedule.downtime?.length ?? 0) > 0;
+  const tz = schedule.timezone ?? '';
+  const tzInvalid = hasCrons && !validateTimezone(tz);
+
+  const sideStatus = (crons: string[] | undefined, up: boolean) => {
+    const list = crons ?? [];
+    const bad = list.find((c) => !validateCron(c));
+    if (bad) {
+      return <p className="mt-0.5 text-xs text-red-600">{t('schedule.invalidCron', { cron: bad })}</p>;
+    }
+    if (list.length === 0 || tzInvalid || !tz) return null;
+    const next = nextOccurrence(list, tz);
+    if (!next) return null;
+    const when = next.toLocaleString(undefined, {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return (
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+        {up ? t('schedule.nextUp', { when }) : t('schedule.nextDown', { when })}
+      </p>
+    );
+  };
+
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-400 dark:text-slate-500">{t('schedule.hint')}</p>
@@ -45,9 +74,12 @@ export function ScheduleEditor({
         <input
           className={fieldSm}
           placeholder="Europe/Paris"
-          value={schedule.timezone ?? ''}
+          value={tz}
           onChange={(e) => patch({ ...schedule, timezone: e.target.value })}
         />
+        {tzInvalid && (
+          <p className="mt-0.5 text-xs text-red-600">{t('schedule.invalidTimezone')}</p>
+        )}
       </label>
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
@@ -60,6 +92,7 @@ export function ScheduleEditor({
             value={(schedule.uptime ?? []).join('\n')}
             onChange={(e) => patch({ ...schedule, uptime: linesToCrons(e.target.value) })}
           />
+          {sideStatus(schedule.uptime, true)}
         </label>
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">{t('schedule.downtime')}</span>
@@ -71,6 +104,7 @@ export function ScheduleEditor({
             value={(schedule.downtime ?? []).join('\n')}
             onChange={(e) => patch({ ...schedule, downtime: linesToCrons(e.target.value) })}
           />
+          {sideStatus(schedule.downtime, false)}
         </label>
       </div>
     </div>

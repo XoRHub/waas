@@ -10,6 +10,7 @@ import {
   useUpsertImage,
   useUpsertPolicy,
 } from '@/hooks/useApi';
+import { Dialog } from '@/components/Dialog';
 import { YamlEditor, parseYaml, type YamlIssue } from '@/components/YamlEditor';
 import type { CatalogImage, PolicyModel } from '@/types';
 
@@ -368,39 +369,15 @@ function GovernanceEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl space-y-3 rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800">
-        <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-          {title}
-          {!isNew && name ? ` — ${name}` : ''}
-        </h3>
-        {isNew && (
-          <label className="block">
-            <span className="text-sm text-slate-600 dark:text-slate-300">{t('governance.name')}</span>
-            <input
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?"
-              placeholder="my-policy"
-            />
-          </label>
-        )}
-        {seed === undefined ? (
-          <p className="text-sm text-slate-500">{t('app.loading')}</p>
-        ) : (
-          <YamlEditor
-            value={text}
-            onChange={(v) => {
-              setTouched(true);
-              setText(v);
-            }}
-            rows={18}
-            validate={validate}
-          />
-        )}
-        {(parseError || error) && <p className="text-sm text-red-600">{parseError || error}</p>}
-        <div className="flex justify-end gap-2">
+    <Dialog
+      title={`${title}${!isNew && name ? ` — ${name}` : ''}`}
+      onClose={onClose}
+      maxWidth="max-w-2xl"
+      footer={
+        <>
+          {(parseError || error) && (
+            <p className="mr-auto text-sm text-red-600">{parseError || error}</p>
+          )}
           <button
             onClick={onClose}
             className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
@@ -414,9 +391,35 @@ function GovernanceEditor({
           >
             {t('app.save')}
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {isNew && (
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">{t('governance.name')}</span>
+          <input
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?"
+            placeholder="my-policy"
+          />
+        </label>
+      )}
+      {seed === undefined ? (
+        <p className="text-sm text-slate-500">{t('app.loading')}</p>
+      ) : (
+        <YamlEditor
+          value={text}
+          onChange={(v) => {
+            setTouched(true);
+            setText(v);
+          }}
+          rows={18}
+          validate={validate}
+        />
+      )}
+    </Dialog>
   );
 }
 

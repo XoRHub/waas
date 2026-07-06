@@ -9,7 +9,8 @@ import {
   type TemplateInput,
   type TemplateProtocolInput,
 } from '@/hooks/useApi';
-import { ParamField, paramsFor } from '@/components/ParamField';
+import { Dialog } from '@/components/Dialog';
+import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
 import { ScheduleEditor } from '@/components/ScheduleEditor';
 import { YamlEditor, parseYaml, type YamlIssue } from '@/components/YamlEditor';
 import type { TemplateEnvVar, WorkspaceTemplate } from '@/types';
@@ -214,12 +215,34 @@ function TemplateDialog({
 
   const set = (patch: Partial<TemplateInput>) => setInput((prev) => ({ ...prev, ...patch }));
   const protocols = input.protocols ?? [];
-  const setProtocol = (index: number, patch: Partial<TemplateProtocolInput>) => {
-    const next = protocols.map((p, i) => (i === index ? { ...p, ...patch } : p));
-    set({ protocols: next });
+  const [activeProto, setActiveProto] = useState(protocols[0]?.name ?? '');
+  const currentProto = protocols.find((p) => p.name === activeProto);
+  const patchActive = (patch: Partial<TemplateProtocolInput>) => {
+    set({ protocols: protocols.map((p) => (p.name === activeProto ? { ...p, ...patch } : p)) });
   };
 
   const availableProtocols = (meta.data?.data ?? []).map((m) => m.name);
+  // A template declares each protocol at most once (webhook-enforced):
+  // "add" offers only the registry protocols not configured yet.
+  const unusedProtocols = availableProtocols.filter((p) => !protocols.some((x) => x.name === p));
+  const addProtocol = () => {
+    const name = unusedProtocols[0];
+    if (!name) return;
+    set({
+      protocols: [
+        ...protocols,
+        { name, port: DEFAULT_PORTS[name] ?? 0, default: protocols.length === 0 },
+      ],
+    });
+    setActiveProto(name);
+  };
+  const removeActiveProtocol = () => {
+    const next = protocols.filter((p) => p.name !== activeProto);
+    // Keep exactly one default among the survivors.
+    if (next.length > 0 && !next.some((p) => p.default)) next[0] = { ...next[0], default: true };
+    set({ protocols: next });
+    setActiveProto(next[0]?.name ?? '');
+  };
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -237,15 +260,33 @@ function TemplateDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-      <form
-        onSubmit={onSubmit}
-        className="max-h-[90vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800"
-      >
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-          {isNew ? t('admin.templatesPage.new') : t('admin.templatesPage.edit', { name: input.name })}
-        </h2>
-
+    <Dialog
+      title={
+        isNew ? t('admin.templatesPage.new') : t('admin.templatesPage.edit', { name: input.name })
+      }
+      onClose={onClose}
+      onSubmit={onSubmit}
+      maxWidth="max-w-2xl"
+      footer={
+        <>
+          {save.isError && <p className="mr-auto text-sm text-red-600">{save.error.message}</p>}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+          >
+            {t('app.cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={save.isPending}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {t('app.save')}
+          </button>
+        </>
+      }
+    >
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="text-sm text-slate-600 dark:text-slate-300">
@@ -362,7 +403,7 @@ function TemplateDialog({
           </div>
         </fieldset>
 
-        {/* ---------------- protocols ---------------- */}
+        {/* ---------------- protocols (one tab per protocol) ---------------- */}
         <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
           <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
             {t('admin.templatesPage.protocols')}
@@ -370,35 +411,34 @@ function TemplateDialog({
           <p className="text-xs text-slate-400 dark:text-slate-500">
             {t('admin.templatesPage.protocolsHint')}
           </p>
-          {protocols.map((proto, i) => (
-            <div
-              key={i}
-              className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-600"
-            >
-              <div className="flex items-end gap-3">
-                <label className="block">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {t('portal.protocol')}
+          {protocols.length > 0 && (
+            <ProtocolTabs
+              protocols={protocols.map((p) => p.name)}
+              active={activeProto}
+              onSelect={setActiveProto}
+              badge={(p) =>
+                protocols.find((x) => x.name === p)?.default ? (
+                  <span className="text-[10px]" title={t('portal.protocolDefault')}>
+                    ●
                   </span>
-                  <select
-                    className={fieldSm}
-                    value={proto.name}
-                    onChange={(e) =>
-                      setProtocol(i, {
-                        name: e.target.value,
-                        port: DEFAULT_PORTS[e.target.value] ?? proto.port,
-                        params: {},
-                        userParams: [],
-                      })
-                    }
+                ) : null
+              }
+              trailing={
+                unusedProtocols.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={addProtocol}
+                    className="text-sm text-blue-600 hover:underline dark:text-blue-400"
                   >
-                    {availableProtocols.map((p) => (
-                      <option key={p} value={p}>
-                        {p.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    + {t('admin.templatesPage.addProtocol')}
+                  </button>
+                ) : undefined
+              }
+            />
+          )}
+          {currentProto ? (
+            <div className="space-y-3">
+              <div className="flex items-end gap-3">
                 <label className="block w-24">
                   <span className="text-xs text-slate-500 dark:text-slate-400">
                     {t('admin.templatesPage.port')}
@@ -406,10 +446,10 @@ function TemplateDialog({
                   <input
                     type="number"
                     className={fieldSm}
-                    value={proto.port || ''}
+                    value={currentProto.port || ''}
                     min={1}
                     max={65535}
-                    onChange={(e) => setProtocol(i, { port: Number(e.target.value) })}
+                    onChange={(e) => patchActive({ port: Number(e.target.value) })}
                     required
                   />
                 </label>
@@ -417,10 +457,10 @@ function TemplateDialog({
                   <input
                     type="radio"
                     name="default-protocol"
-                    checked={!!proto.default}
+                    checked={!!currentProto.default}
                     onChange={() =>
                       set({
-                        protocols: protocols.map((p, j) => ({ ...p, default: j === i })),
+                        protocols: protocols.map((p) => ({ ...p, default: p.name === activeProto })),
                       })
                     }
                   />
@@ -428,7 +468,7 @@ function TemplateDialog({
                 </label>
                 <button
                   type="button"
-                  onClick={() => set({ protocols: protocols.filter((_, j) => j !== i) })}
+                  onClick={removeActiveProtocol}
                   className="ml-auto pb-2 text-sm text-red-600 hover:underline"
                 >
                   {t('app.delete')}
@@ -441,67 +481,55 @@ function TemplateDialog({
                 </span>
                 <input
                   className={fieldSm}
-                  value={proto.credentialsSecretRef ?? ''}
-                  onChange={(e) => setProtocol(i, { credentialsSecretRef: e.target.value })}
+                  value={currentProto.credentialsSecretRef ?? ''}
+                  onChange={(e) => patchActive({ credentialsSecretRef: e.target.value })}
                   placeholder={t('admin.templatesPage.credentialsSecretHint')}
                 />
               </label>
 
-              {/* Registry-driven params: value + per-param overridable flag. */}
-              <div className="grid grid-cols-2 gap-3">
-                {paramsFor(meta.data?.data, proto.name, ['ui', 'advanced']).map((pm) => (
-                  <div key={pm.name} className="space-y-1">
-                    <ParamField
-                      meta={pm}
-                      value={proto.params?.[pm.name] ?? ''}
-                      onChange={(value) => {
-                        const params = { ...proto.params };
-                        if (value === '') delete params[pm.name];
-                        else params[pm.name] = value;
-                        setProtocol(i, { params });
+              {/* Same registry-driven form as the user connection settings,
+                  with the admin extra: the per-param overridable flag. */}
+              <ProtocolParamsForm
+                meta={meta.data?.data}
+                protocol={currentProto.name}
+                values={currentProto.params ?? {}}
+                onChange={(name, value) => {
+                  const params = { ...currentProto.params };
+                  if (value === '') delete params[name];
+                  else params[name] = value;
+                  patchActive({ params });
+                }}
+                renderParamExtra={(pm) => (
+                  <label className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    <input
+                      type="checkbox"
+                      checked={currentProto.userParams?.includes(pm.name) ?? false}
+                      onChange={(e) => {
+                        const setNames = new Set(currentProto.userParams ?? []);
+                        if (e.target.checked) setNames.add(pm.name);
+                        else setNames.delete(pm.name);
+                        patchActive({ userParams: [...setNames] });
                       }}
                     />
-                    <label className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                      <input
-                        type="checkbox"
-                        checked={proto.userParams?.includes(pm.name) ?? false}
-                        onChange={(e) => {
-                          const setNames = new Set(proto.userParams ?? []);
-                          if (e.target.checked) setNames.add(pm.name);
-                          else setNames.delete(pm.name);
-                          setProtocol(i, { userParams: [...setNames] });
-                        }}
-                      />
-                      {t('admin.templatesPage.userOverridable')}
-                      {pm.tier === 'advanced' && (
-                        <span className="rounded bg-amber-100 px-1 text-[10px] uppercase text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
-                          {t('admin.templatesPage.advanced')}
-                        </span>
-                      )}
-                    </label>
-                  </div>
-                ))}
-              </div>
+                    {t('admin.templatesPage.userOverridable')}
+                    {pm.tier === 'advanced' && (
+                      <span className="rounded bg-amber-100 px-1 text-[10px] uppercase text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                        {t('admin.templatesPage.advanced')}
+                      </span>
+                    )}
+                  </label>
+                )}
+              />
             </div>
-          ))}
-          <button
-            type="button"
-            onClick={() =>
-              set({
-                protocols: [
-                  ...protocols,
-                  {
-                    name: 'vnc',
-                    port: DEFAULT_PORTS.vnc,
-                    default: protocols.length === 0,
-                  },
-                ],
-              })
-            }
-            className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-          >
-            + {t('admin.templatesPage.addProtocol')}
-          </button>
+          ) : (
+            <button
+              type="button"
+              onClick={addProtocol}
+              className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+            >
+              + {t('admin.templatesPage.addProtocol')}
+            </button>
+          )}
         </fieldset>
 
         {/* ---------------- env ---------------- */}
@@ -598,25 +626,7 @@ function TemplateDialog({
           {workloadError && <p className="text-sm text-red-600">{workloadError}</p>}
         </details>
 
-        {save.isError && <p className="text-sm text-red-600">{save.error.message}</p>}
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
-          >
-            {t('app.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={save.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {t('app.save')}
-          </button>
-        </div>
-      </form>
-    </div>
+    </Dialog>
   );
 }
 

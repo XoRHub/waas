@@ -18,9 +18,12 @@ import {
 } from '@/hooks/useApi';
 import { StatusBadge } from '@/components/StatusBadge';
 import { UserMenu } from '@/components/UserMenu';
+import { Dialog } from '@/components/Dialog';
 import { ParamField, tieredParams } from '@/components/ParamField';
+import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
 import { ScheduleEditor, useNextTransitionLabel } from '@/components/ScheduleEditor';
 import { useAuthStore } from '@/stores/authStore';
+import { useEscape } from '@/hooks/useEscape';
 import { templateAvailability } from '@/lib/templates';
 import { displayCpu, displayMemory, formatCpu, formatMemory, parseCpu, parseMemory } from '@/lib/quantity';
 import type {
@@ -276,6 +279,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const [asking, setAsking] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  useEscape(menuOpen, () => setMenuOpen(false));
 
   const url = `/workspaces/${workspace.id}/connect`;
   const onOpen = () => {
@@ -319,6 +323,26 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
     const name = window.prompt(t('portal.newFolderPrompt'))?.trim();
     if (name) moveToFolder(name);
     else setMenuOpen(false);
+  };
+
+  // Protocol quick-switch (point "switch rapide"): only rendered when the
+  // workspace actually serves several protocols (configured + allowed —
+  // status.protocols is already policy/template-filtered server-side).
+  const cardProtocols = workspace.protocols ?? [];
+  const savedPrefs = user?.preferences?.workspaceSettings?.[workspace.id];
+  const cardDefaultProtocol = cardProtocols.find((p) => p.default)?.name ?? workspace.protocol ?? '';
+  const activeProtocol = savedPrefs?.protocol ?? cardDefaultProtocol;
+  const switchProtocol = (next: string) => {
+    if (next === activeProtocol) return;
+    const byProto = { ...savedPrefs?.paramsByProtocol };
+    if (savedPrefs?.params && activeProtocol) byProto[activeProtocol] = savedPrefs.params;
+    const settings = { ...user?.preferences?.workspaceSettings };
+    settings[workspace.id] = {
+      protocol: next !== cardDefaultProtocol ? next : undefined,
+      params: byProto[next],
+      paramsByProtocol: Object.keys(byProto).length > 0 ? byProto : undefined,
+    };
+    updateProfile.mutate({ preferences: { ...user?.preferences, workspaceSettings: settings } });
   };
 
   return (
@@ -388,6 +412,24 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
           </div>
         </div>
       </div>
+      {cardProtocols.length > 1 && (
+        <div className="flex items-center gap-1" title={t('portal.switchProtocolHint')}>
+          {cardProtocols.map((p) => (
+            <button
+              key={p.name}
+              onClick={() => switchProtocol(p.name)}
+              disabled={updateProfile.isPending}
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium uppercase ${
+                p.name === activeProtocol
+                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600'
+              }`}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
       {workspace.message && (
         <p className="text-xs text-slate-500 dark:text-slate-400">{workspace.message}</p>
       )}
@@ -468,8 +510,9 @@ function AdvancedParamsToggle({
   );
 }
 
-// ConnectionSettingsDialog: pick the protocol among what the template
-// declares and tune the guacd parameters the template allow-lists. Saved
+// ConnectionSettingsDialog: one tab per configured protocol (VNC/RDP/SSH)
+// instead of a single endless form; each tab tunes that protocol's guacd
+// parameters and one protocol is marked as the connection choice. Saved
 // in the profile; the server re-validates at connect time.
 function ConnectionSettingsDialog({
   workspace,
@@ -484,32 +527,35 @@ function ConnectionSettingsDialog({
   const meta = useProtocolMeta();
   const saved = user?.preferences?.workspaceSettings?.[workspace.id];
   const protocols = workspace.protocols ?? [];
+  const names = protocols.map((p) => p.name);
   const defaultProtocol = protocols.find((p) => p.default)?.name ?? workspace.protocol ?? '';
-  const [protocol, setProtocol] = useState(saved?.protocol || defaultProtocol);
-  const [params, setParams] = useState<Record<string, string>>(saved?.params ?? {});
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const initialChosen = saved?.protocol || defaultProtocol;
+  const [chosen, setChosen] = useState(initialChosen);
+  const [tab, setTab] = useState(names.includes(initialChosen) ? initialChosen : (names[0] ?? ''));
+  // Params kept per protocol so switching tabs never loses edits.
+  const [paramsByProto, setParamsByProto] = useState<Record<string, Record<string, string>>>(() => ({
+    ...saved?.paramsByProtocol,
+    ...(saved?.params ? { [initialChosen]: saved.params } : {}),
+  }));
 
-  const selected = protocols.find((p) => p.name === protocol);
+  const selected = protocols.find((p) => p.name === tab);
   const isAdmin = user?.role === 'admin';
-  // Admins tune any non-platform param (matches the server's admin
-  // bypass); regular users stay inside the template's userParams
-  // allow-list. Simple tier is always shown, advanced behind the toggle.
-  const { simple, advanced } = tieredParams(
-    meta.data?.data,
-    protocol,
-    isAdmin ? undefined : (selected?.userParams ?? []),
-  );
-  const tunable = showAdvanced ? [...simple, ...advanced] : simple;
 
   const onSave = () => {
-    const cleaned = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== ''));
+    const cleanedByProto: Record<string, Record<string, string>> = {};
+    for (const [proto, params] of Object.entries(paramsByProto)) {
+      const cleaned = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== ''));
+      if (Object.keys(cleaned).length > 0) cleanedByProto[proto] = cleaned;
+    }
+    const chosenParams = cleanedByProto[chosen];
     const settings = { ...user?.preferences?.workspaceSettings };
-    if (protocol === defaultProtocol && Object.keys(cleaned).length === 0) {
+    if (chosen === defaultProtocol && Object.keys(cleanedByProto).length === 0) {
       delete settings[workspace.id];
     } else {
       settings[workspace.id] = {
-        protocol: protocol !== defaultProtocol ? protocol : undefined,
-        params: Object.keys(cleaned).length > 0 ? cleaned : undefined,
+        protocol: chosen !== defaultProtocol ? chosen : undefined,
+        params: chosenParams,
+        paramsByProtocol: Object.keys(cleanedByProto).length > 0 ? cleanedByProto : undefined,
       };
     }
     updateProfile.mutate(
@@ -519,56 +565,14 @@ function ConnectionSettingsDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md space-y-4 rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-          {t('portal.connectionSettings')}
-        </h2>
-        {protocols.length > 0 ? (
-          <label className="block">
-            <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.protocol')}</span>
-            <select
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-              value={protocol}
-              onChange={(e) => setProtocol(e.target.value)}
-            >
-              {protocols.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.name.toUpperCase()}
-                  {p.default ? ` (${t('portal.protocolDefault')})` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {t('portal.protocol')}: {(workspace.protocol || 'vnc').toUpperCase()}
-          </p>
-        )}
-        {tunable.length > 0 ? (
-          <fieldset className="space-y-3">
-            <legend className="text-sm text-slate-600 dark:text-slate-300">
-              {t('portal.protocolParams')}
-            </legend>
-            {tunable.map((pm) => (
-              <ParamField
-                key={pm.name}
-                meta={pm}
-                value={params[pm.name] ?? ''}
-                onChange={(value) => setParams((p) => ({ ...p, [pm.name]: value }))}
-              />
-            ))}
-          </fieldset>
-        ) : (
-          <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.noTunableParams')}</p>
-        )}
-        {advanced.length > 0 && (
-          <AdvancedParamsToggle value={showAdvanced} onChange={setShowAdvanced} />
-        )}
-        {updateProfile.isError && (
-          <p className="text-sm text-red-600">{updateProfile.error.message}</p>
-        )}
-        <div className="flex justify-end gap-2">
+    <Dialog
+      title={t('portal.connectionSettings')}
+      onClose={onClose}
+      footer={
+        <>
+          {updateProfile.isError && (
+            <p className="mr-auto text-sm text-red-600">{updateProfile.error.message}</p>
+          )}
           <button
             onClick={onClose}
             className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
@@ -582,9 +586,54 @@ function ConnectionSettingsDialog({
           >
             {t('app.save')}
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {names.length > 0 ? (
+        <>
+          <ProtocolTabs
+            protocols={names}
+            active={tab}
+            onSelect={setTab}
+            badge={(p) => (p === chosen ? <span className="text-[10px]">●</span> : null)}
+          />
+          {selected && (
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <input
+                  type="radio"
+                  name="chosen-protocol"
+                  checked={chosen === tab}
+                  onChange={() => setChosen(tab)}
+                />
+                {t('portal.useThisProtocol')}
+                {tab === defaultProtocol && (
+                  <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
+                )}
+              </label>
+              <ProtocolParamsForm
+                meta={meta.data?.data}
+                protocol={tab}
+                values={paramsByProto[tab] ?? {}}
+                onChange={(name, value) =>
+                  setParamsByProto((prev) => ({
+                    ...prev,
+                    [tab]: { ...prev[tab], [name]: value },
+                  }))
+                }
+                allowList={isAdmin ? undefined : (selected.userParams ?? [])}
+                placeholders={selected.params}
+                columns={1}
+              />
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {t('portal.protocol')}: {(workspace.protocol || 'vnc').toUpperCase()}
+        </p>
+      )}
+    </Dialog>
   );
 }
 
@@ -601,42 +650,43 @@ function OpenChoiceDialog({
   const [remember, setRemember] = useState(true);
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-sm space-y-4 rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-          {t('portal.openWhere')}
-        </h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">{t('portal.openWhereHint')}</p>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => onChoice(false, remember)}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-          >
-            {t('portal.openSameTab')}
-          </button>
-          <button
-            onClick={() => onChoice(true, remember)}
-            className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            {t('portal.openNewTab')}
-          </button>
-        </div>
-        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          <input
-            type="checkbox"
-            checked={remember}
-            onChange={(e) => setRemember(e.target.checked)}
-          />
-          {t('portal.rememberChoice')}
-        </label>
+    <Dialog
+      title={t('portal.openWhere')}
+      onClose={onClose}
+      maxWidth="max-w-sm"
+      footer={
         <button
           onClick={onClose}
           className="text-sm text-slate-500 hover:underline dark:text-slate-400"
         >
           {t('app.cancel')}
         </button>
+      }
+    >
+      <p className="text-sm text-slate-500 dark:text-slate-400">{t('portal.openWhereHint')}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={() => onChoice(false, remember)}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+        >
+          {t('portal.openSameTab')}
+        </button>
+        <button
+          onClick={() => onChoice(true, remember)}
+          className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          {t('portal.openNewTab')}
+        </button>
       </div>
-    </div>
+      <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+        <input
+          type="checkbox"
+          checked={remember}
+          onChange={(e) => setRemember(e.target.checked)}
+        />
+        {t('portal.rememberChoice')}
+      </label>
+    </Dialog>
   );
 }
 
@@ -835,14 +885,30 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
-      <form
-        onSubmit={onSubmit}
-        className="max-h-[90vh] w-full max-w-md space-y-4 overflow-y-auto rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800"
-      >
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-          {t('portal.newWorkspace')}
-        </h2>
+    <Dialog
+      title={t('portal.newWorkspace')}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      footer={
+        <>
+          {create.isError && <p className="mr-auto text-sm text-red-600">{create.error.message}</p>}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+          >
+            {t('app.cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={create.isPending}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {t('app.create')}
+          </button>
+        </>
+      }
+    >
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.template')}</span>
           <select
@@ -1052,25 +1118,7 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
           </fieldset>
         )}
 
-        {create.isError && <p className="text-sm text-red-600">{create.error.message}</p>}
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
-          >
-            {t('app.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={create.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {t('app.create')}
-          </button>
-        </div>
-      </form>
-    </div>
+    </Dialog>
   );
 }
 
@@ -1300,14 +1348,30 @@ function RemoteWorkspaceDialog({
   );
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-      <form
-        onSubmit={onSubmit}
-        className="max-h-[90vh] w-full max-w-md space-y-4 overflow-y-auto rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800"
-      >
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-          {remote ? t('remote.edit') : t('remote.add')}
-        </h2>
+    <Dialog
+      title={remote ? t('remote.edit') : t('remote.add')}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      footer={
+        <>
+          {save.isError && <p className="mr-auto text-sm text-red-600">{save.error.message}</p>}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+          >
+            {t('app.cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={save.isPending}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {remote ? t('app.save') : t('app.create')}
+          </button>
+        </>
+      }
+    >
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.name')}</span>
           <input
@@ -1422,24 +1486,6 @@ function RemoteWorkspaceDialog({
           )}
         </fieldset>
 
-        {save.isError && <p className="text-sm text-red-600">{save.error.message}</p>}
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
-          >
-            {t('app.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={save.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {remote ? t('app.save') : t('app.create')}
-          </button>
-        </div>
-      </form>
-    </div>
+    </Dialog>
   );
 }
