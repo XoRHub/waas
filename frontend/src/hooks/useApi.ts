@@ -52,10 +52,30 @@ export function useUsers() {
   });
 }
 
-export function useAuditLogs() {
+export interface AuditQuery {
+  page: number;
+  pageSize?: number;
+  actor?: string;
+  action?: string;
+  from?: string;
+  to?: string;
+}
+
+// Server-side pagination: the filters travel with the query so switching
+// pages keeps them, and the query key makes each (filters, page) cacheable.
+export function useAuditLogs(q: AuditQuery) {
+  const params = new URLSearchParams({
+    page: String(q.page),
+    page_size: String(q.pageSize ?? 25),
+  });
+  if (q.actor) params.set('actor', q.actor);
+  if (q.action) params.set('action', q.action);
+  if (q.from) params.set('from', q.from);
+  if (q.to) params.set('to', q.to);
   return useQuery({
-    queryKey: ['audit-logs'],
-    queryFn: () => api.get<AuditLog[]>('/api/v1/audit-logs?page_size=100'),
+    queryKey: ['audit-logs', q],
+    queryFn: () => api.get<AuditLog[]>(`/api/v1/audit-logs?${params.toString()}`),
+    placeholderData: (prev) => prev,
   });
 }
 

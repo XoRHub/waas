@@ -47,7 +47,7 @@ func (s *AuditService) Record(ctx context.Context, actor Actor, action, resource
 	}
 }
 
-// List returns audit entries, newest first.
-func (s *AuditService) List(ctx context.Context, page, pageSize int) ([]model.AuditLog, int, error) {
-	return s.repo.List(ctx, page, pageSize)
+// List returns audit entries, newest first, optionally filtered.
+func (s *AuditService) List(ctx context.Context, filter repository.AuditFilter, page, pageSize int) ([]model.AuditLog, int, error) {
+	return s.repo.List(ctx, filter, page, pageSize)
 }

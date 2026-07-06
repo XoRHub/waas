@@ -243,7 +243,16 @@
       "action": "Action",
       "resource": "Resource",
       "ip": "IP",
-      "empty": "No audit entries."
+      "empty": "No audit entries.",
+      "filterActor": "Actor…",
+      "filterAction": "Action prefix (e.g. workspace.)",
+      "filterFrom": "From",
+      "filterTo": "To",
+      "clearFilters": "Clear",
+      "pageOf": "Page {{page}} / {{pages}} — {{total}} entries",
+      "prev": "Previous",
+      "next": "Next",
+      "noMatch": "No entries match the filters."
     },
     "governance": "Governance"
   },

@@ -59,9 +59,19 @@ type RemoteWorkspaceRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// AuditFilter narrows an audit listing. Zero values mean "no filter":
+// Actor matches the username as a substring, Action as a prefix
+// (actions are namespaced, e.g. "workspace."), From/To bound occurred_at.
+type AuditFilter struct {
+	Actor  string
+	Action string
+	From   time.Time
+	To     time.Time
+}
+
 // AuditRepository is append-only: it deliberately exposes no update or
 // delete operation, matching the audit_logs table contract.
 type AuditRepository interface {
 	Insert(ctx context.Context, entry *model.AuditLog) error
-	List(ctx context.Context, page, pageSize int) ([]model.AuditLog, int, error)
+	List(ctx context.Context, filter AuditFilter, page, pageSize int) ([]model.AuditLog, int, error)
 }
