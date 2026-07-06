@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { stringify as yamlStringify } from 'yaml';
 import {
   useDeleteTemplate,
   useProtocolMeta,
@@ -9,7 +10,21 @@ import {
   type TemplateProtocolInput,
 } from '@/hooks/useApi';
 import { ParamField, paramsFor } from '@/components/ParamField';
+import { YamlEditor, parseYaml, type YamlIssue } from '@/components/YamlEditor';
 import type { TemplateEnvVar, WorkspaceTemplate } from '@/types';
+
+// Semantic validation of the workload YAML: must be a mapping, and kind
+// (when present) must be one the CR accepts.
+function validateWorkload(value: unknown): YamlIssue[] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return [{ line: 0, message: 'workload must be a YAML mapping' }];
+  }
+  const kind = (value as Record<string, unknown>).kind;
+  if (kind !== undefined && !['Deployment', 'StatefulSet', 'Pod'].includes(String(kind))) {
+    return [{ line: 0, message: `kind: must be Deployment, StatefulSet or Pod (got "${String(kind)}")` }];
+  }
+  return [];
+}
 
 const EMPTY: TemplateInput = {
   name: '',
@@ -187,8 +202,10 @@ function TemplateDialog({
   const save = useSaveTemplate();
   const meta = useProtocolMeta();
   const [input, setInput] = useState(initial);
+  // Workload edited as YAML (converted transparently: the API/CR still
+  // stores the structured value).
   const [workloadText, setWorkloadText] = useState(
-    initial.workload ? JSON.stringify(initial.workload, null, 2) : '',
+    initial.workload ? yamlStringify(initial.workload) : '',
   );
   const [workloadError, setWorkloadError] = useState('');
 
@@ -205,12 +222,12 @@ function TemplateDialog({
     event.preventDefault();
     let workload: Record<string, unknown> | undefined;
     if (workloadText.trim() !== '') {
-      try {
-        workload = JSON.parse(workloadText) as Record<string, unknown>;
-      } catch {
+      const { value, issues } = parseYaml(workloadText, validateWorkload);
+      if (issues.length > 0 || value === undefined) {
         setWorkloadError(t('admin.templatesPage.workloadInvalid'));
         return;
       }
+      workload = value as Record<string, unknown>;
     }
     setWorkloadError('');
     save.mutate({ isNew, input: { ...input, workload } }, { onSuccess: onClose });
@@ -559,13 +576,14 @@ function TemplateDialog({
           <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
             {t('admin.templatesPage.workloadHint')}
           </p>
-          <textarea
-            className={`${field} font-mono text-xs`}
-            rows={8}
-            value={workloadText}
-            onChange={(e) => setWorkloadText(e.target.value)}
-            placeholder='{"kind": "Deployment", "podSecurityContext": {"runAsNonRoot": true}}'
-          />
+          <div className="mt-2">
+            <YamlEditor
+              value={workloadText}
+              onChange={setWorkloadText}
+              rows={8}
+              validate={validateWorkload}
+            />
+          </div>
           {workloadError && <p className="text-sm text-red-600">{workloadError}</p>}
         </details>
 

@@ -208,7 +208,7 @@
     "defaults": "Dimensionnement proposé",
     "allCatalog": "tout le catalogue",
     "editPolicy": "Modifier la politique",
-    "invalidJson": "JSON invalide",
+    "invalidYaml": "YAML invalide — corrigez d'abord les lignes en erreur",
     "usage": "Consommation par utilisateur",
     "user": "Utilisateur",
     "policy": "Politique",

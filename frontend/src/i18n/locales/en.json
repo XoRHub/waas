@@ -208,7 +208,7 @@
     "defaults": "Proposed sizing",
     "allCatalog": "whole catalog",
     "editPolicy": "Edit policy",
-    "invalidJson": "Invalid JSON",
+    "invalidYaml": "Invalid YAML — fix the highlighted lines first",
     "usage": "Consumption per user",
     "user": "User",
     "policy": "Policy",

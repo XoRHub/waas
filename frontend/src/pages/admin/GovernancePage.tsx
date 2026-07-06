@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { stringify as yamlStringify } from 'yaml';
 import {
   useAdminImages,
   useAdminPolicies,
@@ -7,10 +8,11 @@ import {
   useToggleImage,
   useUpsertPolicy,
 } from '@/hooks/useApi';
+import { YamlEditor, parseYaml, type YamlIssue } from '@/components/YamlEditor';
 import type { PolicyModel } from '@/types';
 
 // Governance console: catalog kill-switches, policy editing and the
-// per-user consumption view. Policies are edited as JSON — the shape is
+// per-user consumption view. Policies are edited as YAML — the shape is
 // exactly the PUT /admin/policies payload — which keeps this page honest
 // with the API instead of hiding fields behind a partial form.
 export function GovernancePage() {
@@ -152,21 +154,81 @@ function PoliciesSection() {
   );
 }
 
+// Semantic checks over the parsed YAML: field-level messages the API
+// would reject anyway, surfaced before submit with readable wording.
+const KNOWN_OVERRIDE_FIELDS = [
+  'env',
+  'securityContext',
+  'podSecurityContext',
+  'volumes',
+  'nodeSelector',
+  'tolerations',
+  'resources',
+  'protocol',
+  'protocolParams',
+];
+
+function validatePolicy(value: unknown): YamlIssue[] {
+  const issues: YamlIssue[] = [];
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return [{ line: 0, message: 'the policy must be a YAML mapping' }];
+  }
+  const pol = value as Record<string, unknown>;
+  if (pol.priority !== undefined && typeof pol.priority !== 'number') {
+    issues.push({ line: 0, message: 'priority: must be a number' });
+  }
+  if (pol.subjects !== undefined) {
+    if (!Array.isArray(pol.subjects)) {
+      issues.push({ line: 0, message: 'subjects: must be a list of {kind, name}' });
+    } else {
+      for (const s of pol.subjects as Record<string, unknown>[]) {
+        if (s?.kind !== 'User' && s?.kind !== 'Group') {
+          issues.push({ line: 0, message: `subjects: kind must be User or Group (got "${String(s?.kind)}")` });
+        }
+      }
+    }
+  }
+  const overrides = pol.overrides as Record<string, unknown> | undefined;
+  if (overrides?.allowedFields !== undefined) {
+    const fields = overrides.allowedFields;
+    if (!Array.isArray(fields)) {
+      issues.push({ line: 0, message: 'overrides.allowedFields: must be a list' });
+    } else {
+      for (const f of fields) {
+        if (!KNOWN_OVERRIDE_FIELDS.includes(String(f))) {
+          issues.push({
+            line: 0,
+            message: `overrides.allowedFields: unknown field "${String(f)}" (known: ${KNOWN_OVERRIDE_FIELDS.join(', ')})`,
+          });
+        }
+      }
+    }
+  }
+  if (pol.remoteWorkspaces !== undefined && typeof pol.remoteWorkspaces !== 'boolean') {
+    issues.push({ line: 0, message: 'remoteWorkspaces: must be true or false' });
+  }
+  return issues;
+}
+
 function PolicyEditor({ policy, onClose }: { policy: PolicyModel; onClose: () => void }) {
   const { t } = useTranslation();
   const upsert = useUpsertPolicy();
   const { name, ...body } = policy;
-  const [text, setText] = useState(JSON.stringify(body, null, 2));
+  // YAML instead of raw JSON: same payload, human-editable, validated
+  // live against the schema checks above (storage is unchanged — the
+  // API still receives the JSON value).
+  const [text, setText] = useState(() => yamlStringify(body));
   const [parseError, setParseError] = useState('');
+  const validate = useCallback(validatePolicy, []);
 
   const onSave = () => {
-    try {
-      const parsed: unknown = JSON.parse(text);
-      setParseError('');
-      upsert.mutate({ name, body: parsed }, { onSuccess: onClose });
-    } catch {
-      setParseError(t('governance.invalidJson'));
+    const { value, issues } = parseYaml(text, validate);
+    if (issues.length > 0 || value === undefined) {
+      setParseError(t('governance.invalidYaml'));
+      return;
     }
+    setParseError('');
+    upsert.mutate({ name, body: value }, { onSuccess: onClose });
   };
 
   return (
@@ -175,13 +237,7 @@ function PolicyEditor({ policy, onClose }: { policy: PolicyModel; onClose: () =>
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
           {t('governance.editPolicy')} — {name}
         </h3>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={16}
-          spellCheck={false}
-          className="w-full rounded-md border border-slate-300 p-3 font-mono text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-        />
+        <YamlEditor value={text} onChange={setText} rows={18} validate={validate} />
         {(parseError || upsert.isError) && (
           <p className="text-sm text-red-600">{parseError || upsert.error?.message}</p>
         )}
