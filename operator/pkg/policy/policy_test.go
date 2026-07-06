@@ -275,25 +275,89 @@ func TestCheckOverrides(t *testing.T) {
 	}
 	bob := Identity{Owner: "u1", Username: "bob"}
 
-	if d := CheckOverrides(ws(nil, nil), tpl, bob); d != nil {
+	if d := CheckOverrides(ws(nil, nil), tpl, nil, bob); d != nil {
 		t.Fatalf("no overrides must always pass: %v", d)
 	}
-	if d := CheckOverrides(ws(envOnly, nil), tpl, bob); d != nil {
+	if d := CheckOverrides(ws(envOnly, nil), tpl, nil, bob); d != nil {
 		t.Fatalf("allowed field must pass: %v", d)
 	}
-	if d := CheckOverrides(ws(withVolumes, nil), tpl, bob); d == nil || d.Reason != ReasonOverrideNotAllowed {
+	if d := CheckOverrides(ws(withVolumes, nil), tpl, nil, bob); d == nil || d.Reason != ReasonOverrideNotAllowed {
 		t.Fatalf("volumes are not allowed for bob, got %v", d)
 	}
-	if d := CheckOverrides(ws(withVolumes, nil), tpl, Identity{Owner: "u2", Username: "alice"}); d != nil {
-		t.Fatalf("template owner may override anything: %v", d)
+	if d := CheckOverrides(ws(withVolumes, nil), tpl, nil, Identity{Owner: "u2", Username: "alice"}); d != nil {
+		t.Fatalf("template owner may override anything the template locks: %v", d)
 	}
 	adminAnn := map[string]string{waasv1alpha1.AnnotationRole: "admin"}
-	if d := CheckOverrides(ws(withVolumes, adminAnn), tpl, bob); d != nil {
+	if d := CheckOverrides(ws(withVolumes, adminAnn), tpl, nil, bob); d != nil {
 		t.Fatalf("platform admin may override anything: %v", d)
 	}
 	badProto := &waasv1alpha1.WorkspaceOverrides{Protocol: "rdp"}
 	tpl.Spec.Overrides.AllowedFields = append(tpl.Spec.Overrides.AllowedFields, waasv1alpha1.FieldProtocol)
-	if d := CheckOverrides(ws(badProto, nil), tpl, bob); d == nil || d.Reason != ReasonProtocolMismatch {
+	if d := CheckOverrides(ws(badProto, nil), tpl, nil, bob); d == nil || d.Reason != ReasonProtocolMismatch {
 		t.Fatalf("undeclared protocol must be rejected, got %v", d)
+	}
+}
+
+// TestCheckOverridesPolicyRestriction covers the policy-level allow-list:
+// the effective rights are the intersection of template and policy lists,
+// the template owner stays subject to the policy, admins bypass both.
+func TestCheckOverridesPolicyRestriction(t *testing.T) {
+	tpl := &waasv1alpha1.WorkspaceTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "xfce"},
+		Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			OS: waasv1alpha1.OSLinux,
+			Overrides: &waasv1alpha1.TemplateOverrides{
+				AllowedFields: []waasv1alpha1.OverridableField{waasv1alpha1.FieldEnv, waasv1alpha1.FieldResources},
+				Owner:         "alice",
+			},
+		},
+	}
+	envOnly := &waasv1alpha1.WorkspaceOverrides{Env: []corev1.EnvVar{{Name: "FOO", Value: "1"}}}
+	ws := func(ov *waasv1alpha1.WorkspaceOverrides, anns map[string]string) *waasv1alpha1.Workspace {
+		return &waasv1alpha1.Workspace{
+			ObjectMeta: metav1.ObjectMeta{Name: "w", Annotations: anns},
+			Spec:       waasv1alpha1.WorkspaceSpec{Overrides: ov},
+		}
+	}
+	bob := Identity{Owner: "u1", Username: "bob"}
+	polWith := func(fields ...waasv1alpha1.OverridableField) *waasv1alpha1.WorkspacePolicy {
+		return &waasv1alpha1.WorkspacePolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "restricted"},
+			Spec: waasv1alpha1.WorkspacePolicySpec{
+				Overrides: &waasv1alpha1.PolicyOverrides{AllowedFields: fields},
+			},
+		}
+	}
+
+	// nil policy block = template list alone.
+	noBlock := &waasv1alpha1.WorkspacePolicy{ObjectMeta: metav1.ObjectMeta{Name: "open"}}
+	if d := CheckOverrides(ws(envOnly, nil), tpl, noBlock, bob); d != nil {
+		t.Fatalf("policy without overrides block must not restrict: %v", d)
+	}
+	// Field in both lists: allowed.
+	if d := CheckOverrides(ws(envOnly, nil), tpl, polWith(waasv1alpha1.FieldEnv), bob); d != nil {
+		t.Fatalf("field in both lists must pass: %v", d)
+	}
+	// Template allows env, policy does not: denied.
+	if d := CheckOverrides(ws(envOnly, nil), tpl, polWith(waasv1alpha1.FieldResources), bob); d == nil || d.Reason != ReasonOverrideNotAllowed {
+		t.Fatalf("policy restriction must deny env, got %v", d)
+	}
+	// Empty (non-nil) list = policy forbids every override.
+	if d := CheckOverrides(ws(envOnly, nil), tpl, polWith(), bob); d == nil || d.Reason != ReasonOverrideNotAllowed {
+		t.Fatalf("empty policy list must deny all overrides, got %v", d)
+	}
+	// Template owner bypasses the template list but not the policy list.
+	alice := Identity{Owner: "u2", Username: "alice"}
+	volumes := &waasv1alpha1.WorkspaceOverrides{Volumes: []corev1.Volume{{Name: "scratch"}}}
+	if d := CheckOverrides(ws(volumes, nil), tpl, polWith(waasv1alpha1.FieldVolumes), alice); d != nil {
+		t.Fatalf("owner + policy-allowed field must pass: %v", d)
+	}
+	if d := CheckOverrides(ws(volumes, nil), tpl, polWith(waasv1alpha1.FieldEnv), alice); d == nil || d.Reason != ReasonOverrideNotAllowed {
+		t.Fatalf("owner must stay subject to the policy list, got %v", d)
+	}
+	// Admin bypasses both.
+	adminAnn := map[string]string{waasv1alpha1.AnnotationRole: "admin"}
+	if d := CheckOverrides(ws(volumes, adminAnn), tpl, polWith(), bob); d != nil {
+		t.Fatalf("admin must bypass the policy list: %v", d)
 	}
 }

@@ -215,7 +215,7 @@ func (v *WorkspaceValidator) enforce(ctx context.Context, ws *waasv1alpha1.Works
 	if d := policy.CheckProtocol(tpl, img); d != nil {
 		return warnings, d
 	}
-	if d := policy.CheckOverrides(ws, tpl, id); d != nil {
+	if d := policy.CheckOverrides(ws, tpl, pol, id); d != nil {
 		return warnings, d
 	}
 

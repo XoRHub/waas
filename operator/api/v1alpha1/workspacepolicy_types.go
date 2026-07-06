@@ -66,6 +66,32 @@ type WorkspacePolicySpec struct {
 	// stamped into the connection token) — the portal only reflects it.
 	// +optional
 	Clipboard *ClipboardPolicy `json:"clipboard,omitempty"`
+
+	// Overrides bounds instantiation-time template overrides for the
+	// governed users, on top of each template's own allow-list.
+	// +optional
+	Overrides *PolicyOverrides `json:"overrides,omitempty"`
+
+	// RemoteWorkspaces opts the governed users into the Remote Workspaces
+	// feature: registering out-of-cluster machines (host/port/protocol +
+	// credentials Secret) and connecting to them through guacd. Absent or
+	// false = feature hidden and refused (fail closed).
+	// +optional
+	RemoteWorkspaces bool `json:"remoteWorkspaces,omitempty"`
+}
+
+// PolicyOverrides restricts template overrides per policy. The effective
+// allow-list of a creator is the INTERSECTION of the template's
+// overrides.allowedFields and AllowedFields here. nil = no policy
+// restriction (the template list applies alone); non-nil with an empty
+// list = this policy forbids every override. Platform admins bypass both
+// lists; a template owner bypasses the template list but stays subject
+// to the policy list.
+type PolicyOverrides struct {
+	// AllowedFields the governed users may override when the template
+	// also allows them.
+	// +optional
+	AllowedFields []OverridableField `json:"allowedFields,omitempty"`
 }
 
 // ClipboardPolicy gates the two clipboard directions independently.

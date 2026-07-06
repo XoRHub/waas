@@ -365,9 +365,12 @@ func CheckProtocol(tpl *waasv1alpha1.WorkspaceTemplate, img *waasv1alpha1.Worksp
 
 // CheckOverrides verifies that the creator is entitled to every override
 // the workspace carries. Platform admins (role annotation, only trusted
-// writers can set it) and the template owner may override anything;
-// everyone else only the template's allowed fields.
-func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, id Identity) *Denial {
+// writers can set it) may override anything. The template owner bypasses
+// the template's allow-list but stays subject to the policy's. Everyone
+// else needs the field in BOTH lists: the template's allowedFields AND
+// the policy's overrides.allowedFields (a nil policy block = no policy
+// restriction; pol itself may be nil in policy-less clusters).
+func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pol *waasv1alpha1.WorkspacePolicy, id Identity) *Denial {
 	ov := ws.Spec.Overrides
 	if ov == nil {
 		return nil
@@ -375,8 +378,13 @@ func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTempl
 	if ws.Annotations[waasv1alpha1.AnnotationRole] == "admin" {
 		return nil
 	}
-	if tpl.Spec.Overrides != nil && tpl.Spec.Overrides.Owner != "" && tpl.Spec.Overrides.Owner == id.Username {
-		return nil
+	isOwner := tpl.Spec.Overrides != nil && tpl.Spec.Overrides.Owner != "" && tpl.Spec.Overrides.Owner == id.Username
+
+	policyAllows := func(field waasv1alpha1.OverridableField) bool {
+		if pol == nil || pol.Spec.Overrides == nil {
+			return true
+		}
+		return slices.Contains(pol.Spec.Overrides.AllowedFields, field)
 	}
 	used := map[waasv1alpha1.OverridableField]bool{
 		waasv1alpha1.FieldEnv:                len(ov.Env) > 0,
@@ -388,9 +396,16 @@ func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTempl
 		waasv1alpha1.FieldProtocol:           ov.Protocol != "",
 	}
 	for field, set := range used {
-		if set && !tpl.Spec.FieldOverridable(field) {
+		if !set {
+			continue
+		}
+		if !isOwner && !tpl.Spec.FieldOverridable(field) {
 			return denyf(ReasonOverrideNotAllowed,
 				"template %q does not allow overriding %q (allowed: %v)", tpl.Name, field, allowedFields(tpl))
+		}
+		if !policyAllows(field) {
+			return denyf(ReasonOverrideNotAllowed,
+				"policy %q does not allow overriding %q (policy allows: %v)", pol.Name, field, pol.Spec.Overrides.AllowedFields)
 		}
 	}
 	if ov.Protocol != "" && tpl.Spec.ProtocolNamed(ov.Protocol) == nil {
@@ -398,6 +413,12 @@ func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTempl
 			"protocol %q is not declared by template %q", ov.Protocol, tpl.Name)
 	}
 	return nil
+}
+
+// RemoteWorkspacesAllowed reports whether the resolved policy opts its
+// users into the Remote Workspaces feature. Nil policy = denied.
+func RemoteWorkspacesAllowed(pol *waasv1alpha1.WorkspacePolicy) bool {
+	return pol != nil && pol.Spec.RemoteWorkspaces
 }
 
 func allowedFields(tpl *waasv1alpha1.WorkspaceTemplate) []waasv1alpha1.OverridableField {
