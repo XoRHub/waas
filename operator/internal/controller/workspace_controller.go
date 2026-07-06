@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -21,7 +22,6 @@ import (
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/internal/kubevirt"
-	"github.com/xorhub/waas/operator/pkg/policy"
 )
 
 const (
@@ -55,6 +55,7 @@ type WorkspaceReconciler struct {
 // +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspaces/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspacetemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -144,6 +145,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			st.OS = tpl.Spec.OS
 			st.PVCName = pvcName
 			st.Address, st.Port, st.Protocol = "", 0, ""
+			st.Protocols = nil
 			setCondition(st, metav1.ConditionFalse, "Paused", "workspace is paused; home volume retained")
 		}); err != nil {
 			return ctrl.Result{}, err
@@ -156,7 +158,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if tpl.Spec.OS == waasv1alpha1.OSWindows {
 		ready, err = r.ensureVirtualMachine(ctx, ws, tpl, pvcName)
 	} else {
-		ready, err = r.ensurePod(ctx, ws, tpl, pvcName)
+		ready, err = r.ensureWorkload(ctx, ws, tpl, pvcName)
 	}
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
@@ -174,8 +176,16 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		st.OS = tpl.Spec.OS
 		st.PVCName = pvcName
 		st.Address = fmt.Sprintf("%s.%s.svc.cluster.local", computeName(ws), ws.Namespace)
-		st.Port = tpl.Spec.DesktopPort()
-		st.Protocol = tpl.Spec.Protocol()
+		def := effectiveProtocol(ws, tpl)
+		st.Port = def.Port
+		st.Protocol = def.Name
+		protocols := tpl.Spec.EffectiveProtocols()
+		st.Protocols = make([]waasv1alpha1.WorkspaceProtocolStatus, 0, len(protocols))
+		for _, p := range protocols {
+			st.Protocols = append(st.Protocols, waasv1alpha1.WorkspaceProtocolStatus{
+				Name: p.Name, Port: p.Port, Default: p.Name == def.Name,
+			})
+		}
 		if ready {
 			setCondition(st, metav1.ConditionTrue, "WorkspaceReady", "desktop is up and reachable")
 		} else {
@@ -196,22 +206,31 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return ctrl.Result{}, nil
 }
 
-// computeExists reports whether the workspace already has its pod (linux)
-// or VM (windows) — i.e. whether capacity was already granted.
+// computeExists reports whether the workspace already has its workload
+// (linux) or VM (windows) — i.e. whether capacity was already granted.
 func (r *WorkspaceReconciler) computeExists(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) (bool, error) {
 	name := types.NamespacedName{Namespace: ws.Namespace, Name: computeName(ws)}
-	var err error
 	if tpl.Spec.OS == waasv1alpha1.OSWindows {
 		vm := &unstructured.Unstructured{}
 		vm.SetGroupVersionKind(kubevirt.VirtualMachineGVK)
-		err = r.Get(ctx, name, vm)
-	} else {
-		err = r.Get(ctx, name, &corev1.Pod{})
+		err := r.Get(ctx, name, vm)
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return err == nil, err
 	}
-	if apierrors.IsNotFound(err) {
-		return false, nil
+	// Any linux workload kind counts: capacity granted under a previous
+	// template workload kind must stay grandfathered.
+	for _, obj := range []client.Object{&appsv1.Deployment{}, &appsv1.StatefulSet{}, &corev1.Pod{}} {
+		err := r.Get(ctx, name, obj)
+		if err == nil {
+			return true, nil
+		}
+		if !apierrors.IsNotFound(err) {
+			return false, err
+		}
 	}
-	return err == nil, err
+	return false, nil
 }
 
 // ensureHomePVC creates the user-state volume if missing. Idempotent, and the
@@ -251,7 +270,8 @@ func (r *WorkspaceReconciler) ensureHomePVC(ctx context.Context, ws *waasv1alpha
 	return name, nil
 }
 
-// ensurePod creates the linux desktop pod if missing and reports readiness.
+// ensurePod creates a bare desktop pod (workload kind "Pod") if missing and
+// reports readiness. Deployment/StatefulSet variants live in workload.go.
 func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string) (bool, error) {
 	name := computeName(ws)
 	existing := &corev1.Pod{}
@@ -263,64 +283,14 @@ func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Wo
 		return false, fmt.Errorf("fetching pod %s: %w", name, err)
 	}
 
-	resources := tpl.Spec.Resources
-	if ws.Spec.Resources != nil {
-		resources = *ws.Spec.Resources
-	}
-
-	// Multi-arch scheduling: the catalog entry knows which architectures
-	// the image is published for (amd64 workers vs arm64 control-plane
-	// side); missing catalog entry means no constraint (pre-governance).
-	var affinity *corev1.Affinity
-	catalog := &waasv1alpha1.WorkspaceImageList{}
-	if err := r.List(ctx, catalog, client.InNamespace(ws.Namespace)); err == nil {
-		if img := policy.FindImage(catalog.Items, tpl.Spec.Image); img != nil {
-			affinity = archAffinity(img.Spec.Architectures)
-		}
-	}
-
-	port := tpl.Spec.DesktopPort()
+	template := r.buildPodTemplate(ctx, ws, tpl, pvcName)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ws.Namespace,
 			Labels:    workspaceLabels(ws),
 		},
-		Spec: corev1.PodSpec{
-			RestartPolicy: corev1.RestartPolicyAlways,
-			Affinity:      affinity,
-			Containers: []corev1.Container{{
-				Name:      "desktop",
-				Image:     tpl.Spec.Image,
-				Env:       tpl.Spec.Env,
-				Resources: resources,
-				Ports:     []corev1.ContainerPort{{Name: "desktop", ContainerPort: port}},
-				VolumeMounts: []corev1.VolumeMount{{
-					Name:      "home",
-					MountPath: homeMountPath,
-				}},
-				ReadinessProbe: &corev1.Probe{
-					ProbeHandler: corev1.ProbeHandler{
-						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
-					},
-					InitialDelaySeconds: 5,
-					PeriodSeconds:       5,
-				},
-				LivenessProbe: &corev1.Probe{
-					ProbeHandler: corev1.ProbeHandler{
-						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
-					},
-					InitialDelaySeconds: 30,
-					PeriodSeconds:       10,
-				},
-			}},
-			Volumes: []corev1.Volume{{
-				Name: "home",
-				VolumeSource: corev1.VolumeSource{
-					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: pvcName},
-				},
-			}},
-		},
+		Spec: template.Spec,
 	}
 	if err := controllerutil.SetControllerReference(ws, pod, r.Scheme()); err != nil {
 		return false, fmt.Errorf("setting owner on pod %s: %w", name, err)
@@ -423,7 +393,15 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 		return fmt.Errorf("fetching service %s: %w", name, err)
 	}
 
-	port := tpl.Spec.DesktopPort()
+	protocols := tpl.Spec.EffectiveProtocols()
+	ports := make([]corev1.ServicePort, 0, len(protocols))
+	for _, p := range protocols {
+		ports = append(ports, corev1.ServicePort{
+			Name:       p.Name,
+			Port:       p.Port,
+			TargetPort: intstr.FromInt32(p.Port),
+		})
+	}
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -433,11 +411,7 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeClusterIP,
 			Selector: map[string]string{labelWorkspace: ws.Name},
-			Ports: []corev1.ServicePort{{
-				Name:       "desktop",
-				Port:       port,
-				TargetPort: intstr.FromInt32(port),
-			}},
+			Ports:    ports,
 		},
 	}
 	if err := controllerutil.SetControllerReference(ws, svc, r.Scheme()); err != nil {
@@ -449,8 +423,10 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 	return nil
 }
 
-// teardownCompute removes the pod or VM of a paused workspace, keeping PVC
-// and service (the service simply has no endpoints while paused).
+// teardownCompute removes the workload or VM of a paused workspace, keeping
+// PVC and service (the service simply has no endpoints while paused). All
+// linux workload kinds are deleted so pausing also cleans up after a
+// template workload-kind change.
 func (r *WorkspaceReconciler) teardownCompute(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) error {
 	name := computeName(ws)
 	if tpl.Spec.OS == waasv1alpha1.OSWindows {
@@ -463,9 +439,15 @@ func (r *WorkspaceReconciler) teardownCompute(ctx context.Context, ws *waasv1alp
 		}
 		return nil
 	}
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: ws.Namespace, Name: name}}
-	if err := r.Delete(ctx, pod); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("deleting pod %s: %w", name, err)
+	meta := metav1.ObjectMeta{Namespace: ws.Namespace, Name: name}
+	for _, obj := range []client.Object{
+		&appsv1.Deployment{ObjectMeta: meta},
+		&appsv1.StatefulSet{ObjectMeta: meta},
+		&corev1.Pod{ObjectMeta: meta},
+	} {
+		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting %T %s: %w", obj, name, err)
+		}
 	}
 	return nil
 }
@@ -543,6 +525,8 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&waasv1alpha1.Workspace{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&corev1.Pod{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Named("workspace").
 		Complete(r)

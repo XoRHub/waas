@@ -57,15 +57,16 @@ func IdentityOf(ws *waasv1alpha1.Workspace) Identity {
 type Reason string
 
 const (
-	ReasonNoPolicy          Reason = "NoPolicyMatches"
-	ReasonImageNotInCatalog Reason = "ImageNotInCatalog"
-	ReasonImageDisabled     Reason = "ImageDisabled"
-	ReasonImageNotAllowed   Reason = "ImageNotAllowed"
-	ReasonProtocolMismatch  Reason = "ProtocolMismatch"
-	ReasonResourcesInvalid  Reason = "ResourcesOutOfBounds"
-	ReasonQuotaExceeded     Reason = "QuotaExceeded"
-	ReasonIdentityViolation Reason = "IdentityViolation"
-	ReasonInternalError     Reason = "PolicyCheckFailed"
+	ReasonNoPolicy           Reason = "NoPolicyMatches"
+	ReasonImageNotInCatalog  Reason = "ImageNotInCatalog"
+	ReasonImageDisabled      Reason = "ImageDisabled"
+	ReasonImageNotAllowed    Reason = "ImageNotAllowed"
+	ReasonProtocolMismatch   Reason = "ProtocolMismatch"
+	ReasonResourcesInvalid   Reason = "ResourcesOutOfBounds"
+	ReasonQuotaExceeded      Reason = "QuotaExceeded"
+	ReasonIdentityViolation  Reason = "IdentityViolation"
+	ReasonOverrideNotAllowed Reason = "OverrideNotAllowed"
+	ReasonInternalError      Reason = "PolicyCheckFailed"
 )
 
 // Denial is a policy rejection with an operator-friendly reason code and
@@ -327,15 +328,60 @@ func CheckLimits(load Load, computeKnown bool, img *waasv1alpha1.WorkspaceImage,
 	return nil
 }
 
-// CheckProtocol ensures the template's desktop protocol is one the
+// CheckProtocol ensures every protocol the template declares is one the
 // catalog entry actually serves.
 func CheckProtocol(tpl *waasv1alpha1.WorkspaceTemplate, img *waasv1alpha1.WorkspaceImage) *Denial {
-	proto := waasv1alpha1.Protocol(tpl.Spec.Protocol())
-	if !slices.Contains(img.Spec.Protocols, proto) {
-		return denyf(ReasonProtocolMismatch,
-			"template %q uses protocol %q but image %q only serves %v", tpl.Name, proto, img.Name, img.Spec.Protocols)
+	for _, p := range tpl.Spec.EffectiveProtocols() {
+		if !slices.Contains(img.Spec.Protocols, waasv1alpha1.Protocol(p.Name)) {
+			return denyf(ReasonProtocolMismatch,
+				"template %q uses protocol %q but image %q only serves %v", tpl.Name, p.Name, img.Name, img.Spec.Protocols)
+		}
 	}
 	return nil
+}
+
+// CheckOverrides verifies that the creator is entitled to every override
+// the workspace carries. Platform admins (role annotation, only trusted
+// writers can set it) and the template owner may override anything;
+// everyone else only the template's allowed fields.
+func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, id Identity) *Denial {
+	ov := ws.Spec.Overrides
+	if ov == nil {
+		return nil
+	}
+	if ws.Annotations[waasv1alpha1.AnnotationRole] == "admin" {
+		return nil
+	}
+	if tpl.Spec.Overrides != nil && tpl.Spec.Overrides.Owner != "" && tpl.Spec.Overrides.Owner == id.Username {
+		return nil
+	}
+	used := map[waasv1alpha1.OverridableField]bool{
+		waasv1alpha1.FieldEnv:                len(ov.Env) > 0,
+		waasv1alpha1.FieldSecurityContext:    ov.SecurityContext != nil,
+		waasv1alpha1.FieldPodSecurityContext: ov.PodSecurityContext != nil,
+		waasv1alpha1.FieldVolumes:            len(ov.Volumes) > 0 || len(ov.VolumeMounts) > 0,
+		waasv1alpha1.FieldNodeSelector:       len(ov.NodeSelector) > 0,
+		waasv1alpha1.FieldTolerations:        len(ov.Tolerations) > 0,
+		waasv1alpha1.FieldProtocol:           ov.Protocol != "",
+	}
+	for field, set := range used {
+		if set && !tpl.Spec.FieldOverridable(field) {
+			return denyf(ReasonOverrideNotAllowed,
+				"template %q does not allow overriding %q (allowed: %v)", tpl.Name, field, allowedFields(tpl))
+		}
+	}
+	if ov.Protocol != "" && tpl.Spec.ProtocolNamed(ov.Protocol) == nil {
+		return denyf(ReasonProtocolMismatch,
+			"protocol %q is not declared by template %q", ov.Protocol, tpl.Name)
+	}
+	return nil
+}
+
+func allowedFields(tpl *waasv1alpha1.WorkspaceTemplate) []waasv1alpha1.OverridableField {
+	if tpl.Spec.Overrides == nil {
+		return nil
+	}
+	return tpl.Spec.Overrides.AllowedFields
 }
 
 func nonEmpty(a, b string) string {

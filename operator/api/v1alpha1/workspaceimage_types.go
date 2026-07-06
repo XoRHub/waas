@@ -6,12 +6,13 @@ import (
 )
 
 // Protocol is a desktop protocol a workspace image can serve.
-// +kubebuilder:validation:Enum=vnc;rdp
+// +kubebuilder:validation:Enum=vnc;rdp;ssh
 type Protocol string
 
 const (
 	ProtocolVNC Protocol = "vnc"
 	ProtocolRDP Protocol = "rdp"
+	ProtocolSSH Protocol = "ssh"
 )
 
 // WorkspaceImageSpec is one admin-approved catalog entry. Only images

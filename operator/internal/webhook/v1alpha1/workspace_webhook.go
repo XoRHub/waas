@@ -95,7 +95,7 @@ func (v *WorkspaceValidator) validate(ctx context.Context, oldWS, ws *waasv1alph
 			return nil, v.deny(ws, policy.ReasonIdentityViolation,
 				fmt.Sprintf("spec.owner is immutable (was %q); a workspace cannot change hands", oldWS.Spec.Owner))
 		}
-		for _, ann := range []string{waasv1alpha1.AnnotationUsername, waasv1alpha1.AnnotationGroups} {
+		for _, ann := range []string{waasv1alpha1.AnnotationUsername, waasv1alpha1.AnnotationGroups, waasv1alpha1.AnnotationRole} {
 			if ws.Annotations[ann] != oldWS.Annotations[ann] {
 				return nil, v.deny(ws, policy.ReasonIdentityViolation,
 					fmt.Sprintf("identity annotation %s is immutable", ann))
@@ -213,6 +213,9 @@ func (v *WorkspaceValidator) enforce(ctx context.Context, ws *waasv1alpha1.Works
 		return warnings, d
 	}
 	if d := policy.CheckProtocol(tpl, img); d != nil {
+		return warnings, d
+	}
+	if d := policy.CheckOverrides(ws, tpl, id); d != nil {
 		return warnings, d
 	}
 

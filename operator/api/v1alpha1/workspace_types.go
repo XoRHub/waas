@@ -47,6 +47,49 @@ type WorkspaceSpec struct {
 	// Resources overrides the template resources for this workspace only.
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// Overrides are creator-supplied deviations from the template pod
+	// spec. The admission webhook rejects any field the template's
+	// override policy does not allow for this creator.
+	// +optional
+	Overrides *WorkspaceOverrides `json:"overrides,omitempty"`
+}
+
+// WorkspaceOverrides mirrors the template's workload passthrough for the
+// fields a creator is allowed to change or extend.
+type WorkspaceOverrides struct {
+	// Env entries are merged over the template's env (same name wins).
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// SecurityContext replaces the template container security context.
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+
+	// PodSecurityContext replaces the template pod security context.
+	// +optional
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+
+	// Volumes are appended to the template volumes (same name wins).
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+
+	// VolumeMounts are appended to the template mounts (same name wins).
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+
+	// NodeSelector entries are merged over the template's.
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// Tolerations are appended to the template's.
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+
+	// Protocol picks this workspace's default protocol among the
+	// template's declared protocols.
+	// +optional
+	Protocol string `json:"protocol,omitempty"`
 }
 
 // WorkspaceStatus is the observed state, written exclusively via the status
@@ -72,9 +115,14 @@ type WorkspaceStatus struct {
 	// +optional
 	Port int32 `json:"port,omitempty"`
 
-	// Protocol is the guacamole protocol ("vnc" or "rdp").
+	// Protocol is the default guacamole protocol for this workspace.
 	// +optional
 	Protocol string `json:"protocol,omitempty"`
+
+	// Protocols are all protocols the workspace serves, resolved from the
+	// template at provisioning time.
+	// +optional
+	Protocols []WorkspaceProtocolStatus `json:"protocols,omitempty"`
 
 	// PVCName is the persistent home volume backing this workspace.
 	// +optional
@@ -85,6 +133,15 @@ type WorkspaceStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// WorkspaceProtocolStatus is one protocol endpoint of a running workspace.
+type WorkspaceProtocolStatus struct {
+	Name string `json:"name"`
+	Port int32  `json:"port"`
+	// Default marks the protocol used when the user picks none.
+	// +optional
+	Default bool `json:"default,omitempty"`
 }
 
 // +kubebuilder:object:root=true

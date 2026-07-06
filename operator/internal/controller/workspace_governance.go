@@ -66,6 +66,11 @@ func (r *WorkspaceReconciler) evaluateGovernance(ctx context.Context, ws *waasv1
 	if d := policy.CheckProtocol(tpl, img); d != nil {
 		return pol, d
 	}
+	// Deferred-template case: the webhook admitted the workspace before
+	// its template existed, so overrides were never vetted against it.
+	if d := policy.CheckOverrides(ws, tpl, id); d != nil {
+		return pol, d
+	}
 
 	load, known := policy.LoadOf(ws, tpl, img)
 	others, err := r.siblingLoads(ctx, ws, catalog.Items)

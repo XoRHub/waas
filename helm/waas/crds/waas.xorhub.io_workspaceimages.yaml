@@ -111,6 +111,7 @@ spec:
                   enum:
                   - vnc
                   - rdp
+                  - ssh
                   type: string
                 minItems: 1
                 type: array

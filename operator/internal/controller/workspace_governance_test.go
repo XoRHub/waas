@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -81,11 +82,11 @@ func TestReconcileAppliesArchAffinity(t *testing.T) {
 
 	reconcile(t, r, ws)
 
-	pod := &corev1.Pod{}
-	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "ws-marc"}, pod); err != nil {
+	dep := &appsv1.Deployment{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
 		t.Fatal(err)
 	}
-	terms := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	terms := dep.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
 	if len(terms) != 1 || terms[0].MatchExpressions[0].Key != "kubernetes.io/arch" || terms[0].MatchExpressions[0].Values[0] != "amd64" {
 		t.Fatalf("expected amd64 node affinity, got %+v", terms)
 	}
@@ -113,14 +114,11 @@ func TestReconcileRequeuesAtTTLExpiry(t *testing.T) {
 	ws := workspace()
 	ws.CreationTimestamp = metav1.NewTime(time.Now())
 	ttl := &waasv1alpha1.PolicyLifecycle{MaxLifetime: &metav1.Duration{Duration: 24 * time.Hour}}
-	pod := &corev1.Pod{
+	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "ws-marc", Namespace: "default"},
-		Status: corev1.PodStatus{
-			Phase:      corev1.PodRunning,
-			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
-		},
+		Status:     appsv1.DeploymentStatus{ReadyReplicas: 1},
 	}
-	r, _ := newFixture(t, linuxTemplate(), ws, pod, catalogEntry(true), openPolicy(ttl))
+	r, _ := newFixture(t, linuxTemplate(), ws, dep, catalogEntry(true), openPolicy(ttl))
 
 	res := reconcile(t, r, ws)
 	if res.RequeueAfter < 23*time.Hour || res.RequeueAfter > 24*time.Hour {

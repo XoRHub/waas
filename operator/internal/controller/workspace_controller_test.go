@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,7 +36,7 @@ func newFixture(t *testing.T, objs ...client.Object) (*WorkspaceReconciler, clie
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objs...).
-		WithStatusSubresource(&waasv1alpha1.Workspace{}).
+		WithStatusSubresource(&waasv1alpha1.Workspace{}, &appsv1.Deployment{}, &appsv1.StatefulSet{}).
 		Build()
 	return &WorkspaceReconciler{Client: c}, c
 }
@@ -90,12 +91,15 @@ func TestReconcileProvisionsLinuxWorkspace(t *testing.T) {
 		t.Fatalf("home PVC must not be owned by the workspace (state survives deletion)")
 	}
 
-	pod := &corev1.Pod{}
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, pod); err != nil {
-		t.Fatalf("expected desktop pod: %v", err)
+	dep := &appsv1.Deployment{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatalf("expected desktop deployment: %v", err)
 	}
-	if pod.Spec.Containers[0].Ports[0].ContainerPort != 5901 {
-		t.Fatalf("expected default VNC port 5901, got %d", pod.Spec.Containers[0].Ports[0].ContainerPort)
+	if dep.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType {
+		t.Fatalf("desktop deployment must use Recreate (RWO home volume), got %s", dep.Spec.Strategy.Type)
+	}
+	if dep.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort != 5901 {
+		t.Fatalf("expected default VNC port 5901, got %d", dep.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort)
 	}
 
 	svc := &corev1.Service{}
@@ -125,14 +129,13 @@ func TestReconcileReportsRunningWhenPodReady(t *testing.T) {
 
 	reconcile(t, r, ws)
 
-	pod := &corev1.Pod{}
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, pod); err != nil {
-		t.Fatalf("fetching pod: %v", err)
+	dep := &appsv1.Deployment{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatalf("fetching deployment: %v", err)
 	}
-	pod.Status.Phase = corev1.PodRunning
-	pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
-	if err := c.Status().Update(ctx, pod); err != nil {
-		t.Fatalf("updating pod status: %v", err)
+	dep.Status.ReadyReplicas = 1
+	if err := c.Status().Update(ctx, dep); err != nil {
+		t.Fatalf("updating deployment status: %v", err)
 	}
 
 	if res := reconcile(t, r, ws); res.RequeueAfter != 0 {
@@ -166,10 +169,10 @@ func TestReconcilePausedDeletesPodKeepsPVC(t *testing.T) {
 
 	reconcile(t, r, got)
 
-	pod := &corev1.Pod{}
-	err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, pod)
+	dep := &appsv1.Deployment{}
+	err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep)
 	if !apierrors.IsNotFound(err) {
-		t.Fatalf("expected pod to be deleted while paused, got err=%v", err)
+		t.Fatalf("expected deployment to be deleted while paused, got err=%v", err)
 	}
 	pvc := &corev1.PersistentVolumeClaim{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc-home"}, pvc); err != nil {
@@ -183,6 +186,83 @@ func TestReconcilePausedDeletesPodKeepsPVC(t *testing.T) {
 		t.Fatalf("expected Stopped, got %s", got.Status.Phase)
 	}
 }
+
+func TestReconcileLegacyPodWorkloadKind(t *testing.T) {
+	tpl := linuxTemplate()
+	tpl.Spec.Workload = &waasv1alpha1.WorkspaceWorkload{Kind: waasv1alpha1.WorkloadPod}
+	ws := workspace()
+	r, c := newFixture(t, tpl, ws)
+
+	reconcile(t, r, ws)
+
+	pod := &corev1.Pod{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "ws-marc"}, pod); err != nil {
+		t.Fatalf("workload kind Pod must create a bare pod: %v", err)
+	}
+}
+
+func TestReconcileMultiProtocolServiceAndStatus(t *testing.T) {
+	tpl := linuxTemplate()
+	tpl.Spec.Workload = &waasv1alpha1.WorkspaceWorkload{
+		SecurityContext: &corev1.SecurityContext{RunAsUser: ptrInt64(1000)},
+		NodeSelector:    map[string]string{"zone": "a"},
+	}
+	tpl.Spec.Env = []corev1.EnvVar{{Name: "VNC_PW", Value: "tpl"}, {Name: "KEEP", Value: "yes"}}
+	tpl.Spec.Protocols = []waasv1alpha1.WorkspaceProtocol{
+		{Name: "vnc", Port: 5901},
+		{Name: "ssh", Port: 2222, Default: true},
+	}
+	ws := workspace()
+	ws.Spec.Overrides = &waasv1alpha1.WorkspaceOverrides{
+		Env:      []corev1.EnvVar{{Name: "VNC_PW", Value: "override"}},
+		Protocol: "vnc",
+	}
+	r, c := newFixture(t, tpl, ws)
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+
+	svc := &corev1.Service{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, svc); err != nil {
+		t.Fatal(err)
+	}
+	if len(svc.Spec.Ports) != 2 {
+		t.Fatalf("expected one service port per protocol, got %+v", svc.Spec.Ports)
+	}
+
+	dep := &appsv1.Deployment{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatal(err)
+	}
+	podSpec := dep.Spec.Template.Spec
+	if podSpec.Containers[0].SecurityContext == nil || *podSpec.Containers[0].SecurityContext.RunAsUser != 1000 {
+		t.Fatalf("template security context must reach the container, got %+v", podSpec.Containers[0].SecurityContext)
+	}
+	if podSpec.NodeSelector["zone"] != "a" {
+		t.Fatalf("template nodeSelector must reach the pod, got %+v", podSpec.NodeSelector)
+	}
+	env := map[string]string{}
+	for _, e := range podSpec.Containers[0].Env {
+		env[e.Name] = e.Value
+	}
+	if env["VNC_PW"] != "override" || env["KEEP"] != "yes" {
+		t.Fatalf("override env must win by name and keep the rest, got %v", env)
+	}
+
+	got := &waasv1alpha1.Workspace{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, got); err != nil {
+		t.Fatal(err)
+	}
+	// The workspace picked vnc over the template's ssh default.
+	if got.Status.Protocol != "vnc" || got.Status.Port != 5901 {
+		t.Fatalf("expected vnc/5901 default, got %s/%d", got.Status.Protocol, got.Status.Port)
+	}
+	if len(got.Status.Protocols) != 2 {
+		t.Fatalf("expected both protocols in status, got %+v", got.Status.Protocols)
+	}
+}
+
+func ptrInt64(v int64) *int64 { return &v }
 
 func TestReconcileWindowsWithoutKubeVirtFailsLoudly(t *testing.T) {
 	tpl := linuxTemplate()

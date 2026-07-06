@@ -238,4 +238,62 @@ func TestCheckProtocol(t *testing.T) {
 	if d := CheckProtocol(vncTpl, &image); d != nil {
 		t.Fatalf("vnc should pass: %v", d)
 	}
+	multiTpl := &waasv1alpha1.WorkspaceTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "multi"},
+		Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			OS: waasv1alpha1.OSLinux,
+			Protocols: []waasv1alpha1.WorkspaceProtocol{
+				{Name: "vnc", Port: 5901},
+				{Name: "ssh", Port: 2222},
+			},
+		},
+	}
+	if d := CheckProtocol(multiTpl, &image); d == nil || d.Reason != ReasonProtocolMismatch {
+		t.Fatalf("every declared protocol must be served by the image, got %v", d)
+	}
+}
+
+func TestCheckOverrides(t *testing.T) {
+	tpl := &waasv1alpha1.WorkspaceTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "xfce"},
+		Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			OS: waasv1alpha1.OSLinux,
+			Overrides: &waasv1alpha1.TemplateOverrides{
+				AllowedFields: []waasv1alpha1.OverridableField{waasv1alpha1.FieldEnv},
+				Owner:         "alice",
+			},
+		},
+	}
+	envOnly := &waasv1alpha1.WorkspaceOverrides{Env: []corev1.EnvVar{{Name: "FOO", Value: "1"}}}
+	withVolumes := &waasv1alpha1.WorkspaceOverrides{Volumes: []corev1.Volume{{Name: "scratch"}}}
+
+	ws := func(ov *waasv1alpha1.WorkspaceOverrides, anns map[string]string) *waasv1alpha1.Workspace {
+		return &waasv1alpha1.Workspace{
+			ObjectMeta: metav1.ObjectMeta{Name: "w", Annotations: anns},
+			Spec:       waasv1alpha1.WorkspaceSpec{Overrides: ov},
+		}
+	}
+	bob := Identity{Owner: "u1", Username: "bob"}
+
+	if d := CheckOverrides(ws(nil, nil), tpl, bob); d != nil {
+		t.Fatalf("no overrides must always pass: %v", d)
+	}
+	if d := CheckOverrides(ws(envOnly, nil), tpl, bob); d != nil {
+		t.Fatalf("allowed field must pass: %v", d)
+	}
+	if d := CheckOverrides(ws(withVolumes, nil), tpl, bob); d == nil || d.Reason != ReasonOverrideNotAllowed {
+		t.Fatalf("volumes are not allowed for bob, got %v", d)
+	}
+	if d := CheckOverrides(ws(withVolumes, nil), tpl, Identity{Owner: "u2", Username: "alice"}); d != nil {
+		t.Fatalf("template owner may override anything: %v", d)
+	}
+	adminAnn := map[string]string{waasv1alpha1.AnnotationRole: "admin"}
+	if d := CheckOverrides(ws(withVolumes, adminAnn), tpl, bob); d != nil {
+		t.Fatalf("platform admin may override anything: %v", d)
+	}
+	badProto := &waasv1alpha1.WorkspaceOverrides{Protocol: "rdp"}
+	tpl.Spec.Overrides.AllowedFields = append(tpl.Spec.Overrides.AllowedFields, waasv1alpha1.FieldProtocol)
+	if d := CheckOverrides(ws(badProto, nil), tpl, bob); d == nil || d.Reason != ReasonProtocolMismatch {
+		t.Fatalf("undeclared protocol must be rejected, got %v", d)
+	}
 }

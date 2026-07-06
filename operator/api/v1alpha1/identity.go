@@ -16,4 +16,10 @@ const (
 	// AnnotationGroups is the comma-separated list of Authentik groups
 	// the owner belonged to at creation time.
 	AnnotationGroups = "waas.xorhub.io/groups"
+
+	// AnnotationRole is the platform role ("admin" or "user") of the
+	// owner at creation time. Platform admins may override any template
+	// field; the webhook trusts this only from trusted writers, like the
+	// other identity annotations.
+	AnnotationRole = "waas.xorhub.io/role"
 )

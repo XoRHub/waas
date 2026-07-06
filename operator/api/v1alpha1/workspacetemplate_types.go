@@ -15,6 +15,116 @@ const (
 	OSWindows OSType = "windows"
 )
 
+// WorkloadKind selects which Kubernetes workload carries the desktop pod.
+// +kubebuilder:validation:Enum=Deployment;StatefulSet;Pod
+type WorkloadKind string
+
+const (
+	WorkloadDeployment  WorkloadKind = "Deployment"
+	WorkloadStatefulSet WorkloadKind = "StatefulSet"
+	WorkloadPod         WorkloadKind = "Pod"
+)
+
+// OverridableField names one template facet that workspace creators may be
+// allowed to override at instantiation time.
+// +kubebuilder:validation:Enum=env;securityContext;podSecurityContext;volumes;nodeSelector;tolerations;resources;protocol;protocolParams
+type OverridableField string
+
+const (
+	FieldEnv                OverridableField = "env"
+	FieldSecurityContext    OverridableField = "securityContext"
+	FieldPodSecurityContext OverridableField = "podSecurityContext"
+	FieldVolumes            OverridableField = "volumes"
+	FieldNodeSelector       OverridableField = "nodeSelector"
+	FieldTolerations        OverridableField = "tolerations"
+	FieldResources          OverridableField = "resources"
+	FieldProtocol           OverridableField = "protocol"
+	FieldProtocolParams     OverridableField = "protocolParams"
+)
+
+// WorkspaceWorkload shapes the workload wrapping the desktop container,
+// beyond image and resources: how it is deployed and with which pod spec.
+type WorkspaceWorkload struct {
+	// Kind is the workload type stamping the desktop pod. Defaults to
+	// Deployment; Pod keeps the legacy bare-pod behavior, StatefulSet
+	// gives stable identity for stateful desktop stacks.
+	// +optional
+	Kind WorkloadKind `json:"kind,omitempty"`
+
+	// SecurityContext is the desktop container's security context.
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+
+	// PodSecurityContext is the pod-level security context.
+	// +optional
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+
+	// Volumes are extra volumes added to the pod (the home PVC is always
+	// mounted independently of this list).
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+
+	// VolumeMounts are extra mounts on the desktop container, matching
+	// entries in Volumes.
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+
+	// NodeSelector constrains scheduling of the desktop pod.
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// Tolerations of the desktop pod.
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+
+	// ServiceAccountName runs the desktop pod under a specific SA.
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+}
+
+// WorkspaceProtocol declares one way to reach the desktop, described in
+// guacd terms: a protocol name, the port the workspace serves it on, and
+// the guacd connection parameters to use.
+type WorkspaceProtocol struct {
+	// Name is the guacamole protocol identifier.
+	// +kubebuilder:validation:Enum=vnc;rdp;ssh
+	Name string `json:"name"`
+
+	// Port the workspace serves this protocol on.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port"`
+
+	// Default marks the protocol used when the user does not choose one.
+	// The first entry wins when no entry is marked.
+	// +optional
+	Default bool `json:"default,omitempty"`
+
+	// Params are guacd connection parameters for this protocol (e.g.
+	// color-depth, security, enable-sftp). hostname/port/width/height/dpi
+	// are always managed by the platform and ignored here.
+	// +optional
+	Params map[string]string `json:"params,omitempty"`
+
+	// UserParams lists the guacd parameter names users may set or
+	// override when connecting. Anything not listed is locked to Params.
+	// +optional
+	UserParams []string `json:"userParams,omitempty"`
+}
+
+// TemplateOverrides controls what workspace creators may deviate from the
+// template. Platform admins may always override everything.
+type TemplateOverrides struct {
+	// AllowedFields users may override when instantiating a workspace.
+	// +optional
+	AllowedFields []OverridableField `json:"allowedFields,omitempty"`
+
+	// Owner is the platform username owning this template: that user may
+	// override any field on workspaces stamped from it, like an admin.
+	// +optional
+	Owner string `json:"owner,omitempty"`
+}
+
 // WorkspaceTemplateSpec defines the desired shape of workspaces stamped from
 // this template. Templates are cluster-side configuration ("workspaces as
 // code"): admins manage them via kubectl/GitOps or through the API server,
@@ -61,25 +171,97 @@ type WorkspaceTemplateSpec struct {
 	// Env is extra environment injected into linux workspace pods.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// Workload shapes how the desktop is deployed (Deployment by default)
+	// and the pod spec passthrough (security contexts, volumes, ...).
+	// +optional
+	Workload *WorkspaceWorkload `json:"workload,omitempty"`
+
+	// Protocols are the connection protocols this workspace serves. When
+	// empty, one protocol is synthesized from OS and Port (linux → vnc,
+	// windows → rdp) to keep older templates working unchanged.
+	// +optional
+	Protocols []WorkspaceProtocol `json:"protocols,omitempty"`
+
+	// Overrides declares which fields workspace creators may override.
+	// Absent means nothing is overridable except by admins.
+	// +optional
+	Overrides *TemplateOverrides `json:"overrides,omitempty"`
 }
 
-// DesktopPort returns the effective desktop port for this template.
+// DesktopPort returns the effective default desktop port for this template.
 func (s *WorkspaceTemplateSpec) DesktopPort() int32 {
-	if s.Port != 0 {
-		return s.Port
-	}
-	if s.OS == OSWindows {
-		return 3389
-	}
-	return 5901
+	return s.DefaultProtocol().Port
 }
 
-// Protocol returns the guacamole protocol matching the template OS.
+// Protocol returns the default guacamole protocol of this template.
 func (s *WorkspaceTemplateSpec) Protocol() string {
-	if s.OS == OSWindows {
-		return "rdp"
+	return s.DefaultProtocol().Name
+}
+
+// EffectiveProtocols returns the declared protocols, or the single
+// OS-derived legacy protocol when the template declares none.
+func (s *WorkspaceTemplateSpec) EffectiveProtocols() []WorkspaceProtocol {
+	if len(s.Protocols) > 0 {
+		return s.Protocols
 	}
-	return "vnc"
+	port := s.Port
+	name := "vnc"
+	if s.OS == OSWindows {
+		name = "rdp"
+	}
+	if port == 0 {
+		port = 5901
+		if s.OS == OSWindows {
+			port = 3389
+		}
+	}
+	return []WorkspaceProtocol{{Name: name, Port: port, Default: true}}
+}
+
+// DefaultProtocol returns the protocol used when the user picks none:
+// the first entry marked default, else the first entry.
+func (s *WorkspaceTemplateSpec) DefaultProtocol() WorkspaceProtocol {
+	protos := s.EffectiveProtocols()
+	for _, p := range protos {
+		if p.Default {
+			return p
+		}
+	}
+	return protos[0]
+}
+
+// ProtocolNamed returns the protocol entry with the given name, or nil.
+func (s *WorkspaceTemplateSpec) ProtocolNamed(name string) *WorkspaceProtocol {
+	protos := s.EffectiveProtocols()
+	for i := range protos {
+		if protos[i].Name == name {
+			return &protos[i]
+		}
+	}
+	return nil
+}
+
+// WorkloadKindOrDefault returns the workload kind, defaulting to Deployment.
+func (s *WorkspaceTemplateSpec) WorkloadKindOrDefault() WorkloadKind {
+	if s.Workload != nil && s.Workload.Kind != "" {
+		return s.Workload.Kind
+	}
+	return WorkloadDeployment
+}
+
+// FieldOverridable reports whether the template lets plain users override
+// the given field.
+func (s *WorkspaceTemplateSpec) FieldOverridable(field OverridableField) bool {
+	if s.Overrides == nil {
+		return false
+	}
+	for _, f := range s.Overrides.AllowedFields {
+		if f == field {
+			return true
+		}
+	}
+	return false
 }
 
 // +kubebuilder:object:root=true
