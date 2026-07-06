@@ -49,7 +49,8 @@
     "openWhereHint": "You can change this anytime from your profile.",
     "openSameTab": "This tab",
     "openNewTab": "New tab",
-    "rememberChoice": "Remember my choice"
+    "rememberChoice": "Remember my choice",
+    "deleteConfirm": "Delete this workspace? This cannot be undone from the portal."
   },
   "connect": {
     "connecting": "Connecting to your desktop…",

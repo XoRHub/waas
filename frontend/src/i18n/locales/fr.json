@@ -49,7 +49,8 @@
     "openWhereHint": "Modifiable à tout moment depuis votre profil.",
     "openSameTab": "Cet onglet",
     "openNewTab": "Nouvel onglet",
-    "rememberChoice": "Se souvenir de mon choix"
+    "rememberChoice": "Se souvenir de mon choix",
+    "deleteConfirm": "Supprimer cet espace de travail ? Cette action est irréversible depuis le portail."
   },
   "connect": {
     "connecting": "Connexion à votre bureau…",

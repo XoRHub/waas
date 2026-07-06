@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   useCatalog,
   useCreateWorkspace,
+  useDeleteWorkspace,
   useQuota,
   useTemplates,
   useUpdateProfile,
@@ -107,6 +108,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const action = useWorkspaceAction();
+  const remove = useDeleteWorkspace();
   const user = useAuthStore((s) => s.user);
   const updateProfile = useUpdateProfile();
   const [asking, setAsking] = useState(false);
@@ -161,6 +163,17 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
         >
           {workspace.paused ? t('portal.resume') : t('portal.pause')}
+        </button>
+        <button
+          onClick={() => {
+            if (window.confirm(t('portal.deleteConfirm'))) {
+              remove.mutate(workspace.id);
+            }
+          }}
+          disabled={remove.isPending}
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"
+        >
+          {t('app.delete')}
         </button>
       </div>
       {asking && <OpenChoiceDialog onChoice={onChoice} onClose={() => setAsking(false)} />}
