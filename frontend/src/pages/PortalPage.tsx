@@ -17,7 +17,7 @@ import {
 } from '@/hooks/useApi';
 import { StatusBadge } from '@/components/StatusBadge';
 import { UserMenu } from '@/components/UserMenu';
-import { ParamField, paramsFor } from '@/components/ParamField';
+import { ParamField, tieredParams } from '@/components/ParamField';
 import { useAuthStore } from '@/stores/authStore';
 import { templateAvailability } from '@/lib/templates';
 import { displayCpu, displayMemory, formatCpu, formatMemory, parseCpu, parseMemory } from '@/lib/quantity';
@@ -470,14 +470,16 @@ function ConnectionSettingsDialog({
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const selected = protocols.find((p) => p.name === protocol);
-  // Typed fields from the registry, simple tier first; the advanced tier
-  // appears on demand. Both stay inside the template's allow-list.
-  const tunable = paramsFor(
+  const isAdmin = user?.role === 'admin';
+  // Admins tune any non-platform param (matches the server's admin
+  // bypass); regular users stay inside the template's userParams
+  // allow-list. Simple tier is always shown, advanced behind the toggle.
+  const { simple, advanced } = tieredParams(
     meta.data?.data,
     protocol,
-    showAdvanced ? ['ui', 'advanced'] : ['ui'],
-    selected?.userParams ?? [],
+    isAdmin ? undefined : (selected?.userParams ?? []),
   );
+  const tunable = showAdvanced ? [...simple, ...advanced] : simple;
 
   const onSave = () => {
     const cleaned = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== ''));
@@ -540,7 +542,9 @@ function ConnectionSettingsDialog({
         ) : (
           <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.noTunableParams')}</p>
         )}
-        <AdvancedParamsToggle value={showAdvanced} onChange={setShowAdvanced} />
+        {advanced.length > 0 && (
+          <AdvancedParamsToggle value={showAdvanced} onChange={setShowAdvanced} />
+        )}
         {updateProfile.isError && (
           <p className="text-sm text-red-600">{updateProfile.error.message}</p>
         )}
@@ -752,12 +756,14 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   // advanced toggle adds the advanced tier. Non-admins stay inside the
   // template's userParams allow-list; admins may tune any non-platform
   // parameter (mirrors the server's admin bypass).
-  const creationParams = paramsFor(
+  const { simple: simpleCreationParams, advanced: advancedCreationParams } = tieredParams(
     meta.data?.data,
     effectiveProtocol,
-    showAdvancedParams ? ['ui', 'advanced'] : ['ui'],
     isAdmin ? undefined : (selectedProto?.userParams ?? []),
   );
+  const creationParams = showAdvancedParams
+    ? [...simpleCreationParams, ...advancedCreationParams]
+    : simpleCreationParams;
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -931,7 +937,9 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                 {t('portal.noTunableParams')}
               </p>
             )}
-            <AdvancedParamsToggle value={showAdvancedParams} onChange={setShowAdvancedParams} />
+            {advancedCreationParams.length > 0 && (
+              <AdvancedParamsToggle value={showAdvancedParams} onChange={setShowAdvancedParams} />
+            )}
           </fieldset>
         )}
 
@@ -1195,12 +1203,12 @@ function RemoteWorkspaceDialog({
 
   const defaultPorts: Record<string, string> = { ssh: '22', vnc: '5900', rdp: '3389' };
   // The user owns this machine: every non-platform parameter is tunable.
-  const fields = paramsFor(
+  const { simple: simpleFields, advanced: advancedFields } = tieredParams(
     meta.data?.data,
     protocol,
-    showAdvanced ? ['ui', 'advanced'] : ['ui'],
     undefined,
   );
+  const fields = showAdvanced ? [...simpleFields, ...advancedFields] : simpleFields;
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -1340,7 +1348,9 @@ function RemoteWorkspaceDialog({
           ) : (
             <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.noTunableParams')}</p>
           )}
-          <AdvancedParamsToggle value={showAdvanced} onChange={setShowAdvanced} />
+          {advancedFields.length > 0 && (
+            <AdvancedParamsToggle value={showAdvanced} onChange={setShowAdvanced} />
+          )}
         </fieldset>
 
         {save.isError && <p className="text-sm text-red-600">{save.error.message}</p>}

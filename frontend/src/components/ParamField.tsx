@@ -110,3 +110,23 @@ export function paramsFor(
     (p) => tiers.includes(p.tier) && (!allowList || allowList.includes(p.name)),
   );
 }
+
+/**
+ * Splits a protocol's tunable params into the simple ("ui") tier and the
+ * advanced tier, honoring the same allow-list. Callers show `simple`
+ * always, `advanced` behind the toggle, and only render the toggle when
+ * `advanced` is non-empty — otherwise the toggle would look inert (that
+ * is the "show advanced parameters does nothing" bug: templates rarely
+ * delegate advanced-tier params, so with an allow-list there was nothing
+ * to reveal, and admins were wrongly kept inside the allow-list too).
+ */
+export function tieredParams(
+  meta: { name: string; params: ParamMeta[] }[] | undefined,
+  protocol: string,
+  allowList?: string[],
+): { simple: ParamMeta[]; advanced: ParamMeta[] } {
+  return {
+    simple: paramsFor(meta, protocol, ['ui'], allowList),
+    advanced: paramsFor(meta, protocol, ['advanced'], allowList),
+  };
+}
