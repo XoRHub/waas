@@ -9,6 +9,8 @@ import type {
   EffectivePolicy,
   LoginResult,
   ProtocolMeta,
+  RemoteWorkspace,
+  RemoteWorkspaceInput,
   TemplateEnvVar,
   PolicyModel,
   Session,
@@ -86,14 +88,43 @@ export function useCreateWorkspace() {
       name?: string;
       displayName?: string;
       resources?: { cpu: string; memory: string };
-      // Template deviations (e.g. protocol); the admission webhook is the
+      // Template deviations (protocol, env…); the admission webhook is the
       // single judge of what this creator may override.
-      overrides?: { protocol?: string };
+      overrides?: { protocol?: string; env?: TemplateEnvVar[] };
     }) => api.post<Workspace>('/api/v1/workspaces', input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
       void queryClient.invalidateQueries({ queryKey: ['quota'] });
     },
+  });
+}
+
+// ---- Remote workspaces (policy-gated, see quota.features) ----
+
+export function useRemoteWorkspaces(enabled: boolean) {
+  return useQuery({
+    queryKey: ['remote-workspaces'],
+    queryFn: () => api.get<RemoteWorkspace[]>('/api/v1/remote-workspaces'),
+    enabled,
+  });
+}
+
+export function useSaveRemoteWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id?: string; input: RemoteWorkspaceInput }) =>
+      id
+        ? api.put<RemoteWorkspace>(`/api/v1/remote-workspaces/${id}`, input)
+        : api.post<RemoteWorkspace>('/api/v1/remote-workspaces', input),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['remote-workspaces'] }),
+  });
+}
+
+export function useDeleteRemoteWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/api/v1/remote-workspaces/${id}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['remote-workspaces'] }),
   });
 }
 

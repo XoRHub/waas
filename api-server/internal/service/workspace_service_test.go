@@ -9,6 +9,39 @@ import (
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
 
+// TestLegacyTemplateAlwaysExposesAConnection is the non-regression test
+// for "dev firefox template shows an empty connection field": a template
+// with no protocols block (legacy, OS-derived) must still surface exactly
+// one default protocol in its API projection — the UI always has a
+// connection to display, never a silent empty box.
+func TestLegacyTemplateAlwaysExposesAConnection(t *testing.T) {
+	tpl := &waasv1alpha1.WorkspaceTemplate{
+		Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			DisplayName: "Firefox (isolated browsing)",
+			OS:          waasv1alpha1.OSLinux,
+			Image:       "reg/firefox:1",
+			Port:        5901,
+			// No Protocols: the legacy shape that triggered the bug.
+		},
+	}
+	m := templateToModel(tpl)
+	if len(m.Protocols) != 1 {
+		t.Fatalf("legacy template must synthesize exactly one protocol, got %+v", m.Protocols)
+	}
+	p := m.Protocols[0]
+	if p.Name != "vnc" || p.Port != 5901 || !p.Default {
+		t.Fatalf("expected default vnc:5901, got %+v", p)
+	}
+
+	// Windows legacy templates derive rdp:3389 the same way.
+	tpl.Spec.OS = waasv1alpha1.OSWindows
+	tpl.Spec.Port = 0
+	m = templateToModel(tpl)
+	if len(m.Protocols) != 1 || m.Protocols[0].Name != "rdp" || m.Protocols[0].Port != 3389 {
+		t.Fatalf("expected default rdp:3389 for windows, got %+v", m.Protocols)
+	}
+}
+
 // TestOverridesSummaryIsAuditSafe pins the audit contract: field names
 // and env var NAMES appear, env VALUES never do (they may carry
 // credentials like VNC_PW).

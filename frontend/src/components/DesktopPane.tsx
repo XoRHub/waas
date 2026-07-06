@@ -29,6 +29,8 @@ export const DesktopPane = forwardRef<
   DesktopPaneHandle,
   {
     workspaceId: string;
+    /** 'remote' targets a registered out-of-cluster machine. */
+    kind?: 'workspace' | 'remote';
     /** Saved protocol/params override; defaults to the profile preference. */
     connection?: WorkspaceConnectionPrefs;
     onStateChange?: (state: ConnectionState) => void;
@@ -36,7 +38,10 @@ export const DesktopPane = forwardRef<
     onCapabilities?: (caps: SessionCapabilities) => void;
     autoFocus?: boolean;
   }
->(function DesktopPane({ workspaceId, connection, onStateChange, onCapabilities, autoFocus }, ref) {
+>(function DesktopPane(
+  { workspaceId, kind = 'workspace', connection, onStateChange, onCapabilities, autoFocus },
+  ref,
+) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLDivElement>(null);
@@ -47,7 +52,9 @@ export const DesktopPane = forwardRef<
   // reconnect (used by the overlay to apply reconnect-scoped params).
   const [generation, setGeneration] = useState(0);
   const prefs = useAuthStore((s) => s.user?.preferences?.workspaceSettings?.[workspaceId]);
-  const effective = connection ?? prefs;
+  // Remote machines carry their protocol/params server-side; workspace
+  // preferences do not apply to them.
+  const effective = connection ?? (kind === 'workspace' ? prefs : undefined);
   // The connection must not restart when unrelated preferences change.
   const effectiveJSON = JSON.stringify(effective ?? {});
 
@@ -92,8 +99,12 @@ export const DesktopPane = forwardRef<
         const body: Record<string, unknown> = {};
         if (conn.protocol) body.protocol = conn.protocol;
         if (conn.params && Object.keys(conn.params).length > 0) body.params = conn.params;
+        const connectPath =
+          kind === 'remote'
+            ? `/api/v1/remote-workspaces/${workspaceId}/connect`
+            : `/api/v1/workspaces/${workspaceId}/connect`;
         const response = await api.post<ConnectResult>(
-          `/api/v1/workspaces/${workspaceId}/connect`,
+          connectPath,
           Object.keys(body).length > 0 ? body : undefined,
         );
         result = response.data;
@@ -179,7 +190,7 @@ export const DesktopPane = forwardRef<
       clientRef.current = null;
       displayHost.replaceChildren();
     };
-  }, [workspaceId, effectiveJSON, onStateChange, onCapabilities, autoFocus, generation]);
+  }, [workspaceId, kind, effectiveJSON, onStateChange, onCapabilities, autoFocus, generation]);
 
   return (
     <div

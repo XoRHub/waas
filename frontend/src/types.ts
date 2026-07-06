@@ -205,6 +205,43 @@ export interface QuotaStatus {
   perWorkspace?: Record<string, string>;
   defaults?: Record<string, string>;
   lifecycle?: Record<string, string>;
+  /** Policy-gated feature flags (e.g. remoteWorkspaces). */
+  features?: Record<string, boolean>;
+  /** Policy-level override allow-list (undefined = template list alone). */
+  allowedOverrides?: string[];
+}
+
+// ---- Remote workspaces (out-of-cluster machines via guacd) ----
+
+export interface RemoteWorkspace {
+  id: string;
+  ownerId: string;
+  name: string;
+  hostname: string;
+  port: number;
+  protocol: string;
+  params?: Record<string, string>;
+  /** Which credential fields are stored (never their values). */
+  credentialKeys?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Write-only credential payload; omitted field = keep, '' = delete. */
+export interface RemoteCredentialsInput {
+  username?: string;
+  password?: string;
+  privateKey?: string;
+  passphrase?: string;
+}
+
+export interface RemoteWorkspaceInput {
+  name: string;
+  hostname: string;
+  port: number;
+  protocol: string;
+  params?: Record<string, string>;
+  credentials?: RemoteCredentialsInput;
 }
 
 export interface PolicySubject {
@@ -224,6 +261,11 @@ export interface PolicyModel {
     defaults?: Record<string, string>;
   };
   lifecycle?: Record<string, string>;
+  clipboard?: { copyFromWorkspace?: boolean; pasteToWorkspace?: boolean };
+  /** Policy-level override restriction (empty list = none allowed). */
+  overrides?: { allowedFields: string[] };
+  /** Opt-in to the Remote Workspaces feature. */
+  remoteWorkspaces?: boolean;
 }
 
 /** Which login methods the login page should offer. */

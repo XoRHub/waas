@@ -4,9 +4,12 @@ import { useTranslation } from 'react-i18next';
 import {
   useCatalog,
   useCreateWorkspace,
+  useDeleteRemoteWorkspace,
   useDeleteWorkspace,
   useProtocolMeta,
   useQuota,
+  useRemoteWorkspaces,
+  useSaveRemoteWorkspace,
   useTemplates,
   useUpdateProfile,
   useWorkspaceAction,
@@ -16,15 +19,88 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { UserMenu } from '@/components/UserMenu';
 import { ParamField, paramsFor } from '@/components/ParamField';
 import { useAuthStore } from '@/stores/authStore';
+import { templateAvailability } from '@/lib/templates';
 import { displayCpu, displayMemory, formatCpu, formatMemory, parseCpu, parseMemory } from '@/lib/quantity';
-import type { Workspace } from '@/types';
+import type { RemoteWorkspace, RemoteWorkspaceInput, TemplateEnvVar, Workspace } from '@/types';
 
 export function PortalPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const quota = useQuota();
+  const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState<'workspaces' | 'remote'>('workspaces');
+
+  // Remote Workspaces is policy-gated: the tab only exists when the
+  // resolved policy (or the admin role) opts the user in.
+  const remoteEnabled = quota.data?.data.features?.remoteWorkspaces ?? false;
+  const activeTab = remoteEnabled ? tab : 'workspaces';
+
+  const tabClass = (active: boolean) =>
+    `rounded-md px-3 py-1.5 text-sm font-medium ${
+      active
+        ? 'bg-blue-600 text-white'
+        : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'
+    }`;
+
+  return (
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-900">
+      <header className="flex items-center justify-between bg-white px-6 py-4 shadow-sm dark:bg-slate-800">
+        <div className="flex items-center gap-6">
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
+            {t('portal.title')}
+          </h1>
+          {remoteEnabled && (
+            <nav className="flex gap-1">
+              <button className={tabClass(activeTab === 'workspaces')} onClick={() => setTab('workspaces')}>
+                {t('portal.tabWorkspaces')}
+              </button>
+              <button className={tabClass(activeTab === 'remote')} onClick={() => setTab('remote')}>
+                {t('remote.tab')}
+              </button>
+            </nav>
+          )}
+        </div>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/view')}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            {t('portal.splitView')}
+          </button>
+          {activeTab === 'workspaces' && (
+            <button
+              onClick={() => setCreating(true)}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              {t('portal.newWorkspace')}
+            </button>
+          )}
+          <UserMenu />
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-5xl p-6">
+        {activeTab === 'workspaces' ? (
+          <>
+            <QuotaBanner />
+            <WorkspacesSection onCreate={() => setCreating(true)} />
+          </>
+        ) : (
+          <RemoteWorkspacesSection />
+        )}
+      </main>
+
+      {creating && <CreateWorkspaceDialog onClose={() => setCreating(false)} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- list
+
+function WorkspacesSection({ onCreate }: { onCreate: () => void }) {
+  const { t } = useTranslation();
   const workspaces = useWorkspaces();
   const user = useAuthStore((s) => s.user);
-  const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   // User-defined grouping: folder name → workspaces; '' collects the
@@ -45,62 +121,88 @@ export function PortalPage() {
     </div>
   );
 
+  // Three distinct states: skeletons while fetching, an explicit error
+  // with a retry, and a first-run empty state with a call to action.
+  if (workspaces.isPending) {
+    return <SkeletonGrid />;
+  }
+  if (workspaces.isError) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900/50 dark:bg-red-950/30">
+        <p className="text-sm text-red-700 dark:text-red-300">{t('portal.loadError')}</p>
+        <button
+          onClick={() => void workspaces.refetch()}
+          className="mt-3 rounded-md border border-red-300 px-4 py-1.5 text-sm text-red-700 hover:bg-red-100 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/40"
+        >
+          {t('app.retry')}
+        </button>
+      </div>
+    );
+  }
+  if (workspaces.data.data.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center dark:border-slate-700">
+        <p className="text-slate-500 dark:text-slate-400">{t('portal.empty')}</p>
+        <button
+          onClick={onCreate}
+          className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          {t('portal.newWorkspace')}
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-900">
-      <header className="flex items-center justify-between bg-white px-6 py-4 shadow-sm dark:bg-slate-800">
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-white">{t('portal.title')}</h1>
-        <div className="flex items-center gap-4">
+    <div className="space-y-6">
+      {folderNames.map((folder) => (
+        <section key={folder}>
           <button
-            onClick={() => navigate('/view')}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+            onClick={() => setCollapsed((c) => ({ ...c, [folder]: !c[folder] }))}
+            className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200"
           >
-            {t('portal.splitView')}
+            <span className="text-xs">{collapsed[folder] ? '▶' : '▼'}</span>
+            <span>📁 {folder}</span>
+            <span className="font-normal text-slate-400">({groups.get(folder)!.length})</span>
           </button>
-          <button
-            onClick={() => setCreating(true)}
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            {t('portal.newWorkspace')}
-          </button>
-          <UserMenu />
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl p-6">
-        <QuotaBanner />
-        {workspaces.isPending && <p className="text-slate-500">{t('app.loading')}</p>}
-        {workspaces.isError && <p className="text-red-600">{t('app.error')}</p>}
-        {workspaces.isSuccess && workspaces.data.data.length === 0 && (
-          <p className="text-slate-500 dark:text-slate-400">{t('portal.empty')}</p>
-        )}
-        <div className="space-y-6">
-          {folderNames.map((folder) => (
-            <section key={folder}>
-              <button
-                onClick={() => setCollapsed((c) => ({ ...c, [folder]: !c[folder] }))}
-                className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200"
-              >
-                <span className="text-xs">{collapsed[folder] ? '▶' : '▼'}</span>
-                <span>📁 {folder}</span>
-                <span className="font-normal text-slate-400">({groups.get(folder)!.length})</span>
-              </button>
-              {!collapsed[folder] && renderCards(groups.get(folder)!)}
-            </section>
-          ))}
-          {groups.has('') && (
-            <section>
-              {folderNames.length > 0 && (
-                <h2 className="mb-3 text-sm font-semibold text-slate-500 dark:text-slate-400">
-                  {t('portal.unfiled')}
-                </h2>
-              )}
-              {renderCards(groups.get('')!)}
-            </section>
+          {!collapsed[folder] && renderCards(groups.get(folder)!)}
+        </section>
+      ))}
+      {groups.has('') && (
+        <section>
+          {folderNames.length > 0 && (
+            <h2 className="mb-3 text-sm font-semibold text-slate-500 dark:text-slate-400">
+              {t('portal.unfiled')}
+            </h2>
           )}
-        </div>
-      </main>
+          {renderCards(groups.get('')!)}
+        </section>
+      )}
+    </div>
+  );
+}
 
-      {creating && <CreateWorkspaceDialog onClose={() => setCreating(false)} />}
+// SkeletonGrid mirrors the card layout while the list loads, so the page
+// doesn't jump when real cards replace it.
+function SkeletonGrid({ count = 6 }: { count?: number }) {
+  return (
+    <div className="grid animate-pulse gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800">
+          <div className="flex items-start justify-between">
+            <div className="space-y-2">
+              <div className="h-4 w-32 rounded bg-slate-200 dark:bg-slate-700" />
+              <div className="h-3 w-24 rounded bg-slate-100 dark:bg-slate-700/60" />
+            </div>
+            <div className="h-5 w-16 rounded-full bg-slate-100 dark:bg-slate-700/60" />
+          </div>
+          <div className="mt-auto flex gap-2">
+            <div className="h-8 flex-1 rounded-md bg-slate-200 dark:bg-slate-700" />
+            <div className="h-8 w-16 rounded-md bg-slate-100 dark:bg-slate-700/60" />
+            <div className="h-8 w-16 rounded-md bg-slate-100 dark:bg-slate-700/60" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -145,8 +247,7 @@ function QuotaBanner() {
 }
 
 // openWorkspace applies the user's tab preference for one workspace.
-function openWorkspace(id: string, newTab: boolean, navigate: (to: string) => void) {
-  const url = `/workspaces/${id}/connect`;
+function openWorkspace(url: string, newTab: boolean, navigate: (to: string) => void) {
   if (newTab) {
     window.open(url, '_blank');
   } else {
@@ -165,6 +266,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  const url = `/workspaces/${workspace.id}/connect`;
   const onOpen = () => {
     const pref = user?.preferences?.openWorkspaceInNewTab;
     if (pref == null) {
@@ -172,7 +274,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
       setAsking(true);
       return;
     }
-    openWorkspace(workspace.id, pref, navigate);
+    openWorkspace(url, pref, navigate);
   };
 
   const onChoice = (newTab: boolean, remember: boolean) => {
@@ -182,7 +284,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
         preferences: { ...user?.preferences, openWorkspaceInNewTab: newTab },
       });
     }
-    openWorkspace(workspace.id, newTab, navigate);
+    openWorkspace(url, newTab, navigate);
   };
 
   const folders = user?.preferences?.workspaceFolders ?? {};
@@ -327,6 +429,25 @@ function CardMenuItem({ onClick, children }: { onClick: () => void; children: Re
   );
 }
 
+// AdvancedParamsToggle: the simple/advanced switch every guacd parameter
+// form shares. Simple mode shows the everyday parameters (registry tier
+// "ui"); advanced mode adds the whole "advanced" tier.
+function AdvancedParamsToggle({
+  value,
+  onChange,
+}: {
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+      <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
+      {t('portal.showAdvancedParams')}
+    </label>
+  );
+}
+
 // ConnectionSettingsDialog: pick the protocol among what the template
 // declares and tune the guacd parameters the template allow-lists. Saved
 // in the profile; the server re-validates at connect time.
@@ -346,14 +467,15 @@ function ConnectionSettingsDialog({
   const defaultProtocol = protocols.find((p) => p.default)?.name ?? workspace.protocol ?? '';
   const [protocol, setProtocol] = useState(saved?.protocol || defaultProtocol);
   const [params, setParams] = useState<Record<string, string>>(saved?.params ?? {});
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const selected = protocols.find((p) => p.name === protocol);
-  // Typed fields from the registry; post-creation settings may tune the
-  // advanced-tier params too when the template delegates them.
+  // Typed fields from the registry, simple tier first; the advanced tier
+  // appears on demand. Both stay inside the template's allow-list.
   const tunable = paramsFor(
     meta.data?.data,
     protocol,
-    ['ui', 'advanced'],
+    showAdvanced ? ['ui', 'advanced'] : ['ui'],
     selected?.userParams ?? [],
   );
 
@@ -380,21 +502,27 @@ function ConnectionSettingsDialog({
         <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
           {t('portal.connectionSettings')}
         </h2>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.protocol')}</span>
-          <select
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-            value={protocol}
-            onChange={(e) => setProtocol(e.target.value)}
-          >
-            {protocols.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name.toUpperCase()}
-                {p.default ? ` (${t('portal.protocolDefault')})` : ''}
-              </option>
-            ))}
-          </select>
-        </label>
+        {protocols.length > 0 ? (
+          <label className="block">
+            <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.protocol')}</span>
+            <select
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+              value={protocol}
+              onChange={(e) => setProtocol(e.target.value)}
+            >
+              {protocols.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name.toUpperCase()}
+                  {p.default ? ` (${t('portal.protocolDefault')})` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {t('portal.protocol')}: {(workspace.protocol || 'vnc').toUpperCase()}
+          </p>
+        )}
         {tunable.length > 0 ? (
           <fieldset className="space-y-3">
             <legend className="text-sm text-slate-600 dark:text-slate-300">
@@ -412,6 +540,7 @@ function ConnectionSettingsDialog({
         ) : (
           <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.noTunableParams')}</p>
         )}
+        <AdvancedParamsToggle value={showAdvanced} onChange={setShowAdvanced} />
         {updateProfile.isError && (
           <p className="text-sm text-red-600">{updateProfile.error.message}</p>
         )}
@@ -531,14 +660,20 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const [memory, setMemory] = useState<number | null>(null);
   const [protocol, setProtocol] = useState('');
   const [protoParams, setProtoParams] = useState<Record<string, string>>({});
+  const [showAdvancedParams, setShowAdvancedParams] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [envRows, setEnvRows] = useState<{ name: string; value: string }[]>([]);
 
-  const availableTemplates = templates.isSuccess
-    ? templates.data.data.filter(
-        (tpl) =>
-          !catalog.isSuccess || catalog.data.data.some((img) => img.templates?.includes(tpl.name)),
-      )
-    : [];
-  const template = availableTemplates.find((tpl) => tpl.name === templateRef);
+  // Every template is listed whatever its protocol; the ones the policy
+  // excludes are visible but disabled with the reason (never silently
+  // dropped — that is how SSH templates used to "disappear").
+  const availability = templateAvailability(
+    templates.isSuccess ? templates.data.data : [],
+    catalog.isSuccess ? catalog.data.data : undefined,
+  );
+  const template = availability.find(
+    (a) => a.template.name === templateRef && a.available,
+  )?.template;
   const image = catalog.isSuccess
     ? catalog.data.data.find((img) => img.templates?.includes(templateRef))
     : undefined;
@@ -591,27 +726,37 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
 
   const selectTemplate = (name: string) => {
     setTemplateRef(name);
-    // Re-seed sliders and protocol choice on template change.
+    // Re-seed sliders, protocol choice and overrides on template change.
     setCpu(null);
     setMemory(null);
     setProtocol('');
     setProtoParams({});
+    setEnvRows([]);
   };
 
   // Protocol section: what the template declares, gated by its override
   // flags. The webhook re-validates server-side — this only mirrors it.
   const tplProtocols = template?.protocols ?? [];
   const defaultProtocol = tplProtocols.find((p) => p.default)?.name ?? tplProtocols[0]?.name ?? '';
-  const protocolOverridable = template?.allowedOverrides?.includes('protocol') ?? false;
+  const isAdmin = user?.role === 'admin';
+  // A field is overridable when the template allows it AND the policy
+  // does not restrict it away (admins bypass both, like the webhook).
+  const policyAllows = (field: string) =>
+    !q?.allowedOverrides || q.allowedOverrides.includes(field);
+  const canOverride = (field: string) =>
+    isAdmin || ((template?.allowedOverrides?.includes(field) ?? false) && policyAllows(field));
+  const protocolOverridable = canOverride('protocol');
   const effectiveProtocol = protocol || defaultProtocol;
   const selectedProto = tplProtocols.find((p) => p.name === effectiveProtocol);
-  // Creation-time params: UI-tier registry entries the template delegates,
-  // pre-filled with the template's locked values as placeholders.
+  // Creation-time params from the registry, simple tier by default; the
+  // advanced toggle adds the advanced tier. Non-admins stay inside the
+  // template's userParams allow-list; admins may tune any non-platform
+  // parameter (mirrors the server's admin bypass).
   const creationParams = paramsFor(
     meta.data?.data,
     effectiveProtocol,
-    ['ui'],
-    selectedProto?.userParams ?? [],
+    showAdvancedParams ? ['ui', 'advanced'] : ['ui'],
+    isAdmin ? undefined : (selectedProto?.userParams ?? []),
   );
 
   const onSubmit = (event: FormEvent) => {
@@ -621,12 +766,19 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     const cleanedParams = Object.fromEntries(
       Object.entries(protoParams).filter(([, v]) => v !== ''),
     );
+    const env: TemplateEnvVar[] = envRows
+      .filter((row) => row.name.trim() !== '')
+      .map((row) => ({ name: row.name.trim(), value: row.value }));
+    const overrides =
+      chosenProtocol || env.length > 0
+        ? { protocol: chosenProtocol, env: env.length > 0 ? env : undefined }
+        : undefined;
     create.mutate(
       {
         templateRef,
         displayName: displayName || undefined,
         resources: { cpu: formatCpu(cpuValue), memory: formatMemory(memValue) },
-        overrides: chosenProtocol ? { protocol: chosenProtocol } : undefined,
+        overrides,
       },
       {
         onSuccess: ({ data: workspace }) => {
@@ -653,7 +805,7 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-md space-y-4 rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800"
+        className="max-h-[90vh] w-full max-w-md space-y-4 overflow-y-auto rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800"
       >
         <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
           {t('portal.newWorkspace')}
@@ -669,9 +821,11 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
             <option value="" disabled>
               —
             </option>
-            {availableTemplates.map((tpl) => (
-              <option key={tpl.name} value={tpl.name}>
-                {tpl.displayName} ({tpl.os})
+            {availability.map(({ template: tpl, available }) => (
+              <option key={tpl.name} value={tpl.name} disabled={!available}>
+                {tpl.displayName} ({tpl.os}
+                {tpl.protocols?.length ? ` · ${tpl.protocols.map((p) => p.name).join('/')}` : ''})
+                {available ? '' : ` — ${t('portal.templateUnavailable')}`}
               </option>
             ))}
           </select>
@@ -687,7 +841,7 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
           />
         </label>
 
-        {templateRef && (
+        {template && (
           <fieldset className="space-y-4">
             <ResourceSlider
               label={t('portal.cpu')}
@@ -716,12 +870,12 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
           </fieldset>
         )}
 
-        {templateRef && tplProtocols.length > 0 && (
+        {template && tplProtocols.length > 0 && (
           <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
             <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
               {t('portal.connection')}
             </legend>
-            {tplProtocols.length > 1 && (
+            {tplProtocols.length > 1 ? (
               <label className="block">
                 <span className="flex items-baseline justify-between text-sm">
                   <span className="text-slate-600 dark:text-slate-300">{t('portal.protocol')}</span>
@@ -748,8 +902,20 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                   ))}
                 </select>
               </label>
+            ) : (
+              // Single protocol (typically a legacy template with the
+              // OS-derived synthesized entry): show it instead of an
+              // empty box — the connection is never a mystery.
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                {t('portal.protocol')}:{' '}
+                <span className="font-medium">{tplProtocols[0].name.toUpperCase()}</span>
+                {tplProtocols[0].port ? (
+                  <span className="text-slate-400"> · {t('portal.port')} {tplProtocols[0].port}</span>
+                ) : null}{' '}
+                <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
+              </p>
             )}
-            {creationParams.length > 0 && (
+            {creationParams.length > 0 ? (
               <div className="grid grid-cols-2 gap-3">
                 {creationParams.map((pm) => (
                   <ParamField
@@ -759,6 +925,80 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                     onChange={(value) => setProtoParams((prev) => ({ ...prev, [pm.name]: value }))}
                   />
                 ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                {t('portal.noTunableParams')}
+              </p>
+            )}
+            <AdvancedParamsToggle value={showAdvancedParams} onChange={setShowAdvancedParams} />
+          </fieldset>
+        )}
+
+        {/* Advanced panel (template overrides): only rendered for users
+            whose template ∩ policy rights (or admin role) allow at least
+            env overrides — invisible to everyone else. */}
+        {template && canOverride('env') && (
+          <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <legend className="px-1">
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((v) => !v)}
+                className="flex items-center gap-1 text-sm text-slate-600 dark:text-slate-300"
+              >
+                <span className="text-xs">{advancedOpen ? '▼' : '▶'}</span>
+                {t('portal.advancedMode')}
+              </button>
+            </legend>
+            {advancedOpen && (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  {t('portal.advancedModeHint')}
+                </p>
+                <div className="space-y-2">
+                  <span className="text-sm text-slate-600 dark:text-slate-300">
+                    {t('portal.envOverrides')}
+                  </span>
+                  {envRows.map((row, i) => (
+                    <div key={i} className="flex gap-2">
+                      <input
+                        className="w-2/5 rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                        placeholder={t('portal.envName')}
+                        value={row.name}
+                        onChange={(e) =>
+                          setEnvRows((rows) =>
+                            rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)),
+                          )
+                        }
+                      />
+                      <input
+                        className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                        placeholder={t('portal.envValue')}
+                        value={row.value}
+                        onChange={(e) =>
+                          setEnvRows((rows) =>
+                            rows.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)),
+                          )
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEnvRows((rows) => rows.filter((_, j) => j !== i))}
+                        className="rounded px-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+                        aria-label={t('app.delete')}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setEnvRows((rows) => [...rows, { name: '', value: '' }])}
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    + {t('portal.addEnvVar')}
+                  </button>
+                </div>
               </div>
             )}
           </fieldset>
@@ -822,5 +1062,305 @@ function ResourceSlider({
         <span>{t('portal.max', { value: display(bounds.max) })}</span>
       </span>
     </label>
+  );
+}
+
+// ------------------------------------------------------ remote workspaces
+
+// RemoteWorkspacesSection: machines OUTSIDE the cluster reachable through
+// guacd. A separate entity with its own lifecycle — nothing here
+// provisions or deletes cluster resources.
+function RemoteWorkspacesSection() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const remotes = useRemoteWorkspaces(true);
+  const remove = useDeleteRemoteWorkspace();
+  const user = useAuthStore((s) => s.user);
+  const [editing, setEditing] = useState<RemoteWorkspace | 'new' | null>(null);
+
+  if (remotes.isPending) return <SkeletonGrid count={3} />;
+  if (remotes.isError) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900/50 dark:bg-red-950/30">
+        <p className="text-sm text-red-700 dark:text-red-300">{t('remote.loadError')}</p>
+        <button
+          onClick={() => void remotes.refetch()}
+          className="mt-3 rounded-md border border-red-300 px-4 py-1.5 text-sm text-red-700 hover:bg-red-100 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/40"
+        >
+          {t('app.retry')}
+        </button>
+      </div>
+    );
+  }
+
+  const items = remotes.data.data;
+  const connect = (rw: RemoteWorkspace) => {
+    const url = `/remote/${rw.id}/connect`;
+    openWorkspace(url, user?.preferences?.openWorkspaceInNewTab ?? false, navigate);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-500 dark:text-slate-400">{t('remote.hint')}</p>
+        <button
+          onClick={() => setEditing('new')}
+          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          {t('remote.add')}
+        </button>
+      </div>
+      {items.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center dark:border-slate-700">
+          <p className="text-slate-500 dark:text-slate-400">{t('remote.empty')}</p>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((rw) => (
+            <div key={rw.id} className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="font-medium text-slate-900 dark:text-white">{rw.name}</h2>
+                  <p className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                    {rw.hostname}:{rw.port}
+                  </p>
+                </div>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                  {rw.protocol}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                {rw.credentialKeys?.length
+                  ? t('remote.credentialsStored', { keys: rw.credentialKeys.join(', ') })
+                  : t('remote.noCredentials')}
+              </p>
+              <div className="mt-auto flex gap-2">
+                <button
+                  onClick={() => connect(rw)}
+                  className="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  {t('remote.connect')}
+                </button>
+                <button
+                  onClick={() => setEditing(rw)}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  {t('app.edit')}
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm(t('remote.deleteConfirm'))) remove.mutate(rw.id);
+                  }}
+                  disabled={remove.isPending}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"
+                >
+                  {t('app.delete')}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {editing && (
+        <RemoteWorkspaceDialog
+          remote={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// RemoteWorkspaceDialog: register/edit one external machine. Credentials
+// are write-only (stored in a Kubernetes Secret server-side, never echoed
+// back); guacd parameters reuse the same registry-driven form as
+// provisioned workspaces.
+function RemoteWorkspaceDialog({
+  remote,
+  onClose,
+}: {
+  remote: RemoteWorkspace | null;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const meta = useProtocolMeta();
+  const save = useSaveRemoteWorkspace();
+  const [name, setName] = useState(remote?.name ?? '');
+  const [hostname, setHostname] = useState(remote?.hostname ?? '');
+  const [port, setPort] = useState(remote ? String(remote.port) : '');
+  const [protocol, setProtocol] = useState(remote?.protocol ?? 'ssh');
+  const [params, setParams] = useState<Record<string, string>>(remote?.params ?? {});
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [creds, setCreds] = useState({ username: '', password: '', privateKey: '', passphrase: '' });
+
+  const defaultPorts: Record<string, string> = { ssh: '22', vnc: '5900', rdp: '3389' };
+  // The user owns this machine: every non-platform parameter is tunable.
+  const fields = paramsFor(
+    meta.data?.data,
+    protocol,
+    showAdvanced ? ['ui', 'advanced'] : ['ui'],
+    undefined,
+  );
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    const cleanedParams = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== ''));
+    // Empty fields are omitted = "keep the stored value" on edit.
+    const credentials = Object.fromEntries(
+      Object.entries(creds).filter(([, v]) => v !== ''),
+    ) as RemoteWorkspaceInput['credentials'];
+    const input: RemoteWorkspaceInput = {
+      name,
+      hostname,
+      port: Number(port || defaultPorts[protocol] || 0),
+      protocol,
+      params: Object.keys(cleanedParams).length > 0 ? cleanedParams : undefined,
+      credentials: credentials && Object.keys(credentials).length > 0 ? credentials : undefined,
+    };
+    save.mutate({ id: remote?.id, input }, { onSuccess: onClose });
+  };
+
+  const credField = (key: keyof typeof creds, label: string, type = 'text') => (
+    <label className="block">
+      <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
+      <input
+        type={type}
+        autoComplete="off"
+        className="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+        placeholder={remote ? t('remote.keepStored') : ''}
+        value={creds[key]}
+        onChange={(e) => setCreds((c) => ({ ...c, [key]: e.target.value }))}
+      />
+    </label>
+  );
+
+  return (
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
+      <form
+        onSubmit={onSubmit}
+        className="max-h-[90vh] w-full max-w-md space-y-4 overflow-y-auto rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800"
+      >
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+          {remote ? t('remote.edit') : t('remote.add')}
+        </h2>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.name')}</span>
+          <input
+            required
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <div className="flex gap-2">
+          <label className="block flex-1">
+            <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.hostname')}</span>
+            <input
+              required
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+              placeholder="203.0.113.10"
+              value={hostname}
+              onChange={(e) => setHostname(e.target.value)}
+            />
+          </label>
+          <label className="block w-24">
+            <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.port')}</span>
+            <input
+              type="number"
+              min={1}
+              max={65535}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+              placeholder={defaultPorts[protocol]}
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+            />
+          </label>
+        </div>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.protocol')}</span>
+          <select
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            value={protocol}
+            onChange={(e) => {
+              setProtocol(e.target.value);
+              setParams({});
+            }}
+          >
+            {['ssh', 'vnc', 'rdp'].map((p) => (
+              <option key={p} value={p}>
+                {p.toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
+            {t('remote.credentials')}
+          </legend>
+          <p className="text-xs text-slate-400 dark:text-slate-500">{t('remote.credentialsHint')}</p>
+          {credField('username', t('remote.username'))}
+          {credField('password', t('remote.password'), 'password')}
+          {protocol === 'ssh' && (
+            <>
+              <label className="block">
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  {t('remote.privateKey')}
+                </span>
+                <textarea
+                  rows={3}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                  placeholder={remote ? t('remote.keepStored') : '-----BEGIN OPENSSH PRIVATE KEY-----'}
+                  value={creds.privateKey}
+                  onChange={(e) => setCreds((c) => ({ ...c, privateKey: e.target.value }))}
+                />
+              </label>
+              {credField('passphrase', t('remote.passphrase'), 'password')}
+            </>
+          )}
+        </fieldset>
+
+        <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
+            {t('portal.protocolParams')}
+          </legend>
+          {fields.length > 0 ? (
+            <div className="grid grid-cols-2 gap-3">
+              {fields.map((pm) => (
+                <ParamField
+                  key={pm.name}
+                  meta={pm}
+                  value={params[pm.name] ?? ''}
+                  onChange={(value) => setParams((prev) => ({ ...prev, [pm.name]: value }))}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.noTunableParams')}</p>
+          )}
+          <AdvancedParamsToggle value={showAdvanced} onChange={setShowAdvanced} />
+        </fieldset>
+
+        {save.isError && <p className="text-sm text-red-600">{save.error.message}</p>}
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+          >
+            {t('app.cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={save.isPending}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {remote ? t('app.save') : t('app.create')}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }

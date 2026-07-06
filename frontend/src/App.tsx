@@ -48,6 +48,7 @@ export function App() {
             <Route path="/" element={<PortalPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/workspaces/:id/connect" element={<ConnectPage />} />
+            <Route path="/remote/:id/connect" element={<ConnectPage kind="remote" />} />
             <Route path="/view" element={<SplitViewPage />} />
           </Route>
           <Route element={<ProtectedRoute adminOnly />}>

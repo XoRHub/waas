@@ -7,8 +7,9 @@ import { useWorkspaces } from '@/hooks/useApi';
 import type { SessionCapabilities } from '@/types';
 
 // Full-screen single-desktop view. The split view (/view) reuses the same
-// DesktopPane with several workspaces side by side.
-export function ConnectPage() {
+// DesktopPane with several workspaces side by side. kind="remote" drives
+// a registered out-of-cluster machine through the same pane.
+export function ConnectPage({ kind = 'workspace' }: { kind?: 'workspace' | 'remote' }) {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -30,7 +31,8 @@ export function ConnectPage() {
   };
 
   if (!id) return null;
-  const workspace = workspaces.data?.data.find((ws) => ws.id === id);
+  const workspace =
+    kind === 'workspace' ? workspaces.data?.data.find((ws) => ws.id === id) : undefined;
 
   return (
     <div className="relative h-screen bg-black">
@@ -48,6 +50,7 @@ export function ConnectPage() {
       <DesktopPane
         ref={pane}
         workspaceId={id}
+        kind={kind}
         onStateChange={onStateChange}
         onCapabilities={onCapabilities}
         autoFocus
