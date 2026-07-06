@@ -158,11 +158,38 @@ CRDs are the source of truth, Git seeds them. Configure the ArgoCD app
 with `selfHeal: false` or `ignoreDifferences` on these two kinds. A
 PR-based flow can be added later for regulated setups.
 
+## Admin console (editing model)
+
+The image catalog **and** policies are editable from the admin UI. The
+model is deliberately simple: the api-server **writes the CR directly**
+(`AdminUpsertImage`/`AdminUpsertPolicy`, validated server-side, audited).
+
+- If you run these objects through **GitOps/ArgoCD**, Git remains the
+  source of truth: a UI edit is a manual override that ArgoCD overwrites
+  on the next sync (keep selfHeal as you see fit). In manual/test setups
+  the drift is negligible.
+- Both YAML editors are **pre-filled with the whole schema** (every field,
+  even empty), generated server-side from the PUT payload types
+  (`GET /api/v1/meta/scaffold/{kind}`) — never a hand-maintained template.
+  On edit the scaffold is deep-merged with the object (real values win),
+  so admins discover every available field without leaving the editor.
+- **User creation** takes a group selection: chips from the known groups
+  (`GET /api/v1/admin/groups` = policy Group subjects ∪ existing users'
+  groups) plus free entry. No group ⇒ only subjects-less policies match
+  (the `default` policy). Authentik stays the source of truth — the OIDC
+  claim overwrites the mirror at the first SSO login.
+- The **Fleet** dashboard has a *Remote workspaces* tab
+  (`GET /api/v1/admin/remote-workspaces`, metadata only, never
+  credentials): owner, target, protocol, MAC/WoL, session activity, last
+  connection.
+
 ## API (portal contract)
 
 `GET /api/v1/catalog`, `GET /api/v1/me/quota`, and under admin:
 `GET/PUT/DELETE /admin/images[/{name}]`, `POST /admin/images/{name}/enable|disable`,
-`GET/PUT/DELETE /admin/policies[/{name}]`, `GET /admin/usage`.
+`GET/PUT/DELETE /admin/policies[/{name}]`, `GET /admin/usage`,
+`GET /admin/groups`, `GET /admin/remote-workspaces`,
+`GET /api/v1/meta/scaffold/{kind}`.
 Full schema: `docs/openapi-governance.yaml`.
 
 ## Audit

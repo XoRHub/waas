@@ -170,7 +170,16 @@ settings, remote workspaces) is generated from the platform registry
 
 Adding a guacd parameter = one entry in the registry table; the forms,
 the validation (webhook + connect) and `docs/guacd-parameters.md`
-(`make docs-params`) all follow without UI code changes. Non-admin users
+(`make docs-params`) all follow without UI code changes.
+
+**Keyboard layout (auto).** The RDP `server-layout` is a first-class UI
+parameter, but its *default* is auto-detected: when neither the template
+nor the user sets it, the browser sends its locale as a client display
+characteristic (`?layout=` on the WebSocket, like DPI/resolution) and wwt
+uses it as the `server-layout` default — so a French browser gets an
+AZERTY layout with no configuration. An explicit `server-layout` in the
+template or overlay always wins. VNC/SSH have no equivalent guacd layout
+parameter (VNC forwards keysyms directly). Non-admin users
 additionally stay inside the template's `userParams` allow-list whatever
 the tier; the browser-managed resolution (width/height/dpi) is sent at
 handshake time and is not a form parameter.
