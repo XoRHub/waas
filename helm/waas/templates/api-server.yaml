@@ -23,12 +23,15 @@ rules:
   - apiGroups: [waas.xorhub.io]
     resources: [workspaceimages, workspacepolicies]
     verbs: [create, delete, get, list, patch, update, watch]
-  # Connect-time credential resolution: read the per-protocol
-  # credentialsSecretRef named by templates. Deliberately get-only (no
-  # list/watch) and scoped to the workspace namespace.
+  # Secrets, scoped to the workspace namespace and deliberately without
+  # list/watch:
+  #   - get: connect-time resolution of template credentialsSecretRef;
+  #   - create/update/delete: the per-entry credentials Secrets of the
+  #     Remote Workspaces feature (waas-remote-<id>), written exclusively
+  #     by the api-server, never exposed through the API.
   - apiGroups: [""]
     resources: [secrets]
-    verbs: [get]
+    verbs: [get, create, update, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

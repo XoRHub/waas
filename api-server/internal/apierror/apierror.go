@@ -56,6 +56,19 @@ func Unavailable(detail string) *Problem {
 	return newProblem(http.StatusServiceUnavailable, "unavailable", "Service Unavailable", detail)
 }
 
+// statusOf unwraps the Problem status, 0 for non-Problem errors.
+func statusOf(err error) int {
+	var p *Problem
+	if errors.As(err, &p) {
+		return p.Status
+	}
+	return 0
+}
+
+func IsBadRequest(err error) bool { return statusOf(err) == http.StatusBadRequest }
+func IsForbidden(err error) bool  { return statusOf(err) == http.StatusForbidden }
+func IsNotFound(err error) bool   { return statusOf(err) == http.StatusNotFound }
+
 // Write renders err as an RFC 7807 response. Non-Problem errors become an
 // opaque 500 so internals never leak to clients.
 func Write(w http.ResponseWriter, err error) {

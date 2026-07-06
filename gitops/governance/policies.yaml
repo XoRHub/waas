@@ -57,6 +57,9 @@ spec:
   lifecycle:
     idleSuspendAfter: 8h
     # pas de maxLifetime : les postes de dev vivent tant qu'ils servent
+  # Remote Workspaces (machines hors cluster via guacd) : opt-in explicite
+  # par policy — absent/false = fonctionnalité invisible et refusée.
+  remoteWorkspaces: true
   # Mode avancé à l'instanciation : les devs peuvent dévier des templates
   # sur ces champs UNIQUEMENT (intersection avec l'allow-list du template ;
   # bloc absent = seule l'allow-list du template s'applique).

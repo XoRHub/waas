@@ -55,6 +55,7 @@ func run() error {
 
 	users := repository.NewSQLUserRepository(db)
 	sessions := repository.NewSQLSessionRepository(db)
+	remotes := repository.NewSQLRemoteWorkspaceRepository(db)
 	auditRepo := repository.NewSQLAuditRepository(db)
 
 	audit := service.NewAuditService(auditRepo)
@@ -67,7 +68,9 @@ func run() error {
 	userSvc := service.NewUserService(users, audit)
 	templateSvc := service.NewTemplateService(kube, cfg.WorkspaceNamespace, audit)
 	workspaceSvc := service.NewWorkspaceService(kube, cfg.WorkspaceNamespace, users, sessions, audit, signer,
-		cfg.JWTIssuer, cfg.ConnectionTokenTTL)
+		cfg.JWTIssuer, cfg.ConnectionTokenTTL).WithRemoteWorkspaces(remotes)
+	remoteSvc := service.NewRemoteWorkspaceService(kube, cfg.WorkspaceNamespace, users, remotes, sessions,
+		audit, signer, cfg.JWTIssuer, cfg.ConnectionTokenTTL)
 	sessionSvc := service.NewSessionService(sessions)
 	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit)
 
@@ -83,14 +86,15 @@ func run() error {
 	go service.NewIdleSweeper(kube, cfg.WorkspaceNamespace, sessions, audit, cfg.IdleSweepInterval).Run(ctx)
 
 	router := server.New(cfg, signer, server.Handlers{
-		Auth:       handler.NewAuthHandler(authSvc, oidcSvc, cfg.OIDC, signer),
-		Users:      handler.NewUserHandler(userSvc),
-		Templates:  handler.NewTemplateHandler(templateSvc),
-		Workspaces: handler.NewWorkspaceHandler(workspaceSvc),
-		Admin:      handler.NewAdminHandler(audit, sessionSvc),
-		Internal:   handler.NewInternalHandler(workspaceSvc),
-		Governance: handler.NewGovernanceHandler(governanceSvc),
-		Meta:       handler.NewMetaHandler(),
+		Auth:             handler.NewAuthHandler(authSvc, oidcSvc, cfg.OIDC, signer),
+		Users:            handler.NewUserHandler(userSvc),
+		Templates:        handler.NewTemplateHandler(templateSvc),
+		Workspaces:       handler.NewWorkspaceHandler(workspaceSvc),
+		RemoteWorkspaces: handler.NewRemoteWorkspaceHandler(remoteSvc),
+		Admin:            handler.NewAdminHandler(audit, sessionSvc),
+		Internal:         handler.NewInternalHandler(workspaceSvc),
+		Governance:       handler.NewGovernanceHandler(governanceSvc),
+		Meta:             handler.NewMetaHandler(),
 	})
 
 	srv := &http.Server{

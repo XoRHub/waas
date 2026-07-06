@@ -15,14 +15,15 @@ import (
 
 // Handlers groups the injectable handlers the router mounts.
 type Handlers struct {
-	Auth       *handler.AuthHandler
-	Users      *handler.UserHandler
-	Templates  *handler.TemplateHandler
-	Workspaces *handler.WorkspaceHandler
-	Admin      *handler.AdminHandler
-	Internal   *handler.InternalHandler
-	Governance *handler.GovernanceHandler
-	Meta       *handler.MetaHandler
+	Auth             *handler.AuthHandler
+	Users            *handler.UserHandler
+	Templates        *handler.TemplateHandler
+	Workspaces       *handler.WorkspaceHandler
+	RemoteWorkspaces *handler.RemoteWorkspaceHandler
+	Admin            *handler.AdminHandler
+	Internal         *handler.InternalHandler
+	Governance       *handler.GovernanceHandler
+	Meta             *handler.MetaHandler
 }
 
 // New builds the full route tree. Every /api/v1 route except login sits
@@ -62,6 +63,17 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 				r.Post("/{id}/pause", h.Workspaces.Pause)
 				r.Post("/{id}/resume", h.Workspaces.Resume)
 				r.Post("/{id}/connect", h.Workspaces.Connect)
+			})
+
+			// Remote workspaces: user-registered machines OUTSIDE the
+			// cluster, policy-gated (fail closed in the service layer).
+			r.Route("/remote-workspaces", func(r chi.Router) {
+				r.Get("/", h.RemoteWorkspaces.List)
+				r.Post("/", h.RemoteWorkspaces.Create)
+				r.Get("/{id}", h.RemoteWorkspaces.Get)
+				r.Put("/{id}", h.RemoteWorkspaces.Update)
+				r.Delete("/{id}", h.RemoteWorkspaces.Delete)
+				r.Post("/{id}/connect", h.RemoteWorkspaces.Connect)
 			})
 
 			// Governance, user side: catalog filtered to what the

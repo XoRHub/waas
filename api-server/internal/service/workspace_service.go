@@ -36,6 +36,10 @@ type WorkspaceService struct {
 	audit     *AuditService
 	signer    *auth.Signer
 
+	// remotes resolves remote-workspace sessions in ConnectionInfo; nil
+	// in deployments without the feature (older tests, minimal wiring).
+	remotes repository.RemoteWorkspaceRepository
+
 	issuer        string
 	connectionTTL time.Duration
 }
@@ -47,6 +51,14 @@ func NewWorkspaceService(kube client.Client, namespace string, users repository.
 		kube: kube, namespace: namespace, users: users, sessions: sessions,
 		audit: audit, signer: signer, issuer: issuer, connectionTTL: connectionTTL,
 	}
+}
+
+// WithRemoteWorkspaces wires the remote registry into the connection
+// resolver (kept out of the constructor to leave existing call sites
+// untouched).
+func (s *WorkspaceService) WithRemoteWorkspaces(remotes repository.RemoteWorkspaceRepository) *WorkspaceService {
+	s.remotes = remotes
+	return s
 }
 
 // CreateWorkspaceInput is the user-facing creation payload.
@@ -365,12 +377,18 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 // their WorkspacePolicy. Resolution failure (no user record, no matching
 // policy) fails closed: session yes, clipboard no.
 func (s *WorkspaceService) clipboardGrant(ctx context.Context, actor Actor) auth.ClipboardGrant {
-	user, err := s.users.FindByID(ctx, actor.ID)
+	return resolveClipboardGrant(ctx, s.kube, s.namespace, s.users, actor)
+}
+
+// resolveClipboardGrant is the shared policy→clipboard resolution used by
+// both workspace and remote-workspace connects.
+func resolveClipboardGrant(ctx context.Context, kube client.Client, namespace string, users repository.UserRepository, actor Actor) auth.ClipboardGrant {
+	user, err := users.FindByID(ctx, actor.ID)
 	if err != nil {
 		return auth.ClipboardGrant{}
 	}
 	policies := &waasv1alpha1.WorkspacePolicyList{}
-	if err := s.kube.List(ctx, policies, client.InNamespace(s.namespace)); err != nil {
+	if err := kube.List(ctx, policies, client.InNamespace(namespace)); err != nil {
 		return auth.ClipboardGrant{}
 	}
 	pol, _, denial := policy.Resolve(policies.Items, policy.Identity{Owner: user.ID, Username: user.Username, Groups: user.Groups})
@@ -403,6 +421,12 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 	}
 	if session.EndedAt != nil {
 		return nil, apierror.Conflict("session already ended")
+	}
+
+	// Remote-workspace sessions resolve against the remote registry, not
+	// the cluster: the machine lives outside, guacd dials it directly.
+	if session.Kind == model.SessionKindRemote {
+		return s.remoteConnectionInfo(ctx, session)
 	}
 
 	ws, err := s.findByUID(ctx, session.WorkspaceID)
@@ -478,6 +502,38 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 				}
 			}
 		}
+	}
+	return info, nil
+}
+
+// remoteConnectionInfo resolves a remote-workspace session: target from
+// the registry row, credentials from its dedicated Secret, parameters =
+// stored params merged with the session's vetted connect-time tweaks.
+func (s *WorkspaceService) remoteConnectionInfo(ctx context.Context, session *model.Session) (*model.ConnectionInfo, error) {
+	if s.remotes == nil {
+		return nil, apierror.NotFound("remote workspaces are not configured on this server")
+	}
+	rw, err := s.remotes.FindByID(ctx, session.WorkspaceID)
+	if errors.Is(err, repository.ErrRemoteWorkspaceNotFound) {
+		return nil, apierror.NotFound("remote workspace not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	info := &model.ConnectionInfo{
+		Protocol: rw.Protocol,
+		Hostname: rw.Hostname,
+		Port:     rw.Port,
+		Params:   map[string]string{},
+	}
+	for k, v := range rw.Params {
+		info.Params[k] = v
+	}
+	for k, v := range session.Params {
+		info.Params[k] = v
+	}
+	if err := s.applyCredentialsSecret(ctx, rw.SecretName, info); err != nil {
+		return nil, err
 	}
 	return info, nil
 }

@@ -21,13 +21,17 @@ func NewSQLSessionRepository(db *database.DB) *SQLSessionRepository {
 	return &SQLSessionRepository{db: db}
 }
 
-const sessionColumns = "id, user_id, workspace_id, workspace_name, protocol, client_ip, started_at, ended_at, params"
+const sessionColumns = "id, user_id, workspace_id, workspace_name, protocol, client_ip, started_at, ended_at, params, kind"
 
 func (r *SQLSessionRepository) Create(ctx context.Context, s *model.Session) error {
-	query := r.db.Rebind(`INSERT INTO sessions (` + sessionColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	kind := s.Kind
+	if kind == "" {
+		kind = model.SessionKindWorkspace
+	}
+	query := r.db.Rebind(`INSERT INTO sessions (` + sessionColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	_, err := r.db.ExecContext(ctx, query,
 		s.ID, s.UserID, s.WorkspaceID, s.WorkspaceName, s.Protocol, nullable(s.ClientIP),
-		timeArg(s.StartedAt), timePtrArg(s.EndedAt), marshalParams(s.Params))
+		timeArg(s.StartedAt), timePtrArg(s.EndedAt), marshalParams(s.Params), kind)
 	if err != nil {
 		return fmt.Errorf("creating session %s: %w", s.ID, err)
 	}
@@ -112,7 +116,7 @@ func scanSession(row rowScanner) (*model.Session, error) {
 		params   string
 	)
 	if err := row.Scan(&s.ID, &s.UserID, &s.WorkspaceID, &s.WorkspaceName, &s.Protocol,
-		&clientIP, scanTime{&s.StartedAt}, scanNullTime{&s.EndedAt}, &params); err != nil {
+		&clientIP, scanTime{&s.StartedAt}, scanNullTime{&s.EndedAt}, &params, &s.Kind); err != nil {
 		return nil, err
 	}
 	s.ClientIP = clientIP.String

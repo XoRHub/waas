@@ -11,9 +11,10 @@ import (
 )
 
 var (
-	ErrUserNotFound    = errors.New("user not found")
-	ErrSessionNotFound = errors.New("session not found")
-	ErrDuplicate       = errors.New("duplicate record")
+	ErrUserNotFound            = errors.New("user not found")
+	ErrSessionNotFound         = errors.New("session not found")
+	ErrRemoteWorkspaceNotFound = errors.New("remote workspace not found")
+	ErrDuplicate               = errors.New("duplicate record")
 )
 
 // UserRepository persists platform accounts.
@@ -42,6 +43,17 @@ type SessionRepository interface {
 type WorkspaceActivity struct {
 	LastActivity time.Time
 	ActiveNow    bool
+}
+
+// RemoteWorkspaceRepository persists user-registered external machines.
+// Credentials are NOT part of this contract — they live in Kubernetes
+// Secrets handled by the service layer.
+type RemoteWorkspaceRepository interface {
+	Create(ctx context.Context, rw *model.RemoteWorkspace) error
+	FindByID(ctx context.Context, id string) (*model.RemoteWorkspace, error)
+	ListByOwner(ctx context.Context, ownerID string) ([]model.RemoteWorkspace, error)
+	Update(ctx context.Context, rw *model.RemoteWorkspace) error
+	Delete(ctx context.Context, id string) error
 }
 
 // AuditRepository is append-only: it deliberately exposes no update or

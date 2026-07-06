@@ -55,6 +55,12 @@ type User struct {
 	Preferences UserPreferences `json:"preferences"`
 }
 
+// SessionKind says what a session's WorkspaceID points at.
+const (
+	SessionKindWorkspace = "workspace" // provisioned Workspace CR (UID)
+	SessionKindRemote    = "remote"    // RemoteWorkspace row (ID)
+)
+
 // Session records one desktop connection through the proxy.
 type Session struct {
 	ID            string     `json:"id"`
@@ -68,6 +74,34 @@ type Session struct {
 	// Params are the user's connect-time guacd parameter overrides,
 	// already validated against the template's userParams allow-list.
 	Params map[string]string `json:"params,omitempty"`
+	// Kind distinguishes provisioned-workspace sessions from remote-
+	// workspace sessions (empty = workspace, for pre-migration rows).
+	Kind string `json:"kind,omitempty"`
+}
+
+// RemoteWorkspace is a user-registered machine OUTSIDE the cluster,
+// reachable through guacd. It shares nothing with provisioned
+// workspaces: no template, no operator lifecycle, no compute. The
+// credentials live in the Kubernetes Secret named SecretName (one per
+// row), never in the database or this struct.
+type RemoteWorkspace struct {
+	ID       string `json:"id"`
+	OwnerID  string `json:"ownerId"`
+	Name     string `json:"name"`
+	Hostname string `json:"hostname"`
+	Port     int32  `json:"port"`
+	Protocol string `json:"protocol"`
+	// Params are guacd connection parameters, validated against the
+	// platform registry (non-platform tiers only).
+	Params map[string]string `json:"params,omitempty"`
+	// SecretName is internal plumbing — never serialized.
+	SecretName string `json:"-"`
+	// CredentialKeys lists which credential fields are stored
+	// (username/password/private-key/passphrase), so the UI can display
+	// "credentials stored" without any Secret access.
+	CredentialKeys []string  `json:"credentialKeys,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 // AuditLog is one append-only audit trail entry.
