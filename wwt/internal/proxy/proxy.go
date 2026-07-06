@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -125,8 +126,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.InfoContext(ctx, "session connected",
-		"session", claims.SessionID, "workspace", claims.WorkspaceID, "guacdConnection", connID)
-	h.pipe(ws, conn, guacdReader)
+		"session", claims.SessionID, "workspace", claims.WorkspaceID, "guacdConnection", connID,
+		"clipboardCopy", claims.Clipboard.Copy, "clipboardPaste", claims.Clipboard.Paste)
+	h.pipe(ws, conn, guacdReader, guac.NewClipboardFilter(claims.Clipboard.Copy, claims.Clipboard.Paste))
 
 	// Best-effort bookkeeping once the stream closes.
 	endCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -158,19 +160,52 @@ func (h *Handler) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	return h.Keys.Key(ctx, kid)
 }
 
-// pipe relays bytes in both directions until either side closes.
-func (h *Handler) pipe(ws *websocket.Conn, guacd net.Conn, guacdReader *bufio.Reader) {
+// pipe relays both directions until either side closes.
+//
+// guacd → browser is re-framed on instruction boundaries: the JS tunnel
+// parses each WebSocket message as complete instructions, while TCP reads
+// split anywhere. Forwarding raw chunks corrupts big frames (black artifact
+// regions) and eventually closes the tunnel, dropping all user input.
+//
+// The clipboard filter enforces the token's policy grant on both
+// directions and handles the overlay's live toggles (tunnel-internal
+// "waas-clipboard" controls).
+func (h *Handler) pipe(ws *websocket.Conn, guacd net.Conn, guacdReader *bufio.Reader, clipboard *guac.ClipboardFilter) {
 	done := make(chan struct{}, 2)
+
+	// Both goroutines write to the WebSocket (frames, ping echoes, acks)
+	// and gorilla/websocket forbids concurrent writers.
+	var wsMu sync.Mutex
+	writeWS := func(data []byte) error {
+		wsMu.Lock()
+		defer wsMu.Unlock()
+		return ws.WriteMessage(websocket.TextMessage, data)
+	}
 
 	// guacd → browser
 	go func() {
 		defer func() { done <- struct{}{} }()
+		var framer guac.Framer
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := guacdReader.Read(buf)
 			if n > 0 {
-				if err := ws.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+				frame, ferr := framer.Push(buf[:n])
+				if ferr != nil {
+					slog.Error("guacd stream corrupted", "error", ferr)
 					return
+				}
+				if len(frame) > 0 {
+					frame, ferr = clipboard.FilterToBrowser(frame)
+					if ferr != nil {
+						slog.Error("filtering guacd stream", "error", ferr)
+						return
+					}
+				}
+				if len(frame) > 0 {
+					if err := writeWS(frame); err != nil {
+						return
+					}
 				}
 			}
 			if err != nil {
@@ -187,8 +222,37 @@ func (h *Handler) pipe(ws *websocket.Conn, guacd net.Conn, guacdReader *bufio.Re
 			if err != nil {
 				return
 			}
-			if _, err := guacd.Write(message); err != nil {
+			// Tunnel-internal messages (zero-length opcode) are for the
+			// endpoint, not guacd: answer pings with an identical ping,
+			// process WaaS controls, swallow anything else.
+			if guac.IsInternalMessage(message) {
+				var reply []byte
+				if guac.IsInternalPing(message) {
+					reply = message
+				} else {
+					reply = clipboard.HandleControl(message)
+				}
+				if reply != nil {
+					if err := writeWS(reply); err != nil {
+						return
+					}
+				}
+				continue
+			}
+			forward, reply, ferr := clipboard.FilterToGuacd(message)
+			if ferr != nil {
+				slog.Error("filtering browser stream", "error", ferr)
 				return
+			}
+			if reply != nil {
+				if err := writeWS(reply); err != nil {
+					return
+				}
+			}
+			if len(forward) > 0 {
+				if _, err := guacd.Write(forward); err != nil {
+					return
+				}
 			}
 		}
 	}()

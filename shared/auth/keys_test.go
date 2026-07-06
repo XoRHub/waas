@@ -12,7 +12,7 @@ func TestSignAndVerifyRoundTrip(t *testing.T) {
 		t.Fatalf("GenerateSigner: %v", err)
 	}
 
-	token, err := signer.Sign(NewConnectionClaims("waas", "user-1", "sess-1", "ws-1", time.Minute))
+	token, err := signer.Sign(NewConnectionClaims("waas", "user-1", "sess-1", "ws-1", ClipboardGrant{Copy: true, Paste: true}, time.Minute))
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestVerifyRejectsExpired(t *testing.T) {
 		t.Fatalf("GenerateSigner: %v", err)
 	}
 
-	token, err := signer.Sign(NewConnectionClaims("waas", "u", "s", "w", -time.Minute))
+	token, err := signer.Sign(NewConnectionClaims("waas", "u", "s", "w", ClipboardGrant{}, -time.Minute))
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}

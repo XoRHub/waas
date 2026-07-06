@@ -30,13 +30,25 @@ type AccessClaims struct {
 	jwt.RegisteredClaims
 }
 
+// ClipboardGrant is the clipboard permission the API server resolved from
+// the user's WorkspacePolicy and stamped into the connection token. The
+// proxy enforces it by filtering clipboard instructions — the frontend
+// only mirrors it. Zero value = both directions denied (fail closed).
+type ClipboardGrant struct {
+	// Copy permits remote → local clipboard (copy from the workspace).
+	Copy bool `json:"copy"`
+	// Paste permits local → remote clipboard (paste into the workspace).
+	Paste bool `json:"paste"`
+}
+
 // ConnectionClaims is the payload of the short-lived token that authorizes a
 // single desktop connection through the WebSocket proxy. It deliberately
 // carries no connection secrets (VNC/RDP credentials stay server-side); the
 // proxy exchanges the session ID against the API server's internal endpoint.
 type ConnectionClaims struct {
-	SessionID   string `json:"sessionId"`
-	WorkspaceID string `json:"workspaceId"`
+	SessionID   string         `json:"sessionId"`
+	WorkspaceID string         `json:"workspaceId"`
+	Clipboard   ClipboardGrant `json:"clipboard"`
 	jwt.RegisteredClaims
 }
 
@@ -49,10 +61,11 @@ func NewAccessClaims(issuer, userID string, role Role, ttl time.Duration) Access
 }
 
 // NewConnectionClaims builds connection-token claims for one session.
-func NewConnectionClaims(issuer, userID, sessionID, workspaceID string, ttl time.Duration) ConnectionClaims {
+func NewConnectionClaims(issuer, userID, sessionID, workspaceID string, clipboard ClipboardGrant, ttl time.Duration) ConnectionClaims {
 	return ConnectionClaims{
 		SessionID:        sessionID,
 		WorkspaceID:      workspaceID,
+		Clipboard:        clipboard,
 		RegisteredClaims: registered(issuer, userID, AudienceConnection, ttl),
 	}
 }

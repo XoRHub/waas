@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -137,7 +139,7 @@ func TestRejectsWithoutValidTokenBeforeDialingGuacd(t *testing.T) {
 	}
 
 	// Expired connection token.
-	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u", "s", "w", -time.Minute))
+	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u", "s", "w", auth.ClipboardGrant{}, -time.Minute))
 	if err != nil {
 		t.Fatalf("signing: %v", err)
 	}
@@ -162,7 +164,7 @@ func TestProxiesValidConnection(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1", time.Minute))
+	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1", auth.ClipboardGrant{Copy: true, Paste: true}, time.Minute))
 	if err != nil {
 		t.Fatalf("signing: %v", err)
 	}
@@ -194,4 +196,160 @@ func TestProxiesValidConnection(t *testing.T) {
 	if api.ended.Load() == 0 {
 		t.Fatal("expected the session to be ended after disconnect")
 	}
+}
+
+// newDribblingGuacd handshakes, then streams a large instruction in tiny TCP
+// writes followed by a sync — reproducing the arbitrary segmentation that
+// corrupted VNC sessions. It also records everything the proxy sends it.
+func newDribblingGuacd(t *testing.T, payload guac.Instruction) (addr string, received *syncBuffer) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	received = &syncBuffer{}
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		r := bufio.NewReader(conn)
+		if _, err := guac.ReadInstruction(r); err != nil { // select
+			return
+		}
+		args := guac.Instruction{Opcode: "args", Args: []string{"VERSION_1_5_0", "hostname", "port", "password"}}
+		conn.Write([]byte(args.Encode()))
+		for {
+			inst, err := guac.ReadInstruction(r)
+			if err != nil {
+				return
+			}
+			if inst.Opcode == "connect" {
+				break
+			}
+		}
+		conn.Write([]byte(guac.Instruction{Opcode: "ready", Args: []string{"$c1"}}.Encode()))
+
+		// Dribble a big instruction 100 bytes at a time.
+		wire := []byte(payload.Encode() + guac.Instruction{Opcode: "sync", Args: []string{"1"}}.Encode())
+		for i := 0; i < len(wire); i += 100 {
+			end := min(i+100, len(wire))
+			if _, err := conn.Write(wire[i:end]); err != nil {
+				return
+			}
+		}
+		// Record whatever the proxy forwards from the browser.
+		buf := make([]byte, 4096)
+		for {
+			n, err := conn.Read(buf)
+			if n > 0 {
+				received.Write(buf[:n])
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return ln.Addr().String(), received
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestFramesEndOnInstructionBoundaries is the regression test for the broken
+// VNC sessions: every WebSocket message must parse as complete instructions,
+// however guacd segments its TCP writes.
+func TestFramesEndOnInstructionBoundaries(t *testing.T) {
+	big := guac.Instruction{Opcode: "png", Args: []string{"0", "3", "0", "0", strings.Repeat("iVBORw0KGgoAAAANSUhEUg", 3000)}}
+	guacdAddr, received := newDribblingGuacd(t, big)
+	api := &fakeAPI{info: &ConnectionInfo{Protocol: "vnc", Hostname: "ws-x", Port: 5901, Password: "pw"}}
+	handler, signer := newTestHandler(t, api, guacdAddr)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1", auth.ClipboardGrant{Copy: true, Paste: true}, time.Minute))
+	if err != nil {
+		t.Fatalf("signing: %v", err)
+	}
+	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws?token="+token, nil)
+	if err != nil {
+		t.Fatalf("dialing ws: %v", err)
+	}
+	defer ws.Close()
+
+	var stream bytes.Buffer
+	ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for !strings.Contains(stream.String(), "4.sync") {
+		_, message, err := ws.ReadMessage()
+		if err != nil {
+			t.Fatalf("reading from ws: %v (got %d bytes so far)", err, stream.Len())
+		}
+		// The invariant guacamole-common-js relies on: each message is a
+		// standalone sequence of complete instructions.
+		r := bufio.NewReader(bytes.NewReader(message))
+		for r.Buffered() > 0 || !atEOF(r) {
+			if _, err := guac.ReadInstruction(r); err != nil {
+				t.Fatalf("WebSocket message does not end on an instruction boundary: %v", err)
+			}
+			if atEOF(r) {
+				break
+			}
+		}
+		stream.Write(message)
+	}
+	want := big.Encode() + guac.Instruction{Opcode: "sync", Args: []string{"1"}}.Encode()
+	if stream.String() != want {
+		t.Fatalf("reassembled stream corrupted: got %d bytes, want %d", stream.Len(), len(want))
+	}
+
+	// Tunnel-internal ping: echoed verbatim to the browser, never to guacd.
+	ping := "0.,4.ping,13.1751791234567;"
+	if err := ws.WriteMessage(websocket.TextMessage, []byte(ping)); err != nil {
+		t.Fatalf("sending ping: %v", err)
+	}
+	_, echo, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("reading ping echo: %v", err)
+	}
+	if string(echo) != ping {
+		t.Fatalf("expected identical ping echo, got %q", echo)
+	}
+
+	// A real instruction still reaches guacd; the ping never does.
+	key := "3.key,5.65307,1.1;"
+	if err := ws.WriteMessage(websocket.TextMessage, []byte(key)); err != nil {
+		t.Fatalf("sending key: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for !strings.Contains(received.String(), key) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := received.String(); !strings.Contains(got, key) {
+		t.Fatalf("key instruction never reached guacd (got %q)", got)
+	}
+	if strings.Contains(received.String(), "ping") {
+		t.Fatal("tunnel-internal ping must never reach guacd")
+	}
+}
+
+func atEOF(r *bufio.Reader) bool {
+	_, err := r.Peek(1)
+	return err != nil
 }
