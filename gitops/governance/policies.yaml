@@ -13,7 +13,11 @@ metadata:
 spec:
   priority: 0
   # subjects vide = tout utilisateur authentifié.
-  images: [ubuntu-firefox, ubuntu-xfce]
+  # NOTE : chaque image du catalogue destinée à "tout le monde" doit être
+  # listée ici — une image absente rend ses templates INVISIBLES à la
+  # création (c'est ainsi que les templates SSH ont disparu du portail
+  # quand dev-ssh manquait à cette liste).
+  images: [ubuntu-firefox, ubuntu-xfce, dev-ssh]
   limits:
     maxWorkspaces: 1
     perWorkspace: { cpu: "2", memory: 4Gi, home: 10Gi }

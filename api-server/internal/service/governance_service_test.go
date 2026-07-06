@@ -8,6 +8,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 
@@ -131,6 +132,100 @@ func TestEffectivePolicyResolutionMatrix(t *testing.T) {
 		}
 		if len(report.Evaluated) != len(policies) {
 			t.Fatalf("%s: expected %d evaluated policies, got %d", tc.userID, len(policies), len(report.Evaluated))
+		}
+	}
+}
+
+// TestCatalogListsTemplatesOfEveryProtocol is the non-regression test for
+// "SSH templates invisible at workspace creation": the portal derives its
+// template list from Catalog().Templates, so every protocol's template must
+// surface there as long as the policy allows the image — and a policy that
+// omits an image must be the ONLY thing that hides its templates.
+func TestCatalogListsTemplatesOfEveryProtocol(t *testing.T) {
+	openPolicy := waasv1alpha1.WorkspacePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		// Images empty = whole catalog.
+		Spec: waasv1alpha1.WorkspacePolicySpec{Priority: 0},
+	}
+	svc := newGovernanceFixture(t, []model.User{{ID: "u1", Username: "u1"}}, []waasv1alpha1.WorkspacePolicy{openPolicy})
+	ctx := context.Background()
+
+	seed := []struct {
+		name      string
+		image     string
+		protocols []waasv1alpha1.Protocol
+	}{
+		{"img-vnc", "reg/xfce:1", []waasv1alpha1.Protocol{waasv1alpha1.ProtocolVNC, waasv1alpha1.ProtocolRDP}},
+		{"img-rdp", "reg/win:1", []waasv1alpha1.Protocol{waasv1alpha1.ProtocolRDP}},
+		{"img-ssh", "reg/dev-ssh:1", []waasv1alpha1.Protocol{waasv1alpha1.ProtocolSSH}},
+	}
+	for _, s := range seed {
+		img := &waasv1alpha1.WorkspaceImage{
+			ObjectMeta: metav1.ObjectMeta{Name: s.name, Namespace: testNS},
+			Spec: waasv1alpha1.WorkspaceImageSpec{
+				DisplayName: s.name, Image: s.image, Protocols: s.protocols, Enabled: true,
+			},
+		}
+		if err := svc.kube.Create(ctx, img); err != nil {
+			t.Fatalf("seeding image %s: %v", s.name, err)
+		}
+	}
+	templates := []struct {
+		name     string
+		image    string
+		protocol string
+		port     int32
+	}{
+		{"tpl-vnc", "reg/xfce:1", "vnc", 5901},
+		{"tpl-rdp", "reg/win:1", "rdp", 3389},
+		{"tpl-ssh", "reg/dev-ssh:1", "ssh", 2222},
+	}
+	for _, tc := range templates {
+		tpl := &waasv1alpha1.WorkspaceTemplate{
+			ObjectMeta: metav1.ObjectMeta{Name: tc.name, Namespace: testNS},
+			Spec: waasv1alpha1.WorkspaceTemplateSpec{
+				DisplayName: tc.name, OS: waasv1alpha1.OSLinux, Image: tc.image,
+				Protocols: []waasv1alpha1.WorkspaceProtocol{{Name: tc.protocol, Port: tc.port, Default: true}},
+			},
+		}
+		if err := svc.kube.Create(ctx, tpl); err != nil {
+			t.Fatalf("seeding template %s: %v", tc.name, err)
+		}
+	}
+
+	catalog, err := svc.Catalog(ctx, Actor{ID: "u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attached := map[string]bool{}
+	for _, img := range catalog {
+		for _, name := range img.Templates {
+			attached[name] = true
+		}
+	}
+	for _, tc := range templates {
+		if !attached[tc.name] {
+			t.Fatalf("template %s (protocol %s) missing from the catalog projection: %+v", tc.name, tc.protocol, catalog)
+		}
+	}
+
+	// The inverse mechanism (how the bug happened): a policy whose images
+	// list omits the ssh image hides its template from the projection.
+	restrictive := &waasv1alpha1.WorkspacePolicy{}
+	if err := svc.kube.Get(ctx, client.ObjectKey{Namespace: testNS, Name: "default"}, restrictive); err != nil {
+		t.Fatal(err)
+	}
+	restrictive.Spec.Images = []string{"img-vnc", "img-rdp"}
+	if err := svc.kube.Update(ctx, restrictive); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err = svc.Catalog(ctx, Actor{ID: "u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, img := range catalog {
+		if img.Name == "img-ssh" {
+			t.Fatalf("policy restriction must exclude img-ssh, got %+v", catalog)
 		}
 	}
 }
