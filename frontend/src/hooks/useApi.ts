@@ -240,6 +240,17 @@ export interface CreateUserInput {
   password: string;
   role: string;
   maxWorkspaces?: number;
+  /** Authentik groups seeded at creation (overwritten at first SSO login). */
+  groups?: string[];
+}
+
+// Groups the platform already knows (policy Group subjects + existing
+// users' groups) — the suggestions when assigning groups.
+export function useKnownGroups() {
+  return useQuery({
+    queryKey: ['known-groups'],
+    queryFn: () => api.get<string[]>('/api/v1/admin/groups'),
+  });
 }
 
 export function useCreateUser() {

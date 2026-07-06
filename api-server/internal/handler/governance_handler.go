@@ -141,3 +141,13 @@ func (h *GovernanceHandler) AdminUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	ok(w, usage)
 }
+
+// AdminKnownGroups handles GET /api/v1/admin/groups.
+func (h *GovernanceHandler) AdminKnownGroups(w http.ResponseWriter, r *http.Request) {
+	groups, err := h.svc.AdminKnownGroups(r.Context())
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, groups)
+}

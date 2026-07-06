@@ -220,7 +220,10 @@
       "groupsHint": "Noms de groupes Authentik, séparés par des virgules. Écrasés à chaque login SSO quand OIDC est activé.",
       "edit": "Modifier {{username}}",
       "effectivePolicy": "Policy effective",
-      "noPolicy": "aucune policy ne correspond — création de workspace refusée"
+      "noPolicy": "aucune policy ne correspond — création de workspace refusée",
+      "addGroup": "Ajouter",
+      "addGroupPlaceholder": "Nom du nouveau groupe",
+      "createGroupsHint": "Choisissez parmi les groupes connus ou ajoutez un nom. Aucun groupe = l'utilisateur ne correspond qu'à la policy par défaut. Écrasé au premier login SSO si OIDC est activé."
     },
     "auditPage": {
       "when": "Quand",

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useCreateUser,
+  useKnownGroups,
   useDeleteUser,
   useEffectivePolicy,
   useUpdateUser,
@@ -242,18 +243,33 @@ function EditUserDialog({ user, onClose }: { user: User; onClose: () => void }) 
 function CreateUserDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const create = useCreateUser();
+  const knownGroups = useKnownGroups();
   const [input, setInput] = useState<CreateUserInput>({
     username: '',
     email: '',
     password: '',
     role: 'user',
   });
+  const [groups, setGroups] = useState<string[]>([]);
+  const [newGroup, setNewGroup] = useState('');
 
   const set = (patch: Partial<CreateUserInput>) => setInput((prev) => ({ ...prev, ...patch }));
 
+  const toggleGroup = (g: string) =>
+    setGroups((prev) => (prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g]));
+
+  const addGroup = () => {
+    const g = newGroup.trim();
+    if (g && !groups.includes(g)) setGroups((prev) => [...prev, g]);
+    setNewGroup('');
+  };
+
+  // Suggestions = known groups the user is not already assigned.
+  const suggestions = (knownGroups.data?.data ?? []).filter((g) => !groups.includes(g));
+
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    create.mutate(input, { onSuccess: onClose });
+    create.mutate({ ...input, groups: groups.length > 0 ? groups : undefined }, { onSuccess: onClose });
   };
 
   const field =
@@ -315,6 +331,63 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
             <option value="admin">admin</option>
           </select>
         </label>
+        <div>
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('admin.usersPage.groups')}
+          </span>
+          {groups.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {groups.map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => toggleGroup(g)}
+                  className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800 hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-200"
+                >
+                  {g} ✕
+                </button>
+              ))}
+            </div>
+          )}
+          {suggestions.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {suggestions.map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => toggleGroup(g)}
+                  className="rounded-full border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  + {g}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="mt-1 flex gap-2">
+            <input
+              className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+              placeholder={t('admin.usersPage.addGroupPlaceholder')}
+              value={newGroup}
+              onChange={(e) => setNewGroup(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addGroup();
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={addGroup}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              {t('admin.usersPage.addGroup')}
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+            {t('admin.usersPage.createGroupsHint')}
+          </p>
+        </div>
         {create.isError && <p className="text-sm text-red-600">{create.error.message}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button

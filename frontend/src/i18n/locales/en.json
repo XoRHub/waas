@@ -220,7 +220,10 @@
       "groupsHint": "Comma-separated Authentik group names. Overwritten at each SSO login when OIDC is enabled.",
       "edit": "Edit {{username}}",
       "effectivePolicy": "Effective policy",
-      "noPolicy": "no policy matches — workspace creation is denied"
+      "noPolicy": "no policy matches — workspace creation is denied",
+      "addGroup": "Add",
+      "addGroupPlaceholder": "New group name",
+      "createGroupsHint": "Pick from known groups or add a name. No group = the user matches only the default policy. Overwritten at first SSO login when OIDC is enabled."
     },
     "auditPage": {
       "when": "When",

@@ -530,6 +530,50 @@ func (s *GovernanceService) AdminEffectivePolicy(ctx context.Context, userID str
 	return out, nil
 }
 
+// AdminKnownGroups lists the group names the platform already knows: the
+// Group subjects of every policy plus the groups mirrored onto existing
+// users. These are Authentik group names (from the OIDC claim / admin
+// edits) — the source the admin picks from when creating a user. Not an
+// exhaustive Authentik directory: it surfaces the groups that actually
+// matter here (those a policy targets or a user already has).
+func (s *GovernanceService) AdminKnownGroups(ctx context.Context) ([]string, error) {
+	set := map[string]bool{}
+	policies := &waasv1alpha1.WorkspacePolicyList{}
+	if err := s.kube.List(ctx, policies, client.InNamespace(s.namespace)); err != nil {
+		return nil, fmt.Errorf("listing workspace policies: %w", err)
+	}
+	for i := range policies.Items {
+		for _, sub := range policies.Items[i].Spec.Subjects {
+			if sub.Kind == waasv1alpha1.SubjectGroup && sub.Name != "" {
+				set[sub.Name] = true
+			}
+		}
+	}
+	// Page through users to collect their mirrored groups.
+	for page := 1; ; page++ {
+		users, total, err := s.users.List(ctx, page, 200)
+		if err != nil {
+			return nil, fmt.Errorf("listing users: %w", err)
+		}
+		for i := range users {
+			for _, g := range users[i].Groups {
+				if g != "" {
+					set[g] = true
+				}
+			}
+		}
+		if page*200 >= total || len(users) == 0 {
+			break
+		}
+	}
+	out := make([]string, 0, len(set))
+	for g := range set {
+		out = append(out, g)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // AdminUsage is the consumption view: one row per user that owns at
 // least one workspace, with the policy currently governing them.
 func (s *GovernanceService) AdminUsage(ctx context.Context) ([]model.UserUsage, error) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,11 @@ type CreateUserInput struct {
 	Password      string    `json:"password"`
 	Role          auth.Role `json:"role"`
 	MaxWorkspaces int       `json:"maxWorkspaces"`
+	// Groups seeds the Authentik group mirror at creation (drives policy
+	// matching). Overwritten by the IdP claim at the first OIDC login when
+	// SSO is enabled; empty = only subjects-less policies match (the
+	// "default" policy).
+	Groups []string `json:"groups"`
 }
 
 // UpdateUserInput carries optional field updates (nil = unchanged).
@@ -77,6 +83,7 @@ func (s *UserService) Create(ctx context.Context, actor Actor, in CreateUserInpu
 		Role:          in.Role,
 		Active:        true,
 		MaxWorkspaces: in.MaxWorkspaces,
+		Groups:        normalizeGroups(in.Groups),
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -86,8 +93,27 @@ func (s *UserService) Create(ctx context.Context, actor Actor, in CreateUserInpu
 		}
 		return nil, err
 	}
-	s.audit.Record(ctx, actor, "user.created", "user", user.ID, "username="+user.Username)
+	detail := "username=" + user.Username
+	if len(user.Groups) > 0 {
+		detail += " groups=" + strings.Join(user.Groups, ",")
+	}
+	s.audit.Record(ctx, actor, "user.created", "user", user.ID, detail)
 	return user, nil
+}
+
+// normalizeGroups trims, de-dups and drops blanks from a group list.
+func normalizeGroups(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, g := range in {
+		g = strings.TrimSpace(g)
+		if g == "" || seen[g] {
+			continue
+		}
+		seen[g] = true
+		out = append(out, g)
+	}
+	return out
 }
 
 func (s *UserService) Get(ctx context.Context, id string) (*model.User, error) {
