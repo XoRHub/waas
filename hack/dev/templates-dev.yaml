@@ -20,13 +20,36 @@ spec:
     - name: VNC_RESOLUTION
       value: "1920x1080"
   # Desktops are stamped as a Deployment (the default kind) with an
-  # explicit non-root pod spec.
+  # explicit non-root pod spec. Custom labels/annotations land on the
+  # Deployment AND its pods (reserved keys are webhook-denied).
   workload:
     kind: Deployment
     podSecurityContext:
       runAsNonRoot: true
+    labels:
+      cost-center: waas-dev
+    annotations:
+      example.com/note: "seeded by hack/dev/templates-dev.yaml"
+  # Placement: workloads land in a per-user namespace (bootstrapped by
+  # the operator: PSA labels, ResourceQuota from the policy aggregate,
+  # default-deny ingress except the platform namespaces). The CR itself
+  # stays in waas-workspaces. cleanup absent = Retain (never deletes
+  # user data). NOTE: env here must stay literal — a secretKeyRef would
+  # resolve in the TARGET namespace, where dev Secrets are not seeded.
+  placement:
+    namespace: waas-{user}
+    namespaceLabels:
+      team: waas-dev
+  # Office hours: up weekdays at 08:00, down every day at 20:00 (Paris).
+  # A manual pause/resume wins until the next OPPOSITE edge (rule B);
+  # the portal card shows the next transition.
+  schedule:
+    timezone: Europe/Paris
+    uptime: ["0 8 * * 1-5"]
+    downtime: ["0 20 * * *"]
   # Both protocols the image serves; users may pick either and tune the
-  # allow-listed guacd parameters from the portal.
+  # allow-listed guacd parameters from the portal (tabs per protocol,
+  # quick-switch on the card and in-session).
   protocols:
     - name: vnc
       port: 5901
@@ -41,9 +64,11 @@ spec:
         ignore-cert: "true"
       userParams: [color-depth, resize-method]
   # What workspace creators may deviate from this template (admins and
-  # the template owner may override anything).
+  # the template owner may override anything): schedule = own crons at
+  # creation, placement = another OWNED namespace, metadata = extra
+  # labels/annotations (denylist enforced server-side).
   overrides:
-    allowedFields: [env, resources, protocol, protocolParams]
+    allowedFields: [env, resources, protocol, protocolParams, schedule, placement, metadata]
 ---
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceTemplate
@@ -67,6 +92,11 @@ spec:
     - name: VNC_PW
       valueFrom:
         secretKeyRef: { name: dev-ssh-credentials, key: password }
+  # NO placement on purpose: the env above references the
+  # dev-ssh-credentials Secret, which lives in the platform namespace —
+  # pods resolve secretKeyRef in THEIR OWN namespace, so a placed pod
+  # would fail with CreateContainerConfigError. This template also keeps
+  # the legacy same-namespace path exercised end to end.
   protocols:
     - name: ssh
       port: 2222
@@ -80,7 +110,7 @@ spec:
       credentialsSecretRef: dev-ssh-credentials
       userParams: [color-depth, read-only]
   overrides:
-    allowedFields: [protocol, protocolParams, resources]
+    allowedFields: [protocol, protocolParams, resources, schedule]
 ---
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceTemplate
@@ -99,3 +129,10 @@ spec:
   env:
     - name: VNC_PW
       value: "devpassword"
+  # Throwaway sessions get a namespace PER WORKSPACE, deleted once
+  # nothing waas-managed remains in it (the home PVC holds it back until
+  # the policy TTL reclaims it). Also exercises placement on a legacy
+  # template (no protocols block: the vnc entry is synthesized).
+  placement:
+    namespace: waas-{user}-{workspace}
+    cleanup: DeleteWhenEmpty

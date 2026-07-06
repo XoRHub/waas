@@ -63,5 +63,8 @@ spec:
   # Mode avancé à l'instanciation : les devs peuvent dévier des templates
   # sur ces champs UNIQUEMENT (intersection avec l'allow-list du template ;
   # bloc absent = seule l'allow-list du template s'applique).
+  # schedule = crons propres au workspace ; placement = un autre
+  # namespace POSSÉDÉ (l'ownership reste vérifiée par le webhook) ;
+  # metadata = labels/annotations custom (denylist serveur).
   overrides:
-    allowedFields: [env, resources, protocol, protocolParams]
+    allowedFields: [env, resources, protocol, protocolParams, schedule, placement, metadata]
