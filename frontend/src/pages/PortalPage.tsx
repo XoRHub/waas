@@ -396,10 +396,14 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
       <div className="mt-auto flex gap-2">
         <button
           onClick={onOpen}
-          disabled={workspace.phase !== 'Running'}
+          disabled={workspace.phase === 'Failed' || workspace.phase === 'Terminating'}
           className="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
         >
-          {workspace.phase === 'Running' ? t('portal.open') : t('portal.starting')}
+          {workspace.phase === 'Running'
+            ? t('portal.open')
+            : workspace.phase === 'Paused' || workspace.phase === 'Stopped'
+              ? t('portal.wakeAndOpen')
+              : t('portal.starting')}
         </button>
         <button
           onClick={() =>

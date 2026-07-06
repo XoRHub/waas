@@ -1,28 +1,136 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { DesktopPane, type ConnectionState, type DesktopPaneHandle } from '@/components/DesktopPane';
 import { SessionOverlay } from '@/components/SessionOverlay';
-import { useWorkspaces } from '@/hooks/useApi';
-import type { SessionCapabilities } from '@/types';
+import { useWorkspaceAction, useWorkspaces } from '@/hooks/useApi';
+import type { SessionCapabilities, Workspace } from '@/types';
+
+// How long we wait for a woken workspace to become Running before giving
+// up with a clear error (no infinite spinner).
+const WAKE_TIMEOUT_MS = 180_000;
 
 // Full-screen single-desktop view. The split view (/view) reuses the same
 // DesktopPane with several workspaces side by side. kind="remote" drives
 // a registered out-of-cluster machine through the same pane.
 export function ConnectPage({ kind = 'workspace' }: { kind?: 'workspace' | 'remote' }) {
-  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
+  if (!id) return null;
+  // Remote wake (Wake-on-LAN) is handled separately; remote sessions go
+  // straight to the pane.
+  if (kind === 'remote') {
+    return <DesktopView id={id} kind="remote" workspace={undefined} />;
+  }
+  return <WorkspaceConnect id={id} />;
+}
+
+// WorkspaceConnect wakes a stopped/paused workspace on open, shows a
+// waiting screen until it is Running, then connects the session.
+function WorkspaceConnect({ id }: { id: string }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const workspaces = useWorkspaces();
+  const resume = useWorkspaceAction();
+  const wokeRef = useRef(false);
+  const [startedAt] = useState(() => Date.now());
+  const [timedOut, setTimedOut] = useState(false);
+
+  const workspace = workspaces.data?.data.find((ws) => ws.id === id);
+  const phase = workspace?.phase;
+  const isRunning = phase === 'Running';
+  const isDown = phase === 'Paused' || phase === 'Stopped';
+  const isFailed = phase === 'Failed' || phase === 'Terminating';
+
+  // Auto-resume a down workspace once, when the page is opened on it.
+  useEffect(() => {
+    if (isDown && !wokeRef.current && !resume.isPending) {
+      wokeRef.current = true;
+      resume.mutate({ id, action: 'resume' });
+    }
+  }, [isDown, id, resume]);
+
+  // While waking/starting, poll the workspace fast and enforce the timeout.
+  useEffect(() => {
+    if (isRunning || isFailed || timedOut) return;
+    if (!workspace) return;
+    const timer = setInterval(() => {
+      if (Date.now() - startedAt > WAKE_TIMEOUT_MS) {
+        setTimedOut(true);
+      } else {
+        void workspaces.refetch();
+      }
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [isRunning, isFailed, timedOut, workspace, workspaces, startedAt]);
+
+  const retry = () => {
+    setTimedOut(false);
+    wokeRef.current = false;
+    void workspaces.refetch();
+  };
+
+  // Loading the list, or the workspace vanished.
+  if (workspaces.isPending) {
+    return <WaitScreen title={t('connect.connecting')} />;
+  }
+  if (!workspace) {
+    return (
+      <ErrorScreen
+        message={t('connect.notFound')}
+        actionLabel={t('connect.back')}
+        onAction={() => navigate('/')}
+      />
+    );
+  }
+
+  if (isRunning) {
+    return <DesktopView id={id} kind="workspace" workspace={workspace} />;
+  }
+
+  if (timedOut) {
+    return (
+      <ErrorScreen
+        message={t('connect.wakeTimeout', { name: workspace.displayName || workspace.name })}
+        actionLabel={t('app.retry')}
+        onAction={retry}
+        secondaryLabel={t('connect.back')}
+        onSecondary={() => navigate('/')}
+      />
+    );
+  }
+  if (isFailed) {
+    return (
+      <ErrorScreen
+        message={workspace.message || t('connect.failed')}
+        actionLabel={t('connect.back')}
+        onAction={() => navigate('/')}
+      />
+    );
+  }
+
+  // Down (being woken) or starting: waiting screen.
+  const title = isDown || resume.isPending ? t('connect.waking') : t('connect.starting');
+  return <WaitScreen title={title} subtitle={t('connect.wakeHint')} />;
+}
+
+// DesktopView is the actual desktop stream + overlay + leave bar.
+function DesktopView({
+  id,
+  kind,
+  workspace,
+}: {
+  id: string;
+  kind: 'workspace' | 'remote';
+  workspace: Workspace | undefined;
+}) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const pane = useRef<DesktopPaneHandle>(null);
   const [state, setState] = useState<ConnectionState>('connecting');
   const [capabilities, setCapabilities] = useState<SessionCapabilities | null>(null);
   const onStateChange = useCallback((s: ConnectionState) => setState(s), []);
   const onCapabilities = useCallback((caps: SessionCapabilities) => setCapabilities(caps), []);
 
-  // Back to the portal: close the tab when the portal opened us in a new
-  // one (window.close is only honored for script-opened windows), else
-  // navigate back in place.
   const leave = () => {
     if (window.opener) {
       window.close();
@@ -30,15 +138,10 @@ export function ConnectPage({ kind = 'workspace' }: { kind?: 'workspace' | 'remo
     navigate('/');
   };
 
-  if (!id) return null;
-  const workspace =
-    kind === 'workspace' ? workspaces.data?.data.find((ws) => ws.id === id) : undefined;
-
   return (
     <div className="relative h-screen bg-black">
       {state === 'connected' && (
         <div className="group absolute inset-x-0 top-0 z-10 flex justify-center">
-          {/* Grab handle: keeps the bar out of the way until hovered. */}
           <div className="absolute top-0 h-2 w-40 rounded-b-md bg-white/20 transition group-hover:opacity-0" />
           <div className="-translate-y-full rounded-b-lg bg-slate-900/90 px-4 py-2 text-sm text-white shadow-lg backdrop-blur transition-transform duration-200 group-hover:translate-y-0">
             <button onClick={leave} className="font-medium text-blue-400 hover:text-blue-300">
@@ -68,6 +171,52 @@ export function ConnectPage({ kind = 'workspace' }: { kind?: 'workspace' | 'remo
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function WaitScreen({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-black text-white">
+      <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+      <p className="text-sm">{title}</p>
+      {subtitle && <p className="max-w-sm text-center text-xs text-white/50">{subtitle}</p>}
+    </div>
+  );
+}
+
+function ErrorScreen({
+  message,
+  actionLabel,
+  onAction,
+  secondaryLabel,
+  onSecondary,
+}: {
+  message: string;
+  actionLabel: string;
+  onAction: () => void;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
+}) {
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-black text-white">
+      <p className="max-w-md text-center text-sm text-white/80">{message}</p>
+      <div className="flex gap-2">
+        {secondaryLabel && onSecondary && (
+          <button
+            onClick={onSecondary}
+            className="rounded-md border border-white/30 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
+          >
+            {secondaryLabel}
+          </button>
+        )}
+        <button
+          onClick={onAction}
+          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          {actionLabel}
+        </button>
+      </div>
     </div>
   );
 }

@@ -82,7 +82,8 @@
     "envName": "NOM",
     "envValue": "valeur",
     "addEnvVar": "Ajouter une variable",
-    "port": "port"
+    "port": "port",
+    "wakeAndOpen": "Réveiller et ouvrir"
   },
   "remote": {
     "tab": "Remote workspaces",
@@ -110,7 +111,12 @@
     "disconnected": "La connexion a été fermée.",
     "back": "Retour à mes espaces",
     "failed": "Impossible de se connecter au bureau.",
-    "leave": "Quitter la session"
+    "leave": "Quitter la session",
+    "waking": "Réveil de votre workspace…",
+    "starting": "Démarrage de votre bureau…",
+    "wakeHint": "Cela peut prendre un instant, le temps que le workspace redémarre.",
+    "wakeTimeout": "« {{name}} » n'est pas devenu prêt à temps. Il démarre peut-être encore — réessayez, ou vérifiez son état depuis le portail.",
+    "notFound": "Ce workspace n'existe plus."
   },
   "splitView": {
     "hint": "Jusqu'à {{max}} espaces côte à côte — survolez un panneau pour le diviser, changer d'espace ou le fermer.",
