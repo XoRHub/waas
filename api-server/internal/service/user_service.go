@@ -143,9 +143,9 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 // UpdateProfileInput is the self-service subset of a user record (nil =
 // unchanged). Username, role, groups and quotas stay admin/OIDC-owned.
 type UpdateProfileInput struct {
-	DisplayName *string                 `json:"displayName"`
-	Email       *string                 `json:"email"`
-	Preferences *model.UserPreferences  `json:"preferences"`
+	DisplayName *string                `json:"displayName"`
+	Email       *string                `json:"email"`
+	Preferences *model.UserPreferences `json:"preferences"`
 	// Password change requires proving knowledge of the current one.
 	CurrentPassword string `json:"currentPassword"`
 	NewPassword     string `json:"newPassword"`
