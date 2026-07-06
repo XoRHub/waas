@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -16,6 +17,8 @@ import (
 	"github.com/xorhub/waas/api-server/internal/apierror"
 	"github.com/xorhub/waas/api-server/internal/model"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/metakeys"
+	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/params"
 	"github.com/xorhub/waas/operator/pkg/schedule"
 )
@@ -61,6 +64,10 @@ type TemplateInput struct {
 
 	// Schedule is the CR field verbatim (timezone + uptime/downtime crons).
 	Schedule *waasv1alpha1.WorkspaceSchedule `json:"schedule,omitempty"`
+
+	// Placement is the CR field verbatim (target-namespace pattern,
+	// namespace metadata, cleanup policy).
+	Placement *waasv1alpha1.WorkspacePlacement `json:"placement,omitempty"`
 }
 
 // TemplateProtocolInput mirrors WorkspaceProtocol.
@@ -249,15 +256,11 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 		ov := &waasv1alpha1.TemplateOverrides{Owner: in.Overrides.Owner}
 		for _, f := range in.Overrides.AllowedFields {
 			field := waasv1alpha1.OverridableField(f)
-			switch field {
-			case waasv1alpha1.FieldEnv, waasv1alpha1.FieldSecurityContext, waasv1alpha1.FieldPodSecurityContext,
-				waasv1alpha1.FieldVolumes, waasv1alpha1.FieldNodeSelector, waasv1alpha1.FieldTolerations,
-				waasv1alpha1.FieldResources, waasv1alpha1.FieldProtocol, waasv1alpha1.FieldProtocolParams,
-				waasv1alpha1.FieldSchedule:
-				ov.AllowedFields = append(ov.AllowedFields, field)
-			default:
-				return nil, apierror.BadRequest(fmt.Sprintf("unknown overridable field %q", f))
+			if !slices.Contains(waasv1alpha1.AllOverridableFields(), field) {
+				return nil, apierror.BadRequest(fmt.Sprintf("unknown overridable field %q (known: %v)",
+					f, waasv1alpha1.AllOverridableFields()))
 			}
+			ov.AllowedFields = append(ov.AllowedFields, field)
 		}
 		spec.Overrides = ov
 	}
@@ -267,6 +270,31 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 			return nil, apierror.BadRequest(fmt.Sprintf("schedule: %v", v))
 		}
 		spec.Schedule = in.Schedule
+	}
+
+	// Placement + metadata: same gates as the admission webhook, with
+	// 400s instead of a denied apply.
+	if in.Placement != nil {
+		if in.Placement.Namespace != "" {
+			if _, err := naming.ResolveNamespace(in.Placement.Namespace, "sample-user", "sample-workspace"); err != nil {
+				return nil, apierror.BadRequest(fmt.Sprintf("placement.namespace: %v", err))
+			}
+		}
+		if err := metakeys.Check(in.Placement.NamespaceLabels); err != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("placement.namespaceLabels: %v", err))
+		}
+		if err := metakeys.Check(in.Placement.NamespaceAnnotations); err != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("placement.namespaceAnnotations: %v", err))
+		}
+		spec.Placement = in.Placement
+	}
+	if in.Workload != nil {
+		if err := metakeys.Check(in.Workload.Labels); err != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("workload.labels: %v", err))
+		}
+		if err := metakeys.Check(in.Workload.Annotations); err != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("workload.annotations: %v", err))
+		}
 	}
 	return spec, nil
 }
@@ -336,5 +364,6 @@ func templateToModel(tpl *waasv1alpha1.WorkspaceTemplate) model.WorkspaceTemplat
 		m.OverridesOwner = tpl.Spec.Overrides.Owner
 	}
 	m.Schedule = tpl.Spec.Schedule
+	m.Placement = tpl.Spec.Placement
 	return m
 }

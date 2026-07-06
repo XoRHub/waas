@@ -1,11 +1,14 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/xorhub/waas/api-server/internal/k8s"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
 
@@ -69,5 +72,62 @@ func TestOverridesSummaryIsAuditSafe(t *testing.T) {
 	}
 	if strings.Contains(got, "super-secret") || strings.Contains(got, "proxy:3128") {
 		t.Fatalf("summary %q leaks env values", got)
+	}
+}
+
+// TestResolveWorkloadName pins the naming contract of point "Deployment =
+// workspace name": sanitized display name, deterministic suffix only on
+// collision, and collisions scoped to the target namespace.
+func TestResolveWorkloadName(t *testing.T) {
+	kube, err := k8s.NewClient(true)
+	if err != nil {
+		t.Fatalf("building fake kube client: %v", err)
+	}
+	svc := &WorkspaceService{kube: kube, namespace: "waas"}
+	ctx := context.Background()
+
+	existing := &waasv1alpha1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "cr1", Namespace: "waas"},
+		Spec: waasv1alpha1.WorkspaceSpec{
+			TemplateRef: "xfce", Owner: "u1",
+			TargetNamespace: "waas-alice", WorkloadName: "cad-station",
+		},
+	}
+	if err := kube.Create(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+
+	// Accents fold, spaces dash: fresh name in a fresh namespace.
+	got, err := svc.resolveWorkloadName(ctx, "cr2", "Zoé «Test»", "waas-zoe")
+	if err != nil || got != "zoe-test" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	// Collision in the same namespace gets the deterministic suffix.
+	got, err = svc.resolveWorkloadName(ctx, "cr2", "CAD Station", "waas-alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "cad-station-") || len(got) != len("cad-station")+6 {
+		t.Fatalf("expected suffixed name, got %q", got)
+	}
+	// Same display name in ANOTHER namespace needs no suffix.
+	got, err = svc.resolveWorkloadName(ctx, "cr3", "CAD Station", "waas-bob")
+	if err != nil || got != "cad-station" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	// Legacy names are protected too: "ws-<cr>" counts as taken.
+	legacy := &waasv1alpha1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "old", Namespace: "waas"},
+		Spec:       waasv1alpha1.WorkspaceSpec{TemplateRef: "xfce", Owner: "u1"},
+	}
+	if err := kube.Create(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	got, err = svc.resolveWorkloadName(ctx, "cr4", "ws-old", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == "ws-old" {
+		t.Fatalf("legacy deployment name must not be reused, got %q", got)
 	}
 }

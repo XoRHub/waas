@@ -133,6 +133,10 @@ type Workspace struct {
 	Paused      bool      `json:"paused"`
 	Message     string    `json:"message,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
+	// Namespace is where the workloads run (empty = platform namespace)
+	// and WorkloadName the frozen Deployment/Service name — display-only.
+	Namespace    string `json:"namespace,omitempty"`
+	WorkloadName string `json:"workloadName,omitempty"`
 	// Protocols the workspace serves, with the user-tunable guacd
 	// parameter names per protocol (resolved from the template).
 	Protocols []WorkspaceProtocol `json:"protocols,omitempty"`
@@ -216,6 +220,9 @@ type WorkspaceTemplate struct {
 	OverridesOwner string `json:"overridesOwner,omitempty"`
 	// Schedule is the CR's uptime/downtime schedule verbatim.
 	Schedule *waasv1alpha1.WorkspaceSchedule `json:"schedule,omitempty"`
+	// Placement is the CR's placement block verbatim (target-namespace
+	// pattern, namespace metadata, cleanup policy).
+	Placement *waasv1alpha1.WorkspacePlacement `json:"placement,omitempty"`
 }
 
 // CatalogImage is the API projection of a WorkspaceImage CR, already

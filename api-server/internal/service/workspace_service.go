@@ -18,6 +18,7 @@ import (
 	"github.com/xorhub/waas/api-server/internal/model"
 	"github.com/xorhub/waas/api-server/internal/repository"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/params"
 	"github.com/xorhub/waas/operator/pkg/policy"
 	"github.com/xorhub/waas/shared/auth"
@@ -76,6 +77,10 @@ type CreateWorkspaceInput struct {
 	// protocol...). Passed verbatim to the CR: the admission webhook is
 	// the single judge of what this creator may override.
 	Overrides *waasv1alpha1.WorkspaceOverrides `json:"overrides,omitempty"`
+	// TargetNamespace overrides the template's placement pattern (needs
+	// the "placement" override right; ownership is webhook-enforced).
+	// Empty = the template pattern resolved for the owner.
+	TargetNamespace string `json:"targetNamespace,omitempty"`
 }
 
 // ConnectInput is the optional connect-time payload: a protocol choice and
@@ -156,6 +161,21 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 		return nil, apierror.BadRequest("name must be a valid DNS-1123 subdomain")
 	}
 
+	// Placement + workload naming are resolved HERE, once, and frozen into
+	// the spec (the webhook enforces immutability and ownership). The
+	// operator only ever reads the resolved values.
+	targetNamespace := in.TargetNamespace
+	if targetNamespace == "" {
+		targetNamespace, err = naming.ResolveNamespace(tpl.Spec.PlacementNamespacePattern(), owner.Username, in.DisplayName)
+		if err != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("template placement: %v", err))
+		}
+	}
+	workloadName, err := s.resolveWorkloadName(ctx, name, in.DisplayName, targetNamespace)
+	if err != nil {
+		return nil, err
+	}
+
 	// Quota and catalog rules are enforced by the admission webhook (the
 	// single enforcement point shared with kubectl), not re-implemented
 	// here. The identity annotations below feed its policy resolution:
@@ -175,10 +195,12 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 			},
 		},
 		Spec: waasv1alpha1.WorkspaceSpec{
-			TemplateRef: in.TemplateRef,
-			Owner:       owner.ID,
-			DisplayName: in.DisplayName,
-			Overrides:   in.Overrides,
+			TemplateRef:     in.TemplateRef,
+			Owner:           owner.ID,
+			DisplayName:     in.DisplayName,
+			Overrides:       in.Overrides,
+			TargetNamespace: targetNamespace,
+			WorkloadName:    workloadName,
 		},
 	}
 	rr, err := requirementsFrom(in.Resources)
@@ -608,6 +630,9 @@ func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTem
 		Protocol:    ws.Status.Protocol,
 		Paused:      ws.Spec.Paused,
 		CreatedAt:   ws.CreationTimestamp.Time,
+
+		Namespace:    ws.Spec.TargetNamespace,
+		WorkloadName: ws.Spec.WorkloadName,
 	}
 	for _, p := range ws.Status.Protocols {
 		m.Protocols = append(m.Protocols, model.WorkspaceProtocol{
@@ -664,6 +689,46 @@ func policyDenial(err error) (string, bool) {
 		msg = msg[idx:]
 	}
 	return msg, true
+}
+
+// resolveWorkloadName derives the frozen workload name from the display
+// name (fallback: the CR name), deterministically suffixed when the
+// sanitized form is already taken in the target namespace. Two distinct
+// display names that normalize identically ("Zoé" / "zoe") therefore get
+// distinct Deployments.
+func (s *WorkspaceService) resolveWorkloadName(ctx context.Context, crName, displayName, targetNamespace string) (string, error) {
+	base := displayName
+	if base == "" {
+		base = crName
+	}
+	// Reserve room for the "-xxxxx" collision suffix.
+	candidate := naming.SanitizeWithLimit(base, naming.MaxLabel-6)
+
+	all := &waasv1alpha1.WorkspaceList{}
+	if err := s.kube.List(ctx, all, client.InNamespace(s.namespace)); err != nil {
+		return "", fmt.Errorf("listing workspaces: %w", err)
+	}
+	effectiveNS := targetNamespace
+	if effectiveNS == "" {
+		effectiveNS = s.namespace
+	}
+	taken := func(name string) bool {
+		for i := range all.Items {
+			sib := &all.Items[i]
+			if sib.EffectiveTargetNamespace() == effectiveNS && sib.EffectiveWorkloadName() == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !taken(candidate) {
+		return candidate, nil
+	}
+	suffixed := candidate + naming.Suffix(crName)
+	if taken(suffixed) {
+		return "", apierror.Conflict(fmt.Sprintf("workload name %q is already in use in namespace %q", suffixed, effectiveNS))
+	}
+	return suffixed, nil
 }
 
 func generateWorkspaceName(username string) string {
