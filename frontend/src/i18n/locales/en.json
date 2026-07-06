@@ -50,7 +50,20 @@
     "openSameTab": "This tab",
     "openNewTab": "New tab",
     "rememberChoice": "Remember my choice",
-    "deleteConfirm": "Delete this workspace? This cannot be undone from the portal."
+    "deleteConfirm": "Delete this workspace? This cannot be undone from the portal.",
+    "splitView": "Split view",
+    "unfiled": "Unfiled",
+    "connectionSettings": "Connection settings",
+    "openInSplitView": "Open in split view",
+    "moveToFolder": "Move to folder",
+    "newFolder": "New folder…",
+    "newFolderPrompt": "Folder name",
+    "removeFromFolder": "Remove from folder",
+    "protocol": "Protocol",
+    "protocolDefault": "default",
+    "protocolParams": "Connection parameters",
+    "protocolParamDefault": "template default",
+    "noTunableParams": "This protocol has no user-tunable parameters on this template."
   },
   "connect": {
     "connecting": "Connecting to your desktop…",
@@ -58,6 +71,15 @@
     "back": "Back to my workspaces",
     "failed": "Could not connect to the desktop.",
     "leave": "Leave session"
+  },
+  "splitView": {
+    "hint": "Up to {{max}} workspaces side by side — hover a pane to split, swap or close it.",
+    "splitRight": "Split right",
+    "splitDown": "Split down",
+    "changeWorkspace": "Change workspace",
+    "closePane": "Close pane",
+    "pickWorkspace": "Choose a workspace for this pane",
+    "noRunning": "No running workspace. Start one from the portal first."
   },
   "profile": {
     "title": "My profile",
@@ -71,6 +93,10 @@
     "openTarget": "Workspace opening",
     "openTargetUnset": "Not set yet — you will be asked on first open.",
     "language": "Language",
+    "theme": "Theme",
+    "themeSystem": "Follow system",
+    "themeLight": "Light theme",
+    "themeDark": "Dark theme",
     "security": "Security",
     "currentPassword": "Current password",
     "newPassword": "New password",

@@ -1,9 +1,23 @@
 export type Role = 'admin' | 'user';
 
+export type Theme = 'light' | 'dark' | 'system';
+
+/** Saved connection tuning for one workspace (validated server-side). */
+export interface WorkspaceConnectionPrefs {
+  protocol?: string;
+  params?: Record<string, string>;
+}
+
 export interface UserPreferences {
   /** null/undefined = never asked: the portal shows the choice dialog. */
   openWorkspaceInNewTab?: boolean | null;
   language?: string;
+  /** 'light' | 'dark'; empty/undefined follows the system. */
+  theme?: string;
+  /** workspace ID → folder name (the portal's user-defined grouping). */
+  workspaceFolders?: Record<string, string>;
+  /** workspace ID → saved protocol/params choices. */
+  workspaceSettings?: Record<string, WorkspaceConnectionPrefs>;
 }
 
 export interface User {
@@ -28,6 +42,14 @@ export type WorkspacePhase =
   | 'Failed'
   | 'Terminating';
 
+/** One connection option of a workspace, with its user-tunable guacd params. */
+export interface WorkspaceProtocol {
+  name: string;
+  port?: number;
+  default?: boolean;
+  userParams?: string[];
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -40,6 +62,7 @@ export interface Workspace {
   paused: boolean;
   message?: string;
   createdAt: string;
+  protocols?: WorkspaceProtocol[];
 }
 
 export interface WorkspaceTemplate {
@@ -54,6 +77,9 @@ export interface WorkspaceTemplate {
   requests?: Record<string, string>;
   limits?: Record<string, string>;
   createdAt: string;
+  workload?: string;
+  protocols?: WorkspaceProtocol[];
+  allowedOverrides?: string[];
 }
 
 export interface AuditLog {

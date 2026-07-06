@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
+import { useUpdateProfile } from '@/hooks/useApi';
+import { applyTheme } from '@/lib/theme';
 import { useAuthStore } from '@/stores/authStore';
 
 // Header avatar dropdown: profile, admin console (if admin), logout.
@@ -10,6 +12,7 @@ export function UserMenu() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const updateProfile = useUpdateProfile();
   const [open, setOpen] = useState(false);
 
   if (!user) return null;
@@ -17,6 +20,16 @@ export function UserMenu() {
   const go = (to: string) => {
     setOpen(false);
     navigate(to);
+  };
+
+  // Quick light/dark flip; the three-state choice (incl. system) lives in
+  // the profile page.
+  const isDark = document.documentElement.classList.contains('dark');
+  const toggleTheme = () => {
+    const next = isDark ? 'light' : 'dark';
+    applyTheme(next);
+    updateProfile.mutate({ preferences: { ...user.preferences, theme: next } });
+    setOpen(false);
   };
 
   return (
@@ -40,6 +53,9 @@ export function UserMenu() {
             className="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-lg bg-white py-1 shadow-lg ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
           >
             <MenuItem onClick={() => go('/profile')}>{t('profile.title')}</MenuItem>
+            <MenuItem onClick={toggleTheme}>
+              {isDark ? t('profile.themeLight') : t('profile.themeDark')}
+            </MenuItem>
             {user.role === 'admin' && (
               <MenuItem onClick={() => go('/admin')}>{t('admin.title')}</MenuItem>
             )}

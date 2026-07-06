@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
 import { useUpdateProfile } from '@/hooks/useApi';
+import { applyTheme } from '@/lib/theme';
 import { useAuthStore } from '@/stores/authStore';
+import type { Theme } from '@/types';
 
 // Self-service profile: identity (until OIDC owns it), UI preferences and
 // password. Each card saves independently.
@@ -181,6 +183,21 @@ function PreferencesCard() {
           )}
         </div>
       </fieldset>
+      <Field label={t('profile.theme')}>
+        <select
+          className={inputClass}
+          value={user.preferences?.theme || 'system'}
+          onChange={(e) => {
+            const value = e.target.value as Theme;
+            applyTheme(value);
+            save({ theme: value === 'system' ? '' : value });
+          }}
+        >
+          <option value="system">{t('profile.themeSystem')}</option>
+          <option value="light">{t('profile.themeLight')}</option>
+          <option value="dark">{t('profile.themeDark')}</option>
+        </select>
+      </Field>
       <Field label={t('profile.language')}>
         <select
           className={inputClass}

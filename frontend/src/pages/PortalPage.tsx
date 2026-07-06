@@ -19,14 +19,41 @@ import type { Workspace } from '@/types';
 
 export function PortalPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const workspaces = useWorkspaces();
+  const user = useAuthStore((s) => s.user);
   const [creating, setCreating] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  // User-defined grouping: folder name → workspaces; '' collects the
+  // unfiled ones and is rendered last.
+  const folderOf = user?.preferences?.workspaceFolders ?? {};
+  const groups = new Map<string, Workspace[]>();
+  for (const ws of workspaces.data?.data ?? []) {
+    const folder = folderOf[ws.id] ?? '';
+    groups.set(folder, [...(groups.get(folder) ?? []), ws]);
+  }
+  const folderNames = [...groups.keys()].filter((f) => f !== '').sort();
+
+  const renderCards = (items: Workspace[]) => (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((ws) => (
+        <WorkspaceCard key={ws.id} workspace={ws} />
+      ))}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-900">
       <header className="flex items-center justify-between bg-white px-6 py-4 shadow-sm dark:bg-slate-800">
         <h1 className="text-lg font-semibold text-slate-900 dark:text-white">{t('portal.title')}</h1>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/view')}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            {t('portal.splitView')}
+          </button>
           <button
             onClick={() => setCreating(true)}
             className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
@@ -44,9 +71,30 @@ export function PortalPage() {
         {workspaces.isSuccess && workspaces.data.data.length === 0 && (
           <p className="text-slate-500 dark:text-slate-400">{t('portal.empty')}</p>
         )}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {workspaces.isSuccess &&
-            workspaces.data.data.map((ws) => <WorkspaceCard key={ws.id} workspace={ws} />)}
+        <div className="space-y-6">
+          {folderNames.map((folder) => (
+            <section key={folder}>
+              <button
+                onClick={() => setCollapsed((c) => ({ ...c, [folder]: !c[folder] }))}
+                className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200"
+              >
+                <span className="text-xs">{collapsed[folder] ? '▶' : '▼'}</span>
+                <span>📁 {folder}</span>
+                <span className="font-normal text-slate-400">({groups.get(folder)!.length})</span>
+              </button>
+              {!collapsed[folder] && renderCards(groups.get(folder)!)}
+            </section>
+          ))}
+          {groups.has('') && (
+            <section>
+              {folderNames.length > 0 && (
+                <h2 className="mb-3 text-sm font-semibold text-slate-500 dark:text-slate-400">
+                  {t('portal.unfiled')}
+                </h2>
+              )}
+              {renderCards(groups.get('')!)}
+            </section>
+          )}
         </div>
       </main>
 
@@ -112,6 +160,8 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const user = useAuthStore((s) => s.user);
   const updateProfile = useUpdateProfile();
   const [asking, setAsking] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const onOpen = () => {
     const pref = user?.preferences?.openWorkspaceInNewTab;
@@ -133,6 +183,29 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
     openWorkspace(workspace.id, newTab, navigate);
   };
 
+  const folders = user?.preferences?.workspaceFolders ?? {};
+  const currentFolder = folders[workspace.id];
+  const existingFolders = [...new Set(Object.values(folders))].sort();
+
+  const moveToFolder = (folder: string | null) => {
+    setMenuOpen(false);
+    const next = { ...folders };
+    if (folder) {
+      next[workspace.id] = folder;
+    } else {
+      delete next[workspace.id];
+    }
+    updateProfile.mutate({
+      preferences: { ...user?.preferences, workspaceFolders: next },
+    });
+  };
+
+  const onNewFolder = () => {
+    const name = window.prompt(t('portal.newFolderPrompt'))?.trim();
+    if (name) moveToFolder(name);
+    else setMenuOpen(false);
+  };
+
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800">
       <div className="flex items-start justify-between">
@@ -140,9 +213,65 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
           <h2 className="font-medium text-slate-900 dark:text-white">
             {workspace.displayName || workspace.name}
           </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{workspace.templateRef}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {workspace.templateRef}
+            {currentFolder && <span className="ml-2">📁 {currentFolder}</span>}
+          </p>
         </div>
-        <StatusBadge phase={workspace.phase} />
+        <div className="flex items-center gap-1">
+          <StatusBadge phase={workspace.phase} />
+          <div className="relative">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className="rounded px-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              ⋯
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                <div
+                  role="menu"
+                  className="absolute right-0 z-20 mt-1 w-52 overflow-hidden rounded-lg bg-white py-1 text-sm shadow-lg ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
+                >
+                  <CardMenuItem
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setSettingsOpen(true);
+                    }}
+                  >
+                    {t('portal.connectionSettings')}
+                  </CardMenuItem>
+                  <CardMenuItem
+                    onClick={() => {
+                      setMenuOpen(false);
+                      navigate(`/view?ws=${workspace.id}`);
+                    }}
+                  >
+                    {t('portal.openInSplitView')}
+                  </CardMenuItem>
+                  <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+                  <p className="px-4 py-1 text-xs text-slate-400">{t('portal.moveToFolder')}</p>
+                  {existingFolders
+                    .filter((f) => f !== currentFolder)
+                    .map((f) => (
+                      <CardMenuItem key={f} onClick={() => moveToFolder(f)}>
+                        📁 {f}
+                      </CardMenuItem>
+                    ))}
+                  <CardMenuItem onClick={onNewFolder}>{t('portal.newFolder')}</CardMenuItem>
+                  {currentFolder && (
+                    <CardMenuItem onClick={() => moveToFolder(null)}>
+                      {t('portal.removeFromFolder')}
+                    </CardMenuItem>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
       {workspace.message && (
         <p className="text-xs text-slate-500 dark:text-slate-400">{workspace.message}</p>
@@ -177,6 +306,124 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
         </button>
       </div>
       {asking && <OpenChoiceDialog onChoice={onChoice} onClose={() => setAsking(false)} />}
+      {settingsOpen && (
+        <ConnectionSettingsDialog workspace={workspace} onClose={() => setSettingsOpen(false)} />
+      )}
+    </div>
+  );
+}
+
+function CardMenuItem({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      role="menuitem"
+      onClick={onClick}
+      className="block w-full px-4 py-1.5 text-left text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
+    >
+      {children}
+    </button>
+  );
+}
+
+// ConnectionSettingsDialog: pick the protocol among what the template
+// declares and tune the guacd parameters the template allow-lists. Saved
+// in the profile; the server re-validates at connect time.
+function ConnectionSettingsDialog({
+  workspace,
+  onClose,
+}: {
+  workspace: Workspace;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const user = useAuthStore((s) => s.user);
+  const updateProfile = useUpdateProfile();
+  const saved = user?.preferences?.workspaceSettings?.[workspace.id];
+  const protocols = workspace.protocols ?? [];
+  const defaultProtocol = protocols.find((p) => p.default)?.name ?? workspace.protocol ?? '';
+  const [protocol, setProtocol] = useState(saved?.protocol || defaultProtocol);
+  const [params, setParams] = useState<Record<string, string>>(saved?.params ?? {});
+
+  const selected = protocols.find((p) => p.name === protocol);
+  const tunable = selected?.userParams ?? [];
+
+  const onSave = () => {
+    const cleaned = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== ''));
+    const settings = { ...user?.preferences?.workspaceSettings };
+    if (protocol === defaultProtocol && Object.keys(cleaned).length === 0) {
+      delete settings[workspace.id];
+    } else {
+      settings[workspace.id] = {
+        protocol: protocol !== defaultProtocol ? protocol : undefined,
+        params: Object.keys(cleaned).length > 0 ? cleaned : undefined,
+      };
+    }
+    updateProfile.mutate(
+      { preferences: { ...user?.preferences, workspaceSettings: settings } },
+      { onSuccess: onClose },
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md space-y-4 rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+          {t('portal.connectionSettings')}
+        </h2>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.protocol')}</span>
+          <select
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            value={protocol}
+            onChange={(e) => setProtocol(e.target.value)}
+          >
+            {protocols.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.name.toUpperCase()}
+                {p.default ? ` (${t('portal.protocolDefault')})` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        {tunable.length > 0 ? (
+          <fieldset className="space-y-3">
+            <legend className="text-sm text-slate-600 dark:text-slate-300">
+              {t('portal.protocolParams')}
+            </legend>
+            {tunable.map((name) => (
+              <label key={name} className="block">
+                <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{name}</span>
+                <input
+                  className="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                  value={params[name] ?? ''}
+                  onChange={(e) => setParams((p) => ({ ...p, [name]: e.target.value }))}
+                  placeholder={t('portal.protocolParamDefault')}
+                />
+              </label>
+            ))}
+          </fieldset>
+        ) : (
+          <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.noTunableParams')}</p>
+        )}
+        {updateProfile.isError && (
+          <p className="text-sm text-red-600">{updateProfile.error.message}</p>
+        )}
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+          >
+            {t('app.cancel')}
+          </button>
+          <button
+            onClick={onSave}
+            disabled={updateProfile.isPending}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {t('app.save')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

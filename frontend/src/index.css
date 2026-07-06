@@ -1,5 +1,9 @@
 @import 'tailwindcss';
 
+/* Manual theme switching: dark: variants follow the .dark class set by
+   applyTheme() (user preference), not the OS media query alone. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   color-scheme: light dark;
 }

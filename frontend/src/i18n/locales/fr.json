@@ -50,7 +50,20 @@
     "openSameTab": "Cet onglet",
     "openNewTab": "Nouvel onglet",
     "rememberChoice": "Se souvenir de mon choix",
-    "deleteConfirm": "Supprimer cet espace de travail ? Cette action est irréversible depuis le portail."
+    "deleteConfirm": "Supprimer cet espace de travail ? Cette action est irréversible depuis le portail.",
+    "splitView": "Vue partagée",
+    "unfiled": "Non classés",
+    "connectionSettings": "Réglages de connexion",
+    "openInSplitView": "Ouvrir en vue partagée",
+    "moveToFolder": "Ranger dans un dossier",
+    "newFolder": "Nouveau dossier…",
+    "newFolderPrompt": "Nom du dossier",
+    "removeFromFolder": "Retirer du dossier",
+    "protocol": "Protocole",
+    "protocolDefault": "défaut",
+    "protocolParams": "Paramètres de connexion",
+    "protocolParamDefault": "valeur du modèle",
+    "noTunableParams": "Ce protocole n'a aucun paramètre modifiable sur ce modèle."
   },
   "connect": {
     "connecting": "Connexion à votre bureau…",
@@ -58,6 +71,15 @@
     "back": "Retour à mes espaces",
     "failed": "Impossible de se connecter au bureau.",
     "leave": "Quitter la session"
+  },
+  "splitView": {
+    "hint": "Jusqu'à {{max}} espaces côte à côte — survolez un panneau pour le diviser, changer d'espace ou le fermer.",
+    "splitRight": "Diviser à droite",
+    "splitDown": "Diviser en bas",
+    "changeWorkspace": "Changer d'espace",
+    "closePane": "Fermer le panneau",
+    "pickWorkspace": "Choisissez un espace pour ce panneau",
+    "noRunning": "Aucun espace en cours d'exécution. Démarrez-en un depuis le portail."
   },
   "profile": {
     "title": "Mon profil",
@@ -71,6 +93,10 @@
     "openTarget": "Ouverture des espaces de travail",
     "openTargetUnset": "Pas encore défini — le choix vous sera demandé à la première ouverture.",
     "language": "Langue",
+    "theme": "Thème",
+    "themeSystem": "Suivre le système",
+    "themeLight": "Thème clair",
+    "themeDark": "Thème sombre",
     "security": "Sécurité",
     "currentPassword": "Mot de passe actuel",
     "newPassword": "Nouveau mot de passe",
