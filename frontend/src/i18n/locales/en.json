@@ -260,7 +260,12 @@
     "workspaces": "Workspaces",
     "storage": "Storage",
     "noUsage": "No workspace owners yet.",
-    "gitopsNote": "Changes here edit the cluster CRDs directly; Git only seeds them (ArgoCD selfHeal must stay off for these kinds)."
+    "gitopsNote": "Changes here edit the cluster CRDs directly; Git only seeds them (ArgoCD selfHeal must stay off for these kinds).",
+    "newImage": "New image",
+    "editImage": "Edit image",
+    "newPolicy": "New policy",
+    "name": "Name",
+    "invalidName": "Name must be a lowercase DNS-1123 label (a-z, 0-9, -)."
   },
   "overlay": {
     "title": "Session menu",

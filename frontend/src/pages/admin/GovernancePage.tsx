@@ -1,15 +1,41 @@
-import { useCallback, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { stringify as yamlStringify } from 'yaml';
 import {
   useAdminImages,
   useAdminPolicies,
   useAdminUsage,
+  useScaffold,
   useToggleImage,
+  useUpsertImage,
   useUpsertPolicy,
 } from '@/hooks/useApi';
 import { YamlEditor, parseYaml, type YamlIssue } from '@/components/YamlEditor';
-import type { PolicyModel } from '@/types';
+import type { CatalogImage, PolicyModel } from '@/types';
+
+type Kind = 'workspacepolicy' | 'workspaceimage';
+
+// deepMerge fills missing keys of `over` from `base` (the schema
+// scaffold), so an edited object shows EVERY field — populated values win,
+// absent ones fall back to the scaffold placeholder. Arrays and scalars
+// are replaced wholesale by `over`.
+function deepMerge(base: unknown, over: unknown): unknown {
+  if (
+    base &&
+    over &&
+    typeof base === 'object' &&
+    typeof over === 'object' &&
+    !Array.isArray(base) &&
+    !Array.isArray(over)
+  ) {
+    const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
+    for (const [k, v] of Object.entries(over as Record<string, unknown>)) {
+      out[k] = k in (base as Record<string, unknown>) ? deepMerge((base as Record<string, unknown>)[k], v) : v;
+    }
+    return out;
+  }
+  return over === undefined ? base : over;
+}
 
 // Governance console: catalog kill-switches, policy editing and the
 // per-user consumption view. Policies are edited as YAML — the shape is
@@ -32,12 +58,23 @@ function CatalogSection() {
   const { t } = useTranslation();
   const images = useAdminImages();
   const toggle = useToggleImage();
+  const upsert = useUpsertImage();
+  // null = closed; 'new' = create; a CatalogImage = edit.
+  const [editing, setEditing] = useState<CatalogImage | 'new' | null>(null);
 
   return (
     <section>
-      <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">
-        {t('governance.catalog')}
-      </h2>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+          {t('governance.catalog')}
+        </h2>
+        <button
+          onClick={() => setEditing('new')}
+          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          {t('governance.newImage')}
+        </button>
+      </div>
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-slate-800">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400">
@@ -71,6 +108,12 @@ function CatalogSection() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
+                      onClick={() => setEditing(img)}
+                      className="mr-2 rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                    >
+                      {t('app.edit')}
+                    </button>
+                    <button
                       onClick={() => toggle.mutate({ name: img.name, enabled: !img.enabled })}
                       disabled={toggle.isPending}
                       className="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -86,20 +129,50 @@ function CatalogSection() {
           <p className="p-4 text-sm text-slate-500">{t('governance.noImages')}</p>
         )}
       </div>
+      {editing && (
+        <GovernanceEditor
+          kind="workspaceimage"
+          title={t('governance.editImage')}
+          name={editing === 'new' ? '' : editing.name}
+          isNew={editing === 'new'}
+          body={editing === 'new' ? undefined : imageBody(editing)}
+          onSave={(name, body) => upsert.mutate({ name, body }, { onSuccess: () => setEditing(null) })}
+          pending={upsert.isPending}
+          error={upsert.error?.message}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </section>
   );
+}
+
+// imageBody strips read-only projection fields, leaving the PUT payload.
+function imageBody(img: CatalogImage): Record<string, unknown> {
+  const { name: _n, templates: _t, ...body } = img;
+  void _n;
+  void _t;
+  return body;
 }
 
 function PoliciesSection() {
   const { t } = useTranslation();
   const policies = useAdminPolicies();
-  const [editing, setEditing] = useState<PolicyModel | null>(null);
+  const upsert = useUpsertPolicy();
+  const [editing, setEditing] = useState<PolicyModel | 'new' | null>(null);
 
   return (
     <section>
-      <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">
-        {t('governance.policies')}
-      </h2>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+          {t('governance.policies')}
+        </h2>
+        <button
+          onClick={() => setEditing('new')}
+          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          {t('governance.newPolicy')}
+        </button>
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
         {policies.isSuccess &&
           policies.data.data
@@ -149,9 +222,28 @@ function PoliciesSection() {
               </div>
             ))}
       </div>
-      {editing && <PolicyEditor policy={editing} onClose={() => setEditing(null)} />}
+      {editing && (
+        <GovernanceEditor
+          kind="workspacepolicy"
+          title={t('governance.editPolicy')}
+          name={editing === 'new' ? '' : editing.name}
+          isNew={editing === 'new'}
+          body={editing === 'new' ? undefined : policyBody(editing)}
+          validate={validatePolicy}
+          onSave={(name, body) => upsert.mutate({ name, body }, { onSuccess: () => setEditing(null) })}
+          pending={upsert.isPending}
+          error={upsert.error?.message}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </section>
   );
+}
+
+function policyBody(pol: PolicyModel): Record<string, unknown> {
+  const { name: _n, ...body } = pol;
+  void _n;
+  return body;
 }
 
 // Semantic checks over the parsed YAML: field-level messages the API
@@ -210,37 +302,104 @@ function validatePolicy(value: unknown): YamlIssue[] {
   return issues;
 }
 
-function PolicyEditor({ policy, onClose }: { policy: PolicyModel; onClose: () => void }) {
+// GovernanceEditor is the shared YAML editor for policies and images.
+// The editor is seeded from the server-generated schema scaffold (every
+// field present, even empty), deep-merged with the object being edited —
+// so admins never go back to the docs to find a field. On create it asks
+// for the object name; the API server re-validates and writes the CR
+// directly (no GitOps round-trip; if ArgoCD manages these objects, Git
+// wins on the next sync).
+function GovernanceEditor({
+  kind,
+  title,
+  name: initialName,
+  isNew,
+  body,
+  validate,
+  onSave,
+  pending,
+  error,
+  onClose,
+}: {
+  kind: Kind;
+  title: string;
+  name: string;
+  isNew: boolean;
+  body: Record<string, unknown> | undefined;
+  validate?: (value: unknown) => YamlIssue[];
+  onSave: (name: string, body: unknown) => void;
+  pending: boolean;
+  error?: string;
+  onClose: () => void;
+}) {
   const { t } = useTranslation();
-  const upsert = useUpsertPolicy();
-  const { name, ...body } = policy;
-  // YAML instead of raw JSON: same payload, human-editable, validated
-  // live against the schema checks above (storage is unchanged — the
-  // API still receives the JSON value).
-  const [text, setText] = useState(() => yamlStringify(body));
+  const scaffold = useScaffold(kind);
+  const [name, setName] = useState(initialName);
+  const [text, setText] = useState('');
+  const [touched, setTouched] = useState(false);
   const [parseError, setParseError] = useState('');
-  const validate = useCallback(validatePolicy, []);
 
-  const onSave = () => {
+  // Seed once the scaffold is loaded: scaffold for create, scaffold
+  // deep-merged with the object for edit (all fields, real values win).
+  const seed = useMemo(() => {
+    const base = scaffold.data?.data.scaffold;
+    if (base === undefined) return undefined;
+    const scaffoldObj = parseYaml(base).value;
+    const merged = body ? deepMerge(scaffoldObj, body) : scaffoldObj;
+    return yamlStringify(merged);
+  }, [scaffold.data, body]);
+
+  if (seed !== undefined && !touched && text === '') {
+    setText(seed);
+  }
+
+  const onSaveClick = () => {
+    if (isNew && !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name)) {
+      setParseError(t('governance.invalidName'));
+      return;
+    }
     const { value, issues } = parseYaml(text, validate);
     if (issues.length > 0 || value === undefined) {
       setParseError(t('governance.invalidYaml'));
       return;
     }
     setParseError('');
-    upsert.mutate({ name, body: value }, { onSuccess: onClose });
+    onSave(name, value);
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-2xl space-y-3 rounded-xl bg-white p-6 shadow-lg dark:bg-slate-800">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-          {t('governance.editPolicy')} — {name}
+          {title}
+          {!isNew && name ? ` — ${name}` : ''}
         </h3>
-        <YamlEditor value={text} onChange={setText} rows={18} validate={validate} />
-        {(parseError || upsert.isError) && (
-          <p className="text-sm text-red-600">{parseError || upsert.error?.message}</p>
+        {isNew && (
+          <label className="block">
+            <span className="text-sm text-slate-600 dark:text-slate-300">{t('governance.name')}</span>
+            <input
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?"
+              placeholder="my-policy"
+            />
+          </label>
         )}
+        {seed === undefined ? (
+          <p className="text-sm text-slate-500">{t('app.loading')}</p>
+        ) : (
+          <YamlEditor
+            value={text}
+            onChange={(v) => {
+              setTouched(true);
+              setText(v);
+            }}
+            rows={18}
+            validate={validate}
+          />
+        )}
+        {(parseError || error) && <p className="text-sm text-red-600">{parseError || error}</p>}
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
@@ -249,8 +408,8 @@ function PolicyEditor({ policy, onClose }: { policy: PolicyModel; onClose: () =>
             {t('app.cancel')}
           </button>
           <button
-            onClick={onSave}
-            disabled={upsert.isPending}
+            onClick={onSaveClick}
+            disabled={pending || seed === undefined}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {t('app.save')}

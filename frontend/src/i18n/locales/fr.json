@@ -260,7 +260,12 @@
     "workspaces": "Espaces",
     "storage": "Stockage",
     "noUsage": "Aucun propriétaire d'espace pour l'instant.",
-    "gitopsNote": "Les modifications éditent directement les CRD du cluster ; Git ne fait que les amorcer (selfHeal ArgoCD désactivé pour ces kinds)."
+    "gitopsNote": "Les modifications éditent directement les CRD du cluster ; Git ne fait que les amorcer (selfHeal ArgoCD désactivé pour ces kinds).",
+    "newImage": "Nouvelle image",
+    "editImage": "Modifier l'image",
+    "newPolicy": "Nouvelle policy",
+    "name": "Nom",
+    "invalidName": "Le nom doit être un label DNS-1123 minuscule (a-z, 0-9, -)."
   },
   "overlay": {
     "title": "Menu de session",

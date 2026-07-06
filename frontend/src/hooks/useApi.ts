@@ -313,6 +313,29 @@ export function useAdminImages() {
   });
 }
 
+// YAML scaffold (all schema fields) for a governance object, generated
+// server-side from the PUT payload types — never a hand-maintained
+// template. Cached hard: it only changes with a deployment.
+export function useScaffold(kind: 'workspacepolicy' | 'workspaceimage') {
+  return useQuery({
+    queryKey: ['scaffold', kind],
+    queryFn: () => api.get<{ scaffold: string }>(`/api/v1/meta/scaffold/${kind}`),
+    staleTime: Infinity,
+  });
+}
+
+export function useUpsertImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, body }: { name: string; body: unknown }) =>
+      api.put<CatalogImage>(`/api/v1/admin/images/${name}`, body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin-images'] });
+      void queryClient.invalidateQueries({ queryKey: ['catalog'] });
+    },
+  });
+}
+
 export function useToggleImage() {
   const queryClient = useQueryClient();
   return useMutation({

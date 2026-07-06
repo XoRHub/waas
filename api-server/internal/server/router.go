@@ -83,8 +83,10 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 			r.Get("/me/quota", h.Governance.Quota)
 
 			// Platform metadata: the guacd parameter registry the
-			// frontend derives its forms from.
+			// frontend derives its forms from, plus schema scaffolds for
+			// the governance YAML editors.
 			r.Get("/meta/protocols", h.Meta.Protocols)
+			r.Get("/meta/scaffold/{kind}", h.Meta.Scaffold)
 
 			r.Route("/workspace-templates", func(r chi.Router) {
 				r.Get("/", h.Templates.List)
