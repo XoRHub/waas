@@ -54,8 +54,13 @@ Prérequis runners : executor Docker avec dind (privileged), tags `amd` et
 `arm` posés. Les jobs sans besoin d'arch spécifique vont sur `amd` (flotte
 la plus puissante) via `default:tags`.
 
-Le pipeline `waas-images/` (desktops) garde sa stratégie QEMU existante —
-la migration vers des builds natifs y est une optimisation future.
+Le pipeline `waas-images/` (desktops) suit la même stratégie : un job de
+build natif par arch (smoke + scan Trivy sur **chaque** arch, avant push)
+puis un job de merge qui assemble la manifest list, publie le tag
+`<version>` immuable (main) et signe. Fallback opérationnel : la variable
+CI `WAAS_IMAGES_BUILD_STRATEGY=qemu` route tous les builds sur la flotte
+`amd` sous émulation (utile flotte arm indisponible) — mêmes jobs, mêmes
+gates, juste plus lent.
 
 ## Couper une release
 

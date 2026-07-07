@@ -1,53 +1,74 @@
 #!/bin/sh
-# build_image.sh — build, smoke-test, scan, push and sign one image.
-# Runs in the generated child pipeline (docker:dind), driven by IMG_* /
-# SMOKE_* variables emitted by ci/generate_pipeline.py.
+# build_image.sh — build, smoke-test, scan and push ONE image for ONE
+# architecture, natively on a runner of that arch (runner tags amd/arm —
+# no QEMU anywhere). ci/merge_image.sh then assembles the arch tags into
+# the final manifest list. Driven by IMG_* / SMOKE_* variables emitted
+# by ci/generate_pipeline.py.
 #
-# Flow: build native-arch and load it -> smoke test against a real
-# container -> trivy gate -> (default branch only) multi-arch build+push
-# with immutable tags -> cosign sign.
+# Flow: native build (--load) -> smoke test against a real container ->
+# trivy gate -> push of the arch tag <version>-g<sha>-<arch>. Nothing
+# reaches the registry (cache aside) before the smoke and scan gates.
 set -eu
 
-: "${IMG_NAME:?}" "${IMG_CONTEXT:?}" "${IMG_VERSION:?}" "${IMG_ARCHS:?}"
+: "${IMG_NAME:?}" "${IMG_CONTEXT:?}" "${IMG_VERSION:?}" "${IMG_ARCH:?}"
 REGISTRY="${CI_REGISTRY_IMAGE:?}"
+ARCH="${IMG_ARCH#linux/}"
 SHA_TAG="${IMG_VERSION}-g${CI_COMMIT_SHORT_SHA:?}"
+ARCH_TAG="${SHA_TAG}-${ARCH}"
 IMAGE="${REGISTRY}/${IMG_NAME}"
-CACHE_REF="${REGISTRY}/cache:${IMG_NAME}"
+CACHE_REF="${REGISTRY}/cache:${IMG_NAME}-${ARCH}"
 
 log() { printf '\n=== %s\n' "$*"; }
 
 # ---------------------------------------------------------------- setup
 log "docker login + buildx builder"
 docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
-# qemu binfmt handlers for the non-native architectures (arm64 on the
-# amd64 runners). Pinned; renovate keeps it fresh.
-docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2 --install all >/dev/null
-docker buildx create --use --name waas >/dev/null
+# Container driver: required for the registry cache export. BuildKit
+# pinned; renovate keeps it fresh.
+docker buildx create --use --name waas \
+    --driver-opt image=moby/buildkit:v0.21.0 >/dev/null
+
+# QEMU fallback: when this job lands on a runner of another arch (the
+# generator routes everything to the amd fleet when
+# WAAS_IMAGES_BUILD_STRATEGY=qemu), install the binfmt handlers and
+# build emulated. Nominal case is native — this block is a no-op.
+RUNNER_ARCH=$(uname -m)
+case "${RUNNER_ARCH}" in
+    x86_64) RUNNER_ARCH=amd64 ;;
+    aarch64) RUNNER_ARCH=arm64 ;;
+esac
+if [ "${ARCH}" != "${RUNNER_ARCH}" ]; then
+    log "non-native build (${RUNNER_ARCH} runner -> ${ARCH}): installing QEMU binfmt"
+    docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2 --install all >/dev/null
+fi
 
 BUILD_ARG_FLAGS=""
 for kv in ${IMG_BUILD_ARGS:-}; do
     BUILD_ARG_FLAGS="${BUILD_ARG_FLAGS} --build-arg ${kv}"
 done
-# Derived images consume the parent pushed earlier in this very pipeline
-# (IMG_FROM_REF is "<name>:<version>"; the same-commit sha suffix pins it).
+# Derived images consume the parent's SAME-ARCH tag pushed earlier in
+# this very pipeline (IMG_FROM_REF is "<name>:<version>"; the same-commit
+# sha suffix pins it).
 if [ -n "${IMG_FROM_REF:-}" ]; then
-    BUILD_ARG_FLAGS="${BUILD_ARG_FLAGS} --build-arg BASE_IMAGE=${REGISTRY}/${IMG_FROM_REF}-g${CI_COMMIT_SHORT_SHA}"
+    BUILD_ARG_FLAGS="${BUILD_ARG_FLAGS} --build-arg BASE_IMAGE=${REGISTRY}/${IMG_FROM_REF}-g${CI_COMMIT_SHORT_SHA}-${ARCH}"
 fi
 
 # ---------------------------------------------------------------- build
-log "build (native arch) ${IMAGE}:${SHA_TAG}"
+log "build (${IMG_ARCH}) ${IMAGE}:${ARCH_TAG}"
 # shellcheck disable=SC2086
 docker buildx build \
+    --platform "${IMG_ARCH}" \
     --load \
     --provenance=false \
     --cache-from "type=registry,ref=${CACHE_REF}" \
+    --cache-to "type=registry,ref=${CACHE_REF},mode=max" \
     ${BUILD_ARG_FLAGS} \
-    -t "${IMAGE}:${SHA_TAG}" \
+    -t "${IMAGE}:${ARCH_TAG}" \
     "${IMG_CONTEXT}"
 
 # ---------------------------------------------------------------- smoke
 log "smoke test"
-SMOKE_IMAGE="${IMAGE}:${SHA_TAG}" sh ci/smoke_test.sh
+SMOKE_IMAGE="${IMAGE}:${ARCH_TAG}" sh ci/smoke_test.sh
 
 # ----------------------------------------------------------------- scan
 log "trivy scan (gate: ${TRIVY_SEVERITY:-HIGH,CRITICAL})"
@@ -59,46 +80,8 @@ docker run --rm \
     --ignore-unfixed="${TRIVY_IGNORE_UNFIXED:-true}" \
     --exit-code "${TRIVY_EXIT_CODE:-1}" \
     --scanners vuln,secret \
-    "${IMAGE}:${SHA_TAG}"
+    "${IMAGE}:${ARCH_TAG}"
 
 # ----------------------------------------------------------------- push
-# Immutable tags: <version>-g<sha> is always unique and pushed from every
-# branch (derived images in this pipeline pull the parent through it).
-# The clean <version> tag is published from the default branch only, once,
-# and never moved (ArgoCD templates pin it, or better, the digest).
-TAG_FLAGS="-t ${IMAGE}:${SHA_TAG}"
-if [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH:-main}" ]; then
-    if docker buildx imagetools inspect "${IMAGE}:${IMG_VERSION}" >/dev/null 2>&1; then
-        log "WARNING: ${IMG_NAME}:${IMG_VERSION} already published — bump 'version' in ${IMG_CONTEXT}/manifest.yaml; pushing only ${SHA_TAG}"
-    else
-        TAG_FLAGS="${TAG_FLAGS} -t ${IMAGE}:${IMG_VERSION}"
-    fi
-fi
-
-log "multi-arch build+push (${IMG_ARCHS})"
-# shellcheck disable=SC2086
-docker buildx build \
-    --platform "${IMG_ARCHS}" \
-    --provenance=false \
-    --push \
-    --cache-from "type=registry,ref=${CACHE_REF}" \
-    --cache-to "type=registry,ref=${CACHE_REF},mode=max" \
-    ${BUILD_ARG_FLAGS} \
-    ${TAG_FLAGS} \
-    "${IMG_CONTEXT}"
-
-DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${SHA_TAG}" --format '{{json .Manifest}}' | sed -n 's/.*"digest":"\(sha256:[a-f0-9]*\)".*/\1/p' | head -n1)
-log "pushed ${IMAGE}@${DIGEST}"
-
-# ----------------------------------------------------------------- sign
-# Optional keyed signing: set COSIGN_PRIVATE_KEY (+ COSIGN_PASSWORD) as
-# masked CI variables. Skipped silently when absent.
-if [ -n "${COSIGN_PRIVATE_KEY:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH:-main}" ]; then
-    log "cosign sign"
-    docker run --rm \
-        -e COSIGN_PRIVATE_KEY -e COSIGN_PASSWORD \
-        -e DOCKER_CONFIG=/docker \
-        -v "${HOME}/.docker:/docker:ro" \
-        ghcr.io/sigstore/cosign/cosign:v2.5.0 \
-        sign --yes --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${DIGEST}"
-fi
+log "push ${IMAGE}:${ARCH_TAG}"
+docker push "${IMAGE}:${ARCH_TAG}"

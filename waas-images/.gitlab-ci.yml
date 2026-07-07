@@ -4,8 +4,10 @@
 #
 # lint      hadolint on every Dockerfile, shellcheck on scripts
 # generate  ci/generate_pipeline.py: manifests -> build-pipeline.yml
-# build     triggers the generated grandchild pipeline (one job per
-#           image, staged by layer depth: base -> desktop -> apps)
+# build     triggers the generated grandchild pipeline (per image: one
+#           NATIVE build job per arch on the amd/arm runner fleets +
+#           one manifest-list merge job, staged by layer depth:
+#           base -> desktop -> apps)
 #
 # Behaviour by ref (inherited from the parent pipeline context):
 #   merge request:   build + smoke + scan, push of -g<sha> tags only
@@ -15,11 +17,14 @@
 #   TRIVY_SEVERITY    gate severities   (default HIGH,CRITICAL)
 #   TRIVY_EXIT_CODE   0 = report only   (default 1 = blocking)
 #   COSIGN_PRIVATE_KEY / COSIGN_PASSWORD  enable signing when set
+#   WAAS_IMAGES_BUILD_STRATEGY  "qemu" routes every build job to the
+#             amd fleet under emulation (fallback when the arm fleet is
+#             down); default "native"
 
 stages: [lint, generate, build]
 
 default:
-  # Multi-arch via QEMU on the amd64 fleet (see ci/build_image.sh).
+  # lint/generate only — build jobs get their arch tag from the generator.
   tags: [amd]
 
 workflow:

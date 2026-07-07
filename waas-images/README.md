@@ -77,8 +77,8 @@ gate); each image directory has a `manifest.yaml` declaring its
 version, parent (`from:`), archs and smoke expectations.
 `ci/generate_pipeline.py` discovers manifests, topo-sorts on `from` and
 emits one child-pipeline job per variant: **base → desktop → apps in a
-single pipeline**, derived images consuming the parent pushed minutes
-earlier (`BASE_IMAGE=<registry>/<parent>:<ver>-g<sha>`).
+single pipeline**, derived images consuming the parent's same-arch tag
+pushed minutes earlier (`BASE_IMAGE=<registry>/<parent>:<ver>-g<sha>-<arch>`).
 
 Tags are **immutable**:
 
@@ -87,11 +87,16 @@ Tags are **immutable**:
   `version` in the manifest instead)
 - ArgoCD/templates should pin `<version>` or, better, the digest
 
-Multi-arch: `linux/amd64` + `linux/arm64` via buildx/QEMU (per-image
-override, e.g. Firefox is amd64-only until packages.mozilla.org's arm64
-debs are validated). Pipeline: hadolint/shellcheck → generate → per-image
-*build (native) → smoke → trivy gate → multi-arch push → cosign sign*
-(sign only when `COSIGN_PRIVATE_KEY` is set).
+Multi-arch: `linux/amd64` + `linux/arm64` built NATIVELY on the amd/arm
+runner fleets — no QEMU in the nominal path (per-image override, e.g.
+Firefox is amd64-only until packages.mozilla.org's arm64 debs are
+validated). Pipeline: hadolint/shellcheck → generate → per image and per
+arch *build → smoke → trivy gate → push `-g<sha>-<arch>`*, then a merge
+job assembles the manifest list and cosign-signs it (sign only when
+`COSIGN_PRIVATE_KEY` is set). Both smoke and scan run on BOTH arches.
+Fallback: the CI variable `WAAS_IMAGES_BUILD_STRATEGY=qemu` routes every
+build job to the amd fleet under emulation (arm fleet down) — same jobs,
+same gates, just slower.
 
 The smoke test is also the hardening gate: every image must boot with
 `--read-only --cap-drop ALL --security-opt no-new-privileges` and answer

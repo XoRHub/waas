@@ -21,7 +21,7 @@
       "customType": "regex",
       "description": "Container tool images pinned inside shell scripts and CI job scripts (binfmt, trivy, cosign, buildkit).",
       "managerFilePatterns": [
-        "/^waas-images/ci/build_image\\.sh$/",
+        "/^waas-images/ci/.+\\.sh$/",
         "/^\\.gitlab/ci/.+\\.(sh|ya?ml)$/"
       ],
       "matchStrings": [
