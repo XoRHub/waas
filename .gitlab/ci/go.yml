@@ -15,8 +15,10 @@
 go-lint:
   stage: lint
   extends: [.go-cache, .rules-go]
-  # The image bundles its own Go toolchain (>= the modules' go directive).
-  image: golangci/golangci-lint:v2.6.2
+  # The image bundles its own Go toolchain — it must be built with a Go
+  # >= the modules' go directive (a go1.25-built binary panics on go1.26
+  # code), so bump this pin whenever the go directive moves.
+  image: golangci/golangci-lint:v2.12.2
   needs: []
   parallel:
     matrix:

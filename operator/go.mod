@@ -1,6 +1,6 @@
 module github.com/xorhub/waas/operator
 
-go 1.25.3
+go 1.26
 
 require (
 	github.com/robfig/cron/v3 v3.0.1
