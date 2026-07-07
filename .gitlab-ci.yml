@@ -1,39 +1,78 @@
-# Monorepo pipeline. waas-images/ has its own child pipeline (image
-# builds); this one guards the platform: unit tests always, and the
-# per-protocol connection smoke (docs/smoke-connections.md) as the
-# delivery gate — an iteration that breaks session establishment must
-# fail HERE, not at a user's desk.
+# WaaS monorepo pipeline. See docs/ci.md for the full picture (job map,
+# release procedure, registry cleanup, required CI/CD variables).
+#
+#   MR:    lint + tests + security gates + selective multi-arch image
+#          builds pushed as mr-<iid>-<sha> (per-component rules:changes)
+#   main:  same gates, ALL images built as <sha> (+ moving `main` tag) —
+#          a release promotes the images of the tagged SHA, so every main
+#          commit must ship the full set
+#   tag:   vX.Y.Z — promotion only, never a rebuild: re-tag the already
+#          tested+scanned <sha> manifest lists, cosign-sign the digests,
+#          changelog + GitLab Release. ArgoCD consumes the git tag
+#          (path helm/waas), Chart.yaml is bumped BEFORE tagging.
+#
+# Runners: docker executor with dind. amd64 runners are tagged `amd`,
+# arm64 runners (Turing RK1) are tagged `arm`; images build natively on
+# each arch, a merge job assembles the manifest list.
 
-stages: [test, validate]
+stages: [lint, test, security, build, scan, validate, release]
 
-go-tests:
-  stage: test
-  image: golang:1.25
-  script:
-    - go work sync
-    - go test ./operator/... ./api-server/... ./wwt/... ./shared/...
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # No duplicate branch pipeline when an MR is open on that branch.
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
-frontend-tests:
-  stage: test
-  image: node:22
-  script:
-    - cd frontend
-    - npm ci
-    - npm run build
-    - npm test -- --run
+default:
+  interruptible: true
+  # Everything that doesn't need an arm runner goes to the (beefier)
+  # amd64 fleet.
+  tags: [amd]
 
-# Ephemeral k3d cluster + full deploy + real guacd session per protocol.
-# Needs a runner with docker (dind) and enough RAM for three desktops;
-# runs on the default branch and on demand from MRs.
+include:
+  - local: .gitlab/ci/rules.yml
+  - local: .gitlab/ci/go.yml
+  - local: .gitlab/ci/frontend.yml
+  - local: .gitlab/ci/manifests.yml
+  - local: .gitlab/ci/security.yml
+  - local: .gitlab/ci/docker.yml
+  - local: .gitlab/ci/release.yml
+
+# Workspace desktop images: their pipeline (lint -> generate -> generated
+# grandchild with one job per image) lives in waas-images/ and only runs
+# when that tree changes.
+waas-images:
+  stage: build
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [waas-images/**/*]
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [waas-images/**/*]
+  trigger:
+    include: waas-images/.gitlab-ci.yml
+    strategy: depend
+
+# Ephemeral k3d cluster + full deploy + real guacd session per protocol
+# (docs/smoke-connections.md). The delivery gate: an iteration that
+# breaks session establishment must fail HERE, not at a user's desk.
+# Needs a dind runner with enough RAM for three desktops.
 smoke-connections:
   stage: validate
-  image: docker:27
-  services: [docker:27-dind]
+  image: docker:28.0
+  services: [docker:28.0-dind]
   variables:
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
+    DOCKER_TLS_CERTDIR: /certs
   rules:
+    - if: $CI_COMMIT_TAG
+      when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    # Manual on MRs (too heavy for every push) but BLOCKING once the MR
+    # targets a merge: allow_failure stays false on purpose.
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: manual
       allow_failure: false

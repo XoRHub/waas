@@ -1,0 +1,98 @@
+# Release = PROMOTION of already-tested artifacts, never a rebuild.
+#
+#   verify   tag points at a SHA whose images exist, Chart.yaml was
+#            bumped, the release tags are still free (immutability)
+#   images   re-tag <short-sha> manifest lists as vX.Y.Z (digests are
+#            bit-for-bit what main tested and scanned) + cosign sign
+#   notes    git-cliff changelog + image digest table
+#   create   GitLab Release on the tag
+#
+# ArgoCD side: Application targetRevision = vX.Y.Z (git tag), path
+# helm/waas. Cutting a release is documented in docs/ci.md.
+
+.release-docker:
+  extends: .rules-release
+  stage: release
+  image: docker:28.0
+  services: [docker:28.0-dind]
+  tags: [amd]
+  variables:
+    DOCKER_TLS_CERTDIR: /certs
+    RELEASE_COMPONENTS: operator api-server wwt frontend
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+
+release-verify:
+  extends: .release-docker
+  script:
+    # Chart.yaml must have been bumped BEFORE tagging: the git tag is
+    # what ArgoCD deploys, so the chart at the tag must reference the
+    # release (image tag defaults to appVersion).
+    - V="${CI_COMMIT_TAG#v}"
+    - grep -Eq "^version:[[:space:]]*${V}[[:space:]]*$" helm/waas/Chart.yaml
+      || { echo "FATAL Chart.yaml 'version' must be ${V} at tag ${CI_COMMIT_TAG}"; exit 1; }
+    - grep -Eq "^appVersion:[[:space:]]*\"${CI_COMMIT_TAG}\"[[:space:]]*$" helm/waas/Chart.yaml
+      || { echo "FATAL Chart.yaml 'appVersion' must be \"${CI_COMMIT_TAG}\""; exit 1; }
+    # Promotion source must exist (tagged SHA went through a green main
+    # pipeline) and the release tag must be free (tags are immutable).
+    - |
+      for c in $RELEASE_COMPONENTS; do
+        IMAGE="$CI_REGISTRY_IMAGE/$c"
+        docker buildx imagetools inspect "$IMAGE:$CI_COMMIT_SHORT_SHA" >/dev/null \
+          || { echo "FATAL $IMAGE:$CI_COMMIT_SHORT_SHA not found — tag a commit from a green main pipeline"; exit 1; }
+        if docker buildx imagetools inspect "$IMAGE:$CI_COMMIT_TAG" >/dev/null 2>&1; then
+          echo "FATAL $IMAGE:$CI_COMMIT_TAG already exists — release tags are immutable, bump the version"; exit 1
+        fi
+      done
+
+release-images:
+  extends: .release-docker
+  needs: [release-verify]
+  script:
+    # Signing is NOT optional for releases: fail loudly if the key is
+    # missing instead of shipping unsigned images.
+    - ': "${COSIGN_PRIVATE_KEY:?release images must be cosign-signed — set COSIGN_PRIVATE_KEY/COSIGN_PASSWORD}"'
+    - printf '\n## Images\n\n| Composant | Image (digest) |\n|---|---|\n' > release-images.md
+    - |
+      for c in $RELEASE_COMPONENTS; do
+        IMAGE="$CI_REGISTRY_IMAGE/$c"
+        docker buildx imagetools create -t "$IMAGE:$CI_COMMIT_TAG" "$IMAGE:$CI_COMMIT_SHORT_SHA"
+        DIGEST=$(docker buildx imagetools inspect "$IMAGE:$CI_COMMIT_TAG" --format '{{.Manifest.Digest}}')
+        docker run --rm -e COSIGN_PRIVATE_KEY -e COSIGN_PASSWORD \
+          ghcr.io/sigstore/cosign/cosign:v2.5.0 sign --yes \
+          --key env://COSIGN_PRIVATE_KEY \
+          --registry-username "$CI_REGISTRY_USER" --registry-password "$CI_REGISTRY_PASSWORD" \
+          -a version="$CI_COMMIT_TAG" -a revision="$CI_COMMIT_SHA" \
+          "$IMAGE@$DIGEST"
+        printf '| %s | `%s@%s` |\n' "$c" "$IMAGE" "$DIGEST" >> release-images.md
+      done
+  artifacts:
+    paths: [release-images.md]
+    expire_in: 1 year
+
+release-notes:
+  extends: .rules-release
+  stage: release
+  # Debian-based node: git-cliff (npm wrapper) needs git + full history.
+  image: node:22.17.0
+  needs: [release-images]
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - npx --yes git-cliff@2.9.1 --latest --output changelog.md
+    - cat changelog.md release-images.md > release-notes.md
+  artifacts:
+    paths: [release-notes.md]
+    expire_in: 1 year
+
+release-create:
+  extends: .rules-release
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:v0.18.0
+  needs: [release-notes]
+  script:
+    - echo "creating GitLab Release $CI_COMMIT_TAG"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "WaaS $CI_COMMIT_TAG"
+    description: release-notes.md

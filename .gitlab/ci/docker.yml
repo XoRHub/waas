@@ -1,0 +1,154 @@
+# Application image builds. Strategy: NATIVE build per architecture
+# (runner tags amd/arm — no QEMU: the Dockerfiles cross-compile from
+# $BUILDPLATFORM anyway, and native runners keep the frontend npm step
+# fast on both arches), then a manifest-list merge job, then a blocking
+# Trivy scan of the merged image.
+#
+# Tags: mr-<iid>-<short-sha> on MRs (ephemeral, registry cleanup policy
+# prunes them — docs/ci.md), <short-sha> + moving `main` on the default
+# branch. Release tags vX.Y.Z are PROMOTED from <short-sha> by
+# release.yml, never rebuilt.
+
+.app-tag:
+  before_script:
+    # mr-<iid>-<sha> on MR pipelines, bare <sha> on branch pipelines.
+    - export APP_TAG="${CI_MERGE_REQUEST_IID:+mr-${CI_MERGE_REQUEST_IID}-}${CI_COMMIT_SHORT_SHA}"
+
+.docker:
+  image: docker:28.0
+  services: [docker:28.0-dind]
+  variables:
+    DOCKER_TLS_CERTDIR: /certs
+  before_script:
+    - !reference [.app-tag, before_script]
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+
+.build:
+  extends: .docker
+  stage: build
+  # Images build in parallel with tests (full DAG). An MR image whose
+  # tests fail is still pushed — it is an ephemeral mr-* tag and the
+  # pipeline stays red; the blocking gates for RELEASED bits are on main.
+  needs: []
+  script:
+    - sh .gitlab/ci/build-app-image.sh
+
+.build-amd64:
+  extends: .build
+  tags: [amd]
+  variables:
+    ARCH: amd64
+
+.build-arm64:
+  extends: .build
+  tags: [arm]
+  variables:
+    ARCH: arm64
+
+.merge-manifest:
+  extends: .docker
+  stage: build
+  tags: [amd]
+  script:
+    - IMAGE="$CI_REGISTRY_IMAGE/$COMPONENT"
+    - docker buildx imagetools create -t "$IMAGE:$APP_TAG" "$IMAGE:$APP_TAG-amd64" "$IMAGE:$APP_TAG-arm64"
+    # Moving `main` tag: convenience pointer for dev clusters, never a
+    # deploy reference (ArgoCD pins release tags/digests).
+    - if [ "${CI_COMMIT_BRANCH:-}" = "$CI_DEFAULT_BRANCH" ]; then
+        docker buildx imagetools create -t "$IMAGE:main" "$IMAGE:$APP_TAG";
+      fi
+
+.scan-image:
+  extends: .app-tag
+  stage: scan
+  image:
+    name: aquasec/trivy:0.63.0
+    entrypoint: [""]
+  variables:
+    TRIVY_USERNAME: $CI_REGISTRY_USER
+    TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
+    TRIVY_CACHE_DIR: $CI_PROJECT_DIR/.cache/trivy
+  cache:
+    key: trivy-db
+    paths: [.cache/trivy]
+  script:
+    - trivy image --severity "${TRIVY_SEVERITY:-HIGH,CRITICAL}"
+      --ignore-unfixed --exit-code "${TRIVY_EXIT_CODE:-1}"
+      --scanners vuln,secret
+      "$CI_REGISTRY_IMAGE/$COMPONENT:$APP_TAG"
+
+# ---- operator -------------------------------------------------------
+build-operator-amd64:
+  extends: [.build-amd64, .rules-build-operator]
+  variables: { COMPONENT: operator, BUILD_CONTEXT: operator }
+
+build-operator-arm64:
+  extends: [.build-arm64, .rules-build-operator]
+  variables: { COMPONENT: operator, BUILD_CONTEXT: operator }
+
+merge-operator:
+  extends: [.merge-manifest, .rules-build-operator]
+  needs: [build-operator-amd64, build-operator-arm64]
+  variables: { COMPONENT: operator }
+
+scan-operator:
+  extends: [.scan-image, .rules-build-operator]
+  needs: [merge-operator]
+  variables: { COMPONENT: operator }
+
+# ---- api-server (builds from repo root: replaces ../shared) ---------
+build-api-server-amd64:
+  extends: [.build-amd64, .rules-build-api-server]
+  variables: { COMPONENT: api-server, BUILD_CONTEXT: ".", DOCKERFILE: api-server/Dockerfile }
+
+build-api-server-arm64:
+  extends: [.build-arm64, .rules-build-api-server]
+  variables: { COMPONENT: api-server, BUILD_CONTEXT: ".", DOCKERFILE: api-server/Dockerfile }
+
+merge-api-server:
+  extends: [.merge-manifest, .rules-build-api-server]
+  needs: [build-api-server-amd64, build-api-server-arm64]
+  variables: { COMPONENT: api-server }
+
+scan-api-server:
+  extends: [.scan-image, .rules-build-api-server]
+  needs: [merge-api-server]
+  variables: { COMPONENT: api-server }
+
+# ---- wwt (builds from repo root: replaces ../shared) -----------------
+build-wwt-amd64:
+  extends: [.build-amd64, .rules-build-wwt]
+  variables: { COMPONENT: wwt, BUILD_CONTEXT: ".", DOCKERFILE: wwt/Dockerfile }
+
+build-wwt-arm64:
+  extends: [.build-arm64, .rules-build-wwt]
+  variables: { COMPONENT: wwt, BUILD_CONTEXT: ".", DOCKERFILE: wwt/Dockerfile }
+
+merge-wwt:
+  extends: [.merge-manifest, .rules-build-wwt]
+  needs: [build-wwt-amd64, build-wwt-arm64]
+  variables: { COMPONENT: wwt }
+
+scan-wwt:
+  extends: [.scan-image, .rules-build-wwt]
+  needs: [merge-wwt]
+  variables: { COMPONENT: wwt }
+
+# ---- frontend ---------------------------------------------------------
+build-frontend-amd64:
+  extends: [.build-amd64, .rules-build-frontend]
+  variables: { COMPONENT: frontend, BUILD_CONTEXT: frontend }
+
+build-frontend-arm64:
+  extends: [.build-arm64, .rules-build-frontend]
+  variables: { COMPONENT: frontend, BUILD_CONTEXT: frontend }
+
+merge-frontend:
+  extends: [.merge-manifest, .rules-build-frontend]
+  needs: [build-frontend-amd64, build-frontend-arm64]
+  variables: { COMPONENT: frontend }
+
+scan-frontend:
+  extends: [.scan-image, .rules-build-frontend]
+  needs: [merge-frontend]
+  variables: { COMPONENT: frontend }

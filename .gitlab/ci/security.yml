@@ -1,0 +1,32 @@
+# Blocking security gates. None of these is informational: a finding at
+# or above the gate severity fails the pipeline. TRIVY_* knobs exist for
+# incident response (documented in docs/ci.md), never set them in YAML.
+
+gitleaks:
+  stage: security
+  extends: .rules-security
+  image:
+    name: zricethezav/gitleaks:v8.24.3
+    entrypoint: [""]
+  needs: []
+  script:
+    # Working-tree scan: catches a secret the moment it is proposed.
+    - gitleaks dir . --redact --verbose
+
+trivy-deps:
+  stage: security
+  extends: .rules-security
+  image:
+    name: aquasec/trivy:0.63.0
+    entrypoint: [""]
+  needs: []
+  variables:
+    TRIVY_CACHE_DIR: $CI_PROJECT_DIR/.cache/trivy
+  cache:
+    key: trivy-db
+    paths: [.cache/trivy]
+  script:
+    # go.mod + package-lock.json vulnerability gate.
+    - trivy fs --scanners vuln
+      --severity "${TRIVY_SEVERITY:-HIGH,CRITICAL}"
+      --ignore-unfixed --exit-code "${TRIVY_EXIT_CODE:-1}" .
