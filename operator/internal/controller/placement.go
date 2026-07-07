@@ -10,6 +10,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -23,6 +24,7 @@ import (
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/internal/kubevirt"
 	"github.com/xorhub/waas/operator/pkg/metakeys"
+	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/policy"
 )
 
@@ -50,12 +52,18 @@ func (r *WorkspaceReconciler) ensureNamespace(ctx context.Context, ws *waasv1alp
 	}
 	platform := map[string]string{
 		labelManagedBy: managerName,
-		labelOwner:     ws.Spec.Owner,
 		// Desktop images run non-root but may need baseline-only
 		// capabilities (chown at first boot); warn on restricted so
 		// hardening candidates surface without breaking sessions.
 		"pod-security.kubernetes.io/enforce": "baseline",
 		"pod-security.kubernetes.io/warn":    "restricted",
+	}
+	// The ownership label only belongs on PERSONAL namespaces: shared
+	// ones (the built-in "waas-workspace", {os}/{templateName} patterns)
+	// host several owners — labeling them with the first creator would
+	// wrongly open them to that user's future overrides.
+	if isPersonalNamespace(ws) {
+		platform[labelOwner] = ws.Spec.Owner
 	}
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name:        name,
@@ -76,7 +84,11 @@ func (r *WorkspaceReconciler) ensureNamespace(ctx context.Context, ws *waasv1alp
 // default-deny ingress NetworkPolicy that only lets the platform
 // namespace in (guacd must reach the desktops; nothing else should).
 func (r *WorkspaceReconciler) bootstrapNamespace(ctx context.Context, ws *waasv1alpha1.Workspace, name string) error {
-	if hard := r.namespaceQuota(ctx, ws); hard != nil {
+	// The quota derives from the OWNER's aggregate caps: meaningful in a
+	// per-user namespace, wrong in a shared one (it would cap the whole
+	// group at one user's budget) — shared namespaces get no auto-quota,
+	// the admission webhook stays the per-user enforcement everywhere.
+	if hard := r.namespaceQuota(ctx, ws); hard != nil && isPersonalNamespace(ws) {
 		quota := &corev1.ResourceQuota{
 			ObjectMeta: metav1.ObjectMeta{Name: "waas-quota", Namespace: name, Labels: workspaceOwnerLabels(ws)},
 			Spec:       corev1.ResourceQuotaSpec{Hard: hard},
@@ -153,6 +165,20 @@ func workspaceOwnerLabels(ws *waasv1alpha1.Workspace) map[string]string {
 		labelManagedBy: managerName,
 		labelOwner:     ws.Spec.Owner,
 	}
+}
+
+// isPersonalNamespace reports whether the workspace's target namespace
+// is dedicated to its owner: it matches the identity-derived
+// "waas-<user>" prefix (frozen username annotation). Anything else —
+// the built-in shared default, {os}/{templateName} patterns — is shared.
+func isPersonalNamespace(ws *waasv1alpha1.Workspace) bool {
+	username := ws.Annotations[waasv1alpha1.AnnotationUsername]
+	if username == "" {
+		return false
+	}
+	userNS := "waas-" + naming.Sanitize(username)
+	tns := computeNamespace(ws)
+	return tns == userNS || strings.HasPrefix(tns, userNS+"-")
 }
 
 // teardownPlacement deletes the cross-namespace compute and service of a

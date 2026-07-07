@@ -151,3 +151,38 @@ func TestReservedMetadataKeysDenied(t *testing.T) {
 		t.Fatalf("expected reserved-key denial, got %v", err)
 	}
 }
+
+// The precedence chain's resolved default is the PLATFORM's decision:
+// it must be admitted for everyone — even a shared namespace (the
+// built-in "waas-workspace" or a global env pattern), even without the
+// "placement" override right. Deviations stay gated.
+func TestPlacementResolvedDefaultIsAlwaysAdmitted(t *testing.T) {
+	// No placement on the template, no override right, global pattern set.
+	v := newValidator(t, tpl(), catalogImage(), defaultPolicy())
+	v.DefaultNamespacePattern = "waas-{os}-pool"
+
+	ws := workspace("w1", func(w *waasv1alpha1.Workspace) {
+		w.Spec.TargetNamespace = "waas-linux-pool" // the resolved default
+	})
+	if _, err := v.ValidateCreate(asCaller(apiSA), ws); err != nil {
+		t.Fatalf("the server-resolved default must be admitted, got %v", err)
+	}
+
+	// Built-in fallback (no template pattern, no global pattern).
+	v.DefaultNamespacePattern = ""
+	builtin := workspace("w2", func(w *waasv1alpha1.Workspace) {
+		w.Spec.TargetNamespace = "waas-workspace"
+	})
+	if _, err := v.ValidateCreate(asCaller(apiSA), builtin); err != nil {
+		t.Fatalf("the built-in shared default must be admitted, got %v", err)
+	}
+
+	// A DEVIATION from the default still needs the placement right.
+	deviant := workspace("w3", func(w *waasv1alpha1.Workspace) {
+		w.Spec.TargetNamespace = "waas-alice-lab"
+	})
+	if _, err := v.ValidateCreate(asCaller(apiSA), deviant); err == nil ||
+		!strings.Contains(err.Error(), "OverrideNotAllowed") {
+		t.Fatalf("deviating from the default must need the placement right, got %v", err)
+	}
+}

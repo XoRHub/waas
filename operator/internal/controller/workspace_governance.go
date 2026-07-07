@@ -68,7 +68,7 @@ func (r *WorkspaceReconciler) evaluateGovernance(ctx context.Context, ws *waasv1
 	}
 	// Deferred-template case: the webhook admitted the workspace before
 	// its template existed, so overrides were never vetted against it.
-	if d := policy.CheckOverrides(ws, tpl, pol, id); d != nil {
+	if d := policy.CheckOverrides(ws, tpl, pol, id, r.DefaultNamespacePattern); d != nil {
 		return pol, d
 	}
 

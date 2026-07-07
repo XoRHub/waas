@@ -11,6 +11,14 @@ image:
 workspaces:
   namespace: waas-workspaces
   create: true
+  # Operator-wide workload placement pattern, applied when a template
+  # declares no placement.namespace. Precedence: template pattern > this
+  # > built-in "waas-workspace". Placeholders: {user} {workspace}
+  # {templateName} {os} (see docs/placement.md). One key feeds BOTH the
+  # operator and the api-server (they must agree); an invalid pattern
+  # makes both refuse to start. Changing it only affects NEW workspaces —
+  # existing ones keep their frozen spec.targetNamespace.
+  defaultNamespacePattern: ""
 
 ingress:
   enabled: true

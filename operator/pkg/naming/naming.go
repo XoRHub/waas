@@ -23,6 +23,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -32,11 +33,13 @@ import (
 // MaxLabel is the DNS-1123 label length limit.
 const MaxLabel = 63
 
-// TokenUser and TokenWorkspace are the placeholders a template placement
-// pattern may use.
+// Placement pattern placeholders. Every value is sanitized before use;
+// see Placeholders() for the documented list (sources, semantics).
 const (
-	TokenUser      = "{user}"
-	TokenWorkspace = "{workspace}"
+	TokenUser         = "{user}"
+	TokenWorkspace    = "{workspace}"
+	TokenTemplateName = "{templateName}"
+	TokenOS           = "{os}"
 )
 
 // Sanitize normalizes s into a DNS-1123 label of at most MaxLabel runes.
@@ -84,34 +87,146 @@ func Suffix(raw string) string {
 	return "-" + hex.EncodeToString(sum[:])[:5]
 }
 
-// ResolveNamespace expands a placement namespace pattern. Tokens: {user}
-// (sanitized username) and {workspace} (sanitized workspace display
-// name). The literal parts of the pattern are the admin's to get right —
-// they are validated, not rewritten.
-func ResolveNamespace(pattern, username, workspaceDisplayName string) (string, error) {
+// BuiltinNamespacePattern is the last resort of the precedence chain
+// (template pattern > operator env pattern > this): a single shared
+// workloads namespace. Deliberately a plain literal — predictable, and
+// admins opt into per-user/template isolation with an explicit pattern.
+const BuiltinNamespacePattern = "waas-workspace"
+
+// Placeholder documents one pattern token: THE source the UI contextual
+// help and the docs render — never a hand-maintained copy.
+type Placeholder struct {
+	Token       string `json:"token"`
+	Source      string `json:"source"`
+	Description string `json:"description"`
+}
+
+// Placeholders lists every token a namespace pattern may use, with its
+// value source. Every value is sanitized (NFKD, lowercase, DNS-1123)
+// before entering a name; none can be absent at creation time.
+func Placeholders() []Placeholder {
+	return []Placeholder{
+		{Token: TokenUser, Source: "identity (Authentik username)", Description: "owner of the workspace"},
+		{Token: TokenWorkspace, Source: "workspace displayName", Description: "the workspace being created"},
+		{Token: TokenTemplateName, Source: "WorkspaceTemplate metadata.name", Description: "template the workspace is stamped from"},
+		{Token: TokenOS, Source: "WorkspaceTemplate spec.os", Description: "linux or windows — the actual provisioning path"},
+	}
+}
+
+// PatternValues carries the resolved raw values, one per placeholder.
+type PatternValues struct {
+	User         string
+	Workspace    string
+	TemplateName string
+	OS           string
+}
+
+func (v PatternValues) byToken() map[string]string {
+	return map[string]string{
+		TokenUser:         v.User,
+		TokenWorkspace:    v.Workspace,
+		TokenTemplateName: v.TemplateName,
+		TokenOS:           v.OS,
+	}
+}
+
+// tokenRE matches {anything} so unknown placeholders are REJECTED, never
+// silently resolved to an empty string (a typo like {grup} must fail).
+var tokenRE = regexp.MustCompile(`\{[^{}]*\}`)
+
+// EffectivePattern applies the precedence chain: the template's pattern
+// when set, else the operator-wide pattern (env), else the built-in.
+// Changing the global pattern only affects NEW workspaces: the resolved
+// value is frozen into spec.targetNamespace at creation.
+func EffectivePattern(templatePattern, globalPattern string) string {
+	if templatePattern != "" {
+		return templatePattern
+	}
+	if globalPattern != "" {
+		return globalPattern
+	}
+	return BuiltinNamespacePattern
+}
+
+// ResolveNamespace expands a placement namespace pattern. Every token
+// value is sanitized; a value that must be TRUNCATED to fit its budget
+// gets a deterministic short hash of the raw value appended, so two long
+// distinct values can never silently merge into the same namespace.
+// The literal parts of the pattern are the admin's to get right — they
+// are validated, not rewritten. Empty pattern = no placement (legacy).
+func ResolveNamespace(pattern string, values PatternValues) (string, error) {
 	if pattern == "" {
 		return "", nil
 	}
+	known := values.byToken()
+
+	// Strict token scan: reject unknown placeholders and stray braces.
+	tokens := tokenRE.FindAllString(pattern, -1)
+	literalLen := len(pattern)
+	for _, tok := range tokens {
+		if _, ok := known[tok]; !ok {
+			return "", fmt.Errorf("unknown placeholder %s (known: %s)", tok, knownTokens())
+		}
+		literalLen -= len(tok)
+	}
+	if rest := tokenRE.ReplaceAllString(pattern, ""); strings.ContainsAny(rest, "{}") {
+		return "", fmt.Errorf("malformed pattern %q: unbalanced braces", pattern)
+	}
+
 	// Budget the tokens so the expansion always fits: split the remaining
-	// space evenly across the tokens present.
-	tokens := strings.Count(pattern, TokenUser) + strings.Count(pattern, TokenWorkspace)
-	literal := len(pattern) -
-		strings.Count(pattern, TokenUser)*len(TokenUser) -
-		strings.Count(pattern, TokenWorkspace)*len(TokenWorkspace)
+	// space evenly across the token occurrences.
 	budget := MaxLabel
-	if tokens > 0 {
-		budget = (MaxLabel - literal) / tokens
+	if len(tokens) > 0 {
+		budget = (MaxLabel - literalLen) / len(tokens)
 	}
 	if budget < 1 {
 		return "", fmt.Errorf("placement namespace pattern %q leaves no room for its tokens", pattern)
 	}
 
-	out := strings.ReplaceAll(pattern, TokenUser, SanitizeWithLimit(username, budget))
-	out = strings.ReplaceAll(out, TokenWorkspace, SanitizeWithLimit(workspaceDisplayName, budget))
+	out := tokenRE.ReplaceAllStringFunc(pattern, func(tok string) string {
+		return fitSegment(known[tok], budget)
+	})
 	if err := ValidateLabel(out); err != nil {
 		return "", fmt.Errorf("placement namespace pattern %q resolves to an invalid namespace name: %w", pattern, err)
 	}
 	return out, nil
+}
+
+// fitSegment sanitizes one placeholder value into its budget. Values
+// that fit stay readable; values that would be truncated carry Suffix()
+// of the RAW value (deterministic: the same input always lands in the
+// same namespace) so truncation cannot cause silent collisions.
+func fitSegment(raw string, budget int) string {
+	sanitized := Sanitize(raw)
+	if len(sanitized) <= budget {
+		return sanitized
+	}
+	suffix := Suffix(raw) // "-xxxxx"
+	head := budget - len(suffix)
+	if head < 1 {
+		head = 1
+	}
+	return SanitizeWithLimit(raw, head) + suffix
+}
+
+// ValidatePattern checks a pattern statically (unknown tokens, room for
+// expansion, literal validity) by resolving it with sample values. Used
+// by the template webhook, the api-server template editor and the
+// operator's startup check of the global env pattern.
+func ValidatePattern(pattern string) error {
+	_, err := ResolveNamespace(pattern, PatternValues{
+		User: "sample-user", Workspace: "sample-workspace",
+		TemplateName: "sample-template", OS: "linux",
+	})
+	return err
+}
+
+func knownTokens() string {
+	names := make([]string, 0, len(Placeholders()))
+	for _, p := range Placeholders() {
+		names = append(names, p.Token)
+	}
+	return strings.Join(names, " ")
 }
 
 // ValidateLabel checks that s already is a DNS-1123 label (it does not

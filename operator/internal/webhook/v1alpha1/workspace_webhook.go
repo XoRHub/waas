@@ -54,18 +54,25 @@ type WorkspaceValidator struct {
 	// identity immutability, and the KubeVirt capability check still
 	// applies (cluster fact, not policy).
 	BypassSubjects []string
+
+	// DefaultNamespacePattern is the operator-wide placement pattern
+	// (WAAS_DEFAULT_NAMESPACE_PATTERN). MUST match the api-server's value
+	// (one Helm values key feeds both), or platform-resolved defaults
+	// would be denied as unauthorized overrides.
+	DefaultNamespacePattern string
 }
 
 var _ admission.Validator[*waasv1alpha1.Workspace] = &WorkspaceValidator{}
 
 // SetupWorkspaceWebhookWithManager registers the validating webhook.
-func SetupWorkspaceWebhookWithManager(mgr ctrl.Manager, kubeVirtAvailable bool, trustedWriters, bypassSubjects []string) error {
+func SetupWorkspaceWebhookWithManager(mgr ctrl.Manager, kubeVirtAvailable bool, trustedWriters, bypassSubjects []string, defaultNamespacePattern string) error {
 	return ctrl.NewWebhookManagedBy(mgr, &waasv1alpha1.Workspace{}).
 		WithValidator(&WorkspaceValidator{
-			Client:            mgr.GetClient(),
-			KubeVirtAvailable: kubeVirtAvailable,
-			TrustedWriters:    trustedWriters,
-			BypassSubjects:    bypassSubjects,
+			Client:                  mgr.GetClient(),
+			KubeVirtAvailable:       kubeVirtAvailable,
+			TrustedWriters:          trustedWriters,
+			BypassSubjects:          bypassSubjects,
+			DefaultNamespacePattern: defaultNamespacePattern,
 		}).
 		Complete()
 }
@@ -237,14 +244,24 @@ func (v *WorkspaceValidator) validateShape(ws *waasv1alpha1.Workspace) *policy.D
 	return nil
 }
 
-// checkPlacementOwnership guarantees a user can only target their own
-// namespace: either it matches the identity-derived "waas-<user>" prefix
-// (recomputed from the TRUSTED identity, never from a user-supplied
-// value), or it already exists and carries this owner's ownership label.
+// checkPlacementOwnership guarantees a user can only target a namespace
+// that is theirs to use. Admitted, in order:
+//  1. the RESOLVED DEFAULT for this workspace (template pattern > global
+//     pattern > built-in), recomputed server-side from the trusted
+//     identity — this is the platform's own decision, and it may be a
+//     SHARED namespace (e.g. the built-in "waas-workspace" or an
+//     {os}/{templateName} pattern), so no per-user rule applies to it;
+//  2. a deviation matching the identity-derived "waas-<user>" prefix;
+//  3. a deviation to an existing namespace carrying this owner's
+//     ownership label.
+//
 // Admins may place anywhere.
-func (v *WorkspaceValidator) checkPlacementOwnership(ctx context.Context, ws *waasv1alpha1.Workspace, id policy.Identity) *policy.Denial {
+func (v *WorkspaceValidator) checkPlacementOwnership(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, id policy.Identity) *policy.Denial {
 	tns := ws.Spec.TargetNamespace
 	if tns == "" || ws.Annotations[waasv1alpha1.AnnotationRole] == "admin" {
+		return nil
+	}
+	if def, err := policy.ResolvedDefaultNamespace(ws, tpl, id, v.DefaultNamespacePattern); err == nil && tns == def {
 		return nil
 	}
 	userNS := "waas-" + naming.Sanitize(id.Username)
@@ -258,7 +275,7 @@ func (v *WorkspaceValidator) checkPlacementOwnership(ctx context.Context, ws *wa
 		}
 	}
 	return &policy.Denial{Reason: policy.ReasonPlacementDenied, Message: fmt.Sprintf(
-		"spec.targetNamespace %q does not belong to you (expected %q or a namespace labeled %s=%s)",
+		"spec.targetNamespace %q does not belong to you (expected the resolved default, %q, or a namespace labeled %s=%s)",
 		tns, userNS, waasv1alpha1.LabelOwner, ws.Spec.Owner)}
 }
 
@@ -286,7 +303,7 @@ func (v *WorkspaceValidator) checkWorkloadNameCollision(ctx context.Context, ws 
 
 // enforce runs the full governance decision for one workspace.
 func (v *WorkspaceValidator) enforce(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, id policy.Identity) (admission.Warnings, *policy.Denial) {
-	if d := v.checkPlacementOwnership(ctx, ws, id); d != nil {
+	if d := v.checkPlacementOwnership(ctx, ws, tpl, id); d != nil {
 		return nil, d
 	}
 	if d := v.checkWorkloadNameCollision(ctx, ws); d != nil {
@@ -321,7 +338,7 @@ func (v *WorkspaceValidator) enforce(ctx context.Context, ws *waasv1alpha1.Works
 	if d := policy.CheckProtocol(tpl, img); d != nil {
 		return warnings, d
 	}
-	if d := policy.CheckOverrides(ws, tpl, pol, id); d != nil {
+	if d := policy.CheckOverrides(ws, tpl, pol, id, v.DefaultNamespacePattern); d != nil {
 		return warnings, d
 	}
 	if ws.Spec.Overrides != nil && ws.Spec.Overrides.Schedule != nil {

@@ -77,9 +77,10 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 	}
 	if p := tpl.Spec.Placement; p != nil {
 		if p.Namespace != "" {
-			// The tokens expand to sanitized values by construction; what
-			// needs vetting is the literal part of the pattern.
-			if _, err := naming.ResolveNamespace(p.Namespace, "sample-user", "sample-workspace"); err != nil {
+			// Static validation: unknown placeholders (typos) are rejected
+			// here, never resolved to an empty string; the literal part of
+			// the pattern is the admin's to get right.
+			if err := naming.ValidatePattern(p.Namespace); err != nil {
 				return nil, v.deny(tpl, fmt.Sprintf("placement.namespace: %v", err))
 			}
 		}

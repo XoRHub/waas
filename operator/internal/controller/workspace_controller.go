@@ -65,6 +65,12 @@ type WorkspaceReconciler struct {
 	// The bootstrap NetworkPolicy of placed namespaces lets it in; empty
 	// = assume everything runs beside the CRs.
 	PlatformNamespace string
+	// DefaultNamespacePattern is the operator-wide placement pattern
+	// (WAAS_DEFAULT_NAMESPACE_PATTERN), applied when a template declares
+	// none; empty = the built-in naming.BuiltinNamespacePattern. Only
+	// affects NEW workspaces: existing ones carry their frozen
+	// spec.targetNamespace.
+	DefaultNamespacePattern string
 }
 
 func (r *WorkspaceReconciler) now() time.Time {

@@ -367,6 +367,25 @@ func CheckProtocol(tpl *waasv1alpha1.WorkspaceTemplate, img *waasv1alpha1.Worksp
 	return nil
 }
 
+// PlacementValues builds the pattern placeholder values for one
+// workspace: the SINGLE place mapping tokens onto their sources (trusted
+// identity, workspace displayName, template name and OS).
+func PlacementValues(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, id Identity) naming.PatternValues {
+	return naming.PatternValues{
+		User:         id.Username,
+		Workspace:    ws.Spec.DisplayName,
+		TemplateName: tpl.Name,
+		OS:           string(tpl.Spec.OS),
+	}
+}
+
+// ResolvedDefaultNamespace applies the full precedence chain (template
+// pattern > operator-wide pattern > built-in) for one workspace.
+func ResolvedDefaultNamespace(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, id Identity, globalPattern string) (string, error) {
+	pattern := naming.EffectivePattern(tpl.Spec.PlacementNamespacePattern(), globalPattern)
+	return naming.ResolveNamespace(pattern, PlacementValues(ws, tpl, id))
+}
+
 // CheckOverrides verifies that the creator is entitled to every override
 // the workspace carries. Platform admins (role annotation, only trusted
 // writers can set it) may override anything. The template owner bypasses
@@ -374,7 +393,9 @@ func CheckProtocol(tpl *waasv1alpha1.WorkspaceTemplate, img *waasv1alpha1.Worksp
 // else needs the field in BOTH lists: the template's allowedFields AND
 // the policy's overrides.allowedFields (a nil policy block = no policy
 // restriction; pol itself may be nil in policy-less clusters).
-func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pol *waasv1alpha1.WorkspacePolicy, id Identity) *Denial {
+// globalPattern is the operator-wide namespace pattern (env), needed to
+// tell a platform-resolved default from a user placement override.
+func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pol *waasv1alpha1.WorkspacePolicy, id Identity, globalPattern string) *Denial {
 	if ws.Annotations[waasv1alpha1.AnnotationRole] == "admin" {
 		return nil
 	}
@@ -398,11 +419,12 @@ func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTempl
 		return nil
 	}
 
-	// A target namespace deviating from the template's resolved pattern
-	// counts as a "placement" override. Rights only: the webhook enforces
-	// separately that any value, allowed or not, belongs to the owner.
+	// A target namespace deviating from the RESOLVED DEFAULT (template
+	// pattern > global pattern > built-in) counts as a "placement"
+	// override. Rights only: the webhook enforces separately that any
+	// value, allowed or not, belongs to the owner.
 	if ws.Spec.TargetNamespace != "" {
-		def, _ := naming.ResolveNamespace(tpl.Spec.PlacementNamespacePattern(), id.Username, ws.Spec.DisplayName)
+		def, _ := ResolvedDefaultNamespace(ws, tpl, id, globalPattern)
 		if ws.Spec.TargetNamespace != def {
 			if d := checkField(waasv1alpha1.FieldPlacement); d != nil {
 				return d

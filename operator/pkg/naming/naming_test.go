@@ -59,29 +59,104 @@ func TestSuffixIsDeterministicAndDiscriminates(t *testing.T) {
 }
 
 func TestResolveNamespace(t *testing.T) {
-	got, err := ResolveNamespace("waas-{user}", "Zoé Lefèvre", "ignored")
+	vals := PatternValues{User: "Zoé Lefèvre", Workspace: "CAD Station", TemplateName: "ubuntu-xfce", OS: "linux"}
+
+	got, err := ResolveNamespace("waas-{user}", vals)
 	if err != nil || got != "waas-zoe-lefevre" {
 		t.Fatalf("got %q, %v", got, err)
 	}
-	got, err = ResolveNamespace("waas-{user}-{workspace}", "alice", "CAD Station")
+	got, err = ResolveNamespace("waas-{user}-{workspace}", PatternValues{User: "alice", Workspace: "CAD Station"})
 	if err != nil || got != "waas-alice-cad-station" {
 		t.Fatalf("got %q, %v", got, err)
 	}
+	// New placeholders: template name and OS.
+	got, err = ResolveNamespace("waas-{os}-{templateName}", vals)
+	if err != nil || got != "waas-linux-ubuntu-xfce" {
+		t.Fatalf("got %q, %v", got, err)
+	}
 	// Empty pattern = no placement.
-	if got, err := ResolveNamespace("", "alice", ""); err != nil || got != "" {
+	if got, err := ResolveNamespace("", vals); err != nil || got != "" {
 		t.Fatalf("empty pattern: got %q, %v", got, err)
 	}
-	// Long username must still fit 63 chars.
-	got, err = ResolveNamespace("waas-{user}", strings.Repeat("verylonguser", 10), "")
+	// A pattern whose literal part is bogus is rejected, not rewritten.
+	if _, err := ResolveNamespace("WAAS-{user}", vals); err == nil {
+		t.Fatal("uppercase literal must be rejected")
+	}
+}
+
+func TestResolveNamespaceRejectsUnknownPlaceholders(t *testing.T) {
+	// A typo must FAIL, never resolve to an empty string.
+	for _, bad := range []string{"waas-{grup}", "waas-{USER}", "waas-{user", "waas-user}", "waas-{}"} {
+		if _, err := ResolveNamespace(bad, PatternValues{User: "alice"}); err == nil {
+			t.Errorf("pattern %q must be rejected", bad)
+		}
+	}
+}
+
+func TestResolveNamespaceTruncationIsDeterministicAndCollisionFree(t *testing.T) {
+	longA := strings.Repeat("engineering-platform", 5) + "-alpha"
+	longB := strings.Repeat("engineering-platform", 5) + "-beta"
+
+	a1, err := ResolveNamespace("waas-{user}", PatternValues{User: longA})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) > MaxLabel {
-		t.Fatalf("resolved namespace too long: %d", len(got))
+	a2, _ := ResolveNamespace("waas-{user}", PatternValues{User: longA})
+	b, _ := ResolveNamespace("waas-{user}", PatternValues{User: longB})
+
+	if len(a1) > MaxLabel {
+		t.Fatalf("resolved namespace too long: %d", len(a1))
 	}
-	// A pattern whose literal part is bogus is rejected, not rewritten.
-	if _, err := ResolveNamespace("WAAS-{user}", "alice", ""); err == nil {
-		t.Fatal("uppercase literal must be rejected")
+	if a1 != a2 {
+		t.Fatalf("truncation must be deterministic: %q vs %q", a1, a2)
+	}
+	// Same long prefix, different tails: the hash keeps them apart.
+	if a1 == b {
+		t.Fatalf("two distinct long values must not merge after truncation: %q", a1)
+	}
+	if err := ValidateLabel(a1); err != nil {
+		t.Fatalf("truncated result must stay a valid label: %v", err)
+	}
+
+	// Multi-placeholder pattern with several long values still fits.
+	multi, err := ResolveNamespace("waas-{user}-{templateName}-{workspace}", PatternValues{
+		User: longA, TemplateName: strings.Repeat("tpl", 30), Workspace: strings.Repeat("ws", 40),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(multi) > MaxLabel {
+		t.Fatalf("multi-token expansion exceeds the label limit: %d", len(multi))
+	}
+	// Short values stay readable (no gratuitous hash).
+	short, _ := ResolveNamespace("waas-{user}", PatternValues{User: "alice"})
+	if short != "waas-alice" {
+		t.Fatalf("short values must not be hashed, got %q", short)
+	}
+}
+
+func TestEffectivePattern(t *testing.T) {
+	if got := EffectivePattern("waas-{user}", "waas-global"); got != "waas-{user}" {
+		t.Fatalf("template pattern must win, got %q", got)
+	}
+	if got := EffectivePattern("", "waas-global"); got != "waas-global" {
+		t.Fatalf("global pattern must apply when the template has none, got %q", got)
+	}
+	if got := EffectivePattern("", ""); got != BuiltinNamespacePattern {
+		t.Fatalf("built-in fallback must apply last, got %q", got)
+	}
+}
+
+func TestValidatePattern(t *testing.T) {
+	for _, ok := range []string{"waas-{user}", "waas-{os}-{templateName}", BuiltinNamespacePattern, "waas-{user}-{workspace}"} {
+		if err := ValidatePattern(ok); err != nil {
+			t.Errorf("ValidatePattern(%q): %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"waas-{grup}", "WAAS-{user}", strings.Repeat("x", 60) + "-{user}-{workspace}"} {
+		if err := ValidatePattern(bad); err == nil {
+			t.Errorf("ValidatePattern(%q) must fail", bad)
+		}
 	}
 }
 

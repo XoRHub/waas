@@ -18,6 +18,7 @@ import (
 	"github.com/xorhub/waas/operator/internal/controller"
 	"github.com/xorhub/waas/operator/internal/kubevirt"
 	webhookv1alpha1 "github.com/xorhub/waas/operator/internal/webhook/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/naming"
 )
 
 var (
@@ -64,6 +65,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Operator-wide placement pattern (precedence: template pattern >
+	// this > built-in "waas-workspace"). An invalid pattern is a refusal
+	// to start, NOT a silent fallback: an operator placing workloads
+	// differently from what GitOps declares would be an invisible drift.
+	// Changing it only affects NEW workspaces (spec.targetNamespace is
+	// frozen at creation).
+	defaultNamespacePattern := os.Getenv("WAAS_DEFAULT_NAMESPACE_PATTERN")
+	if defaultNamespacePattern != "" {
+		if err := naming.ValidatePattern(defaultNamespacePattern); err != nil {
+			setupLog.Error(err, "invalid WAAS_DEFAULT_NAMESPACE_PATTERN — refusing to start",
+				"pattern", defaultNamespacePattern)
+			os.Exit(1)
+		}
+	}
+	setupLog.Info("workspace placement configured",
+		"defaultNamespacePattern", naming.EffectivePattern("", defaultNamespacePattern))
+
 	if err := (&controller.WorkspaceReconciler{
 		Client:            mgr.GetClient(),
 		KubeVirtAvailable: kubeVirtAvailable,
@@ -72,7 +90,8 @@ func main() {
 		// chart via the downward API): the default-deny ingress of placed
 		// workload namespaces must let it in, or placed desktops become
 		// unreachable through the proxy.
-		PlatformNamespace: os.Getenv("WAAS_PLATFORM_NAMESPACE"),
+		PlatformNamespace:       os.Getenv("WAAS_PLATFORM_NAMESPACE"),
+		DefaultNamespacePattern: defaultNamespacePattern,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 		os.Exit(1)
@@ -92,7 +111,7 @@ func main() {
 		}
 		setupLog.Info("workspace governance configured",
 			"trustedWriters", trustedWriters, "bypassSubjects", bypassSubjects)
-		if err := webhookv1alpha1.SetupWorkspaceWebhookWithManager(mgr, kubeVirtAvailable, trustedWriters, bypassSubjects); err != nil {
+		if err := webhookv1alpha1.SetupWorkspaceWebhookWithManager(mgr, kubeVirtAvailable, trustedWriters, bypassSubjects, defaultNamespacePattern); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Workspace")
 			os.Exit(1)
 		}
