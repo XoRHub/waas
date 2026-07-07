@@ -226,11 +226,10 @@ function TemplateDialog({
 
   const availableProtocols = (meta.data?.data ?? []).map((m) => m.name);
   // A template declares each protocol at most once (webhook-enforced):
-  // "add" offers only the registry protocols not configured yet.
+  // the shared "+" menu offers only the registry protocols not
+  // configured yet — the admin picks explicitly which one to add.
   const unusedProtocols = availableProtocols.filter((p) => !protocols.some((x) => x.name === p));
-  const addProtocol = () => {
-    const name = unusedProtocols[0];
-    if (!name) return;
+  const addProtocol = (name: string) => {
     set({
       protocols: [
         ...protocols,
@@ -239,8 +238,8 @@ function TemplateDialog({
     });
     setActiveProto(name);
   };
-  const removeActiveProtocol = () => {
-    const next = protocols.filter((p) => p.name !== activeProto);
+  const removeProtocol = (name: string) => {
+    const next = protocols.filter((p) => p.name !== name);
     // Keep exactly one default among the survivors.
     if (next.length > 0 && !next.some((p) => p.default)) next[0] = { ...next[0], default: true };
     set({ protocols: next });
@@ -414,30 +413,25 @@ function TemplateDialog({
           <p className="text-xs text-slate-400 dark:text-slate-500">
             {t('admin.templatesPage.protocolsHint')}
           </p>
-          {protocols.length > 0 && (
-            <ProtocolTabs
-              protocols={protocols.map((p) => p.name)}
-              active={activeProto}
-              onSelect={setActiveProto}
-              badge={(p) =>
-                protocols.find((x) => x.name === p)?.default ? (
-                  <span className="text-[10px]" title={t('portal.protocolDefault')}>
-                    ●
-                  </span>
-                ) : null
-              }
-              trailing={
-                unusedProtocols.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={addProtocol}
-                    className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-                  >
-                    + {t('admin.templatesPage.addProtocol')}
-                  </button>
-                ) : undefined
-              }
-            />
+          <ProtocolTabs
+            protocols={protocols.map((p) => p.name)}
+            active={activeProto}
+            onSelect={setActiveProto}
+            badge={(p) =>
+              protocols.find((x) => x.name === p)?.default ? (
+                <span className="text-[10px]" title={t('portal.protocolDefault')}>
+                  ●
+                </span>
+              ) : null
+            }
+            addable={unusedProtocols}
+            onAdd={addProtocol}
+            onRemove={removeProtocol}
+          />
+          {protocols.length === 0 && (
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              {t('admin.templatesPage.noProtocolsYet')}
+            </p>
           )}
           {currentProto ? (
             <div className="space-y-3">
@@ -469,13 +463,6 @@ function TemplateDialog({
                   />
                   {t('portal.protocolDefault')}
                 </label>
-                <button
-                  type="button"
-                  onClick={removeActiveProtocol}
-                  className="ml-auto pb-2 text-sm text-red-600 hover:underline"
-                >
-                  {t('app.delete')}
-                </button>
               </div>
 
               <label className="block">
@@ -524,15 +511,7 @@ function TemplateDialog({
                 )}
               />
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={addProtocol}
-              className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-            >
-              + {t('admin.templatesPage.addProtocol')}
-            </button>
-          )}
+          ) : null}
         </fieldset>
 
         {/* ---------------- env ---------------- */}
