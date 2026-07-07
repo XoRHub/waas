@@ -5,10 +5,12 @@ import {
   useAdminImages,
   useAdminPolicies,
   useAdminUsage,
+  useOverrideFields,
   useScaffold,
   useToggleImage,
   useUpsertImage,
   useUpsertPolicy,
+  type OverrideFieldMeta,
 } from '@/hooks/useApi';
 import { Dialog } from '@/components/Dialog';
 import { YamlEditor, parseYaml, type YamlIssue } from '@/components/YamlEditor';
@@ -159,7 +161,12 @@ function PoliciesSection() {
   const { t } = useTranslation();
   const policies = useAdminPolicies();
   const upsert = useUpsertPolicy();
+  const overrideFields = useOverrideFields();
   const [editing, setEditing] = useState<PolicyModel | 'new' | null>(null);
+  const validate = useMemo(
+    () => makeValidatePolicy(overrideFields.data?.data.map((f) => f.name)),
+    [overrideFields.data],
+  );
 
   return (
     <section>
@@ -230,7 +237,8 @@ function PoliciesSection() {
           name={editing === 'new' ? '' : editing.name}
           isNew={editing === 'new'}
           body={editing === 'new' ? undefined : policyBody(editing)}
-          validate={validatePolicy}
+          validate={validate}
+          fieldToggles={overrideFields.data?.data}
           onSave={(name, body) => upsert.mutate({ name, body }, { onSuccess: () => setEditing(null) })}
           pending={upsert.isPending}
           error={upsert.error?.message}
@@ -249,19 +257,16 @@ function policyBody(pol: PolicyModel): Record<string, unknown> {
 
 // Semantic checks over the parsed YAML: field-level messages the API
 // would reject anyway, surfaced before submit with readable wording.
-const KNOWN_OVERRIDE_FIELDS = [
-  'env',
-  'securityContext',
-  'podSecurityContext',
-  'volumes',
-  'nodeSelector',
-  'tolerations',
-  'resources',
-  'protocol',
-  'protocolParams',
-];
+// The known override fields come from GET /meta/override-fields (the
+// server's single registry) — this page carries NO copy of the list, so
+// it can never drift from what the server accepts again. While the list
+// is still loading, the membership check is skipped: the server remains
+// the barrier, this is only comfort.
+function makeValidatePolicy(knownFields: string[] | undefined) {
+  return (value: unknown): YamlIssue[] => validatePolicy(value, knownFields);
+}
 
-function validatePolicy(value: unknown): YamlIssue[] {
+function validatePolicy(value: unknown, knownFields?: string[]): YamlIssue[] {
   const issues: YamlIssue[] = [];
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return [{ line: 0, message: 'the policy must be a YAML mapping' }];
@@ -286,12 +291,12 @@ function validatePolicy(value: unknown): YamlIssue[] {
     const fields = overrides.allowedFields;
     if (!Array.isArray(fields)) {
       issues.push({ line: 0, message: 'overrides.allowedFields: must be a list' });
-    } else {
+    } else if (knownFields !== undefined) {
       for (const f of fields) {
-        if (!KNOWN_OVERRIDE_FIELDS.includes(String(f))) {
+        if (!knownFields.includes(String(f))) {
           issues.push({
             line: 0,
-            message: `overrides.allowedFields: unknown field "${String(f)}" (known: ${KNOWN_OVERRIDE_FIELDS.join(', ')})`,
+            message: `overrides.allowedFields: unknown field "${String(f)}" (known: ${knownFields.join(', ')})`,
           });
         }
       }
@@ -317,6 +322,7 @@ function GovernanceEditor({
   isNew,
   body,
   validate,
+  fieldToggles,
   onSave,
   pending,
   error,
@@ -328,6 +334,10 @@ function GovernanceEditor({
   isNew: boolean;
   body: Record<string, unknown> | undefined;
   validate?: (value: unknown) => YamlIssue[];
+  // fieldToggles renders a chip per governable override field, synced
+  // both ways with the YAML's overrides.allowedFields — the multi-select
+  // derives from the server registry, never from a local list.
+  fieldToggles?: OverrideFieldMeta[];
   onSave: (name: string, body: unknown) => void;
   pending: boolean;
   error?: string;
@@ -339,6 +349,28 @@ function GovernanceEditor({
   const [text, setText] = useState('');
   const [touched, setTouched] = useState(false);
   const [parseError, setParseError] = useState('');
+
+  // Selected allowedFields read from the CURRENT YAML text (the YAML
+  // stays the single source of the payload; chips are a view over it).
+  const selectedFields = useMemo(() => {
+    const parsed = parseYaml(text).value as Record<string, unknown> | undefined;
+    const overrides = parsed?.overrides as Record<string, unknown> | undefined;
+    const fields = overrides?.allowedFields;
+    return Array.isArray(fields) ? fields.map(String) : [];
+  }, [text]);
+
+  const toggleField = (field: string) => {
+    const parsed = parseYaml(text).value as Record<string, unknown> | undefined;
+    if (parsed === undefined || typeof parsed !== 'object') return; // unparseable: fix the YAML first
+    const overrides = (parsed.overrides ?? {}) as Record<string, unknown>;
+    const current = Array.isArray(overrides.allowedFields) ? overrides.allowedFields.map(String) : [];
+    overrides.allowedFields = current.includes(field)
+      ? current.filter((f) => f !== field)
+      : [...current, field];
+    parsed.overrides = overrides;
+    setTouched(true);
+    setText(yamlStringify(parsed));
+  };
 
   // Seed once the scaffold is loaded: scaffold for create, scaffold
   // deep-merged with the object for edit (all fields, real values win).
@@ -409,15 +441,44 @@ function GovernanceEditor({
       {seed === undefined ? (
         <p className="text-sm text-slate-500">{t('app.loading')}</p>
       ) : (
-        <YamlEditor
-          value={text}
-          onChange={(v) => {
-            setTouched(true);
-            setText(v);
-          }}
-          rows={18}
-          validate={validate}
-        />
+        <>
+          {fieldToggles && fieldToggles.length > 0 && (
+            <div className="mb-3">
+              <span className="text-sm text-slate-600 dark:text-slate-300">
+                {t('governance.allowedFields')}
+              </span>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {fieldToggles.map((f) => {
+                  const active = selectedFields.includes(f.name);
+                  return (
+                    <button
+                      key={f.name}
+                      type="button"
+                      title={f.description}
+                      onClick={() => toggleField(f.name)}
+                      className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+                        active
+                          ? 'border-blue-600 bg-blue-600 text-white'
+                          : 'border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {f.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <YamlEditor
+            value={text}
+            onChange={(v) => {
+              setTouched(true);
+              setText(v);
+            }}
+            rows={18}
+            validate={validate}
+          />
+        </>
       )}
     </Dialog>
   );

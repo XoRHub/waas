@@ -90,7 +90,8 @@
     "switchProtocolHint": "Basculer le protocole de connexion",
     "namespacePreview": "Namespace des workloads :",
     "quotaStorage": "Stockage",
-    "quotaStorageRetained": "dont {{size}} conservés · {{count}} volume(s)"
+    "quotaStorageRetained": "dont {{size}} conservés · {{count}} volume(s)",
+    "fixedSizing": "Dimensionnement imposé par le template : {{cpu}} vCPU, {{memory}} (votre politique n'autorise pas le dimensionnement personnalisé)"
   },
   "remote": {
     "tab": "Remote workspaces",
@@ -304,7 +305,8 @@
     "editImage": "Modifier l'image",
     "newPolicy": "Nouvelle policy",
     "name": "Nom",
-    "invalidName": "Le nom doit être un label DNS-1123 minuscule (a-z, 0-9, -)."
+    "invalidName": "Le nom doit être un label DNS-1123 minuscule (a-z, 0-9, -).",
+    "allowedFields": "Champs overridables (allowlist)"
   },
   "overlay": {
     "title": "Menu de session",

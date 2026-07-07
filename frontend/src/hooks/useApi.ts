@@ -263,6 +263,22 @@ export function useNamespacePreview(templateRef: string, displayName: string) {
   });
 }
 
+export interface OverrideFieldMeta {
+  name: string;
+  description: string;
+}
+
+// The governable override fields (policy/template allowedFields) with
+// their semantics — served from the operator's single registry so the
+// admin editors can never drift from what the server enforces.
+export function useOverrideFields() {
+  return useQuery({
+    queryKey: ['override-fields'],
+    queryFn: () => api.get<OverrideFieldMeta[]>('/api/v1/meta/override-fields'),
+    staleTime: Infinity,
+  });
+}
+
 // The guacd parameter registry — cached hard: it only changes with a
 // platform deployment.
 export function useProtocolMeta() {

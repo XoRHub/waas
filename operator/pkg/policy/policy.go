@@ -470,26 +470,23 @@ func CheckOverrides(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTempl
 			}
 		}
 	}
+	// Custom sizing: spec.resources PRESENT is the override, whatever its
+	// values — even a copy of the template's sizing consumes the right
+	// (predictable, and immune to the template changing afterwards). The
+	// policy LIMITS keep bounding the values separately.
+	if ws.Spec.Resources != nil {
+		if d := checkField(waasv1alpha1.FieldResources); d != nil {
+			return d
+		}
+	}
 
 	ov := ws.Spec.Overrides
 	if ov == nil {
 		return nil
 	}
-	used := map[waasv1alpha1.OverridableField]bool{
-		waasv1alpha1.FieldEnv:                len(ov.Env) > 0,
-		waasv1alpha1.FieldSecurityContext:    ov.SecurityContext != nil,
-		waasv1alpha1.FieldPodSecurityContext: ov.PodSecurityContext != nil,
-		waasv1alpha1.FieldVolumes:            len(ov.Volumes) > 0 || len(ov.VolumeMounts) > 0,
-		waasv1alpha1.FieldNodeSelector:       len(ov.NodeSelector) > 0,
-		waasv1alpha1.FieldTolerations:        len(ov.Tolerations) > 0,
-		waasv1alpha1.FieldProtocol:           ov.Protocol != "",
-		waasv1alpha1.FieldSchedule:           ov.Schedule != nil,
-		waasv1alpha1.FieldMetadata:           len(ov.Labels) > 0 || len(ov.Annotations) > 0,
-	}
-	for field, set := range used {
-		if !set {
-			continue
-		}
+	// What the overrides block uses derives from the claims registry
+	// (overrides.go) by reflection — enforcement cannot drift from it.
+	for field := range overridesUsage(ov) {
 		if d := checkField(field); d != nil {
 			return d
 		}

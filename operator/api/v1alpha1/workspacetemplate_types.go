@@ -50,13 +50,36 @@ const (
 )
 
 // AllOverridableFields enumerates every valid OverridableField. Keep in
-// sync with the kubebuilder Enum marker above; validators and scaffold
-// hints derive from this single list.
+// sync with the kubebuilder Enum marker above (guarded by a CRD-sync
+// test); validators, scaffold hints, the meta API feeding the frontend
+// and the enforcement registry (pkg/policy/overrides.go) all derive from
+// this single list.
 func AllOverridableFields() []OverridableField {
 	return []OverridableField{
 		FieldEnv, FieldSecurityContext, FieldPodSecurityContext, FieldVolumes,
 		FieldNodeSelector, FieldTolerations, FieldResources, FieldProtocol,
 		FieldProtocolParams, FieldSchedule, FieldPlacement, FieldMetadata,
+	}
+}
+
+// OverridableFieldDescriptions documents what each right actually grants;
+// served to the admin UI (policy and template editors) so the frontend
+// never carries its own copy of the list. A field missing here fails the
+// registry exhaustiveness test.
+func OverridableFieldDescriptions() map[OverridableField]string {
+	return map[OverridableField]string{
+		FieldEnv:                "merge environment variables over the template's (same name wins)",
+		FieldSecurityContext:    "replace the container security context",
+		FieldPodSecurityContext: "replace the pod security context",
+		FieldVolumes:            "add volumes and volume mounts to the template's",
+		FieldNodeSelector:       "merge node selector entries over the template's",
+		FieldTolerations:        "append tolerations to the template's",
+		FieldResources:          "choose the workspace sizing (spec.resources present = override, bounded by the policy limits either way)",
+		FieldProtocol:           "pick the default protocol among the template's declared ones",
+		FieldProtocolParams:     "tune guacd parameters at connect time (within the template's per-protocol userParams)",
+		FieldSchedule:           "replace the template's uptime/downtime cron schedule",
+		FieldPlacement:          "target a namespace deviating from the resolved default pattern (ownership still enforced)",
+		FieldMetadata:           "add labels/annotations on the workload (reserved keys always rejected)",
 	}
 }
 

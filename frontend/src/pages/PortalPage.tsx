@@ -888,7 +888,11 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
       {
         templateRef,
         displayName: displayName || undefined,
-        resources: { cpu: formatCpu(cpuValue), memory: formatMemory(memValue) },
+        // spec.resources present = override (webhook contract): omit it
+        // entirely when the right is absent, the template sizing applies.
+        resources: canOverride('resources')
+          ? { cpu: formatCpu(cpuValue), memory: formatMemory(memValue) }
+          : undefined,
         overrides,
         homeVolumeName: homeVolumeName || undefined,
       },
@@ -1006,7 +1010,19 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
           </label>
         )}
 
-        {template && (
+        {template && !canOverride('resources') && (
+          // No "resources" right: the sizing is the template's and the
+          // payload OMITS spec.resources entirely — sending it (even with
+          // identical values) counts as an override and the webhook
+          // rejects it. Display only.
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {t('portal.fixedSizing', {
+              cpu: displayCpu(cpuBounds.initial),
+              memory: displayMemory(memBounds.initial),
+            })}
+          </p>
+        )}
+        {template && canOverride('resources') && (
           <fieldset className="space-y-4">
             <ResourceSlider
               label={t('portal.cpu')}

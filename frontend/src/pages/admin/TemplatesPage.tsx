@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { stringify as yamlStringify } from 'yaml';
 import {
   useDeleteTemplate,
+  useOverrideFields,
   usePlaceholders,
   useProtocolMeta,
   useSaveTemplate,
@@ -38,21 +39,6 @@ const EMPTY: TemplateInput = {
   homeSize: '10Gi',
   protocols: [],
 };
-
-// Every OverridableField the CR knows; 'protocol'/'protocolParams' drive
-// the workspace-creation form, the rest gate spec.overrides facets.
-const OVERRIDABLE_FIELDS = [
-  'protocol',
-  'protocolParams',
-  'resources',
-  'schedule',
-  'env',
-  'securityContext',
-  'podSecurityContext',
-  'volumes',
-  'nodeSelector',
-  'tolerations',
-] as const;
 
 const DEFAULT_PORTS: Record<string, number> = { vnc: 5901, rdp: 3389, ssh: 2222 };
 
@@ -208,6 +194,10 @@ function TemplateDialog({
   const save = useSaveTemplate();
   const meta = useProtocolMeta();
   const placeholders = usePlaceholders();
+  // The overridable fields come from the server registry (single source
+  // shared with the policy editor and the enforcement) — this page holds
+  // no local copy of the list.
+  const overrideFields = useOverrideFields();
   const [input, setInput] = useState(initial);
   // Workload edited as YAML (converted transparently: the API/CR still
   // stores the structured value).
@@ -550,9 +540,10 @@ function TemplateDialog({
             {t('admin.templatesPage.overridesHint')}
           </p>
           <div className="grid grid-cols-3 gap-1.5">
-            {OVERRIDABLE_FIELDS.map((f) => (
+            {(overrideFields.data?.data ?? []).map(({ name: f, description }) => (
               <label
                 key={f}
+                title={description}
                 className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300"
               >
                 <input

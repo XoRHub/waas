@@ -101,6 +101,7 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 			// the governance YAML editors.
 			r.Get("/meta/protocols", h.Meta.Protocols)
 			r.Get("/meta/placeholders", h.Meta.Placeholders)
+			r.Get("/meta/override-fields", h.Meta.OverrideFields)
 			r.Get("/meta/scaffold/{kind}", h.Meta.Scaffold)
 
 			r.Route("/workspace-templates", func(r chi.Router) {

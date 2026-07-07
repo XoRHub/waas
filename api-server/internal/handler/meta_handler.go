@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 
+	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/params"
 )
@@ -35,4 +36,24 @@ func (h *MetaHandler) Protocols(w http.ResponseWriter, _ *http.Request) {
 func (h *MetaHandler) Placeholders(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	ok(w, naming.Placeholders())
+}
+
+type overrideFieldMeta struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// OverrideFields handles GET /api/v1/meta/override-fields: the canonical
+// list of governable override fields with their semantics. The policy
+// and template editors derive their choices and validation from it, so
+// the frontend never carries its own copy of the list (the drift that
+// once made "schedule" un-editable from the UI).
+func (h *MetaHandler) OverrideFields(w http.ResponseWriter, _ *http.Request) {
+	desc := waasv1alpha1.OverridableFieldDescriptions()
+	out := make([]overrideFieldMeta, 0, len(waasv1alpha1.AllOverridableFields()))
+	for _, f := range waasv1alpha1.AllOverridableFields() {
+		out = append(out, overrideFieldMeta{Name: string(f), Description: desc[f]})
+	}
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	ok(w, out)
 }

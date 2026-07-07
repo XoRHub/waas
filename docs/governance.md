@@ -86,6 +86,51 @@ intersection with the template's own `overrides.allowedFields` (see
 restriction; empty list = all overrides forbidden. Admins bypass both
 lists, template owners only the template one.
 
+#### Governable fields — single registry
+
+The list of valid `allowedFields` values lives in ONE place:
+`AllOverridableFields()` + `OverridableFieldDescriptions()`
+(`operator/api/v1alpha1/workspacetemplate_types.go`) and the enforcement
+claims in `operator/pkg/policy/overrides.go`. The CRD enum (kubectl and
+GitOps validation), the api-server's policy validation, the admin UI
+(`GET /api/v1/meta/override-fields` feeds the policy and template
+editors) and the enforcement all derive from it — no duplicated list
+anywhere, guarded by tests (below).
+
+| Field | Grants | Enforced at |
+|---|---|---|
+| `env` | merge env vars over the template's | admission (creation/update) |
+| `securityContext` / `podSecurityContext` | replace the container / pod security context | admission |
+| `volumes` | add volumes and mounts | admission |
+| `nodeSelector` / `tolerations` | steer pod scheduling | admission |
+| `resources` | choose the sizing — **`spec.resources` present = override, whatever its values**; policy limits keep bounding them separately | admission |
+| `protocol` | pick the default protocol among the template's | admission |
+| `protocolParams` | tune guacd parameters at connect time; the template's per-protocol `userParams` stays the fine-grained name filter | api-server `/connect` |
+| `schedule` | replace the uptime/downtime crons | admission |
+| `placement` | target a namespace deviating from the resolved default pattern (ownership still checked separately for every caller) | admission |
+| `metadata` | add labels/annotations on the workload; the reserved-keys denylist (`pkg/metakeys`) applies on top, always | admission |
+
+Fail-closed rules: a field absent from the template's list is denied
+(owner/admin excepted); if the policy declares `overrides`, the field
+must be in BOTH lists. **Pausing is exempt** — it only frees compute, so
+a grandfathered workspace that no longer complies can always be paused;
+resuming re-runs the full check.
+
+#### Adding a new field to the Workspace spec
+
+The registry tests (`operator/pkg/policy/overrides_registry_test.go`)
+force the decision — the build stays red until the new field is either:
+
+1. **governed**: add an `OverridableField` const + Enum marker + entry in
+   `AllOverridableFields()` and `OverridableFieldDescriptions()`, claim
+   the JSON field in `overrideClaims`/`specClaims`, run `make manifests`,
+   add its case to the enforcement-matrix test; or
+2. **exempt**: add it to `specExempt` with the reason (e.g. checked by a
+   dedicated webhook rule, cosmetic only).
+
+Nothing else to touch: CRD, api-server validation, UI editors and
+enforcement follow automatically.
+
 ### Remote Workspaces opt-in (`spec.remoteWorkspaces`)
 
 `spec.remoteWorkspaces: true` opts the governed users into the Remote

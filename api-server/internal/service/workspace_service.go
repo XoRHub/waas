@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -412,6 +413,18 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 		if violation := params.ValidateUserOverrides(protocol, in.Params, entry.UserParams, isAdmin); violation != nil {
 			return nil, apierror.Forbidden(violation.Error())
 		}
+		// Policy-level right: connect-time parameter tweaks consume
+		// "protocolParams" — same template ∩ policy contract as the
+		// creation-time overrides (CheckOverrides), enforced here because
+		// the input arrives at session time, not on the CR.
+		if len(in.Params) > 0 && !isAdmin {
+			if pol := s.actorPolicy(ctx, actor); pol != nil && pol.Spec.Overrides != nil &&
+				!slices.Contains(pol.Spec.Overrides.AllowedFields, waasv1alpha1.FieldProtocolParams) {
+				return nil, apierror.Forbidden(fmt.Sprintf(
+					"policy %q does not allow overriding %q (policy allows: %v)",
+					pol.Name, waasv1alpha1.FieldProtocolParams, pol.Spec.Overrides.AllowedFields))
+			}
+		}
 	}
 
 	session := &model.Session{
@@ -453,6 +466,25 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 // policy) fails closed: session yes, clipboard no.
 func (s *WorkspaceService) clipboardGrant(ctx context.Context, actor Actor) auth.ClipboardGrant {
 	return resolveClipboardGrant(ctx, s.kube, s.namespace, s.users, actor)
+}
+
+// actorPolicy resolves the caller's WorkspacePolicy; nil when the user or
+// a matching policy cannot be resolved (callers treat nil as "no policy
+// restriction beyond the template" — the same contract as CheckOverrides).
+func (s *WorkspaceService) actorPolicy(ctx context.Context, actor Actor) *waasv1alpha1.WorkspacePolicy {
+	user, err := s.users.FindByID(ctx, actor.ID)
+	if err != nil {
+		return nil
+	}
+	policies := &waasv1alpha1.WorkspacePolicyList{}
+	if err := s.kube.List(ctx, policies, client.InNamespace(s.namespace)); err != nil {
+		return nil
+	}
+	pol, _, denial := policy.Resolve(policies.Items, policy.Identity{Owner: user.ID, Username: user.Username, Groups: user.Groups})
+	if denial != nil {
+		return nil
+	}
+	return pol
 }
 
 // resolveClipboardGrant is the shared policy→clipboard resolution used by

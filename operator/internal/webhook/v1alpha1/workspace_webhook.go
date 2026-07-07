@@ -152,6 +152,18 @@ func (v *WorkspaceValidator) validate(ctx context.Context, oldWS, ws *waasv1alph
 	if oldWS != nil && reflect.DeepEqual(oldWS.Spec, ws.Spec) {
 		return nil, nil
 	}
+	// Pausing is exempt too: it only FREES compute, so denying it can
+	// never protect anything — and it must stay possible on a workspace
+	// that no longer complies (image disabled since, override right
+	// revoked...), otherwise the idle sweeper and the user are both stuck
+	// with a desktop that burns quota. Resuming re-runs the full check.
+	if oldWS != nil && !oldWS.Spec.Paused && ws.Spec.Paused {
+		rest := ws.Spec
+		rest.Paused = oldWS.Spec.Paused
+		if reflect.DeepEqual(oldWS.Spec, rest) {
+			return nil, nil
+		}
+	}
 
 	tpl := &waasv1alpha1.WorkspaceTemplate{}
 	err = v.Client.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: ws.Spec.TemplateRef}, tpl)

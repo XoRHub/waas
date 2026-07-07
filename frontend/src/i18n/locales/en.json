@@ -90,7 +90,8 @@
     "switchProtocolHint": "Switch the connection protocol",
     "namespacePreview": "Workloads namespace:",
     "quotaStorage": "Storage",
-    "quotaStorageRetained": "incl. {{size}} retained · {{count}} volume(s)"
+    "quotaStorageRetained": "incl. {{size}} retained · {{count}} volume(s)",
+    "fixedSizing": "Sizing set by the template: {{cpu}} vCPU, {{memory}} (your policy does not allow custom sizing)"
   },
   "remote": {
     "tab": "Remote workspaces",
@@ -304,7 +305,8 @@
     "editImage": "Edit image",
     "newPolicy": "New policy",
     "name": "Name",
-    "invalidName": "Name must be a lowercase DNS-1123 label (a-z, 0-9, -)."
+    "invalidName": "Name must be a lowercase DNS-1123 label (a-z, 0-9, -).",
+    "allowedFields": "Overridable fields (allowlist)"
   },
   "overlay": {
     "title": "Session menu",
