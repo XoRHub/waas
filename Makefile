@@ -97,10 +97,18 @@ dev-deploy:
 	helm upgrade --install waas helm/waas \
 		--namespace $(DEV_NAMESPACE) --create-namespace \
 		-f hack/dev/values-dev.yaml
+	# Idempotent: the dev-ssh Secret must exist in BOTH the platform ns
+	# and the default workloads ns (pods resolve secretKeyRef in their
+	# own namespace) — re-run here so redeploys never leave them apart.
+	sh hack/dev/seed-ssh-secret.sh $(WORKSPACE_NS)
 	@$(MAKE) dev-url
 
-# Rebuild, reimport and restart everything — the fast inner loop while coding.
-dev-reload: dev-build dev-load
+# Rebuild, reimport, re-render the chart and restart — the inner loop
+# while coding. dev-deploy is NOT optional here: a rollout restart alone
+# reuses the manifests of the last helm upgrade, so chart-side changes
+# (env wiring, RBAC) silently never reach the cluster — that drift is how
+# the guacd netpol lockout shipped despite the fix being committed.
+dev-reload: dev-build dev-load dev-deploy
 	kubectl -n $(DEV_NAMESPACE) rollout restart \
 		deploy/waas-operator deploy/waas-api-server deploy/waas-wwt deploy/waas-frontend
 
@@ -136,3 +144,12 @@ dev-logs:
 
 dev-url:
 	@echo "==> http://waas.127.0.0.1.nip.io:8080  (admin / admin123)"
+
+# Per-protocol connection gate (delivery criterion): creates a workspace
+# for each protocol, waits readiness and establishes a REAL guacd session
+# through wwt. Run against the k3d dev env after every iteration — a
+# change that breaks session establishment must fail here, not at the
+# user's desk. See docs/smoke-connections.md.
+smoke:
+	WAAS_SMOKE_URL=$${WAAS_SMOKE_URL:-http://waas.127.0.0.1.nip.io:8080} \
+		go test -count=1 -v -timeout 30m ./test/smoke/

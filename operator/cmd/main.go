@@ -82,15 +82,28 @@ func main() {
 	setupLog.Info("workspace placement configured",
 		"defaultNamespacePattern", naming.EffectivePattern("", defaultNamespacePattern))
 
+	// Where guacd/wwt run (the release namespace, injected by the chart
+	// via the downward API): the default-deny ingress of placed workload
+	// namespaces must let it in, or placed desktops become unreachable
+	// through the proxy. A missing env falls back to the operator's OWN
+	// namespace (guacd is chart-co-located with the operator) — an
+	// operator deployed without the env must not stamp policies that lock
+	// the proxy out of every placed namespace.
+	platformNamespace := os.Getenv("WAAS_PLATFORM_NAMESPACE")
+	if platformNamespace == "" {
+		platformNamespace = ownNamespace()
+		if platformNamespace == "" {
+			setupLog.Info("WARNING: platform namespace unknown (no WAAS_PLATFORM_NAMESPACE, not in-cluster); " +
+				"placed namespaces will only admit ingress from the CR namespace")
+		}
+	}
+	setupLog.Info("platform namespace resolved", "namespace", platformNamespace)
+
 	if err := (&controller.WorkspaceReconciler{
-		Client:            mgr.GetClient(),
-		KubeVirtAvailable: kubeVirtAvailable,
-		Recorder:          mgr.GetEventRecorderFor("waas-operator"),
-		// Where guacd/wwt run (the release namespace, injected by the
-		// chart via the downward API): the default-deny ingress of placed
-		// workload namespaces must let it in, or placed desktops become
-		// unreachable through the proxy.
-		PlatformNamespace:       os.Getenv("WAAS_PLATFORM_NAMESPACE"),
+		Client:                  mgr.GetClient(),
+		KubeVirtAvailable:       kubeVirtAvailable,
+		Recorder:                mgr.GetEventRecorderFor("waas-operator"),
+		PlatformNamespace:       platformNamespace,
 		DefaultNamespacePattern: defaultNamespacePattern,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Workspace")
@@ -135,6 +148,17 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// ownNamespace reads the namespace this operator runs in from the
+// serviceaccount mount. Empty outside a cluster (local dev runs beside
+// the CRs, where the CR-namespace ingress peer already covers the proxy).
+func ownNamespace() string {
+	b, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // splitEnvList parses a comma-separated env value, trimming blanks.

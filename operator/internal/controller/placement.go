@@ -15,6 +15,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -40,7 +41,12 @@ func (r *WorkspaceReconciler) ensureNamespace(ctx context.Context, ws *waasv1alp
 	existing := &corev1.Namespace{}
 	err := r.Get(ctx, types.NamespacedName{Name: name}, existing)
 	if err == nil {
-		return nil
+		// The namespace itself is admin territory once it exists, but the
+		// operator's OWN ingress policy is desired-state: the set of
+		// admitted namespaces depends on deployment config (platform
+		// namespace), and a policy stamped by a misconfigured operator
+		// would otherwise lock guacd out of the namespace forever.
+		return r.ensureIngressPolicy(ctx, ws, name)
 	}
 	if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("fetching namespace %s: %w", name, err)
@@ -98,6 +104,22 @@ func (r *WorkspaceReconciler) bootstrapNamespace(ctx context.Context, ws *waasv1
 		}
 	}
 
+	return r.ensureIngressPolicy(ctx, ws, name)
+}
+
+// netpolName is the operator-owned default ingress policy of a placed
+// namespace.
+const netpolName = "waas-default-ingress"
+
+// ensureIngressPolicy creates or heals the default-deny ingress policy of
+// a placed namespace: only the CR namespace and the platform namespace
+// (guacd/wwt) may reach the desktops. Unlike the rest of the bootstrap
+// this is synced on EVERY reconcile — the create-only path never
+// revisited a policy written by an operator that did not know its
+// platform namespace, leaving guacd rejected until someone deleted the
+// namespace by hand. A policy that lost the managed-by label is an admin
+// takeover and is left alone.
+func (r *WorkspaceReconciler) ensureIngressPolicy(ctx context.Context, ws *waasv1alpha1.Workspace, name string) error {
 	// Peers: the CR namespace AND the platform namespace where guacd/wwt
 	// actually run (they may differ — chart release ns vs workspaces ns).
 	peers := []networkingv1.NetworkPolicyPeer{{
@@ -112,17 +134,43 @@ func (r *WorkspaceReconciler) bootstrapNamespace(ctx context.Context, ws *waasv1
 			}},
 		})
 	}
-	netpol := &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "waas-default-ingress", Namespace: name, Labels: workspaceOwnerLabels(ws)},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{},
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
-			Ingress:     []networkingv1.NetworkPolicyIngressRule{{From: peers}},
-		},
+	desired := networkingv1.NetworkPolicySpec{
+		PodSelector: metav1.LabelSelector{},
+		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+		Ingress:     []networkingv1.NetworkPolicyIngressRule{{From: peers}},
 	}
-	if err := r.Create(ctx, netpol); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("creating networkpolicy in %s: %w", name, err)
+
+	existing := &networkingv1.NetworkPolicy{}
+	err := r.Get(ctx, types.NamespacedName{Namespace: name, Name: netpolName}, existing)
+	if apierrors.IsNotFound(err) {
+		netpol := &networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: netpolName, Namespace: name, Labels: workspaceOwnerLabels(ws)},
+			Spec:       desired,
+		}
+		if err := r.Create(ctx, netpol); err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("creating networkpolicy in %s: %w", name, err)
+		}
+		return nil
 	}
+	if err != nil {
+		return fmt.Errorf("fetching networkpolicy in %s: %w", name, err)
+	}
+	if existing.Labels[labelManagedBy] != managerName {
+		return nil
+	}
+	if equality.Semantic.DeepEqual(existing.Spec, desired) {
+		return nil
+	}
+	existing.Spec = desired
+	if err := r.Update(ctx, existing); err != nil {
+		return fmt.Errorf("healing networkpolicy in %s: %w", name, err)
+	}
+	admitted := make([]string, 0, len(peers))
+	for _, p := range peers {
+		admitted = append(admitted, p.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"])
+	}
+	r.recordEvent(ws, corev1.EventTypeNormal, "IngressPolicyHealed",
+		fmt.Sprintf("synced default ingress policy of namespace %q (admitted: %s)", name, strings.Join(admitted, ", ")))
 	return nil
 }
 

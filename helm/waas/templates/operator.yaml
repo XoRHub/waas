@@ -18,7 +18,9 @@ rules:
     verbs: [create, patch]
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
-    verbs: [create, delete, get, list, watch]
+    # update: volume retention — detaching (retained labels) and adopting
+    # (relabel live) home volumes mutate PVC metadata in place.
+    verbs: [create, delete, get, list, update, watch]
   - apiGroups: [""]
     resources: [pods, services]
     verbs: [create, delete, get, list, watch]
@@ -31,9 +33,12 @@ rules:
   - apiGroups: [""]
     resources: [resourcequotas]
     verbs: [create, get, list, watch]
+  # update: the operator's default ingress policy is desired-state (it
+  # heals policies stamped before the platform namespace was known —
+  # without the platform peer, guacd is locked out of placed desktops).
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies]
-    verbs: [create, get, list, watch]
+    verbs: [create, get, list, update, watch]
   # update: pause/resume and the uptime/downtime crons scale the workload
   # in place (spec.replicas 0/1, VM spec.running) — without it every
   # scale is Forbidden and pause/resume silently stops working.

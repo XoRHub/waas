@@ -104,6 +104,73 @@ func TestPlacedWorkspaceProvisionsInTargetNamespace(t *testing.T) {
 	}
 }
 
+// staleIngressPolicy reproduces what an operator deployed WITHOUT its
+// platform namespace stamped into placed namespaces: only the CR
+// namespace admitted, guacd (platform namespace) rejected — the exact
+// shape of the VNC/RDP "connection closed" regression.
+func staleIngressPolicy(labels map[string]string) *networkingv1.NetworkPolicy {
+	return &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "waas-alice", Name: netpolName, Labels: labels},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{{From: []networkingv1.NetworkPolicyPeer{{
+				NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+					"kubernetes.io/metadata.name": "default",
+				}},
+			}}}},
+		},
+	}
+}
+
+func TestStaleIngressPolicyIsHealed(t *testing.T) {
+	ws := placedWorkspace()
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   "waas-alice",
+		Labels: map[string]string{labelManagedBy: managerName},
+	}}
+	r, c := newFixture(t, linuxTemplate(), ws, ns, staleIngressPolicy(map[string]string{labelManagedBy: managerName}))
+	r.PlatformNamespace = "waas-platform"
+
+	reconcile(t, r, ws)
+
+	// The bootstrap is create-only for admin tunables (quota, PSA), but
+	// the operator-owned ingress policy must converge even when the
+	// namespace pre-exists: create-only left guacd locked out forever.
+	netpol := &networkingv1.NetworkPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "waas-alice", Name: netpolName}, netpol); err != nil {
+		t.Fatal(err)
+	}
+	var allowed []string
+	for _, peer := range netpol.Spec.Ingress[0].From {
+		allowed = append(allowed, peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"])
+	}
+	if len(allowed) != 2 || allowed[0] != "default" || allowed[1] != "waas-platform" {
+		t.Fatalf("stale ingress policy must be healed to admit the platform namespace, got %v", allowed)
+	}
+}
+
+func TestAdminOwnedIngressPolicyIsLeftAlone(t *testing.T) {
+	ws := placedWorkspace()
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   "waas-alice",
+		Labels: map[string]string{labelManagedBy: managerName},
+	}}
+	// No managed-by label: an admin replaced the policy on purpose.
+	r, c := newFixture(t, linuxTemplate(), ws, ns, staleIngressPolicy(nil))
+	r.PlatformNamespace = "waas-platform"
+
+	reconcile(t, r, ws)
+
+	netpol := &networkingv1.NetworkPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "waas-alice", Name: netpolName}, netpol); err != nil {
+		t.Fatal(err)
+	}
+	if len(netpol.Spec.Ingress[0].From) != 1 {
+		t.Fatalf("an admin-owned ingress policy must never be rewritten, got %v", netpol.Spec.Ingress[0].From)
+	}
+}
+
 func TestPlacedNamespaceQuotaFromPolicy(t *testing.T) {
 	cpu, mem := resource.MustParse("8"), resource.MustParse("32Gi")
 	pol := &waasv1alpha1.WorkspacePolicy{
