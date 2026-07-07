@@ -50,6 +50,16 @@ cd api-server && WAAS_DEV=true go run ./cmd/api-server
 Local cluster: `k3d cluster create waas`, install cert-manager, then
 `helm install waas helm/waas`.
 
+## CI/CD
+
+GitLab pipeline (`.gitlab-ci.yml` + `.gitlab/ci/`): selective per-component
+builds on MRs, native amd64/arm64 image builds merged into multi-arch
+manifest lists, blocking security gates (gitleaks, Trivy), and releases by
+**promotion** — a `vX.Y.Z` git tag re-tags and cosign-signs the exact
+digests a green `main` pipeline already tested and scanned. ArgoCD deploys
+the git tag (path `helm/waas`). Pipeline map, release procedure, registry
+cleanup and debugging: see [docs/ci.md](docs/ci.md).
+
 ## License
 
 Apache-2.0 — community edition, free forever.
