@@ -106,6 +106,10 @@ func run() error {
 	// Idle enforcement lives here (not in the operator) because only the
 	// api-server knows about desktop sessions.
 	go service.NewIdleSweeper(kube, cfg.WorkspaceNamespace, sessions, audit, cfg.IdleSweepInterval).Run(ctx)
+	// Same data-ownership rule for the session sweeper: it closes session
+	// rows whose workspace/remote was deleted outside this API (kubectl,
+	// ArgoCD prune) or whose end-of-session callback was lost.
+	go service.NewSessionSweeper(kube, cfg.WorkspaceNamespace, sessions, remotes, audit, cfg.SessionSweepInterval).Run(ctx)
 	go events.RunWorkspaceWatch(ctx, kube, cfg.WorkspaceNamespace)
 
 	router := server.New(cfg, signer, server.Handlers{

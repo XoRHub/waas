@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -328,6 +329,18 @@ func (s *WorkspaceService) Delete(ctx context.Context, actor Actor, id string, k
 	}
 	if err := s.kube.Delete(ctx, ws); err != nil {
 		return fmt.Errorf("deleting workspace %s: %w", ws.Name, err)
+	}
+	// Close the workspace's open sessions NOW rather than leaving them
+	// "active" on a dead target. Failure is logged, not returned: the CR
+	// is already gone, and the session sweeper re-covers this on its next
+	// pass (it also covers kubectl/ArgoCD deletions that never hit this
+	// code path).
+	if n, err := s.sessions.EndAllForWorkspace(ctx, string(ws.UID), time.Now().UTC()); err != nil {
+		slog.Error("ending sessions of deleted workspace failed; the session sweeper will retry",
+			"workspace", ws.Name, "error", err)
+	} else if n > 0 {
+		s.audit.Record(ctx, actor, "session.ended_with_workspace", "workspace", id,
+			fmt.Sprintf("name=%s openSessions=%d", ws.Name, n))
 	}
 	s.audit.Record(ctx, actor, "workspace.deleted", "workspace", id,
 		fmt.Sprintf("name=%s keepVolume=%t", ws.Name, keepVolume))

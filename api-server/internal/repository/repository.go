@@ -33,6 +33,14 @@ type SessionRepository interface {
 	Create(ctx context.Context, session *model.Session) error
 	FindByID(ctx context.Context, id string) (*model.Session, error)
 	End(ctx context.Context, id string, at time.Time) error
+	// EndAllForWorkspace closes every still-open session of one workspace
+	// (or remote workspace) and returns how many it closed. Called when
+	// the target is deleted: an open session row without a target would
+	// stay "active" forever and pollute the activity aggregates.
+	EndAllForWorkspace(ctx context.Context, workspaceID string, at time.Time) (int, error)
+	// ListOpen returns every session without an end timestamp — the
+	// session sweeper's orphan-detection input.
+	ListOpen(ctx context.Context) ([]model.Session, error)
 	List(ctx context.Context, page, pageSize int) ([]model.Session, int, error)
 	// Activity summarizes desktop usage per workspace for the idle
 	// sweeper: last observed activity and whether a session is open now.

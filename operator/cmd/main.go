@@ -110,6 +110,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The namespace janitor is an internal mechanism of this same manager
+	// (no extra deployment): it reclaims empty DeleteWhenEmpty namespaces
+	// once their content is ACTUALLY gone — the workspace finalizer cannot
+	// decide that synchronously (pvc-protection, pod grace periods).
+	if err := (&controller.NamespaceJanitor{
+		Client:            mgr.GetClient(),
+		KubeVirtAvailable: kubeVirtAvailable,
+		Recorder:          mgr.GetEventRecorderFor("waas-operator"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "NamespaceJanitor")
+		os.Exit(1)
+	}
+
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
 		// Governance wiring (see internal/webhook): WAAS_TRUSTED_WRITERS
 		// lists the SAs whose spec.owner/identity annotations are believed

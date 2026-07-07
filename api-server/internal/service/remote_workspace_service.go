@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"slices"
 	"sort"
@@ -277,7 +278,12 @@ func (s *RemoteWorkspaceService) Create(ctx context.Context, actor Actor, in Rem
 	}
 	rw.CredentialKeys = keys
 	if err := s.remotes.Create(ctx, rw); err != nil {
-		_ = s.kube.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: s.namespace, Name: rw.SecretName}})
+		// Roll the Secret back; a failure here leaves an orphan Secret and
+		// must at least be visible (the audit script also lists them).
+		if delErr := s.kube.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: s.namespace, Name: rw.SecretName}}); delErr != nil && !apierrors.IsNotFound(delErr) {
+			slog.Error("rolling back credentials secret failed; secret is orphaned",
+				"secret", rw.SecretName, "error", delErr)
+		}
 		if errors.Is(err, repository.ErrDuplicate) {
 			return nil, apierror.Conflict(fmt.Sprintf("you already have a remote workspace named %q", rw.Name))
 		}
@@ -353,6 +359,12 @@ func (s *RemoteWorkspaceService) Delete(ctx context.Context, actor Actor, id str
 	}
 	if err := s.kube.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: s.namespace, Name: rw.SecretName}}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("deleting credentials secret %s: %w", rw.SecretName, err)
+	}
+	// Same contract as provisioned workspaces: no session may stay
+	// "active" on a deleted target (the sweeper re-covers failures).
+	if _, err := s.sessions.EndAllForWorkspace(ctx, rw.ID, time.Now().UTC()); err != nil {
+		slog.Error("ending sessions of deleted remote workspace failed; the session sweeper will retry",
+			"remoteWorkspace", rw.Name, "error", err)
 	}
 	s.audit.Record(ctx, actor, "remote_workspace.deleted", "remote_workspace", rw.ID, "name="+rw.Name)
 	s.notifyChange(rw.OwnerID)

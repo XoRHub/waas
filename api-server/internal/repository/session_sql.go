@@ -58,6 +58,37 @@ func (r *SQLSessionRepository) End(ctx context.Context, id string, at time.Time)
 	return nil
 }
 
+func (r *SQLSessionRepository) EndAllForWorkspace(ctx context.Context, workspaceID string, at time.Time) (int, error) {
+	query := r.db.Rebind(`UPDATE sessions SET ended_at = ? WHERE workspace_id = ? AND ended_at IS NULL`)
+	res, err := r.db.ExecContext(ctx, query, timeArg(at), workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("ending sessions of workspace %s: %w", workspaceID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, nil // engines without RowsAffected: the update still happened
+	}
+	return int(n), nil
+}
+
+func (r *SQLSessionRepository) ListOpen(ctx context.Context) ([]model.Session, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+sessionColumns+` FROM sessions WHERE ended_at IS NULL ORDER BY started_at`)
+	if err != nil {
+		return nil, fmt.Errorf("listing open sessions: %w", err)
+	}
+	defer rows.Close()
+
+	sessions := []model.Session{}
+	for rows.Next() {
+		s, err := scanSession(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning session row: %w", err)
+		}
+		sessions = append(sessions, *s)
+	}
+	return sessions, rows.Err()
+}
+
 func (r *SQLSessionRepository) List(ctx context.Context, page, pageSize int) ([]model.Session, int, error) {
 	var total int
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions`).Scan(&total); err != nil {

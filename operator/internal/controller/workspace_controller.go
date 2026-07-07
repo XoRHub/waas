@@ -89,7 +89,7 @@ func (r *WorkspaceReconciler) now() time.Time {
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines,verbs=get;list;watch;create;update;delete
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=resourcequotas,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update
 
@@ -108,9 +108,11 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// (explicit opt-in annotation) or detach it as a retained volume.
 		if controllerutil.ContainsFinalizer(ws, finalizerTeardown) {
 			if err := r.finalizeHomeVolume(ctx, ws); err != nil {
+				r.reportTeardownFailure(ctx, ws, "finalizing home volume", err)
 				return ctrl.Result{}, fmt.Errorf("finalizing home volume of %s: %w", ws.Name, err)
 			}
 			if err := r.teardownPlacement(ctx, ws); err != nil {
+				r.reportTeardownFailure(ctx, ws, "tearing down placed objects", err)
 				return ctrl.Result{}, fmt.Errorf("tearing down workspace %s: %w", ws.Name, err)
 			}
 			controllerutil.RemoveFinalizer(ws, finalizerTeardown)
@@ -427,6 +429,23 @@ func (r *WorkspaceReconciler) finalizeHomeVolume(ctx context.Context, ws *waasv1
 	r.recordEvent(ws, corev1.EventTypeNormal, "HomeVolumeRetained",
 		fmt.Sprintf("home volume %q retained (still counts against the owner's storage quota)", key.Name))
 	return nil
+}
+
+// reportTeardownFailure makes a failing finalizer VISIBLE: Kubernetes
+// Event (Warning) plus a Ready condition on the CR, so a workspace stuck
+// in Terminating explains itself in kubectl describe and on the portal
+// instead of retrying silently forever. The finalizer is never removed
+// automatically — that would trade a visible stuck deletion for a silent
+// leak; docs/workspace-deletion.md documents the manual unblock.
+func (r *WorkspaceReconciler) reportTeardownFailure(ctx context.Context, ws *waasv1alpha1.Workspace, stage string, err error) {
+	msg := fmt.Sprintf("%s failed: %v — deletion is retried with backoff; see docs/workspace-deletion.md to unblock", stage, err)
+	r.recordEvent(ws, corev1.EventTypeWarning, "TeardownFailed", msg)
+	// Best-effort: the CR is going away, a lost status write must not
+	// mask the original teardown error.
+	_ = r.patchStatus(ctx, ws, func(st *waasv1alpha1.WorkspaceStatus) {
+		st.Phase = waasv1alpha1.PhaseTerminating
+		setCondition(st, metav1.ConditionFalse, "TeardownFailed", msg)
+	})
 }
 
 // ensureHomePVC creates the user-state volume if missing, or ADOPTS the

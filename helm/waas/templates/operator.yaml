@@ -26,10 +26,12 @@ rules:
     verbs: [create, delete, get, list, watch]
   # Placement: the operator creates the per-user workload namespaces and
   # their bootstrap (quota from the owner's policy, default-deny ingress);
-  # delete only fires for the opt-in DeleteWhenEmpty cleanup policy.
+  # delete only fires from the namespace janitor for the opt-in
+  # DeleteWhenEmpty cleanup policy; update back-fills the frozen
+  # cleanup-policy label on namespaces created before it existed.
   - apiGroups: [""]
     resources: [namespaces]
-    verbs: [create, delete, get, list, watch]
+    verbs: [create, delete, get, list, update, watch]
   - apiGroups: [""]
     resources: [resourcequotas]
     verbs: [create, get, list, watch]

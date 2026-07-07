@@ -12,18 +12,18 @@ import (
 	"fmt"
 	"strings"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
-	"github.com/xorhub/waas/operator/internal/kubevirt"
 	"github.com/xorhub/waas/operator/pkg/metakeys"
 	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/policy"
@@ -46,6 +46,9 @@ func (r *WorkspaceReconciler) ensureNamespace(ctx context.Context, ws *waasv1alp
 		// admitted namespaces depends on deployment config (platform
 		// namespace), and a policy stamped by a misconfigured operator
 		// would otherwise lock guacd out of the namespace forever.
+		if err := r.ensureCleanupLabel(ctx, tpl, existing); err != nil {
+			return err
+		}
 		return r.ensureIngressPolicy(ctx, ws, name)
 	}
 	if !apierrors.IsNotFound(err) {
@@ -58,6 +61,10 @@ func (r *WorkspaceReconciler) ensureNamespace(ctx context.Context, ws *waasv1alp
 	}
 	platform := map[string]string{
 		labelManagedBy: managerName,
+		// The cleanup policy is FROZEN here: the janitor reads this label,
+		// never the template, so a template deleted before its workspaces
+		// cannot silently turn DeleteWhenEmpty into Retain.
+		waasv1alpha1.LabelCleanup: string(tpl.Spec.CleanupPolicyOrDefault()),
 		// Desktop images run non-root but may need baseline-only
 		// capabilities (chown at first boot); warn on restricted so
 		// hardening candidates surface without breaking sessions.
@@ -105,6 +112,22 @@ func (r *WorkspaceReconciler) bootstrapNamespace(ctx context.Context, ws *waasv1
 	}
 
 	return r.ensureIngressPolicy(ctx, ws, name)
+}
+
+// ensureCleanupLabel back-fills the frozen cleanup-policy label on
+// operator-created namespaces that predate it (migration path: without
+// it the janitor would treat them as Retain forever). Only ever fills a
+// MISSING label — an existing value is frozen, whatever the template
+// says today — and never touches namespaces the operator does not own.
+func (r *WorkspaceReconciler) ensureCleanupLabel(ctx context.Context, tpl *waasv1alpha1.WorkspaceTemplate, ns *corev1.Namespace) error {
+	if ns.Labels[labelManagedBy] != managerName || ns.Labels[waasv1alpha1.LabelCleanup] != "" {
+		return nil
+	}
+	ns.Labels[waasv1alpha1.LabelCleanup] = string(tpl.Spec.CleanupPolicyOrDefault())
+	if err := r.Update(ctx, ns); err != nil {
+		return fmt.Errorf("stamping cleanup policy on namespace %s: %w", ns.Name, err)
+	}
+	return nil
 }
 
 // netpolName is the operator-owned default ingress policy of a placed
@@ -230,76 +253,33 @@ func isPersonalNamespace(ws *waasv1alpha1.Workspace) bool {
 }
 
 // teardownPlacement deletes the cross-namespace compute and service of a
-// deleted workspace (the finalizer path). The home PVC is deliberately
-// kept — user state survives workspace deletion, exactly like in the
-// owner-reference path — then the namespace cleanup policy runs.
+// deleted workspace (the finalizer path). The type list derives from the
+// single managed-types inventory; the home PVC is skipped on purpose —
+// finalizeHomeVolume applied the user's retention choice before this
+// runs. The namespace itself is NOT handled here: content deletion is
+// asynchronous (pvc-protection, pod grace periods), so reclaiming empty
+// DeleteWhenEmpty namespaces belongs to the namespace janitor, which the
+// deletion events re-trigger once the objects are actually gone.
 func (r *WorkspaceReconciler) teardownPlacement(ctx context.Context, ws *waasv1alpha1.Workspace) error {
 	if computeNamespace(ws) == ws.Namespace {
 		return nil
 	}
 	key := computeKey(ws)
-	meta := metav1.ObjectMeta{Namespace: key.Namespace, Name: key.Name}
-	objs := []client.Object{
-		&appsv1.Deployment{ObjectMeta: meta},
-		&appsv1.StatefulSet{ObjectMeta: meta},
-		&corev1.Pod{ObjectMeta: meta},
-		&corev1.Service{ObjectMeta: meta},
-	}
-	if r.KubeVirtAvailable {
-		vm := &unstructured.Unstructured{}
-		vm.SetGroupVersionKind(kubevirt.VirtualMachineGVK)
-		vm.SetNamespace(key.Namespace)
-		vm.SetName(key.Name)
-		objs = append(objs, vm)
-	}
-	for _, obj := range objs {
-		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("deleting %T %s: %w", obj, key.Name, err)
+	for _, gvk := range waasv1alpha1.WorkspaceContentGVKs() {
+		if gvk.Kind == "PersistentVolumeClaim" {
+			continue
 		}
-	}
-	return r.cleanupNamespace(ctx, ws)
-}
-
-// cleanupNamespace applies the template's namespace cleanup policy after
-// a workspace deletion. Retain (the default) never deletes; a vanished
-// template also means Retain. DeleteWhenEmpty only fires when the
-// operator created the namespace AND nothing waas-managed remains in it —
-// home PVCs count, so a namespace holding user state is never deleted.
-func (r *WorkspaceReconciler) cleanupNamespace(ctx context.Context, ws *waasv1alpha1.Workspace) error {
-	tpl := &waasv1alpha1.WorkspaceTemplate{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: ws.Namespace, Name: ws.Spec.TemplateRef}, tpl); err != nil {
-		return nil
-	}
-	if tpl.Spec.CleanupPolicyOrDefault() != waasv1alpha1.CleanupDeleteWhenEmpty {
-		return nil
-	}
-	nsName := computeNamespace(ws)
-	ns := &corev1.Namespace{}
-	if err := r.Get(ctx, types.NamespacedName{Name: nsName}, ns); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	if ns.Labels[labelManagedBy] != managerName {
-		return nil
-	}
-	all := &waasv1alpha1.WorkspaceList{}
-	if err := r.List(ctx, all, client.InNamespace(ws.Namespace)); err != nil {
-		return fmt.Errorf("listing workspaces: %w", err)
-	}
-	for i := range all.Items {
-		sib := &all.Items[i]
-		if sib.Name != ws.Name && sib.EffectiveTargetNamespace() == nsName {
-			return nil
+		obj := &unstructured.Unstructured{}
+		obj.SetGroupVersionKind(gvk)
+		obj.SetNamespace(key.Namespace)
+		obj.SetName(key.Name)
+		// A VM delete on a cluster without KubeVirt is a no-op, not an
+		// error — and deliberately NOT gated on the startup detection: an
+		// operator restarted during a KubeVirt outage must not leak VMs.
+		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) &&
+			!meta.IsNoMatchError(err) && !runtime.IsNotRegisteredError(err) {
+			return fmt.Errorf("deleting %s %s: %w", gvk.Kind, key.Name, err)
 		}
-	}
-	pvcs := &corev1.PersistentVolumeClaimList{}
-	if err := r.List(ctx, pvcs, client.InNamespace(nsName), client.MatchingLabels{labelManagedBy: managerName}); err != nil {
-		return fmt.Errorf("listing pvcs in %s: %w", nsName, err)
-	}
-	if len(pvcs.Items) > 0 {
-		return nil
-	}
-	if err := r.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("deleting empty namespace %s: %w", nsName, err)
 	}
 	return nil
 }

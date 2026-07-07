@@ -50,6 +50,12 @@ type Config struct {
 	// Zero disables the sweeper.
 	IdleSweepInterval time.Duration
 
+	// SessionSweepInterval is how often the session sweeper closes
+	// session rows whose workspace/remote no longer exists (deletions
+	// done outside the API, lost end-of-session callbacks). Zero
+	// disables the sweeper.
+	SessionSweepInterval time.Duration
+
 	// OIDC configures the optional SSO login (Authentik or any OIDC
 	// provider). Enabled when IssuerURL and ClientID are both set; local
 	// username/password login always remains available (bootstrap admin,
@@ -125,6 +131,7 @@ func Load() (*Config, error) {
 		TLSCertFile:             os.Getenv("WAAS_TLS_CERT_FILE"),
 		TLSKeyFile:              os.Getenv("WAAS_TLS_KEY_FILE"),
 		IdleSweepInterval:       durationOr("WAAS_IDLE_SWEEP_INTERVAL", 5*time.Minute),
+		SessionSweepInterval:    durationOr("WAAS_SESSION_SWEEP_INTERVAL", time.Minute),
 	}
 	if origins := os.Getenv("WAAS_CORS_ALLOWED_ORIGINS"); origins != "" {
 		cfg.CORSAllowedOrigins = strings.Split(origins, ",")

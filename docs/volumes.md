@@ -51,7 +51,11 @@ précisément le contrat d'un TTL (comportement inchangé, documenté dans
 
 `cleanup: DeleteWhenEmpty` (placement) reste compatible : un namespace
 qui héberge un volume conservé n'est jamais supprimé (le PVC waas le
-retient), il tombera quand le volume sera supprimé ou le TTL passé.
+retient). C'est le **namespace janitor** (reconciler interne de
+l'operator) qui réclame le namespace quand le volume est finalement
+supprimé — l'événement de suppression du PVC le re-déclenche, il n'y a
+pas besoin qu'un workspace existe encore (voir
+`docs/workspace-deletion.md`).
 
 ## Quotas
 

@@ -142,7 +142,14 @@ sont résolus côté api-server dans le namespace plateforme.
   survit à la suppression du workspace — Retain est le seul défaut qui ne
   peut pas détruire de données. `DeleteWhenEmpty` (opt-in) ne supprime
   que si l'operator a créé le namespace ET qu'aucun objet waas n'y reste
-  (PVC home inclus — typiquement après un TTL).
+  (PVC home inclus).
+- La politique de cleanup est **figée sur le namespace à sa création**
+  (label `waas.xorhub.io/cleanup`) et appliquée par le **namespace
+  janitor**, un reconciler interne de l'operator re-déclenché par les
+  événements de suppression du contenu : la réclamation survit à la
+  suppression du template, au drain asynchrone des PVC (pvc-protection)
+  et à la suppression tardive d'un volume retenu. Détails et procédure de
+  déblocage : `docs/workspace-deletion.md`.
 
 ## Naming des workloads (`spec.workloadName`)
 

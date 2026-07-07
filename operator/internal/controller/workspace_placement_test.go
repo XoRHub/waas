@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
@@ -239,6 +240,20 @@ func TestPlacedWorkspaceTeardownKeepsPVCAndNamespace(t *testing.T) {
 	}
 }
 
+// reconcileNS drives the janitor over one namespace.
+func reconcileNS(t *testing.T, j *NamespaceJanitor, name string) {
+	t.Helper()
+	if _, err := j.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: name}}); err != nil {
+		t.Fatalf("janitor reconcile: %v", err)
+	}
+}
+
+// TestPlacedNamespaceDeleteWhenEmpty exercises the REAL deletion order: the
+// home PVC stays Terminating under kubernetes.io/pvc-protection while the
+// finalizer runs (simulated with a test finalizer), so the namespace must
+// survive the workspace deletion and only be reclaimed by the janitor once
+// the PVC is actually gone. The previous version of this test deleted the
+// PVC synchronously before the CR, which masked exactly that bug.
 func TestPlacedNamespaceDeleteWhenEmpty(t *testing.T) {
 	tpl := linuxTemplate()
 	tpl.Spec.Placement = &waasv1alpha1.WorkspacePlacement{
@@ -246,25 +261,64 @@ func TestPlacedNamespaceDeleteWhenEmpty(t *testing.T) {
 		Cleanup:   waasv1alpha1.CleanupDeleteWhenEmpty,
 	}
 	ws := placedWorkspace()
+	// The user chose to delete the home volume with the workspace.
+	ws.Annotations[waasv1alpha1.AnnotationDeleteHome] = "true"
 	r, c := newFixture(t, tpl, ws)
+	j := &NamespaceJanitor{Client: c}
 	ctx := context.Background()
 
 	reconcile(t, r, ws)
 
-	// Simulate the TTL path having reclaimed the home volume, then delete.
-	if err := c.Delete(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Namespace: "waas-alice", Name: "cad-station-home"}}); err != nil {
+	// The namespace froze the cleanup policy at creation.
+	ns := &corev1.Namespace{}
+	if err := c.Get(ctx, types.NamespacedName{Name: "waas-alice"}, ns); err != nil {
 		t.Fatal(err)
 	}
+	if ns.Labels[waasv1alpha1.LabelCleanup] != string(waasv1alpha1.CleanupDeleteWhenEmpty) {
+		t.Fatalf("namespace must freeze the cleanup policy label, got %v", ns.Labels)
+	}
+
+	// Pin the PVC in Terminating, like pvc-protection does while the
+	// desktop pod drains.
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "waas-alice", Name: "cad-station-home"}, pvc); err != nil {
+		t.Fatal(err)
+	}
+	pvc.Finalizers = append(pvc.Finalizers, "kubernetes.io/pvc-protection")
+	if err := c.Update(ctx, pvc); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := c.Delete(ctx, &waasv1alpha1.Workspace{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "marc"}}); err != nil {
 		t.Fatal(err)
 	}
-	reconcile(t, r, ws)
+	reconcile(t, r, ws) // finalizer path: deletes content, CR goes away
+
+	// PVC still Terminating: the janitor must NOT reclaim the namespace yet.
+	reconcileNS(t, j, "waas-alice")
+	if err := c.Get(ctx, types.NamespacedName{Name: "waas-alice"}, &corev1.Namespace{}); err != nil {
+		t.Fatalf("namespace must survive while the PVC is still terminating: %v", err)
+	}
+
+	// pvc-protection resolves (pod gone): the PVC disappears for real,
+	// which in production re-triggers the janitor through its watch.
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "waas-alice", Name: "cad-station-home"}, pvc); err != nil {
+		t.Fatal(err)
+	}
+	pvc.Finalizers = nil
+	if err := c.Update(ctx, pvc); err != nil {
+		t.Fatal(err)
+	}
+	reconcileNS(t, j, "waas-alice")
 
 	if err := c.Get(ctx, types.NamespacedName{Name: "waas-alice"}, &corev1.Namespace{}); !apierrors.IsNotFound(err) {
-		t.Fatalf("empty operator-created namespace must be deleted under DeleteWhenEmpty, got %v", err)
+		t.Fatalf("empty DeleteWhenEmpty namespace must be reclaimed once the PVC is gone, got %v", err)
 	}
 }
 
+// TestDeleteWhenEmptyKeepsNamespaceHoldingUserState: a retained home
+// volume holds the namespace open; deleting that volume later (volumes
+// API) must finally reclaim it — without any workspace CR involved.
 func TestDeleteWhenEmptyKeepsNamespaceHoldingUserState(t *testing.T) {
 	tpl := linuxTemplate()
 	tpl.Spec.Placement = &waasv1alpha1.WorkspacePlacement{
@@ -273,6 +327,7 @@ func TestDeleteWhenEmptyKeepsNamespaceHoldingUserState(t *testing.T) {
 	}
 	ws := placedWorkspace()
 	r, c := newFixture(t, tpl, ws)
+	j := &NamespaceJanitor{Client: c}
 	ctx := context.Background()
 
 	reconcile(t, r, ws)
@@ -281,10 +336,73 @@ func TestDeleteWhenEmptyKeepsNamespaceHoldingUserState(t *testing.T) {
 	}
 	reconcile(t, r, ws)
 
-	// The home PVC is still there: the namespace must NOT be deleted even
-	// under DeleteWhenEmpty.
+	// The retained home PVC is user state: the namespace must NOT be
+	// deleted even under DeleteWhenEmpty.
+	reconcileNS(t, j, "waas-alice")
 	if err := c.Get(ctx, types.NamespacedName{Name: "waas-alice"}, &corev1.Namespace{}); err != nil {
-		t.Fatalf("namespace holding a home PVC must be kept: %v", err)
+		t.Fatalf("namespace holding a retained volume must be kept: %v", err)
+	}
+
+	// The user deletes the retained volume weeks later: the janitor is
+	// re-triggered by the PVC deletion event and reclaims the namespace.
+	if err := c.Delete(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Namespace: "waas-alice", Name: "cad-station-home"}}); err != nil {
+		t.Fatal(err)
+	}
+	reconcileNS(t, j, "waas-alice")
+	if err := c.Get(ctx, types.NamespacedName{Name: "waas-alice"}, &corev1.Namespace{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("namespace must be reclaimed once the retained volume is deleted, got %v", err)
+	}
+}
+
+// TestJanitorNeverGuessesPolicy: managed namespaces without the frozen
+// cleanup label (pre-migration) and unmanaged namespaces are never
+// deleted, however empty they are.
+func TestJanitorNeverGuessesPolicy(t *testing.T) {
+	legacy := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   "waas-legacy",
+		Labels: map[string]string{labelManagedBy: managerName},
+	}}
+	foreign := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "team-prod",
+		Labels: map[string]string{
+			waasv1alpha1.LabelCleanup: string(waasv1alpha1.CleanupDeleteWhenEmpty),
+		},
+	}}
+	retain := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "waas-retain",
+		Labels: map[string]string{
+			labelManagedBy:            managerName,
+			waasv1alpha1.LabelCleanup: string(waasv1alpha1.CleanupRetain),
+		},
+	}}
+	_, c := newFixture(t, legacy, foreign, retain)
+	j := &NamespaceJanitor{Client: c}
+	for _, name := range []string{"waas-legacy", "team-prod", "waas-retain"} {
+		reconcileNS(t, j, name)
+		if err := c.Get(context.Background(), types.NamespacedName{Name: name}, &corev1.Namespace{}); err != nil {
+			t.Fatalf("namespace %s must never be deleted by the janitor: %v", name, err)
+		}
+	}
+}
+
+// TestJanitorKeepsNamespaceOfPendingWorkspace: a workspace targeting the
+// namespace holds it open even before any compute exists (Pending /
+// governance-denied workspaces must not lose their namespace under them).
+func TestJanitorKeepsNamespaceOfPendingWorkspace(t *testing.T) {
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "waas-alice",
+		Labels: map[string]string{
+			labelManagedBy:            managerName,
+			waasv1alpha1.LabelCleanup: string(waasv1alpha1.CleanupDeleteWhenEmpty),
+		},
+	}}
+	ws := placedWorkspace()
+	_, c := newFixture(t, ns, ws)
+	j := &NamespaceJanitor{Client: c}
+
+	reconcileNS(t, j, "waas-alice")
+	if err := c.Get(context.Background(), types.NamespacedName{Name: "waas-alice"}, &corev1.Namespace{}); err != nil {
+		t.Fatalf("namespace targeted by a live workspace must be kept: %v", err)
 	}
 }
 

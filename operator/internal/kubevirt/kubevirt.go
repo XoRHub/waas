@@ -7,16 +7,19 @@ package kubevirt
 import (
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
+
+	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
 
 // Group is the KubeVirt API group probed at startup.
 const Group = "kubevirt.io"
 
-// VirtualMachineGVK identifies kubevirt.io/v1 VirtualMachine.
-var VirtualMachineGVK = schema.GroupVersionKind{Group: Group, Version: "v1", Kind: "VirtualMachine"}
+// VirtualMachineGVK identifies kubevirt.io/v1 VirtualMachine. The
+// canonical definition lives in the api package (single managed-types
+// inventory); this alias keeps existing call sites unchanged.
+var VirtualMachineGVK = waasv1alpha1.VirtualMachineGVK
 
 // Detect reports whether the KubeVirt API group is served by the cluster.
 func Detect(cfg *rest.Config) (bool, error) {

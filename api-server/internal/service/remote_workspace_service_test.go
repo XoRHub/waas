@@ -23,11 +23,16 @@ import (
 // remoteFixture wires a RemoteWorkspaceService (and the WorkspaceService
 // used by the internal connection resolver) against SQLite + fake kube.
 type remoteFixture struct {
-	remote    *RemoteWorkspaceService
-	workspace *WorkspaceService
-	kube      client.Client
-	remotes   repository.RemoteWorkspaceRepository
+	remote     *RemoteWorkspaceService
+	workspace  *WorkspaceService
+	kube       client.Client
+	remotes    repository.RemoteWorkspaceRepository
+	sessionsDB repository.SessionRepository
+	auditSvc   *AuditService
 }
+
+func (f *remoteFixture) sessions() repository.SessionRepository { return f.sessionsDB }
+func (f *remoteFixture) audit() *AuditService                   { return f.auditSvc }
 
 func newRemoteFixture(t *testing.T, usersIn []model.User, policies []waasv1alpha1.WorkspacePolicy) *remoteFixture {
 	t.Helper()
@@ -71,8 +76,10 @@ func newRemoteFixture(t *testing.T, usersIn []model.User, policies []waasv1alpha
 			audit, signer, "waas-test", time.Minute),
 		workspace: NewWorkspaceService(kube, testNS, users, sessions, audit, signer,
 			"waas-test", time.Minute).WithRemoteWorkspaces(remotes),
-		kube:    kube,
-		remotes: remotes,
+		kube:       kube,
+		remotes:    remotes,
+		sessionsDB: sessions,
+		auditSvc:   audit,
 	}
 }
 
