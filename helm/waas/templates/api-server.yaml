@@ -81,6 +81,11 @@ spec:
               value: ":8080"
             - name: WAAS_WORKSPACE_NAMESPACE
               value: {{ .Values.workspaces.namespace | quote }}
+            # Same placement pattern as the operator (one values key):
+            # the api-server resolves it at creation, the webhook
+            # re-verifies — they must agree.
+            - name: WAAS_DEFAULT_NAMESPACE_PATTERN
+              value: {{ .Values.workspaces.defaultNamespacePattern | quote }}
             - name: WAAS_JWT_ISSUER
               value: {{ .Values.apiServer.jwtIssuer | quote }}
             - name: WAAS_ACCESS_TOKEN_TTL

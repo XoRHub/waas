@@ -52,6 +52,7 @@ function WorkspacesFleet() {
             <th className="px-4 py-3">{t('admin.fleetPage.workspace')}</th>
             <th className="px-4 py-3">{t('admin.fleetPage.owner')}</th>
             <th className="px-4 py-3">{t('admin.fleetPage.template')}</th>
+            <th className="px-4 py-3">{t('admin.fleetPage.namespace')}</th>
             <th className="px-4 py-3">{t('admin.fleetPage.phase')}</th>
             <th className="px-4 py-3">{t('admin.fleetPage.created')}</th>
             <th className="px-4 py-3">{t('app.actions')}</th>
@@ -63,6 +64,8 @@ function WorkspacesFleet() {
               <td className="px-4 py-3 font-medium">{ws.displayName || ws.name}</td>
               <td className="px-4 py-3 font-mono text-xs">{ws.ownerId}</td>
               <td className="px-4 py-3">{ws.templateRef}</td>
+              {/* Resolved (frozen) workload namespace; empty = platform ns (legacy). */}
+              <td className="px-4 py-3 font-mono text-xs">{ws.namespace || '—'}</td>
               <td className="px-4 py-3">
                 <StatusBadge phase={ws.phase} />
               </td>

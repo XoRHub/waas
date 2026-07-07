@@ -87,7 +87,8 @@
     "port": "port",
     "wakeAndOpen": "Réveiller et ouvrir",
     "useThisProtocol": "Se connecter avec ce protocole",
-    "switchProtocolHint": "Basculer le protocole de connexion"
+    "switchProtocolHint": "Basculer le protocole de connexion",
+    "namespacePreview": "Namespace des workloads :"
   },
   "remote": {
     "tab": "Remote workspaces",
@@ -187,7 +188,8 @@
       "lastConnection": "Dernière connexion",
       "connected": "Connecté",
       "idle": "Inactif",
-      "never": "Jamais"
+      "never": "Jamais",
+      "namespace": "Namespace"
     },
     "templatesPage": {
       "new": "Nouveau modèle",
@@ -220,7 +222,12 @@
       "workloadInvalid": "Le workload doit être un JSON valide",
       "resources": "Ressources",
       "storageClass": "Classe de stockage",
-      "storageClassDefault": "(défaut du cluster)"
+      "storageClassDefault": "(défaut du cluster)",
+      "placement": "Placement des workloads",
+      "placementPattern": "Pattern de namespace",
+      "placementHint": "Vide = pattern global de la plateforme (env operator), puis le défaut « waas-workspace ». Un changement ne concerne que les NOUVEAUX workspaces.",
+      "placementCleanup": "Cleanup du namespace",
+      "placeholdersTitle": "Placeholders disponibles (chaque valeur est sanitizée en DNS-1123) :"
     },
     "usersPage": {
       "new": "Nouvel utilisateur",

@@ -116,6 +116,9 @@ export interface Workspace {
   paused: boolean;
   message?: string;
   createdAt: string;
+  /** Frozen workloads namespace; empty = platform namespace (legacy). */
+  namespace?: string;
+  workloadName?: string;
   protocols?: WorkspaceProtocol[];
   schedule?: WorkspaceSchedule;
   nextTransition?: ScheduledTransition;
@@ -152,6 +155,17 @@ export interface WorkspaceTemplate {
   allowedOverrides?: string[];
   overridesOwner?: string;
   schedule?: WorkspaceSchedule;
+  placement?: WorkspacePlacement;
+}
+
+/** Workload placement block of a template (CR shape verbatim). */
+export interface WorkspacePlacement {
+  /** Namespace pattern ({user}, {workspace}, {templateName}, {os}). */
+  namespace?: string;
+  namespaceLabels?: Record<string, string>;
+  namespaceAnnotations?: Record<string, string>;
+  /** '' | 'Retain' | 'DeleteWhenEmpty' */
+  cleanup?: string;
 }
 
 export interface AuditLog {

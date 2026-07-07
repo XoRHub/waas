@@ -3,23 +3,74 @@
 Architecture validée : **les CR Workspace (et toute la gouvernance :
 templates, policies, catalog, webhooks) restent dans le namespace
 plateforme** ; seuls les workloads (Deployment/StatefulSet/Pod, Service,
-PVC home, VM) partent dans un namespace cible. Défaut recommandé : **un
-namespace par utilisateur** (`waas-{user}`).
+PVC home, VM) partent dans un namespace cible.
+
+## Chaîne de précédence du pattern
+
+Du plus prioritaire au moins prioritaire — **enforcée côté serveur**
+(l'api-server résout, le webhook re-vérifie la même chaîne, l'UI ne fait
+qu'afficher le résultat) :
+
+1. **`spec.placement.namespace` du template** (overridable à
+   l'instanciation si le champ `placement` est délégué) ;
+2. **`WAAS_DEFAULT_NAMESPACE_PATTERN`** — variable d'environnement
+   commune à l'operator et à l'api-server (**une seule clé Helm** :
+   `workspaces.defaultNamespacePattern`, pilotable en GitOps). Un pattern
+   invalide (placeholder inconnu, pas de place pour l'expansion) fait
+   **refuser le démarrage** des deux composants — jamais de fallback
+   silencieux, un placement différent de ce que Git déclare serait une
+   dérive invisible ;
+3. **built-in `waas-workspace`** : un namespace partagé unique.
+
+⚠️ **Changer le pattern (variable ou template) ne concerne que les
+NOUVEAUX workspaces** : la valeur résolue est gelée dans
+`spec.targetNamespace` à la création et immuable ensuite. Les workspaces
+existants gardent leur namespace — c'est voulu, pas un bug.
+
+## Placeholders
+
+Liste servie par `GET /api/v1/meta/placeholders` (source unique :
+`pkg/naming`) et affichée en aide contextuelle dans l'éditeur de
+template ; le namespace **résolu** est montré à la création
+(`GET /api/v1/workspaces/namespace-preview`) et dans la fleet admin.
+
+| Token | Source | Absence |
+|---|---|---|
+| `{user}` | username Authentik (identité de confiance) | jamais absent (identité requise) |
+| `{workspace}` | displayName du workspace | vide → `x` (sanitization) |
+| `{templateName}` | `metadata.name` du template | jamais absent |
+| `{os}` | `template.spec.os` — le chemin de provisioning réel (pod vs VM), requis et validé par enum | jamais absent |
+
+Règles transverses :
+- **sanitization systématique** de chaque valeur (NFKD, lowercase,
+  runs → `-`, DNS-1123) — aucune valeur brute n'entre dans un nom ;
+- **placeholder inconnu = rejet** (webhook template, 400 API, refus de
+  démarrage pour la variable globale) — jamais résolu en chaîne vide ;
+- **troncature anti-collision** : budget 63 réparti entre tokens après
+  les littéraux ; une valeur qui déborde son budget est tronquée **et**
+  suffixée d'un hash court déterministe de la valeur brute — deux valeurs
+  longues distinctes ne peuvent pas fusionner silencieusement, et la
+  même valeur retombe toujours dans le même namespace. Les valeurs
+  courtes restent lisibles (pas de hash).
 
 ## Namespace cible (`spec.targetNamespace`)
 
-- Le template déclare un **pattern** : `spec.placement.namespace`, tokens
-  `{user}` (username sanitisé) et `{workspace}` (displayName sanitisé).
-  Exemples : `waas-{user}` (défaut recommandé, quota par user naturel),
-  `waas-{user}-{workspace}` (isolation maximale par workspace).
 - L'api-server **résout le pattern une fois à la création** et écrit la
   valeur explicite dans `workspace.spec.targetNamespace`. Le webhook la
   rend **immuable** (comme `owner`) : déplacer un workspace = recréer.
-- Vide = comportement historique (workloads à côté du CR). Aucun
-  workspace existant n'est affecté.
+- Vide (workspaces créés avant la fonctionnalité, ou via kubectl sans
+  valeur) = comportement historique : workloads à côté du CR.
 - Override à la création : `targetNamespace` explicite dans le payload,
   gated par le champ overridable **`placement`** (template ∩ policy,
   admins exempts).
+- **Namespaces partagés** : le défaut résolu peut être partagé (built-in
+  `waas-workspace`, patterns `{os}`/`{templateName}`). Le webhook admet
+  toujours le défaut résolu côté serveur ; la règle de préfixe
+  `waas-<user>` ne s'applique qu'aux déviations. Un namespace partagé ne
+  reçoit **ni** label d'ownership **ni** ResourceQuota auto (elle
+  capperait l'équipe au budget d'une personne) — le webhook reste
+  l'enforcement par utilisateur, l'admin pose un quota namespace s'il en
+  veut un.
 
 ### Sanitization (operator/pkg/naming — partagé api-server/webhook/operator)
 

@@ -186,6 +186,36 @@ export function useConnectWorkspace() {
   });
 }
 
+export interface NamespacePlaceholder {
+  token: string;
+  source: string;
+  description: string;
+}
+
+// Namespace pattern placeholders (contextual help of the pattern
+// editor) — served from the naming engine, cached hard.
+export function usePlaceholders() {
+  return useQuery({
+    queryKey: ['placeholders'],
+    queryFn: () => api.get<NamespacePlaceholder[]>('/api/v1/meta/placeholders'),
+    staleTime: Infinity,
+  });
+}
+
+// The namespace a creation WOULD land in for the caller, resolved
+// SERVER-SIDE (precedence template > global env > built-in) — the UI
+// displays it, never computes it.
+export function useNamespacePreview(templateRef: string, displayName: string) {
+  const params = new URLSearchParams({ template: templateRef, displayName });
+  return useQuery({
+    queryKey: ['namespace-preview', templateRef, displayName],
+    queryFn: () =>
+      api.get<{ namespace: string }>(`/api/v1/workspaces/namespace-preview?${params.toString()}`),
+    enabled: templateRef !== '',
+    placeholderData: (prev) => prev,
+  });
+}
+
 // The guacd parameter registry — cached hard: it only changes with a
 // platform deployment.
 export function useProtocolMeta() {
@@ -220,6 +250,12 @@ export interface TemplateInput {
   protocols?: TemplateProtocolInput[];
   overrides?: { allowedFields?: string[]; owner?: string };
   schedule?: { timezone?: string; uptime?: string[]; downtime?: string[] };
+  placement?: {
+    namespace?: string;
+    namespaceLabels?: Record<string, string>;
+    namespaceAnnotations?: Record<string, string>;
+    cleanup?: string;
+  };
 }
 
 export function useSaveTemplate() {

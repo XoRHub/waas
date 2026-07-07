@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   useCatalog,
   useCreateWorkspace,
+  useNamespacePreview,
   useDeleteRemoteWorkspace,
   useDeleteWorkspace,
   useProtocolMeta,
@@ -558,6 +559,7 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [envRows, setEnvRows] = useState<{ name: string; value: string }[]>([]);
   const [scheduleOverride, setScheduleOverride] = useState<WorkspaceSchedule | undefined>(undefined);
+  const nsPreview = useNamespacePreview(templateRef, displayName);
 
   // Every template is listed whatever its protocol; the ones the policy
   // excludes are visible but disabled with the reason (never silently
@@ -754,6 +756,17 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
             onChange={(e) => setDisplayName(e.target.value)}
           />
         </label>
+        {/* Resolved server-side: what the precedence chain (template >
+            global > built-in) actually yields for THIS user — never
+            computed by the UI. */}
+        {template && nsPreview.data?.data.namespace && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {t('portal.namespacePreview')}{' '}
+            <span className="font-mono text-slate-700 dark:text-slate-200">
+              {nsPreview.data.data.namespace}
+            </span>
+          </p>
+        )}
 
         {template && (
           <fieldset className="space-y-4">
