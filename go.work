@@ -4,5 +4,6 @@ use (
 	./api-server
 	./operator
 	./shared
+	./test/smoke
 	./wwt
 )
