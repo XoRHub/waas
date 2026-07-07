@@ -14,7 +14,7 @@
 set -eu
 
 : "${SMOKE_IMAGE:?}"
-HOST="${SMOKE_HOST:-docker}"   # dind service alias in GitLab CI
+HOST="${SMOKE_HOST:-localhost}"   # Kubernetes executor: pod-shared netns with the dind service
 NAME="smoke-$$"
 
 ENV_FLAGS="-e VNC_PW=smoketest-$$"

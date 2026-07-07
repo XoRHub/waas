@@ -14,10 +14,16 @@
   extends: .rules-release
   stage: release
   image: docker:28.0
-  services: [docker:28.0-dind]
+  services:
+    - name: docker:28.0-dind
+      command: ["--tls=false"]
   tags: [amd]
   variables:
-    DOCKER_TLS_CERTDIR: /certs
+    # See .gitlab/ci/docker.yml: Kubernetes executor shares one pod
+    # network namespace, so dind is reachable at localhost, not the
+    # service alias; TLS disabled to avoid the /certs sharing race.
+    DOCKER_HOST: tcp://localhost:2375
+    DOCKER_TLS_CERTDIR: ""
     RELEASE_COMPONENTS: operator api-server wwt frontend
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"

@@ -11,9 +11,12 @@
 #          changelog + GitLab Release. ArgoCD consumes the git tag
 #          (path helm/waas), Chart.yaml is bumped BEFORE tagging.
 #
-# Runners: docker executor with dind. amd64 runners are tagged `amd`,
-# arm64 runners (Turing RK1) are tagged `arm`; images build natively on
-# each arch, a merge job assembles the manifest list.
+# Runners: Kubernetes executor with a dind service. amd64 runners are
+# tagged `amd`, arm64 runners (Turing RK1) are tagged `arm`; images
+# build natively on each arch, a merge job assembles the manifest list.
+# Because the executor is Kubernetes, build/helper/service containers
+# share one pod network namespace: dind must be reached at `localhost`
+# (the service alias only resolves on the Docker executor).
 
 stages: [lint, test, security, build, scan, validate, release]
 
@@ -64,9 +67,12 @@ waas-images:
 smoke-connections:
   stage: validate
   image: docker:28.0
-  services: [docker:28.0-dind]
+  services:
+    - name: docker:28.0-dind
+      command: ["--tls=false"]
   variables:
-    DOCKER_TLS_CERTDIR: /certs
+    DOCKER_HOST: tcp://localhost:2375
+    DOCKER_TLS_CERTDIR: ""
   rules:
     - if: $CI_COMMIT_TAG
       when: never

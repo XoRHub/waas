@@ -16,9 +16,17 @@
 
 .docker:
   image: docker:28.0
-  services: [docker:28.0-dind]
+  services:
+    - name: docker:28.0-dind
+      command: ["--tls=false"]
   variables:
-    DOCKER_TLS_CERTDIR: /certs
+    # Kubernetes executor: build/helper/service containers share one pod
+    # network namespace, so the dind daemon is reachable at localhost —
+    # NOT at the service alias (that only resolves on the Docker
+    # executor). TLS is disabled to sidestep the /certs sharing race
+    # some runners hit on first cert generation under this executor.
+    DOCKER_HOST: tcp://localhost:2375
+    DOCKER_TLS_CERTDIR: ""
   before_script:
     - !reference [.app-tag, before_script]
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"

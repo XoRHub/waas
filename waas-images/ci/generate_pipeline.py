@@ -102,14 +102,19 @@ def emit(variants: dict[str, dict], cfg: dict, strategy: str) -> str:
         # stays a thin dispatch layer.
         "default": {
             "image": "docker:28.0",
-            "services": ["docker:28.0-dind"],
+            "services": [{"name": "docker:28.0-dind", "command": ["--tls=false"]}],
             "interruptible": True,
             # merge jobs (registry-only work) run on the amd fleet;
             # build jobs carry their own arch tag below.
             "tags": ["amd"],
         },
         "variables": {
-            "DOCKER_TLS_CERTDIR": "/certs",
+            # Kubernetes executor: build/service containers share one pod
+            # network namespace, so dind is reachable at localhost, not
+            # the service alias; TLS disabled to avoid the /certs sharing
+            # race some runners hit on first cert generation.
+            "DOCKER_HOST": "tcp://localhost:2375",
+            "DOCKER_TLS_CERTDIR": "",
             "TRIVY_SEVERITY": scan.get("severity", "HIGH,CRITICAL"),
             "TRIVY_IGNORE_UNFIXED": str(scan.get("ignoreUnfixed", True)).lower(),
         },
