@@ -1,0 +1,66 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Monorepo config (supersedes the former waas-images/renovate.json): Dockerfiles, CI job images across .gitlab-ci.yml + .gitlab/ci/, tool pins in scripts and Makefiles.",
+  "extends": ["config:recommended", "docker:pinDigests"],
+  "gitlabci": {
+    "managerFilePatterns": [
+      "/\\.gitlab-ci\\.ya?ml$/",
+      "/^\\.gitlab/ci/.+\\.ya?ml$/"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Ubuntu LTS bumps are a deliberate decision: group and label, never automerge.",
+      "matchPackageNames": ["ubuntu"],
+      "groupName": "ubuntu base image",
+      "labels": ["os-bump"]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Container tool images pinned inside shell scripts and CI job scripts (binfmt, trivy, cosign, buildkit).",
+      "managerFilePatterns": [
+        "/^waas-images/ci/build_image\\.sh$/",
+        "/^\\.gitlab/ci/.+\\.(sh|ya?ml)$/"
+      ],
+      "matchStrings": [
+        "(?<depName>[a-z0-9.\\/-]+\\/(?:binfmt|trivy|cosign|buildkit)):(?<currentValue>v?[a-zA-Z0-9.-]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Go tools invoked via `go run module@version` in CI jobs (gocover-cobertura).",
+      "managerFilePatterns": ["/^\\.gitlab/ci/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "go run (?<depName>[a-z0-9.-]+\\.[a-z]{2,}(?:\\/[a-zA-Z0-9._-]+)+)@(?<currentValue>v[0-9][a-zA-Z0-9.-]*)"
+      ],
+      "datasourceTemplate": "go"
+    },
+    {
+      "customType": "regex",
+      "description": "controller-gen pin in operator/Makefile.",
+      "managerFilePatterns": ["/^operator/Makefile$/"],
+      "matchStrings": ["CONTROLLER_GEN_VERSION \\?= (?<currentValue>v[0-9.]+)"],
+      "depNameTemplate": "sigs.k8s.io/controller-tools",
+      "datasourceTemplate": "go"
+    },
+    {
+      "customType": "regex",
+      "description": "git-cliff invoked via npx in the release pipeline.",
+      "managerFilePatterns": ["/^\\.gitlab/ci/release\\.ya?ml$/"],
+      "matchStrings": ["git-cliff@(?<currentValue>[0-9.]+)"],
+      "depNameTemplate": "git-cliff",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "UBUNTU_VERSION default in the workspace base Dockerfile.",
+      "managerFilePatterns": ["/^waas-images/base/ubuntu/Dockerfile$/"],
+      "matchStrings": ["ARG UBUNTU_VERSION=(?<currentValue>[0-9.]+)"],
+      "depNameTemplate": "ubuntu",
+      "datasourceTemplate": "docker"
+    }
+  ]
+}
