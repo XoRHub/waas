@@ -42,7 +42,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	slog.Info("database ready", "dialect", db.Dialect)
 
 	signer, err := loadSigner(cfg)

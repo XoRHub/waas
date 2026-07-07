@@ -1,0 +1,29 @@
+# golangci-lint v2 — shared by every Go module (run from each module dir,
+# config resolved from the repo root). Keep the linter set tight and
+# blocking: a linter is either trusted enough to fail the pipeline or it
+# is not enabled at all.
+version: "2"
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  settings:
+    errcheck:
+      exclude-functions:
+        # Idiomatic ignored-Close on cleanup paths (defer f.Close(), body
+        # drains). A Close whose error MATTERS (writes) must be checked
+        # explicitly — reviewers watch for it; this only silences cleanup.
+        - (io.Closer).Close
+        - (net.Conn).Close
+        - (*database/sql.Rows).Close
+        - (*github.com/gorilla/websocket.Conn).Close
+  exclusions:
+    rules:
+      # Tests: ignored errors on sockets/files under the test's control
+      # fail the test elsewhere; checking them adds noise, not safety.
+      - path: _test\.go
+        linters: [errcheck]
+
+formatters:
+  enable:
+    - gofmt

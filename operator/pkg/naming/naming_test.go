@@ -42,7 +42,8 @@ func TestSanitizeTruncatesCleanly(t *testing.T) {
 }
 
 func TestSuffixIsDeterministicAndDiscriminates(t *testing.T) {
-	if Suffix("Zoé") != Suffix("Zoé") {
+	// Both sides identical on purpose: Suffix must be a pure function.
+	if Suffix("Zoé") != Suffix("Zoé") { //nolint:staticcheck // SA4000: deliberate determinism check
 		t.Fatal("suffix must be deterministic")
 	}
 	// The whole point: two raw values that sanitize identically get

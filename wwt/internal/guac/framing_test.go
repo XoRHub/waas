@@ -23,7 +23,7 @@ func TestFramerReassemblesArbitrarySplits(t *testing.T) {
 		{Opcode: "sync", Args: []string{"12345"}},
 		{Opcode: "png", Args: []string{"0", "3", "0", "0", strings.Repeat("iVBORw0KGgo", 500)}},
 		{Opcode: "clipboard", Args: []string{"1", "héhé — cœur 💙"}}, // multi-byte runes
-		{Opcode: "name", Args: []string{""}},                          // empty element
+		{Opcode: "name", Args: []string{""}},                        // empty element
 		{Opcode: "nop", Args: nil},
 	}
 	var stream bytes.Buffer

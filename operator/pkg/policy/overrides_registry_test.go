@@ -13,8 +13,8 @@ import (
 	"slices"
 	"testing"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"

@@ -321,6 +321,7 @@ func (c *HTTPAPIClient) EndSession(ctx context.Context, sessionID string) {
 		slog.Warn("ending session", "session", sessionID, "error", err)
 		return
 	}
-	io.Copy(io.Discard, resp.Body)
+	// Drain so the connection can be reused; nothing to do on error.
+	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 }

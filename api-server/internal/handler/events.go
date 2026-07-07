@@ -55,10 +55,12 @@ func (h *EventsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			if !open {
 				return
 			}
-			fmt.Fprintf(w, "data: %s\n\n", kind)
+			// SSE write errors are unrecoverable here; a dead client
+			// is detected via r.Context() on the next iteration.
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", kind)
 			flusher.Flush()
 		case <-ping.C:
-			fmt.Fprint(w, ": ping\n\n")
+			_, _ = fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
 		}
 	}

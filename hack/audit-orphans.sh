@@ -38,8 +38,6 @@ done
 
 MANAGED="app.kubernetes.io/managed-by=waas-operator"
 WS_LABEL="waas.xorhub.io/workspace"
-WS_NS_LABEL="waas.xorhub.io/workspace-namespace"
-CLEANUP_LABEL="waas.xorhub.io/cleanup"
 RETAINED_LABEL="waas.xorhub.io/retained"
 
 # Live workspaces as "<cr-namespace>/<cr-name>" lines.

@@ -13,8 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/xorhub/waas/api-server/internal/model"
-	"github.com/xorhub/waas/shared/auth"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/shared/auth"
 )
 
 func openSession(t *testing.T, f *remoteFixture, id, workspaceID, kind string) {

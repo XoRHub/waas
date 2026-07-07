@@ -100,9 +100,12 @@ func main() {
 	setupLog.Info("platform namespace resolved", "namespace", platformNamespace)
 
 	if err := (&controller.WorkspaceReconciler{
-		Client:                  mgr.GetClient(),
-		KubeVirtAvailable:       kubeVirtAvailable,
-		Recorder:                mgr.GetEventRecorderFor("waas-operator"),
+		Client:            mgr.GetClient(),
+		KubeVirtAvailable: kubeVirtAvailable,
+		// Reconcilers expect record.EventRecorder; migrating to the new
+		// events API is a controller-runtime-wide change, not done here.
+		Recorder: mgr.GetEventRecorderFor("waas-operator"), //nolint:staticcheck // SA1019
+
 		PlatformNamespace:       platformNamespace,
 		DefaultNamespacePattern: defaultNamespacePattern,
 	}).SetupWithManager(mgr); err != nil {
@@ -117,7 +120,7 @@ func main() {
 	if err := (&controller.NamespaceJanitor{
 		Client:            mgr.GetClient(),
 		KubeVirtAvailable: kubeVirtAvailable,
-		Recorder:          mgr.GetEventRecorderFor("waas-operator"),
+		Recorder:          mgr.GetEventRecorderFor("waas-operator"), //nolint:staticcheck // SA1019: see above
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NamespaceJanitor")
 		os.Exit(1)
