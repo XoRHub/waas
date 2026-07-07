@@ -75,6 +75,11 @@ func run() error {
 		remoteSvc = remoteSvc.WithWoL(relay)
 		slog.Info("Wake-on-LAN relay enabled", "url", cfg.WoL.RelayURL)
 	}
+	// SSE change notifications: one shared Kubernetes watch relays every
+	// Workspace change (portal, kubectl, operator status, cron edges);
+	// remote-workspace mutations notify directly (DB-backed, single writer).
+	events := service.NewEventHub()
+	remoteSvc = remoteSvc.WithEvents(events)
 	sessionSvc := service.NewSessionService(sessions)
 	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit)
 
@@ -88,6 +93,7 @@ func run() error {
 	// Idle enforcement lives here (not in the operator) because only the
 	// api-server knows about desktop sessions.
 	go service.NewIdleSweeper(kube, cfg.WorkspaceNamespace, sessions, audit, cfg.IdleSweepInterval).Run(ctx)
+	go events.RunWorkspaceWatch(ctx, kube, cfg.WorkspaceNamespace)
 
 	router := server.New(cfg, signer, server.Handlers{
 		Auth:             handler.NewAuthHandler(authSvc, oidcSvc, cfg.OIDC, signer),
@@ -99,6 +105,7 @@ func run() error {
 		Internal:         handler.NewInternalHandler(workspaceSvc),
 		Governance:       handler.NewGovernanceHandler(governanceSvc),
 		Meta:             handler.NewMetaHandler(),
+		Events:           handler.NewEventsHandler(events),
 	})
 
 	srv := &http.Server{

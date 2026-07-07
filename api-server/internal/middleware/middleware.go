@@ -26,6 +26,13 @@ func Auth(signer *auth.Signer, issuer string) func(http.Handler) http.Handler {
 			header := r.Header.Get("Authorization")
 			token, ok := strings.CutPrefix(header, "Bearer ")
 			if !ok || token == "" {
+				// EventSource cannot set headers: the SSE stream passes the
+				// SAME access token as a query parameter. Verification below
+				// is identical — this is a transport fallback, not a second
+				// auth path.
+				token = r.URL.Query().Get("access_token")
+			}
+			if token == "" {
 				apierror.Write(w, apierror.Unauthorized("missing bearer token"))
 				return
 			}

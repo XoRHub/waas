@@ -22,6 +22,7 @@ import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
 import { ScheduleEditor, useNextTransitionLabel } from '@/components/ScheduleEditor';
 import { FolderedGrid, SessionCard } from '@/components/SessionCard';
 import { useAuthStore } from '@/stores/authStore';
+import { useEvents } from '@/hooks/useEvents';
 import { effectivePhase } from '@/lib/lifecycle';
 import { targetFromRemote, targetFromWorkspace } from '@/lib/target';
 import { templateAvailability } from '@/lib/templates';
@@ -39,6 +40,7 @@ export function PortalPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const quota = useQuota();
+  useEvents(); // live card updates (SSE), polling as fallback
   const [creating, setCreating] = useState(false);
   // Remote create/edit state lives here so the primary action button
   // stays in the same header slot whatever the active tab.

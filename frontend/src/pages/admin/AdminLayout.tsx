@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/authStore';
+import { useEvents } from '@/hooks/useEvents';
 
 const NAV_CLASS = ({ isActive }: { isActive: boolean }) =>
   `block rounded-md px-3 py-2 text-sm ${
@@ -13,6 +14,7 @@ export function AdminLayout() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
+  useEvents(); // live fleet updates (SSE), polling as fallback
 
   return (
     <div className="flex min-h-screen bg-slate-100 dark:bg-slate-900">

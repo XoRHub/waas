@@ -24,6 +24,7 @@ type Handlers struct {
 	Internal         *handler.InternalHandler
 	Governance       *handler.GovernanceHandler
 	Meta             *handler.MetaHandler
+	Events           *handler.EventsHandler
 }
 
 // New builds the full route tree. Every /api/v1 route except login sits
@@ -54,6 +55,10 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 
 			r.Get("/auth/me", h.Auth.Me)
 			r.Patch("/me", h.Users.UpdateProfile)
+
+			// SSE change notifications (kinds only; the client re-fetches
+			// through the authorized API). Polling stays as the fallback.
+			r.Get("/events", h.Events.Stream)
 
 			r.Route("/workspaces", func(r chi.Router) {
 				r.Get("/", h.Workspaces.List)

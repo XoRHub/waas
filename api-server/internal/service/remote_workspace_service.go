@@ -45,6 +45,8 @@ type RemoteWorkspaceService struct {
 	// wol emits Wake-on-LAN packets via an external relay; nil = feature
 	// disabled (no relay configured).
 	wol WoLSender
+	// events notifies the SSE hub on mutations; nil = no live updates.
+	events *EventHub
 
 	issuer        string
 	connectionTTL time.Duration
@@ -64,6 +66,19 @@ func NewRemoteWorkspaceService(kube client.Client, namespace string, users repos
 func (s *RemoteWorkspaceService) WithWoL(wol WoLSender) *RemoteWorkspaceService {
 	s.wol = wol
 	return s
+}
+
+// WithEvents wires the SSE hub (same optional pattern as WithWoL).
+func (s *RemoteWorkspaceService) WithEvents(hub *EventHub) *RemoteWorkspaceService {
+	s.events = hub
+	return s
+}
+
+// notifyChange is nil-safe: deployments without the hub just skip it.
+func (s *RemoteWorkspaceService) notifyChange(ownerID string) {
+	if s.events != nil {
+		s.events.Notify("remote-workspaces", ownerID)
+	}
 }
 
 // RemoteCredentialsInput carries the secret material for one remote
@@ -270,6 +285,7 @@ func (s *RemoteWorkspaceService) Create(ctx context.Context, actor Actor, in Rem
 	}
 	s.audit.Record(ctx, actor, "remote_workspace.created", "remote_workspace", rw.ID,
 		fmt.Sprintf("name=%s target=%s:%d protocol=%s", rw.Name, rw.Hostname, rw.Port, rw.Protocol))
+	s.notifyChange(rw.OwnerID)
 	return rw, nil
 }
 
@@ -317,6 +333,7 @@ func (s *RemoteWorkspaceService) Update(ctx context.Context, actor Actor, id str
 	}
 	s.audit.Record(ctx, actor, "remote_workspace.updated", "remote_workspace", rw.ID,
 		fmt.Sprintf("name=%s target=%s:%d protocol=%s credentialsRotated=%t", rw.Name, rw.Hostname, rw.Port, rw.Protocol, in.Credentials != nil))
+	s.notifyChange(rw.OwnerID)
 	return rw, nil
 }
 
@@ -338,6 +355,7 @@ func (s *RemoteWorkspaceService) Delete(ctx context.Context, actor Actor, id str
 		return fmt.Errorf("deleting credentials secret %s: %w", rw.SecretName, err)
 	}
 	s.audit.Record(ctx, actor, "remote_workspace.deleted", "remote_workspace", rw.ID, "name="+rw.Name)
+	s.notifyChange(rw.OwnerID)
 	return nil
 }
 

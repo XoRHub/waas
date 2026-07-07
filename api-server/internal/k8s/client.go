@@ -33,8 +33,10 @@ func init() {
 }
 
 // NewClient returns a cluster client, or an in-memory fake in dev mode so
-// the whole API can run on a laptop without a cluster.
-func NewClient(devMode bool) (client.Client, error) {
+// the whole API can run on a laptop without a cluster. The client carries
+// Watch (client.WithWatch): the SSE event hub relays Workspace changes to
+// the portal from one shared watch.
+func NewClient(devMode bool) (client.WithWatch, error) {
 	if devMode {
 		return fake.NewClientBuilder().
 			WithScheme(Scheme).
@@ -55,7 +57,7 @@ func NewClient(devMode bool) (client.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
-	c, err := client.New(cfg, client.Options{Scheme: Scheme})
+	c, err := client.NewWithWatch(cfg, client.Options{Scheme: Scheme})
 	if err != nil {
 		return nil, fmt.Errorf("building kubernetes client: %w", err)
 	}
