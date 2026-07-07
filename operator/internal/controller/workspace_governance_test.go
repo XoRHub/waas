@@ -100,6 +100,10 @@ func TestReconcileDeletesExpiredWorkspaceAndHome(t *testing.T) {
 	r, c := newFixture(t, linuxTemplate(), ws, pvc, catalogEntry(true), openPolicy(ttl))
 	ctx := context.Background()
 
+	// First reconcile enforces the TTL (deletes PVC + CR); the CR now
+	// carries the teardown finalizer, so a second reconcile — the watch
+	// event of the deletion in the real world — finalizes it.
+	reconcile(t, r, ws)
 	reconcile(t, r, ws)
 
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, &waasv1alpha1.Workspace{}); !apierrors.IsNotFound(err) {

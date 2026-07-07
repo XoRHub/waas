@@ -28,6 +28,14 @@ const (
 	// it to apply conflict rule B (a manual action wins until the next
 	// opposite scheduled edge). Not part of the trusted-identity contract.
 	AnnotationManualStateAt = "waas.xorhub.io/manual-state-at"
+
+	// AnnotationDeleteHome, stamped by the api-server just before a
+	// workspace deletion, carries the user's EXPLICIT choice to delete the
+	// home volume with the workspace. Absent (the default) the finalizer
+	// detaches the volume instead: it survives as a retained volume, owned
+	// by the user and still counted against their storage quota. No volume
+	// is ever deleted without this explicit opt-in.
+	AnnotationDeleteHome = "waas.xorhub.io/delete-home"
 )
 
 // Platform labels stamped on every object the operator manages (workloads,
@@ -55,4 +63,18 @@ const (
 
 	// ManagerName is the LabelManagedBy value.
 	ManagerName = "waas-operator"
+
+	// LabelRetained marks a home PVC detached from a deleted workspace
+	// ("true"). The volume stays the user's property (LabelOwner) and
+	// keeps counting against their storage quota until deleted or adopted
+	// by a new workspace (spec.homeVolumeName).
+	LabelRetained = "waas.xorhub.io/retained"
+
+	// AnnotationOriginWorkspace preserves, on a retained volume, the
+	// display name of the workspace it came from (provenance in the
+	// volumes dashboards).
+	AnnotationOriginWorkspace = "waas.xorhub.io/origin-workspace"
+
+	// AnnotationRetainedAt is the RFC3339 timestamp of the detachment.
+	AnnotationRetainedAt = "waas.xorhub.io/retained-at"
 )

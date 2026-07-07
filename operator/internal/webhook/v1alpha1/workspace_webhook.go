@@ -124,6 +124,19 @@ func (v *WorkspaceValidator) validate(ctx context.Context, oldWS, ws *waasv1alph
 			return nil, v.deny(ws, policy.ReasonPlacementDenied,
 				fmt.Sprintf("spec.workloadName is immutable (was %q)", oldWS.Spec.WorkloadName))
 		}
+		if ws.Spec.HomeVolumeName != oldWS.Spec.HomeVolumeName {
+			return nil, v.deny(ws, policy.ReasonPlacementDenied,
+				fmt.Sprintf("spec.homeVolumeName is immutable (was %q); attach a volume at creation only", oldWS.Spec.HomeVolumeName))
+		}
+	}
+	// Volume adoption: only a RETAINED volume of the SAME owner, in the
+	// workspace's target namespace, may become its home. Checked for every
+	// caller — hijacking another user's data must be impossible even for
+	// bypass subjects (like the kube-*/platform namespace shape rules).
+	if oldWS == nil && ws.Spec.HomeVolumeName != "" {
+		if denial := v.checkHomeVolumeAdoption(ctx, ws); denial != nil {
+			return nil, v.deny(ws, denial.Reason, denial.Message)
+		}
 	}
 
 	// Structural validity of placement/naming/metadata: not policy —
@@ -279,6 +292,31 @@ func (v *WorkspaceValidator) checkPlacementOwnership(ctx context.Context, ws *wa
 		tns, userNS, waasv1alpha1.LabelOwner, ws.Spec.Owner)}
 }
 
+// checkHomeVolumeAdoption vets spec.homeVolumeName at creation: the PVC
+// must exist in the target namespace, be waas-managed, RETAINED (a live
+// workspace's home is never adoptable) and belong to the same owner.
+func (v *WorkspaceValidator) checkHomeVolumeAdoption(ctx context.Context, ws *waasv1alpha1.Workspace) *policy.Denial {
+	key := types.NamespacedName{Namespace: ws.EffectiveTargetNamespace(), Name: ws.Spec.HomeVolumeName}
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := v.Client.Get(ctx, key, pvc); err != nil {
+		if apierrors.IsNotFound(err) {
+			return &policy.Denial{Reason: policy.ReasonVolumeDenied,
+				Message: fmt.Sprintf("volume %q does not exist in namespace %q (retained volumes are only reusable in the namespace they were left in)", key.Name, key.Namespace)}
+		}
+		return &policy.Denial{Reason: policy.ReasonInternalError, Message: fmt.Sprintf("fetching volume %s: %v", key.Name, err)}
+	}
+	if pvc.Labels[waasv1alpha1.LabelManagedBy] != waasv1alpha1.ManagerName ||
+		pvc.Labels[waasv1alpha1.LabelRetained] != "true" {
+		return &policy.Denial{Reason: policy.ReasonVolumeDenied,
+			Message: fmt.Sprintf("volume %q is not a retained WaaS volume; only volumes kept from a deleted workspace can be attached", key.Name)}
+	}
+	if pvc.Labels[waasv1alpha1.LabelOwner] != ws.Spec.Owner {
+		return &policy.Denial{Reason: policy.ReasonVolumeDenied,
+			Message: fmt.Sprintf("volume %q belongs to another user", key.Name)}
+	}
+	return nil
+}
+
 // checkWorkloadNameCollision refuses two workspaces sharing a workload
 // name inside the same target namespace (their Deployment/Service/PVC
 // names would collide). Legacy names ("ws-<CR name>") are covered too.
@@ -349,6 +387,18 @@ func (v *WorkspaceValidator) enforce(ctx context.Context, ws *waasv1alpha1.Works
 	}
 
 	load, known := policy.LoadOf(ws, tpl, img)
+	// An adopted volume already has its size: the quota must weigh the
+	// real claim, not the template's homeSize.
+	if ws.Spec.HomeVolumeName != "" {
+		pvc := &corev1.PersistentVolumeClaim{}
+		if err := v.Client.Get(ctx, types.NamespacedName{
+			Namespace: ws.EffectiveTargetNamespace(), Name: ws.Spec.HomeVolumeName,
+		}, pvc); err == nil {
+			if size, ok := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; ok {
+				load.Storage = size
+			}
+		}
+	}
 	others, err := v.otherLoads(ctx, ws, id.Owner, catalog.Items)
 	if err != nil {
 		return warnings, &policy.Denial{Reason: policy.ReasonInternalError, Message: fmt.Sprintf("computing current usage: %v", err)}
@@ -385,6 +435,17 @@ func (v *WorkspaceValidator) otherLoads(ctx context.Context, ws *waasv1alpha1.Wo
 		load, _ := policy.LoadOf(sib, tpl, policy.FindImage(catalog, tpl.Spec.Image))
 		loads = append(loads, load)
 	}
+	// Retained volumes weigh on the aggregate storage cap (never on the
+	// workspace count): keeping a volume is keeping its quota share.
+	retained := &corev1.PersistentVolumeClaimList{}
+	if err := v.Client.List(ctx, retained, client.MatchingLabels{
+		waasv1alpha1.LabelRetained: "true",
+		waasv1alpha1.LabelOwner:    owner,
+	}); err != nil {
+		return nil, err
+	}
+	adopting := types.NamespacedName{Namespace: ws.EffectiveTargetNamespace(), Name: ws.Spec.HomeVolumeName}
+	loads = append(loads, policy.RetainedVolumeLoads(retained.Items, adopting)...)
 	return loads, nil
 }
 

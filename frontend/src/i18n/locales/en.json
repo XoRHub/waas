@@ -88,7 +88,9 @@
     "wakeAndOpen": "Wake & open",
     "useThisProtocol": "Connect with this protocol",
     "switchProtocolHint": "Switch the connection protocol",
-    "namespacePreview": "Workloads namespace:"
+    "namespacePreview": "Workloads namespace:",
+    "quotaStorage": "Storage",
+    "quotaStorageRetained": "incl. {{size}} retained · {{count}} volume(s)"
   },
   "remote": {
     "tab": "Remote workspaces",
@@ -227,7 +229,8 @@
       "placementPattern": "Namespace pattern",
       "placementHint": "Empty = the platform-wide pattern (operator env), then the built-in \"waas-workspace\". Only NEW workspaces follow a change.",
       "placementCleanup": "Namespace cleanup",
-      "placeholdersTitle": "Available placeholders (each value is sanitized to DNS-1123):"
+      "placeholdersTitle": "Available placeholders (each value is sanitized to DNS-1123):",
+      "noProtocolsYet": "No protocol configured yet: add the ones this template must serve (without a protocols block, the legacy OS-derived entry applies)."
     },
     "usersPage": {
       "new": "New user",
@@ -317,7 +320,14 @@
     "protocol": "Protocol",
     "switchConfirm": "Switch to {{protocol}}? The current session will reconnect.",
     "switchHint": "Switching reconnects the session with the selected protocol.",
-    "notAvailableRemote": "Not available for remote machines"
+    "notAvailableRemote": "Not available for remote machines",
+    "clipboardManual": "Manual exchange",
+    "clipboardReceived": "Received from workspace",
+    "clipboardReceivedEmpty": "Nothing received yet — copy some text inside the workspace.",
+    "clipboardCopyLocal": "Copy",
+    "clipboardSendPlaceholder": "Text to send to the workspace clipboard…",
+    "clipboardSend": "Send to workspace",
+    "clipboardInsecureHint": "Without HTTPS the browser blocks automatic sync: use Ctrl+V inside the session to paste, and this manual exchange to fetch a copy."
   },
   "schedule": {
     "title": "Schedule (uptime / downtime)",
@@ -329,5 +339,32 @@
     "nextDown": "next stop {{when}}",
     "invalidCron": "Invalid cron expression: {{cron}}",
     "invalidTimezone": "Unknown IANA timezone"
+  },
+  "protocolTabs": {
+    "add": "Add a protocol",
+    "remove": "Remove {{protocol}}",
+    "removeConfirm": "Remove the {{protocol}} protocol and its parameters?",
+    "lastProtocol": "The last protocol cannot be removed",
+    "locked": "Protocol imposed by the template"
+  },
+  "volumes": {
+    "tab": "Volumes",
+    "name": "Volume",
+    "size": "Size",
+    "origin": "Origin workspace",
+    "owner": "Owner",
+    "retainedAt": "Retained on",
+    "empty": "No retained volume. When deleting a workspace you may keep its volume: it will show up here.",
+    "quotaNote": "Retained volumes count against your storage quota for as long as they exist.",
+    "deleteWorkspaceTitle": "Delete “{{name}}”?",
+    "deleteWarning": "Volume {{volume}}{{size}} will be deleted with the workspace unless you keep it.",
+    "keepChoice": "Keep the volume",
+    "keepChoiceHint": "The volume stays yours (Volumes tab) and keeps counting against your storage quota. It can be reattached to a new workspace.",
+    "deleteChoice": "Also delete the volume",
+    "deleteChoiceHint": "The home data will be permanently lost.",
+    "deleteVolumeConfirm": "Permanently delete volume {{name}} and its data?",
+    "attachExisting": "Start from an existing volume",
+    "attachNone": "New empty volume",
+    "attachHint": "Retained volumes compatible with the destination namespace."
   }
 }

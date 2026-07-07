@@ -39,7 +39,9 @@ export function SessionCard({
   buttons: ReactNode;
   onDelete: () => void;
   deletePending: boolean;
-  deleteConfirm: string;
+  /** Confirmation text (window.confirm). Omit when the caller opens its
+   * own richer dialog in onDelete (e.g. the volume-retention choice). */
+  deleteConfirm?: string;
 }) {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
@@ -162,7 +164,7 @@ export function SessionCard({
         {buttons}
         <button
           onClick={() => {
-            if (window.confirm(deleteConfirm)) onDelete();
+            if (!deleteConfirm || window.confirm(deleteConfirm)) onDelete();
           }}
           disabled={deletePending}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"

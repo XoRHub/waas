@@ -110,6 +110,17 @@ func (r *WorkspaceReconciler) siblingLoads(ctx context.Context, ws *waasv1alpha1
 		load, _ := policy.LoadOf(sib, tpl, policy.FindImage(catalog, tpl.Spec.Image))
 		loads = append(loads, load)
 	}
+	// Retained volumes weigh on the aggregate storage cap (never on the
+	// workspace count): keeping a volume is keeping its quota share.
+	retained := &corev1.PersistentVolumeClaimList{}
+	if err := r.List(ctx, retained, client.MatchingLabels{
+		waasv1alpha1.LabelRetained: "true",
+		waasv1alpha1.LabelOwner:    ws.Spec.Owner,
+	}); err != nil {
+		return nil, err
+	}
+	adopting := types.NamespacedName{Namespace: computeNamespace(ws), Name: ws.Spec.HomeVolumeName}
+	loads = append(loads, policy.RetainedVolumeLoads(retained.Items, adopting)...)
 	return loads, nil
 }
 
@@ -140,9 +151,10 @@ func (r *WorkspaceReconciler) enforceLifetime(ctx context.Context, ws *waasv1alp
 		fmt.Sprintf("workspace exceeded the %s max lifetime of policy %q and is being deleted (home volume included)", ttl, pol.Name))
 
 	// The home PVC deliberately has no owner reference; a TTL delete is
-	// the one case where user state goes too.
+	// the one case where user state goes regardless of the retention
+	// choice — reclaiming storage is exactly what a max lifetime is for.
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
-		Namespace: computeNamespace(ws), Name: computeName(ws) + "-home",
+		Namespace: computeNamespace(ws), Name: homePVCName(ws),
 	}}
 	if err := r.Delete(ctx, pvc); err != nil && !apierrors.IsNotFound(err) {
 		return false, 0, fmt.Errorf("deleting expired home pvc: %w", err)

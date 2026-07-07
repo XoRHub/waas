@@ -93,6 +93,10 @@ type CreateWorkspaceInput struct {
 	// the "placement" override right; ownership is webhook-enforced).
 	// Empty = the template pattern resolved for the owner.
 	TargetNamespace string `json:"targetNamespace,omitempty"`
+	// HomeVolumeName reattaches a RETAINED volume as this workspace's
+	// home ("start from an existing volume"). The webhook enforces
+	// ownership, namespace and retained state.
+	HomeVolumeName string `json:"homeVolumeName,omitempty"`
 }
 
 // ConnectInput is the optional connect-time payload: a protocol choice and
@@ -214,6 +218,7 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 			Overrides:       in.Overrides,
 			TargetNamespace: targetNamespace,
 			WorkloadName:    workloadName,
+			HomeVolumeName:  in.HomeVolumeName,
 		},
 	}
 	rr, err := requirementsFrom(in.Resources)
@@ -302,15 +307,30 @@ func (s *WorkspaceService) templateOf(ctx context.Context, ws *waasv1alpha1.Work
 
 // Delete removes the Workspace CR. The operator tears down compute; the home
 // volume is intentionally retained.
-func (s *WorkspaceService) Delete(ctx context.Context, actor Actor, id string) error {
+// Delete removes a workspace. keepVolume carries the user's home-volume
+// choice: true (the default) detaches it as a retained volume — still
+// owned, still counted against the storage quota; false stamps the
+// explicit opt-in annotation the operator's finalizer requires before
+// deleting user state. No volume is ever deleted without that opt-in.
+func (s *WorkspaceService) Delete(ctx context.Context, actor Actor, id string, keepVolume bool) error {
 	ws, err := s.fetchByID(ctx, actor, id)
 	if err != nil {
 		return err
 	}
+	if !keepVolume {
+		if ws.Annotations == nil {
+			ws.Annotations = map[string]string{}
+		}
+		ws.Annotations[waasv1alpha1.AnnotationDeleteHome] = "true"
+		if err := s.kube.Update(ctx, ws); err != nil {
+			return fmt.Errorf("stamping volume choice on %s: %w", ws.Name, err)
+		}
+	}
 	if err := s.kube.Delete(ctx, ws); err != nil {
 		return fmt.Errorf("deleting workspace %s: %w", ws.Name, err)
 	}
-	s.audit.Record(ctx, actor, "workspace.deleted", "workspace", id, "name="+ws.Name)
+	s.audit.Record(ctx, actor, "workspace.deleted", "workspace", id,
+		fmt.Sprintf("name=%s keepVolume=%t", ws.Name, keepVolume))
 	return nil
 }
 
@@ -668,6 +688,16 @@ func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTem
 			Name: p.Name, Port: p.Port, Default: p.Default,
 		})
 	}
+	// Home volume: what the deletion dialog announces. The name is the
+	// authoritative status one (adopted volumes included); the size comes
+	// from the template (display-only — enforcement reads the PVC).
+	if pvcName := ws.Status.PVCName; pvcName != "" {
+		vol := &model.HomeVolumeInfo{Name: pvcName}
+		if tpl != nil && tpl.Spec.HomeSize != nil {
+			vol.Size = tpl.Spec.HomeSize.String()
+		}
+		m.HomeVolume = vol
+	}
 	if tpl != nil {
 		if len(m.Protocols) == 0 {
 			// Not provisioned yet: surface the template's declared
@@ -779,7 +809,14 @@ func (s *WorkspaceService) resolveWorkloadName(ctx context.Context, crName, disp
 				return true
 			}
 		}
-		return false
+		// A PVC squatting "<name>-home" also takes the name: a retained
+		// volume (possibly another user's, in a shared namespace) or the
+		// terminating volume of a just-deleted same-named workspace —
+		// reusing it would make the operator adopt or mount a volume this
+		// workspace has no right to.
+		pvc := &corev1.PersistentVolumeClaim{}
+		err := s.kube.Get(ctx, client.ObjectKey{Namespace: effectiveNS, Name: name + "-home"}, pvc)
+		return err == nil
 	}
 	if !taken(candidate) {
 		return candidate, nil

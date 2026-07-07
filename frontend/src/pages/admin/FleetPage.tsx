@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAdminRemoteWorkspaces, useDeleteWorkspace, useWorkspaces } from '@/hooks/useApi';
+import {
+  useAdminDeleteVolume,
+  useAdminRemoteWorkspaces,
+  useAdminVolumes,
+  useDeleteWorkspace,
+  useWorkspaces,
+} from '@/hooks/useApi';
 import { StatusBadge } from '@/components/StatusBadge';
 
 export function FleetPage() {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<'workspaces' | 'remote'>('workspaces');
+  const [tab, setTab] = useState<'workspaces' | 'remote' | 'volumes'>('workspaces');
 
   const tabClass = (active: boolean) =>
     `rounded-md px-3 py-1.5 text-sm font-medium ${
@@ -23,8 +29,75 @@ export function FleetPage() {
         <button className={tabClass(tab === 'remote')} onClick={() => setTab('remote')}>
           {t('admin.fleetPage.tabRemote')}
         </button>
+        <button className={tabClass(tab === 'volumes')} onClick={() => setTab('volumes')}>
+          {t('volumes.tab')}
+        </button>
       </nav>
-      {tab === 'workspaces' ? <WorkspacesFleet /> : <RemoteFleet />}
+      {tab === 'workspaces' && <WorkspacesFleet />}
+      {tab === 'remote' && <RemoteFleet />}
+      {tab === 'volumes' && <VolumesFleet />}
+    </div>
+  );
+}
+
+// VolumesFleet: every user's retained volumes; deletion from here is a
+// destructive admin action and lands in the audit trail (via=admin).
+function VolumesFleet() {
+  const { t } = useTranslation();
+  const volumes = useAdminVolumes();
+  const remove = useAdminDeleteVolume();
+
+  if (volumes.isPending) {
+    return <p className="text-slate-500">{t('app.loading')}</p>;
+  }
+  if (volumes.isError) {
+    return <p className="text-red-600">{t('app.error')}</p>;
+  }
+  if (volumes.data.data.length === 0) {
+    return <p className="text-slate-500 dark:text-slate-400">{t('volumes.empty')}</p>;
+  }
+  return (
+    <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400">
+          <tr>
+            <th className="px-4 py-3">{t('volumes.name')}</th>
+            <th className="px-4 py-3">{t('admin.fleetPage.namespace')}</th>
+            <th className="px-4 py-3">{t('volumes.size')}</th>
+            <th className="px-4 py-3">{t('volumes.owner')}</th>
+            <th className="px-4 py-3">{t('volumes.origin')}</th>
+            <th className="px-4 py-3">{t('volumes.retainedAt')}</th>
+            <th className="px-4 py-3">{t('app.actions')}</th>
+          </tr>
+        </thead>
+        <tbody className="text-slate-800 dark:text-slate-100">
+          {volumes.data.data.map((v) => (
+            <tr key={`${v.namespace}/${v.name}`} className="border-b border-slate-100 last:border-0 dark:border-slate-700">
+              <td className="px-4 py-3 font-medium">{v.name}</td>
+              <td className="px-4 py-3 font-mono text-xs">{v.namespace}</td>
+              <td className="px-4 py-3">{v.size}</td>
+              <td className="px-4 py-3 font-mono text-xs">{v.ownerId}</td>
+              <td className="px-4 py-3">{v.originWorkspace || '—'}</td>
+              <td className="px-4 py-3">
+                {v.retainedAt ? new Date(v.retainedAt).toLocaleString() : '—'}
+              </td>
+              <td className="px-4 py-3">
+                <button
+                  onClick={() => {
+                    if (window.confirm(t('volumes.deleteVolumeConfirm', { name: v.name }))) {
+                      remove.mutate({ namespace: v.namespace, name: v.name });
+                    }
+                  }}
+                  disabled={remove.isPending}
+                  className="text-sm text-red-600 hover:underline disabled:opacity-40"
+                >
+                  {t('app.delete')}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -71,8 +144,10 @@ function WorkspacesFleet() {
               </td>
               <td className="px-4 py-3">{new Date(ws.createdAt).toLocaleString()}</td>
               <td className="px-4 py-3">
+                {/* Admin fleet delete always RETAINS the user's volume:
+                    destroying user data needs the volumes tab (audited). */}
                 <button
-                  onClick={() => remove.mutate(ws.id)}
+                  onClick={() => remove.mutate({ id: ws.id, keepVolume: true })}
                   disabled={remove.isPending}
                   className="text-sm text-red-600 hover:underline disabled:opacity-40"
                 >

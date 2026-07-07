@@ -13,6 +13,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/pkg/naming"
@@ -70,6 +71,7 @@ const (
 	// ReasonPlacementDenied covers target-namespace/workload-name rules:
 	// immutability, ownership, and name collisions.
 	ReasonPlacementDenied Reason = "PlacementDenied"
+	ReasonVolumeDenied    Reason = "VolumeDenied"
 	ReasonInternalError   Reason = "PolicyCheckFailed"
 )
 
@@ -227,6 +229,35 @@ type Load struct {
 	Memory  resource.Quantity
 	Storage resource.Quantity
 	Paused  bool
+	// Detached marks a retained volume (a home PVC surviving its deleted
+	// workspace): storage-only weight — it counts in the aggregate storage
+	// cap but never toward the workspace count nor compute.
+	Detached bool
+}
+
+// RetainedLoad is the footprint of one retained volume.
+func RetainedLoad(size resource.Quantity) Load {
+	return Load{Storage: size, Paused: true, Detached: true}
+}
+
+// RetainedVolumeLoads converts an owner's retained volumes (PVCs listed
+// cluster-wide with LabelRetained + LabelOwner — they live wherever
+// their workspace was placed) into storage-only loads. exclude skips the
+// volume the workspace under evaluation is ADOPTING (spec.homeVolumeName):
+// its weight is the workspace's own load, counting it here would double.
+func RetainedVolumeLoads(pvcs []corev1.PersistentVolumeClaim, exclude types.NamespacedName) []Load {
+	var out []Load
+	for i := range pvcs {
+		pvc := &pvcs[i]
+		if !pvc.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if pvc.Namespace == exclude.Namespace && pvc.Name == exclude.Name {
+			continue
+		}
+		out = append(out, RetainedLoad(pvc.Spec.Resources.Requests[corev1.ResourceStorage]))
+	}
+	return out
 }
 
 // LoadOf computes the footprint the cluster will actually grant a
@@ -280,9 +311,16 @@ func pick(rr corev1.ResourceRequirements, name corev1.ResourceName) (resource.Qu
 func CheckLimits(load Load, computeKnown bool, img *waasv1alpha1.WorkspaceImage, pol *waasv1alpha1.WorkspacePolicy, others []Load) *Denial {
 	lim := pol.Spec.Limits
 
-	if lim.MaxWorkspaces != nil && int32(len(others))+1 > *lim.MaxWorkspaces {
+	// Retained volumes weigh on storage only: they are not workspaces.
+	workspaceCount := 0
+	for _, o := range others {
+		if !o.Detached {
+			workspaceCount++
+		}
+	}
+	if lim.MaxWorkspaces != nil && int32(workspaceCount)+1 > *lim.MaxWorkspaces {
 		return denyf(ReasonQuotaExceeded,
-			"policy %q: workspace quota reached (%d/%d)", pol.Name, len(others), *lim.MaxWorkspaces)
+			"policy %q: workspace quota reached (%d/%d)", pol.Name, workspaceCount, *lim.MaxWorkspaces)
 	}
 
 	capsCompute := (lim.PerWorkspace != nil && (lim.PerWorkspace.CPU != nil || lim.PerWorkspace.Memory != nil)) ||
@@ -349,7 +387,8 @@ func CheckLimits(load Load, computeKnown bool, img *waasv1alpha1.WorkspaceImage,
 			return denyf(ReasonQuotaExceeded, "policy %q: total memory %s would exceed the %s cap", pol.Name, &mem, agg.Memory)
 		}
 		if agg.Storage != nil && sto.Cmp(*agg.Storage) > 0 {
-			return denyf(ReasonQuotaExceeded, "policy %q: total home storage %s would exceed the %s cap", pol.Name, &sto, agg.Storage)
+			return denyf(ReasonQuotaExceeded,
+				"policy %q: total home storage %s (retained volumes included) would exceed the %s cap", pol.Name, &sto, agg.Storage)
 		}
 	}
 	return nil

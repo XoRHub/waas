@@ -6,9 +6,11 @@ import {
   useCreateWorkspace,
   useNamespacePreview,
   useDeleteRemoteWorkspace,
+  useDeleteVolume,
   useDeleteWorkspace,
   useProtocolMeta,
   useQuota,
+  useVolumes,
   useRemoteWorkspaces,
   useSaveRemoteWorkspace,
   useWakeRemoteWorkspace,
@@ -46,12 +48,12 @@ export function PortalPage() {
   // Remote create/edit state lives here so the primary action button
   // stays in the same header slot whatever the active tab.
   const [remoteEditing, setRemoteEditing] = useState<RemoteWorkspace | 'new' | null>(null);
-  const [tab, setTab] = useState<'workspaces' | 'remote'>('workspaces');
+  const [tab, setTab] = useState<'workspaces' | 'remote' | 'volumes'>('workspaces');
 
   // Remote Workspaces is policy-gated: the tab only exists when the
   // resolved policy (or the admin role) opts the user in.
   const remoteEnabled = quota.data?.data.features?.remoteWorkspaces ?? false;
-  const activeTab = remoteEnabled ? tab : 'workspaces';
+  const activeTab = tab === 'remote' && !remoteEnabled ? 'workspaces' : tab;
 
   const tabClass = (active: boolean) =>
     `rounded-md px-3 py-1.5 text-sm font-medium ${
@@ -67,16 +69,19 @@ export function PortalPage() {
           <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
             {t('portal.title')}
           </h1>
-          {remoteEnabled && (
-            <nav className="flex gap-1">
-              <button className={tabClass(activeTab === 'workspaces')} onClick={() => setTab('workspaces')}>
-                {t('portal.tabWorkspaces')}
-              </button>
+          <nav className="flex gap-1">
+            <button className={tabClass(activeTab === 'workspaces')} onClick={() => setTab('workspaces')}>
+              {t('portal.tabWorkspaces')}
+            </button>
+            {remoteEnabled && (
               <button className={tabClass(activeTab === 'remote')} onClick={() => setTab('remote')}>
                 {t('remote.tab')}
               </button>
-            </nav>
-          )}
+            )}
+            <button className={tabClass(activeTab === 'volumes')} onClick={() => setTab('volumes')}>
+              {t('volumes.tab')}
+            </button>
+          </nav>
         </div>
         <div className="flex items-center gap-4">
           <button
@@ -87,23 +92,30 @@ export function PortalPage() {
           </button>
           {/* Single primary action, same slot on every tab. */}
           <button
-            onClick={() => (activeTab === 'workspaces' ? setCreating(true) : setRemoteEditing('new'))}
+            onClick={() => (activeTab === 'remote' ? setRemoteEditing('new') : setCreating(true))}
             className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
           >
-            {activeTab === 'workspaces' ? t('portal.newWorkspace') : t('remote.add')}
+            {activeTab === 'remote' ? t('remote.add') : t('portal.newWorkspace')}
           </button>
           <UserMenu />
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl p-6">
-        {activeTab === 'workspaces' ? (
+        {activeTab === 'workspaces' && (
           <>
             <QuotaBanner />
             <WorkspacesSection onCreate={() => setCreating(true)} />
           </>
-        ) : (
+        )}
+        {activeTab === 'remote' && (
           <RemoteWorkspacesSection editing={remoteEditing} setEditing={setRemoteEditing} />
+        )}
+        {activeTab === 'volumes' && (
+          <>
+            <QuotaBanner />
+            <VolumesSection />
+          </>
         )}
       </main>
 
@@ -218,6 +230,186 @@ function QuotaBanner() {
           </span>
         </span>
       )}
+      {/* Storage used/limit is the SERVER's number (same computation as
+          the admission enforcement), retained volumes included. */}
+      {q.limits?.storage && (
+        <span className="text-slate-500 dark:text-slate-400">
+          {t('portal.quotaStorage')}{' '}
+          <span className="font-medium text-slate-800 dark:text-slate-100">
+            {q.used?.storage ?? '0'} / {q.limits.storage}
+          </span>
+          {(q.retainedVolumes ?? 0) > 0 && (
+            <span className="ml-1 text-xs">
+              ({t('portal.quotaStorageRetained', { size: q.retainedStorage, count: q.retainedVolumes })})
+            </span>
+          )}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// DeleteWorkspaceDialog: deletion always asks what happens to the home
+// volume. Keeping it is the default; deletion is the explicit opt-in the
+// server requires (no volume is ever deleted silently).
+function DeleteWorkspaceDialog({
+  workspace,
+  pending,
+  onConfirm,
+  onClose,
+}: {
+  workspace: Workspace;
+  pending: boolean;
+  onConfirm: (keepVolume: boolean) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [keepVolume, setKeepVolume] = useState(true);
+  const vol = workspace.homeVolume;
+
+  return (
+    <Dialog
+      title={t('volumes.deleteWorkspaceTitle', {
+        name: workspace.displayName || workspace.name,
+      })}
+      onClose={onClose}
+      onSubmit={(e) => {
+        e.preventDefault();
+        onConfirm(keepVolume);
+      }}
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+          >
+            {t('app.cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={pending}
+            className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-40"
+          >
+            {t('app.delete')}
+          </button>
+        </>
+      }
+    >
+      {vol ? (
+        <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+          <p>
+            ⚠{' '}
+            {t('volumes.deleteWarning', {
+              volume: vol.name,
+              size: vol.size ? ` (${vol.size})` : '',
+            })}
+          </p>
+          <label className="flex items-start gap-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+            <input
+              type="radio"
+              name="volume-choice"
+              checked={keepVolume}
+              onChange={() => setKeepVolume(true)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-medium text-slate-800 dark:text-slate-100">
+                {t('volumes.keepChoice')}
+              </span>
+              <br />
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {t('volumes.keepChoiceHint')}
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+            <input
+              type="radio"
+              name="volume-choice"
+              checked={!keepVolume}
+              onChange={() => setKeepVolume(false)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-medium text-red-700 dark:text-red-400">
+                {t('volumes.deleteChoice')}
+              </span>
+              <br />
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {t('volumes.deleteChoiceHint')}
+              </span>
+            </span>
+          </label>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-600 dark:text-slate-300">{t('portal.deleteConfirm')}</p>
+      )}
+    </Dialog>
+  );
+}
+
+// VolumesSection: the user's retained volumes — origin, size, date, and
+// deletion (server checks ownership, every deletion is audited).
+function VolumesSection() {
+  const { t } = useTranslation();
+  const volumes = useVolumes();
+  const removeVolume = useDeleteVolume();
+
+  if (volumes.isPending) return <SkeletonGrid count={3} />;
+  if (volumes.isError) {
+    return <p className="text-sm text-red-600">{t('portal.loadError')}</p>;
+  }
+  const items = volumes.data.data;
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center dark:border-slate-700">
+        <p className="text-slate-500 dark:text-slate-400">{t('volumes.empty')}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="border-b border-slate-200 text-xs uppercase text-slate-500 dark:border-slate-700 dark:text-slate-400">
+          <tr>
+            <th className="px-4 py-3">{t('volumes.name')}</th>
+            <th className="px-4 py-3">{t('volumes.size')}</th>
+            <th className="px-4 py-3">{t('volumes.origin')}</th>
+            <th className="px-4 py-3">{t('volumes.retainedAt')}</th>
+            <th className="px-4 py-3" />
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((v) => (
+            <tr key={`${v.namespace}/${v.name}`} className="border-b border-slate-100 last:border-0 dark:border-slate-700/60">
+              <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">
+                {v.name}
+                <span className="ml-2 text-xs font-normal text-slate-400">{v.namespace}</span>
+              </td>
+              <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{v.size}</td>
+              <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{v.originWorkspace || '—'}</td>
+              <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                {v.retainedAt ? new Date(v.retainedAt).toLocaleString() : '—'}
+              </td>
+              <td className="px-4 py-3 text-right">
+                <button
+                  onClick={() => {
+                    if (window.confirm(t('volumes.deleteVolumeConfirm', { name: v.name }))) {
+                      removeVolume.mutate({ namespace: v.namespace, name: v.name });
+                    }
+                  }}
+                  disabled={removeVolume.isPending}
+                  className="rounded-md border border-slate-300 px-3 py-1 text-sm text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-700"
+                >
+                  {t('app.delete')}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="px-4 py-3 text-xs text-slate-400 dark:text-slate-500">{t('volumes.quotaNote')}</p>
     </div>
   );
 }
@@ -252,6 +444,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   // stale steady state. The fast poll converges it to the CR status.
   const phase = effectivePhase(workspace);
   const settling = phase === 'Pausing' || phase === 'Resuming' || phase === 'Terminating';
+  const [deleting, setDeleting] = useState(false);
 
   const onOpen = () => {
     const pref = user?.preferences?.openWorkspaceInNewTab;
@@ -314,10 +507,22 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
             </button>
           </>
         }
-        onDelete={() => remove.mutate(workspace.id)}
+        onDelete={() => setDeleting(true)}
         deletePending={remove.isPending}
-        deleteConfirm={t('portal.deleteConfirm')}
       />
+      {deleting && (
+        <DeleteWorkspaceDialog
+          workspace={workspace}
+          pending={remove.isPending}
+          onConfirm={(keepVolume) =>
+            remove.mutate(
+              { id: workspace.id, keepVolume },
+              { onSuccess: () => setDeleting(false) },
+            )
+          }
+          onClose={() => setDeleting(false)}
+        />
+      )}
       {asking && <OpenChoiceDialog onChoice={onChoice} onClose={() => setAsking(false)} />}
       {settingsOpen && (
         <ConnectionSettingsDialog workspace={workspace} onClose={() => setSettingsOpen(false)} />
@@ -559,7 +764,15 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [envRows, setEnvRows] = useState<{ name: string; value: string }[]>([]);
   const [scheduleOverride, setScheduleOverride] = useState<WorkspaceSchedule | undefined>(undefined);
+  const [homeVolumeName, setHomeVolumeName] = useState('');
   const nsPreview = useNamespacePreview(templateRef, displayName);
+  const volumes = useVolumes();
+  // "Start from an existing volume": only retained volumes living in the
+  // RESOLVED destination namespace are attachable (PVCs are namespaced;
+  // the webhook enforces the same rule server-side).
+  const attachableVolumes = (volumes.data?.data ?? []).filter(
+    (v) => v.namespace === nsPreview.data?.data.namespace,
+  );
 
   // Every template is listed whatever its protocol; the ones the policy
   // excludes are visible but disabled with the reason (never silently
@@ -677,6 +890,7 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
         displayName: displayName || undefined,
         resources: { cpu: formatCpu(cpuValue), memory: formatMemory(memValue) },
         overrides,
+        homeVolumeName: homeVolumeName || undefined,
       },
       {
         onSuccess: ({ data: workspace }) => {
@@ -766,6 +980,30 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
               {nsPreview.data.data.namespace}
             </span>
           </p>
+        )}
+        {/* Reattach a retained volume as the home of this workspace. */}
+        {template && attachableVolumes.length > 0 && (
+          <label className="block">
+            <span className="text-sm text-slate-600 dark:text-slate-300">
+              {t('volumes.attachExisting')}
+            </span>
+            <select
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+              value={homeVolumeName}
+              onChange={(e) => setHomeVolumeName(e.target.value)}
+            >
+              <option value="">{t('volumes.attachNone')}</option>
+              {attachableVolumes.map((v) => (
+                <option key={v.name} value={v.name}>
+                  {v.name} — {v.size}
+                  {v.originWorkspace ? ` (${v.originWorkspace})` : ''}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              {t('volumes.attachHint')}
+            </span>
+          </label>
         )}
 
         {template && (
@@ -1147,18 +1385,16 @@ function RemoteWorkspaceDialog({
   const unused = ['ssh', 'vnc', 'rdp'].filter((p) => !names.includes(p));
   const patchCurrent = (patch: Partial<RemoteProtocol>) =>
     setProtocols((prev) => prev.map((p) => (p.name === tab ? { ...p, ...patch } : p)));
-  const addProtocol = () => {
-    const name = unused[0];
-    if (!name) return;
+  const addProtocol = (name: string) => {
     setProtocols((prev) => [
       ...prev,
       { name, port: REMOTE_DEFAULT_PORTS[name] ?? 0, default: prev.length === 0 },
     ]);
     setTab(name);
   };
-  const removeCurrent = () => {
+  const removeProtocol = (name: string) => {
     setProtocols((prev) => {
-      const next = prev.filter((p) => p.name !== tab);
+      const next = prev.filter((p) => p.name !== name);
       if (next.length > 0 && !next.some((p) => p.default)) next[0] = { ...next[0], default: true };
       setTab(next[0]?.name ?? '');
       return next;
@@ -1274,17 +1510,9 @@ function RemoteWorkspaceDialog({
                 </span>
               ) : null
             }
-            trailing={
-              unused.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={addProtocol}
-                  className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  + {t('remote.addProtocol')}
-                </button>
-              ) : undefined
-            }
+            addable={unused}
+            onAdd={addProtocol}
+            onRemove={removeProtocol}
           />
           {current && (
             <>
@@ -1314,15 +1542,6 @@ function RemoteWorkspaceDialog({
                   />
                   {t('portal.protocolDefault')}
                 </label>
-                {protocols.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={removeCurrent}
-                    className="ml-auto pb-2 text-sm text-red-600 hover:underline"
-                  >
-                    {t('app.delete')}
-                  </button>
-                )}
               </div>
               <ProtocolParamsForm
                 meta={meta.data?.data}

@@ -88,7 +88,9 @@
     "wakeAndOpen": "Réveiller et ouvrir",
     "useThisProtocol": "Se connecter avec ce protocole",
     "switchProtocolHint": "Basculer le protocole de connexion",
-    "namespacePreview": "Namespace des workloads :"
+    "namespacePreview": "Namespace des workloads :",
+    "quotaStorage": "Stockage",
+    "quotaStorageRetained": "dont {{size}} conservés · {{count}} volume(s)"
   },
   "remote": {
     "tab": "Remote workspaces",
@@ -227,7 +229,8 @@
       "placementPattern": "Pattern de namespace",
       "placementHint": "Vide = pattern global de la plateforme (env operator), puis le défaut « waas-workspace ». Un changement ne concerne que les NOUVEAUX workspaces.",
       "placementCleanup": "Cleanup du namespace",
-      "placeholdersTitle": "Placeholders disponibles (chaque valeur est sanitizée en DNS-1123) :"
+      "placeholdersTitle": "Placeholders disponibles (chaque valeur est sanitizée en DNS-1123) :",
+      "noProtocolsYet": "Aucun protocole configuré : ajoutez ceux que ce template doit servir (sans bloc protocols, l’entrée héritée dérivée de l’OS s’applique)."
     },
     "usersPage": {
       "new": "Nouvel utilisateur",
@@ -317,7 +320,14 @@
     "protocol": "Protocole",
     "switchConfirm": "Basculer en {{protocol}} ? La session en cours va se reconnecter.",
     "switchHint": "La bascule reconnecte la session avec le protocole choisi.",
-    "notAvailableRemote": "Indisponible pour les machines distantes"
+    "notAvailableRemote": "Indisponible pour les machines distantes",
+    "clipboardManual": "Échange manuel",
+    "clipboardReceived": "Reçu du workspace",
+    "clipboardReceivedEmpty": "Rien reçu pour l’instant — copiez du texte dans le workspace.",
+    "clipboardCopyLocal": "Copier",
+    "clipboardSendPlaceholder": "Texte à envoyer au presse-papiers du workspace…",
+    "clipboardSend": "Envoyer au workspace",
+    "clipboardInsecureHint": "Sans HTTPS, le navigateur bloque la synchronisation automatique : utilisez Ctrl+V dans la session pour coller, et cet échange manuel pour récupérer une copie."
   },
   "schedule": {
     "title": "Planning (uptime / downtime)",
@@ -329,5 +339,32 @@
     "nextDown": "prochain arrêt {{when}}",
     "invalidCron": "Expression cron invalide : {{cron}}",
     "invalidTimezone": "Timezone IANA inconnue"
+  },
+  "protocolTabs": {
+    "add": "Ajouter un protocole",
+    "remove": "Retirer {{protocol}}",
+    "removeConfirm": "Retirer le protocole {{protocol}} et ses paramètres ?",
+    "lastProtocol": "Impossible de retirer le dernier protocole",
+    "locked": "Protocole imposé par le template"
+  },
+  "volumes": {
+    "tab": "Volumes",
+    "name": "Volume",
+    "size": "Taille",
+    "origin": "Workspace d’origine",
+    "owner": "Propriétaire",
+    "retainedAt": "Conservé le",
+    "empty": "Aucun volume conservé. À la suppression d’un workspace, vous pouvez choisir de conserver son volume : il apparaîtra ici.",
+    "quotaNote": "Les volumes conservés comptent dans votre quota de stockage tant qu’ils existent.",
+    "deleteWorkspaceTitle": "Supprimer « {{name}} » ?",
+    "deleteWarning": "Le volume {{volume}}{{size}} sera supprimé avec le workspace si vous ne le conservez pas.",
+    "keepChoice": "Conserver le volume",
+    "keepChoiceHint": "Le volume reste votre propriété (onglet Volumes) et continue de compter dans votre quota de stockage. Il pourra être réattaché à un nouveau workspace.",
+    "deleteChoice": "Supprimer aussi le volume",
+    "deleteChoiceHint": "Les données du home seront définitivement perdues.",
+    "deleteVolumeConfirm": "Supprimer définitivement le volume {{name}} et ses données ?",
+    "attachExisting": "Partir d’un volume existant",
+    "attachNone": "Nouveau volume (vide)",
+    "attachHint": "Volumes conservés compatibles avec le namespace de destination."
   }
 }

@@ -13,6 +13,7 @@ import type {
   RemoteWorkspace,
   RemoteWorkspaceAdmin,
   RemoteWorkspaceInput,
+  RetainedVolume,
   TemplateEnvVar,
   PolicyModel,
   Session,
@@ -116,6 +117,8 @@ export function useCreateWorkspace() {
         env?: TemplateEnvVar[];
         schedule?: { timezone?: string; uptime?: string[]; downtime?: string[] };
       };
+      /** Reattach a retained volume as home (webhook-vetted). */
+      homeVolumeName?: string;
     }) => api.post<Workspace>('/api/v1/workspaces', input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
@@ -175,8 +178,52 @@ export function useWorkspaceAction() {
 export function useDeleteWorkspace() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.delete<void>(`/api/v1/workspaces/${id}`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+    // keepVolume is EXPLICIT: the dialog always decides; the server keeps
+    // the volume unless told otherwise (never a silent deletion).
+    mutationFn: ({ id, keepVolume }: { id: string; keepVolume: boolean }) =>
+      api.delete<void>(`/api/v1/workspaces/${id}?keepVolume=${keepVolume}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      void queryClient.invalidateQueries({ queryKey: ['volumes'] });
+      void queryClient.invalidateQueries({ queryKey: ['quota'] });
+    },
+  });
+}
+
+// ---- Retained volumes (home volumes kept after workspace deletion) ----
+
+export function useVolumes() {
+  return useQuery({
+    queryKey: ['volumes'],
+    queryFn: () => api.get<RetainedVolume[]>('/api/v1/volumes'),
+  });
+}
+
+export function useDeleteVolume() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ namespace, name }: { namespace: string; name: string }) =>
+      api.delete<void>(`/api/v1/volumes/${namespace}/${name}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['volumes'] });
+      void queryClient.invalidateQueries({ queryKey: ['quota'] });
+    },
+  });
+}
+
+export function useAdminVolumes() {
+  return useQuery({
+    queryKey: ['admin-volumes'],
+    queryFn: () => api.get<RetainedVolume[]>('/api/v1/admin/volumes'),
+  });
+}
+
+export function useAdminDeleteVolume() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ namespace, name }: { namespace: string; name: string }) =>
+      api.delete<void>(`/api/v1/admin/volumes/${namespace}/${name}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['admin-volumes'] }),
   });
 }
 

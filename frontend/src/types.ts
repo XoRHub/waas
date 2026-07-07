@@ -122,6 +122,19 @@ export interface Workspace {
   protocols?: WorkspaceProtocol[];
   schedule?: WorkspaceSchedule;
   nextTransition?: ScheduledTransition;
+  /** The user-state volume, for the deletion dialog. */
+  homeVolume?: { name: string; size?: string };
+}
+
+/** A home volume kept from a deleted workspace: still owned by the user
+ * and still counted against their storage quota. */
+export interface RetainedVolume {
+  name: string;
+  namespace: string;
+  size: string;
+  ownerId: string;
+  originWorkspace?: string;
+  retainedAt?: string;
 }
 
 /** One env var of a template — the CR type verbatim (references only,
@@ -248,6 +261,10 @@ export interface QuotaStatus {
   features?: Record<string, boolean>;
   /** Policy-level override allow-list (undefined = template list alone). */
   allowedOverrides?: string[];
+  /** Breakdown of used.storage coming from retained volumes (already
+   * included in used.storage — server-computed, same as enforcement). */
+  retainedVolumes?: number;
+  retainedStorage?: string;
 }
 
 // ---- Remote workspaces (out-of-cluster machines via guacd) ----

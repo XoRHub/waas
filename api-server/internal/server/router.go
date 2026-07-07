@@ -72,6 +72,13 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 				r.Post("/{id}/connect", h.Workspaces.Connect)
 			})
 
+			// Retained volumes: home volumes kept after workspace
+			// deletion — the user's personal view and deletion.
+			r.Route("/volumes", func(r chi.Router) {
+				r.Get("/", h.Workspaces.ListVolumes)
+				r.Delete("/{namespace}/{name}", h.Workspaces.DeleteVolume)
+			})
+
 			// Remote workspaces: user-registered machines OUTSIDE the
 			// cluster, policy-gated (fail closed in the service layer).
 			r.Route("/remote-workspaces", func(r chi.Router) {
@@ -134,6 +141,9 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 					r.Get("/usage", h.Governance.AdminUsage)
 					r.Get("/groups", h.Governance.AdminKnownGroups)
 					r.Get("/remote-workspaces", h.RemoteWorkspaces.AdminList)
+					// Retained volumes, fleet-wide; deletion is audited.
+					r.Get("/volumes", h.Workspaces.AdminListVolumes)
+					r.Delete("/volumes/{namespace}/{name}", h.Workspaces.AdminDeleteVolume)
 				})
 			})
 		})

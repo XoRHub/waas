@@ -66,9 +66,57 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 	ok(w, ws)
 }
 
-// Delete handles DELETE /api/v1/workspaces/{id}.
+// Delete handles DELETE /api/v1/workspaces/{id}?keepVolume=true|false.
+// Absent = keep: the home volume is only deleted on an explicit opt-out
+// (the frontend dialog always sends the parameter).
 func (h *WorkspaceHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.Delete(r.Context(), middleware.Actor(r), chi.URLParam(r, "id")); err != nil {
+	keepVolume := r.URL.Query().Get("keepVolume") != "false"
+	if err := h.svc.Delete(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), keepVolume); err != nil {
+		fail(w, r, err)
+		return
+	}
+	noContent(w)
+}
+
+// ListVolumes handles GET /api/v1/volumes — the caller's retained
+// volumes (name, size, origin workspace, retained date).
+func (h *WorkspaceHandler) ListVolumes(w http.ResponseWriter, r *http.Request) {
+	vols, err := h.svc.ListRetainedVolumes(r.Context(), middleware.Actor(r), false)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	list(w, vols, len(vols), 1, len(vols))
+}
+
+// DeleteVolume handles DELETE /api/v1/volumes/{namespace}/{name}.
+func (h *WorkspaceHandler) DeleteVolume(w http.ResponseWriter, r *http.Request) {
+	err := h.svc.DeleteRetainedVolume(r.Context(), middleware.Actor(r),
+		chi.URLParam(r, "namespace"), chi.URLParam(r, "name"), false)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	noContent(w)
+}
+
+// AdminListVolumes handles GET /api/v1/admin/volumes — every user's
+// retained volumes.
+func (h *WorkspaceHandler) AdminListVolumes(w http.ResponseWriter, r *http.Request) {
+	vols, err := h.svc.ListRetainedVolumes(r.Context(), middleware.Actor(r), true)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	list(w, vols, len(vols), 1, len(vols))
+}
+
+// AdminDeleteVolume handles DELETE /api/v1/admin/volumes/{namespace}/{name}
+// (audited with via=admin).
+func (h *WorkspaceHandler) AdminDeleteVolume(w http.ResponseWriter, r *http.Request) {
+	err := h.svc.DeleteRetainedVolume(r.Context(), middleware.Actor(r),
+		chi.URLParam(r, "namespace"), chi.URLParam(r, "name"), true)
+	if err != nil {
 		fail(w, r, err)
 		return
 	}

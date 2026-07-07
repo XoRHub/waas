@@ -86,12 +86,12 @@ func (r *WorkspaceReconciler) now() time.Time {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;delete
-// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=resourcequotas,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update
 
 // Reconcile drives a Workspace toward its desired state.
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -103,9 +103,13 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// Same-namespace compute (pod/VM/service) is garbage-collected
 		// through owner references. Cross-namespace workloads cannot carry
 		// one: the teardown finalizer deletes them explicitly. The home
-		// PVC is deliberately skipped in BOTH paths: user state must
-		// survive workspace deletion and recreation.
+		// PVC has no owner reference either way: the finalizer applies the
+		// user's deletion-time choice — delete it with the workspace
+		// (explicit opt-in annotation) or detach it as a retained volume.
 		if controllerutil.ContainsFinalizer(ws, finalizerTeardown) {
+			if err := r.finalizeHomeVolume(ctx, ws); err != nil {
+				return ctrl.Result{}, fmt.Errorf("finalizing home volume of %s: %w", ws.Name, err)
+			}
 			if err := r.teardownPlacement(ctx, ws); err != nil {
 				return ctrl.Result{}, fmt.Errorf("tearing down workspace %s: %w", ws.Name, err)
 			}
@@ -116,9 +120,11 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		return ctrl.Result{}, nil
 	}
-	// Placed workspaces need the teardown finalizer before any compute
-	// exists, or a fast create+delete could leak cross-namespace objects.
-	if computeNamespace(ws) != ws.Namespace && !controllerutil.ContainsFinalizer(ws, finalizerTeardown) {
+	// Every workspace carries the teardown finalizer before any compute
+	// exists: placed ones because cross-namespace objects would leak, and
+	// ALL of them because the home volume's fate (delete vs retain) is
+	// decided at deletion time and must go through the finalizer.
+	if !controllerutil.ContainsFinalizer(ws, finalizerTeardown) {
 		controllerutil.AddFinalizer(ws, finalizerTeardown)
 		if err := r.Update(ctx, ws); err != nil {
 			return ctrl.Result{}, fmt.Errorf("adding finalizer to workspace %s: %w", ws.Name, err)
@@ -362,13 +368,103 @@ func (r *WorkspaceReconciler) computeExists(ctx context.Context, ws *waasv1alpha
 	return false, nil
 }
 
-// ensureHomePVC creates the user-state volume if missing. Idempotent, and the
-// PVC is deliberately not owned by the Workspace so state survives deletion.
+// homePVCName is the workspace's effective home volume: an adopted
+// retained volume (spec.homeVolumeName, webhook-vetted) or the derived
+// "<workloadName>-home".
+func homePVCName(ws *waasv1alpha1.Workspace) string {
+	if ws.Spec.HomeVolumeName != "" {
+		return ws.Spec.HomeVolumeName
+	}
+	return computeName(ws) + "-home"
+}
+
+// finalizeHomeVolume applies the deletion-time choice to the home PVC:
+// the explicit delete-home annotation deletes it with the workspace;
+// otherwise it is DETACHED — marked retained, stamped with provenance,
+// still owned by the user and still counted against their storage quota.
+func (r *WorkspaceReconciler) finalizeHomeVolume(ctx context.Context, ws *waasv1alpha1.Workspace) error {
+	key := types.NamespacedName{Namespace: computeNamespace(ws), Name: homePVCName(ws)}
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := r.Get(ctx, key, pvc); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	// Ownership guard: only touch a PVC that still belongs to THIS
+	// workspace. If the name was reused (delete + recreate racing through
+	// the finalizer), the volume under that name is the NEW workspace's
+	// home — deleting or relabeling it here would destroy someone else's
+	// live data.
+	if pvc.Labels[labelWorkspace] != ws.Name {
+		return nil
+	}
+	if ws.Annotations[waasv1alpha1.AnnotationDeleteHome] == "true" {
+		if err := r.Delete(ctx, pvc); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting home pvc %s: %w", key.Name, err)
+		}
+		r.recordEvent(ws, corev1.EventTypeNormal, "HomeVolumeDeleted",
+			fmt.Sprintf("home volume %q deleted with the workspace (explicit user choice)", key.Name))
+		return nil
+	}
+	if pvc.Labels == nil {
+		pvc.Labels = map[string]string{}
+	}
+	pvc.Labels[waasv1alpha1.LabelRetained] = "true"
+	// The per-workspace labels point at a CR about to vanish; provenance
+	// moves to annotations, ownership (owner + managed-by) stays.
+	delete(pvc.Labels, labelWorkspace)
+	delete(pvc.Labels, labelWorkspaceNS)
+	if pvc.Annotations == nil {
+		pvc.Annotations = map[string]string{}
+	}
+	origin := ws.Spec.DisplayName
+	if origin == "" {
+		origin = ws.Name
+	}
+	pvc.Annotations[waasv1alpha1.AnnotationOriginWorkspace] = origin
+	pvc.Annotations[waasv1alpha1.AnnotationRetainedAt] = r.now().UTC().Format(time.RFC3339)
+	if err := r.Update(ctx, pvc); err != nil {
+		return fmt.Errorf("detaching home pvc %s: %w", key.Name, err)
+	}
+	r.recordEvent(ws, corev1.EventTypeNormal, "HomeVolumeRetained",
+		fmt.Sprintf("home volume %q retained (still counts against the owner's storage quota)", key.Name))
+	return nil
+}
+
+// ensureHomePVC creates the user-state volume if missing, or ADOPTS the
+// retained volume named by spec.homeVolumeName (relabeled live again).
+// Idempotent, and the PVC is deliberately not owned by the Workspace so
+// state survives deletion.
 func (r *WorkspaceReconciler) ensureHomePVC(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) (string, error) {
-	name := computeName(ws) + "-home"
+	name := homePVCName(ws)
 	existing := &corev1.PersistentVolumeClaim{}
 	err := r.Get(ctx, types.NamespacedName{Namespace: computeNamespace(ws), Name: name}, existing)
 	if err == nil {
+		// A terminating PVC (previous same-named workspace deleted WITH
+		// its volume, pvc-protection still draining) must never be
+		// mounted: wait for the name to free up, then create fresh.
+		if !existing.DeletionTimestamp.IsZero() {
+			return "", fmt.Errorf("home pvc %s is terminating; waiting for the name to be released", name)
+		}
+		// Never adopt someone else's volume: in a SHARED namespace two
+		// users' display names can collide on the same derived PVC name
+		// (the api-server suffixes new names, but defense in depth).
+		if owner := existing.Labels[waasv1alpha1.LabelOwner]; owner != "" && owner != ws.Spec.Owner {
+			return "", fmt.Errorf("home pvc %s belongs to another owner; refusing to adopt", name)
+		}
+		// Adoption: a retained volume becoming a live home again sheds its
+		// retained marker and regains the per-workspace labels.
+		if existing.Labels[waasv1alpha1.LabelRetained] == "true" || existing.Labels[labelWorkspace] != ws.Name {
+			if existing.Labels == nil {
+				existing.Labels = map[string]string{}
+			}
+			for k, v := range workspaceLabels(ws) {
+				existing.Labels[k] = v
+			}
+			delete(existing.Labels, waasv1alpha1.LabelRetained)
+			delete(existing.Annotations, waasv1alpha1.AnnotationRetainedAt)
+			if err := r.Update(ctx, existing); err != nil {
+				return "", fmt.Errorf("adopting pvc %s: %w", name, err)
+			}
+		}
 		return name, nil
 	}
 	if !apierrors.IsNotFound(err) {

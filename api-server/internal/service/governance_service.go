@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
@@ -125,18 +127,20 @@ func (s *GovernanceService) Quota(ctx context.Context, actor Actor) (*model.Quot
 		return &model.QuotaStatus{Policy: "", Features: featureFlags(nil, isAdmin)}, nil
 	}
 
-	count, used, err := s.usageOf(ctx, user.ID, images.Items)
+	use, err := s.usageOf(ctx, user.ID, images.Items)
 	if err != nil {
 		return nil, err
 	}
 
 	status := &model.QuotaStatus{
-		Policy:         pol.Name,
-		PolicyPriority: pol.Spec.Priority,
-		MaxWorkspaces:  pol.Spec.Limits.MaxWorkspaces,
-		UsedWorkspaces: count,
-		Used:           used,
-		Features:       featureFlags(pol, isAdmin),
+		Policy:          pol.Name,
+		PolicyPriority:  pol.Spec.Priority,
+		MaxWorkspaces:   pol.Spec.Limits.MaxWorkspaces,
+		UsedWorkspaces:  use.workspaces,
+		Used:            use.used,
+		RetainedVolumes: use.retainedVolumes,
+		RetainedStorage: use.retainedStorage,
+		Features:        featureFlags(pol, isAdmin),
 	}
 	if pol.Spec.Overrides != nil {
 		status.AllowedOverrides = []string{}
@@ -189,11 +193,23 @@ func featureFlags(pol *waasv1alpha1.WorkspacePolicy, isAdmin bool) map[string]bo
 	}
 }
 
+// usage is one owner's live consumption (same math as pkg/policy — the
+// displayed numbers can never diverge from what the webhook enforces).
+type usage struct {
+	workspaces int
+	used       map[string]string
+	// retained volumes: already inside used["storage"], broken out so the
+	// UI can say "dont X Gi conservés".
+	retainedVolumes int
+	retainedStorage string
+}
+
 // usageOf computes one owner's live aggregates (same math as pkg/policy).
-func (s *GovernanceService) usageOf(ctx context.Context, ownerID string, catalog []waasv1alpha1.WorkspaceImage) (int, map[string]string, error) {
+// Retained volumes weigh on storage exactly as in the admission webhook.
+func (s *GovernanceService) usageOf(ctx context.Context, ownerID string, catalog []waasv1alpha1.WorkspaceImage) (usage, error) {
 	all := &waasv1alpha1.WorkspaceList{}
 	if err := s.kube.List(ctx, all, client.InNamespace(s.namespace)); err != nil {
-		return 0, nil, fmt.Errorf("listing workspaces: %w", err)
+		return usage{}, fmt.Errorf("listing workspaces: %w", err)
 	}
 	var loads []policy.Load
 	for i := range all.Items {
@@ -208,23 +224,40 @@ func (s *GovernanceService) usageOf(ctx context.Context, ownerID string, catalog
 			continue
 		}
 		if err != nil {
-			return 0, nil, err
+			return usage{}, err
 		}
 		load, _ := policy.LoadOf(ws, tpl, policy.FindImage(catalog, tpl.Spec.Image))
 		loads = append(loads, load)
 	}
+	retained := &corev1.PersistentVolumeClaimList{}
+	if err := s.kube.List(ctx, retained, client.MatchingLabels{
+		waasv1alpha1.LabelRetained: "true",
+		waasv1alpha1.LabelOwner:    ownerID,
+	}); err != nil {
+		return usage{}, fmt.Errorf("listing retained volumes: %w", err)
+	}
+	loads = append(loads, policy.RetainedVolumeLoads(retained.Items, types.NamespacedName{})...)
 
-	var cpu, mem, sto = newQty(), newQty(), newQty()
+	var cpu, mem, sto, retainedSto = newQty(), newQty(), newQty(), newQty()
+	out := usage{}
 	for _, l := range loads {
 		if !l.Paused {
 			cpu.Add(l.CPU)
 			mem.Add(l.Memory)
 		}
 		sto.Add(l.Storage)
+		if l.Detached {
+			out.retainedVolumes++
+			retainedSto.Add(l.Storage)
+		} else {
+			out.workspaces++
+		}
 	}
-	return len(loads), map[string]string{
+	out.used = map[string]string{
 		"cpu": cpu.String(), "memory": mem.String(), "storage": sto.String(),
-	}, nil
+	}
+	out.retainedStorage = retainedSto.String()
+	return out, nil
 }
 
 // ---------------------------------------------------------------- admin
@@ -600,12 +633,12 @@ func (s *GovernanceService) AdminUsage(ctx context.Context) ([]model.UserUsage, 
 		if pol, _, denial := policy.Resolve(policies.Items, id); denial == nil {
 			row.Policy = pol.Name
 		}
-		count, used, err := s.usageOf(ctx, ownerID, images.Items)
+		use, err := s.usageOf(ctx, ownerID, images.Items)
 		if err != nil {
 			return nil, err
 		}
-		row.Workspaces = count
-		row.Used = used
+		row.Workspaces = use.workspaces
+		row.Used = use.used
 		out = append(out, row)
 	}
 	return out, nil

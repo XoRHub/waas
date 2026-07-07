@@ -66,6 +66,15 @@ type WorkspaceSpec struct {
 	// +optional
 	WorkloadName string `json:"workloadName,omitempty"`
 
+	// HomeVolumeName adopts an EXISTING PVC as this workspace's home
+	// instead of creating "<workloadName>-home": the reuse path for a
+	// volume retained from a deleted workspace. IMMUTABLE, and vetted by
+	// the webhook: the PVC must live in the target namespace, belong to
+	// the same owner (LabelOwner) and not be another workspace's live
+	// home. Empty = a fresh volume.
+	// +optional
+	HomeVolumeName string `json:"homeVolumeName,omitempty"`
+
 	// Resources overrides the template resources for this workspace only.
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`

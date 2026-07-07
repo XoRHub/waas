@@ -194,6 +194,27 @@ type Workspace struct {
 	Schedule *waasv1alpha1.WorkspaceSchedule `json:"schedule,omitempty"`
 	// NextTransition is the next planned lifecycle change (from status).
 	NextTransition *ScheduledTransition `json:"nextTransition,omitempty"`
+	// HomeVolume describes the user-state volume, for the deletion
+	// dialog ("volume X (10Gi) will be deleted — keep it?").
+	HomeVolume *HomeVolumeInfo `json:"homeVolume,omitempty"`
+}
+
+// HomeVolumeInfo is the display projection of a workspace's home volume.
+type HomeVolumeInfo struct {
+	Name string `json:"name"`
+	Size string `json:"size,omitempty"`
+}
+
+// RetainedVolume is a home volume kept from a deleted workspace: still
+// the user's property, still counted against their storage quota, until
+// deleted or reattached to a new workspace.
+type RetainedVolume struct {
+	Name            string     `json:"name"`
+	Namespace       string     `json:"namespace"`
+	Size            string     `json:"size"`
+	OwnerID         string     `json:"ownerId"`
+	OriginWorkspace string     `json:"originWorkspace,omitempty"`
+	RetainedAt      *time.Time `json:"retainedAt,omitempty"`
 }
 
 // ScheduledTransition is the next planned up/down change of a workspace.
@@ -312,6 +333,12 @@ type QuotaStatus struct {
 	// AllowedOverrides is the policy-level override allow-list (nil = the
 	// template's own list applies alone).
 	AllowedOverrides []string `json:"allowedOverrides,omitempty"`
+	// RetainedVolumes/RetainedStorage break down how much of the storage
+	// usage comes from volumes kept after workspace deletion (already
+	// included in Used["storage"] — display detail, same server-side
+	// computation as the enforcement).
+	RetainedVolumes int    `json:"retainedVolumes,omitempty"`
+	RetainedStorage string `json:"retainedStorage,omitempty"`
 }
 
 // PolicyModel is the API projection of a WorkspacePolicy CR for the
