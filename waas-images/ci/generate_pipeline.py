@@ -85,6 +85,8 @@ def emit(variants: dict[str, dict], cfg: dict) -> str:
             "image": "docker:28.0",
             "services": ["docker:28.0-dind"],
             "interruptible": True,
+            # Multi-arch via QEMU on the amd64 fleet (runner tag amd).
+            "tags": ["amd"],
         },
         "variables": {
             "DOCKER_TLS_CERTDIR": "/certs",
@@ -116,7 +118,9 @@ def emit(variants: dict[str, dict], cfg: dict) -> str:
                     f"{k}={val}" for k, val in sorted(v["smoke"].get("env", {}).items())
                 ),
             },
-            "script": ["sh ci/build_image.sh"],
+            # Grandchild jobs run from the repo root (monorepo): the
+            # build script and its manifests live under waas-images/.
+            "script": ["cd waas-images", "sh ci/build_image.sh"],
         }
         if v["from"]:
             job["needs"] = [f"build:{v['from']}"]
