@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 import Guacamole from 'guacamole-common-js';
 import { api } from '@/lib/api';
+import { canReadSystemClipboard, ClipboardSync, hasClipboardApi } from '@/lib/clipboard';
 import { detectServerLayout } from '@/lib/keyboard';
 import { useAuthStore } from '@/stores/authStore';
 import type { ConnectResult, SessionCapabilities, WorkspaceConnectionPrefs } from '@/types';
@@ -18,6 +19,10 @@ export interface DesktopPaneHandle {
   reconnect: () => void;
   /** Live clipboard toggle, enforced by wwt (clamped to the policy grant). */
   setClipboard: (direction: 'copy' | 'paste', enabled: boolean) => void;
+  /** Push text to the desktop clipboard (overlay manual fallback). */
+  sendClipboard: (text: string) => void;
+  /** Last text the desktop clipboard sent us (overlay manual fallback). */
+  readRemoteClipboard: () => string;
 }
 
 /**
@@ -48,6 +53,10 @@ export const DesktopPane = forwardRef<
   const displayRef = useRef<HTMLDivElement>(null);
   const tunnelRef = useRef<InstanceType<typeof Guacamole.WebSocketTunnel> | null>(null);
   const clientRef = useRef<InstanceType<typeof Guacamole.Client> | null>(null);
+  // Clipboard state survives reconnects (the desktop's copy is still the
+  // latest known one); sender is bound to the live client by the effect.
+  const clipboardRef = useRef(new ClipboardSync());
+  const sendClipboardRef = useRef<(text: string, force?: boolean) => void>(() => {});
   const [state, setState] = useState<ConnectionState>('connecting');
   // Bumping the generation re-runs the connection effect: that IS the
   // reconnect (used by the overlay to apply reconnect-scoped params).
@@ -68,6 +77,8 @@ export const DesktopPane = forwardRef<
     setClipboard: (direction, enabled) => {
       tunnelRef.current?.sendMessage('', 'waas-clipboard', direction, enabled ? '1' : '0');
     },
+    sendClipboard: (text) => sendClipboardRef.current(text, true),
+    readRemoteClipboard: () => clipboardRef.current.lastReceived,
   }));
 
   useEffect(() => {
@@ -81,6 +92,7 @@ export const DesktopPane = forwardRef<
     let keyboard: InstanceType<typeof Guacamole.Keyboard> | null = null;
     let observer: ResizeObserver | null = null;
     let cancelled = false;
+    let cleanupClipboard: (() => void) | null = null;
 
     const setBoth = (s: ConnectionState) => {
       setState(s);
@@ -138,12 +150,77 @@ export const DesktopPane = forwardRef<
         if (clientState === STATE_CONNECTED) {
           setBoth('connected');
           rescale();
+          // Prime the desktop with the current local clipboard, so the
+          // first in-session Ctrl+V pastes what the user last copied.
+          syncFromSystem();
         }
         if (clientState === STATE_DISCONNECTED) {
           setBoth('disconnected');
         }
       };
       client.onerror = () => setBoth('failed');
+
+      // ---- clipboard: desktop → browser --------------------------------
+      // wwt already dropped this stream when policy forbids copy; anything
+      // arriving here is allowed. Non-text clipboards are not relayed.
+      const sync = clipboardRef.current;
+      client.onclipboard = (stream, mimetype) => {
+        if (!mimetype.startsWith('text/')) {
+          stream.sendAck('unsupported clipboard type', 0x0100);
+          return;
+        }
+        const reader = new Guacamole.StringReader(stream);
+        let data = '';
+        reader.ontext = (text) => {
+          data += text;
+        };
+        reader.onend = () => {
+          sync.receive(data);
+          // Best effort: writeText needs a secure context AND document
+          // focus. The overlay's manual exchange covers the rest.
+          if (hasClipboardApi() && document.hasFocus()) {
+            void navigator.clipboard.writeText(data).catch(() => {});
+          }
+        };
+      };
+
+      // ---- clipboard: browser → desktop --------------------------------
+      // force bypasses the echo guard for explicit user actions (paste
+      // event, overlay send button).
+      const sendClipboardText = (text: string, force = false) => {
+        if (!client || text === '' || (!force && !sync.shouldSend(text))) return;
+        const stream = client.createClipboardStream('text/plain');
+        const writer = new Guacamole.StringWriter(stream);
+        writer.sendText(text);
+        writer.sendEnd();
+        sync.sent(text);
+      };
+      sendClipboardRef.current = sendClipboardText;
+
+      // Ctrl+V in the pane: works in every context (no Clipboard API
+      // needed) — the browser hands us the pasted text directly.
+      const onPaste = (e: ClipboardEvent) => {
+        const text = e.clipboardData?.getData('text/plain');
+        if (text) sendClipboardText(text, true);
+      };
+      container.addEventListener('paste', onPaste);
+
+      // Seamless path (Chromium + HTTPS): re-read the system clipboard
+      // whenever the user comes back to the page, so the desktop already
+      // holds it when they paste inside the session.
+      const syncFromSystem = () => {
+        if (!canReadSystemClipboard() || !document.hasFocus()) return;
+        navigator.clipboard
+          .readText()
+          .then((text) => sendClipboardText(text))
+          .catch(() => {}); // permission denied: paste event still works
+      };
+      window.addEventListener('focus', syncFromSystem);
+      cleanupClipboard = () => {
+        container.removeEventListener('paste', onPaste);
+        window.removeEventListener('focus', syncFromSystem);
+        sendClipboardRef.current = () => {};
+      };
 
       displayHost.appendChild(client.getDisplay().getElement());
       client.connect();
@@ -189,6 +266,7 @@ export const DesktopPane = forwardRef<
     return () => {
       cancelled = true;
       observer?.disconnect();
+      cleanupClipboard?.();
       if (keyboard) {
         keyboard.onkeydown = null;
         keyboard.onkeyup = null;

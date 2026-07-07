@@ -21,6 +21,29 @@ declare module 'guacamole-common-js' {
       getHeight(): number;
     }
 
+    class InputStream {
+      onblob: ((data64: string) => void) | null;
+      onend: (() => void) | null;
+      sendAck(message: string, code: number): void;
+    }
+
+    class OutputStream {
+      sendBlob(data64: string): void;
+      sendEnd(): void;
+    }
+
+    class StringReader {
+      constructor(stream: InputStream);
+      ontext: ((text: string) => void) | null;
+      onend: (() => void) | null;
+    }
+
+    class StringWriter {
+      constructor(stream: OutputStream);
+      sendText(text: string): void;
+      sendEnd(): void;
+    }
+
     class Client {
       constructor(tunnel: WebSocketTunnel);
       connect(data?: string): void;
@@ -28,8 +51,10 @@ declare module 'guacamole-common-js' {
       getDisplay(): Display;
       sendMouseState(state: Mouse.State): void;
       sendKeyEvent(pressed: number, keysym: number): void;
+      createClipboardStream(mimetype: string): OutputStream;
       onstatechange: ((state: number) => void) | null;
       onerror: ((status: Status) => void) | null;
+      onclipboard: ((stream: InputStream, mimetype: string) => void) | null;
     }
 
     class Mouse {

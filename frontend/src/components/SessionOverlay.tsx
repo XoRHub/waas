@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useProtocolMeta, useSaveRemoteWorkspace, useUpdateProfile } from '@/hooks/useApi';
+import { hasClipboardApi } from '@/lib/clipboard';
 import { useAuthStore } from '@/stores/authStore';
 import { useEscape } from '@/hooks/useEscape';
 import { useProtocolSwitch } from '@/hooks/useProtocolSwitch';
@@ -62,6 +63,13 @@ export function SessionOverlay({
   const [copyOn, setCopyOn] = useState<boolean | null>(null);
   const [pasteOn, setPasteOn] = useState<boolean | null>(null);
   const [paramDraft, setParamDraft] = useState<Record<string, string>>({});
+  // Manual clipboard exchange (the only remote→local path without the
+  // Clipboard API). Refreshed each time the overlay opens.
+  const [receivedClip, setReceivedClip] = useState('');
+  const [clipDraft, setClipDraft] = useState('');
+  useEffect(() => {
+    if (open) setReceivedClip(pane.current?.readRemoteClipboard() ?? '');
+  }, [open, pane]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -248,6 +256,61 @@ export function SessionOverlay({
               deniedReason={t('overlay.deniedByPolicy')}
               onChange={(v) => toggleClipboard('paste', v)}
             />
+
+            {/* Manual exchange: the universal fallback. Remote→local has
+                no other path without the Clipboard API (plain HTTP, or
+                Firefox denying readText); it also makes clipboard flows
+                verifiable regardless of browser permissions. */}
+            <details className="rounded-md bg-slate-800/60 px-3 py-1.5">
+              <summary className="cursor-pointer text-slate-300">
+                {t('overlay.clipboardManual')}
+              </summary>
+              <div className="mt-2 space-y-2">
+                {!hasClipboardApi() && (
+                  <p className="text-[11px] text-amber-300/90">
+                    {t('overlay.clipboardInsecureHint')}
+                  </p>
+                )}
+                <div className="space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                    {t('overlay.clipboardReceived')}
+                  </p>
+                  {effCopy && receivedClip ? (
+                    <textarea
+                      readOnly
+                      value={receivedClip}
+                      rows={3}
+                      onFocus={(e) => e.target.select()}
+                      className="w-full rounded-md bg-slate-950/60 p-2 text-xs text-slate-100"
+                    />
+                  ) : (
+                    <p className="text-[11px] text-slate-500">
+                      {effCopy ? t('overlay.clipboardReceivedEmpty') : t('overlay.deniedByPolicy')}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <textarea
+                    value={clipDraft}
+                    onChange={(e) => setClipDraft(e.target.value)}
+                    placeholder={t('overlay.clipboardSendPlaceholder')}
+                    rows={2}
+                    disabled={!effPaste}
+                    className="w-full rounded-md bg-slate-950/60 p-2 text-xs text-slate-100 disabled:opacity-40"
+                  />
+                  <button
+                    onClick={() => {
+                      pane.current?.sendClipboard(clipDraft);
+                      setClipDraft('');
+                    }}
+                    disabled={!effPaste || clipDraft === ''}
+                    className="w-full rounded-md bg-slate-700/70 px-3 py-1.5 text-left hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {t('overlay.clipboardSend')}
+                  </button>
+                </div>
+              </div>
+            </details>
           </section>
 
           {/* -------- protocol params (reconnect scope) -------- */}
