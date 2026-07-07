@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/xorhub/waas/api-server/internal/repository"
 	"github.com/xorhub/waas/api-server/internal/server"
 	"github.com/xorhub/waas/api-server/internal/service"
+	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/shared/auth"
 )
 
@@ -53,6 +55,15 @@ func run() error {
 		return err
 	}
 
+	// Same startup gate as the operator: an invalid global placement
+	// pattern refuses to start rather than silently falling back — the
+	// two deployments share one Helm values key and must agree.
+	if cfg.DefaultNamespacePattern != "" {
+		if err := naming.ValidatePattern(cfg.DefaultNamespacePattern); err != nil {
+			return fmt.Errorf("invalid WAAS_DEFAULT_NAMESPACE_PATTERN %q: %w", cfg.DefaultNamespacePattern, err)
+		}
+	}
+
 	users := repository.NewSQLUserRepository(db)
 	sessions := repository.NewSQLSessionRepository(db)
 	remotes := repository.NewSQLRemoteWorkspaceRepository(db)
@@ -68,7 +79,9 @@ func run() error {
 	userSvc := service.NewUserService(users, audit)
 	templateSvc := service.NewTemplateService(kube, cfg.WorkspaceNamespace, audit)
 	workspaceSvc := service.NewWorkspaceService(kube, cfg.WorkspaceNamespace, users, sessions, audit, signer,
-		cfg.JWTIssuer, cfg.ConnectionTokenTTL).WithRemoteWorkspaces(remotes)
+		cfg.JWTIssuer, cfg.ConnectionTokenTTL).
+		WithRemoteWorkspaces(remotes).
+		WithDefaultNamespacePattern(cfg.DefaultNamespacePattern)
 	remoteSvc := service.NewRemoteWorkspaceService(kube, cfg.WorkspaceNamespace, users, remotes, sessions,
 		audit, signer, cfg.JWTIssuer, cfg.ConnectionTokenTTL)
 	if relay := service.NewHTTPWoLRelay(cfg.WoL.RelayURL, cfg.WoL.AuthToken); relay != nil {

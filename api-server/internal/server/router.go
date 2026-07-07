@@ -62,6 +62,8 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 
 			r.Route("/workspaces", func(r chi.Router) {
 				r.Get("/", h.Workspaces.List)
+				// Static path before /{id}: resolved placement preview.
+				r.Get("/namespace-preview", h.Workspaces.NamespacePreview)
 				r.Post("/", h.Workspaces.Create)
 				r.Get("/{id}", h.Workspaces.Get)
 				r.Delete("/{id}", h.Workspaces.Delete)
@@ -91,6 +93,7 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 			// frontend derives its forms from, plus schema scaffolds for
 			// the governance YAML editors.
 			r.Get("/meta/protocols", h.Meta.Protocols)
+			r.Get("/meta/placeholders", h.Meta.Placeholders)
 			r.Get("/meta/scaffold/{kind}", h.Meta.Scaffold)
 
 			r.Route("/workspace-templates", func(r chi.Router) {

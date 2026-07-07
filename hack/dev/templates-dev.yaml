@@ -92,11 +92,12 @@ spec:
     - name: VNC_PW
       valueFrom:
         secretKeyRef: { name: dev-ssh-credentials, key: password }
-  # NO placement on purpose: the env above references the
-  # dev-ssh-credentials Secret, which lives in the platform namespace —
-  # pods resolve secretKeyRef in THEIR OWN namespace, so a placed pod
-  # would fail with CreateContainerConfigError. This template also keeps
-  # the legacy same-namespace path exercised end to end.
+  # NO template placement: this template follows the PRECEDENCE CHAIN
+  # (global WAAS_DEFAULT_NAMESPACE_PATTERN, else the built-in
+  # "waas-workspace" shared namespace). The env above references the
+  # dev-ssh-credentials Secret and pods resolve secretKeyRef in THEIR OWN
+  # namespace — hack/dev/seed-ssh-secret.sh clones the Secret into the
+  # default workloads namespace for exactly this reason.
   protocols:
     - name: ssh
       port: 2222

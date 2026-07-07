@@ -20,6 +20,11 @@ type Config struct {
 	DevMode bool
 	// WorkspaceNamespace is where Workspace/WorkspaceTemplate CRs live.
 	WorkspaceNamespace string
+	// DefaultNamespacePattern is the operator-wide workload placement
+	// pattern (template pattern > this > built-in "waas-workspace").
+	// MUST carry the same value as the operator deployment — one Helm
+	// values key feeds both. Only affects NEW workspaces.
+	DefaultNamespacePattern string
 
 	JWTIssuer          string
 	JWTPrivateKeyPath  string
@@ -105,20 +110,21 @@ func (o OIDCConfig) Enabled() bool { return o.IssuerURL != "" && o.ClientID != "
 // Load reads configuration from WAAS_* environment variables.
 func Load() (*Config, error) {
 	cfg := &Config{
-		ListenAddr:         envOr("WAAS_LISTEN_ADDR", ":8080"),
-		DatabaseURL:        os.Getenv("WAAS_DATABASE_URL"),
-		DevMode:            os.Getenv("WAAS_DEV") == "true",
-		WorkspaceNamespace: envOr("WAAS_WORKSPACE_NAMESPACE", "waas-workspaces"),
-		JWTIssuer:          envOr("WAAS_JWT_ISSUER", "waas"),
-		JWTPrivateKeyPath:  os.Getenv("WAAS_JWT_PRIVATE_KEY_FILE"),
-		AccessTokenTTL:     durationOr("WAAS_ACCESS_TOKEN_TTL", 8*time.Hour),
-		ConnectionTokenTTL: durationOr("WAAS_CONNECTION_TOKEN_TTL", 5*time.Minute),
-		InternalToken:      os.Getenv("WAAS_INTERNAL_TOKEN"),
-		AdminUsername:      envOr("WAAS_ADMIN_USERNAME", "admin"),
-		AdminPassword:      os.Getenv("WAAS_ADMIN_PASSWORD"),
-		TLSCertFile:        os.Getenv("WAAS_TLS_CERT_FILE"),
-		TLSKeyFile:         os.Getenv("WAAS_TLS_KEY_FILE"),
-		IdleSweepInterval:  durationOr("WAAS_IDLE_SWEEP_INTERVAL", 5*time.Minute),
+		ListenAddr:              envOr("WAAS_LISTEN_ADDR", ":8080"),
+		DatabaseURL:             os.Getenv("WAAS_DATABASE_URL"),
+		DevMode:                 os.Getenv("WAAS_DEV") == "true",
+		WorkspaceNamespace:      envOr("WAAS_WORKSPACE_NAMESPACE", "waas-workspaces"),
+		DefaultNamespacePattern: os.Getenv("WAAS_DEFAULT_NAMESPACE_PATTERN"),
+		JWTIssuer:               envOr("WAAS_JWT_ISSUER", "waas"),
+		JWTPrivateKeyPath:       os.Getenv("WAAS_JWT_PRIVATE_KEY_FILE"),
+		AccessTokenTTL:          durationOr("WAAS_ACCESS_TOKEN_TTL", 8*time.Hour),
+		ConnectionTokenTTL:      durationOr("WAAS_CONNECTION_TOKEN_TTL", 5*time.Minute),
+		InternalToken:           os.Getenv("WAAS_INTERNAL_TOKEN"),
+		AdminUsername:           envOr("WAAS_ADMIN_USERNAME", "admin"),
+		AdminPassword:           os.Getenv("WAAS_ADMIN_PASSWORD"),
+		TLSCertFile:             os.Getenv("WAAS_TLS_CERT_FILE"),
+		TLSKeyFile:              os.Getenv("WAAS_TLS_KEY_FILE"),
+		IdleSweepInterval:       durationOr("WAAS_IDLE_SWEEP_INTERVAL", 5*time.Minute),
 	}
 	if origins := os.Getenv("WAAS_CORS_ALLOWED_ORIGINS"); origins != "" {
 		cfg.CORSAllowedOrigins = strings.Split(origins, ",")

@@ -18,6 +18,19 @@ func NewWorkspaceHandler(svc *service.WorkspaceService) *WorkspaceHandler {
 	return &WorkspaceHandler{svc: svc}
 }
 
+// NamespacePreview handles GET /api/v1/workspaces/namespace-preview
+// ?template=&displayName= — the namespace a creation WOULD land in for
+// the caller, resolved server-side (the UI displays, never computes).
+func (h *WorkspaceHandler) NamespacePreview(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	namespace, err := h.svc.NamespacePreview(r.Context(), middleware.Actor(r), q.Get("template"), q.Get("displayName"))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, map[string]string{"namespace": namespace})
+}
+
 // List handles GET /api/v1/workspaces.
 func (h *WorkspaceHandler) List(w http.ResponseWriter, r *http.Request) {
 	workspaces, err := h.svc.List(r.Context(), middleware.Actor(r))

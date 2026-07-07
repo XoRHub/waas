@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 
+	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/params"
 )
 
@@ -26,4 +27,12 @@ func (h *MetaHandler) Protocols(w http.ResponseWriter, _ *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	ok(w, out)
+}
+
+// Placeholders handles GET /api/v1/meta/placeholders: the namespace
+// pattern tokens with their sources, straight from the naming engine —
+// the pattern editor's contextual help can never drift from the code.
+func (h *MetaHandler) Placeholders(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	ok(w, naming.Placeholders())
 }

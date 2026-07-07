@@ -41,8 +41,20 @@ type WorkspaceService struct {
 	// in deployments without the feature (older tests, minimal wiring).
 	remotes repository.RemoteWorkspaceRepository
 
+	// defaultNamespacePattern is the operator-wide placement pattern
+	// (WAAS_DEFAULT_NAMESPACE_PATTERN); empty = built-in. Must match the
+	// operator/webhook value (one Helm values key feeds both).
+	defaultNamespacePattern string
+
 	issuer        string
 	connectionTTL time.Duration
+}
+
+// WithDefaultNamespacePattern wires the global placement pattern (same
+// optional-setter style as WithRemoteWorkspaces).
+func (s *WorkspaceService) WithDefaultNamespacePattern(pattern string) *WorkspaceService {
+	s.defaultNamespacePattern = pattern
+	return s
 }
 
 func NewWorkspaceService(kube client.Client, namespace string, users repository.UserRepository,
@@ -162,11 +174,12 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 	}
 
 	// Placement + workload naming are resolved HERE, once, and frozen into
-	// the spec (the webhook enforces immutability and ownership). The
-	// operator only ever reads the resolved values.
+	// the spec (the webhook enforces immutability and ownership; it
+	// recomputes the same precedence chain — template pattern > global
+	// pattern > built-in — so UI display and enforcement cannot diverge).
 	targetNamespace := in.TargetNamespace
 	if targetNamespace == "" {
-		targetNamespace, err = naming.ResolveNamespace(tpl.Spec.PlacementNamespacePattern(), owner.Username, in.DisplayName)
+		targetNamespace, err = s.resolveDefaultNamespace(tpl, owner.Username, in.DisplayName)
 		if err != nil {
 			return nil, apierror.BadRequest(fmt.Sprintf("template placement: %v", err))
 		}
@@ -705,6 +718,37 @@ func policyDenial(err error) (string, bool) {
 		msg = msg[idx:]
 	}
 	return msg, true
+}
+
+// resolveDefaultNamespace applies the placement precedence chain for one
+// creation: template pattern > global pattern > built-in.
+func (s *WorkspaceService) resolveDefaultNamespace(tpl *waasv1alpha1.WorkspaceTemplate, username, displayName string) (string, error) {
+	pattern := naming.EffectivePattern(tpl.Spec.PlacementNamespacePattern(), s.defaultNamespacePattern)
+	return naming.ResolveNamespace(pattern, naming.PatternValues{
+		User:         username,
+		Workspace:    displayName,
+		TemplateName: tpl.Name,
+		OS:           string(tpl.Spec.OS),
+	})
+}
+
+// NamespacePreview resolves the namespace a workspace WOULD land in for
+// the calling user — what the creation dialog and the template editor
+// display. Display-only: creation re-resolves and the webhook re-checks,
+// the UI never computes placement on its own.
+func (s *WorkspaceService) NamespacePreview(ctx context.Context, actor Actor, templateRef, displayName string) (string, error) {
+	owner, err := s.users.FindByID(ctx, actor.ID)
+	if err != nil {
+		return "", apierror.NotFound("user not found")
+	}
+	tpl := &waasv1alpha1.WorkspaceTemplate{}
+	if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: templateRef}, tpl); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", apierror.NotFound(fmt.Sprintf("template %q does not exist", templateRef))
+		}
+		return "", fmt.Errorf("fetching template %s: %w", templateRef, err)
+	}
+	return s.resolveDefaultNamespace(tpl, owner.Username, displayName)
 }
 
 // resolveWorkloadName derives the frozen workload name from the display

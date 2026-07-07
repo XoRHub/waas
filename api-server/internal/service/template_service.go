@@ -276,7 +276,10 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 	// 400s instead of a denied apply.
 	if in.Placement != nil {
 		if in.Placement.Namespace != "" {
-			if _, err := naming.ResolveNamespace(in.Placement.Namespace, "sample-user", "sample-workspace"); err != nil {
+			// Static gate, same as the admission webhook: unknown
+			// placeholders (typos) fail here with a 400, never resolve to
+			// an empty string.
+			if err := naming.ValidatePattern(in.Placement.Namespace); err != nil {
 				return nil, apierror.BadRequest(fmt.Sprintf("placement.namespace: %v", err))
 			}
 		}
