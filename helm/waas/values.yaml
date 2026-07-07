@@ -31,6 +31,20 @@ ingress:
       kind: ClusterIssuer
       name: ""
 
+# Gateway API alternative to ingress. Can be enabled alongside or instead
+# of ingress. TLS is terminated by the Gateway's listener, not here.
+httpRoute:
+  enabled: false
+  # Hostnames to match. Empty = reuse ingress.host.
+  hostnames: []
+  # Gateway(s) this route attaches to. namespace defaults to the release
+  # namespace when empty; sectionName restricts to one listener.
+  parentRefs:
+    - name: ""
+      namespace: ""
+      sectionName: ""
+  annotations: {}
+
 operator:
   replicas: 1
   webhook:
