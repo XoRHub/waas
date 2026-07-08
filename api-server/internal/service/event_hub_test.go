@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,6 +31,38 @@ func assertSilent(t *testing.T, ch <-chan string) {
 	case kind := <-ch:
 		t.Fatalf("expected no event, got %q", kind)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// waitForWatch proves a freshly started RunWatch goroutine is
+// established WITHOUT a time.Sleep race: it applies the sentinel
+// mutation repeatedly until its event lands on the channel (the watch
+// necessarily exists by then), and drains every listed channel so the
+// sentinel events never pollute the caller's assertions.
+func waitForWatch(t *testing.T, mutate func(i int), drain ...<-chan string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for i := 0; ; i++ {
+		if time.Now().After(deadline) {
+			t.Fatal("watch never delivered the sentinel mutation within 5s")
+		}
+		mutate(i)
+		select {
+		case <-drain[0]:
+			// Established. Drain all channels of buffered sentinels.
+			for _, ch := range drain {
+				for {
+					select {
+					case <-ch:
+					default:
+						goto next
+					}
+				}
+			next:
+			}
+			return
+		case <-time.After(150 * time.Millisecond):
+		}
 	}
 }
 
@@ -75,8 +108,23 @@ func TestEventHubRelaysWorkspaceWatch(t *testing.T) {
 
 	sub, cancelSub := hub.Subscribe("owner-1", false)
 	defer cancelSub()
-	// Give the watch a beat to be established before mutating.
-	time.Sleep(100 * time.Millisecond)
+
+	// Sentinel: mutate a dedicated CR until its event proves the watch
+	// is established (no sleep race), then drain before asserting.
+	sentinel := &waasv1alpha1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "watch-sentinel", Namespace: testNS,
+			Labels: map[string]string{ownerLabel: "owner-1"},
+		},
+		Spec: waasv1alpha1.WorkspaceSpec{TemplateRef: "tpl", Owner: "owner-1"},
+	}
+	if err := kube.Create(ctx, sentinel); err != nil {
+		t.Fatal(err)
+	}
+	waitForWatch(t, func(i int) {
+		sentinel.Annotations = map[string]string{"sentinel": fmt.Sprintf("%d", i)}
+		_ = kube.Update(ctx, sentinel)
+	}, sub)
 
 	ws := &waasv1alpha1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -112,7 +160,22 @@ func TestEventHubGenericWatchBroadcastAndOwnerScoping(t *testing.T) {
 	bob, cancelBob := hub.Subscribe("bob", false)
 	defer cancelAlice()
 	defer cancelBob()
-	time.Sleep(100 * time.Millisecond)
+
+	// Sentinel on the BROADCAST kind (templates) — proving that watch is
+	// up also bounds the PVC one (both started together; the PVC
+	// assertions below tolerate ordering anyway since alice receives and
+	// bob must stay silent regardless).
+	sentinel := &waasv1alpha1.WorkspaceTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "watch-sentinel", Namespace: testNS},
+		Spec:       waasv1alpha1.WorkspaceTemplateSpec{DisplayName: "S", OS: waasv1alpha1.OSLinux, Image: "img:s"},
+	}
+	if err := kube.Create(ctx, sentinel); err != nil {
+		t.Fatal(err)
+	}
+	waitForWatch(t, func(i int) {
+		sentinel.Annotations = map[string]string{"sentinel": fmt.Sprintf("%d", i)}
+		_ = kube.Update(ctx, sentinel)
+	}, alice, bob)
 
 	tpl := &waasv1alpha1.WorkspaceTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: testNS},
@@ -127,6 +190,22 @@ func TestEventHubGenericWatchBroadcastAndOwnerScoping(t *testing.T) {
 	if got := recv(t, bob); got != "templates" {
 		t.Fatalf("template changes must broadcast, bob got %q", got)
 	}
+
+	// The PVC watch started with the template one but its establishment
+	// is not ordered: prove it with its own sentinel before asserting.
+	pvcSentinel := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "watch-sentinel-home", Namespace: testNS,
+			Labels: map[string]string{ownerLabel: "alice"},
+		},
+	}
+	if err := kube.Create(ctx, pvcSentinel); err != nil {
+		t.Fatal(err)
+	}
+	waitForWatch(t, func(i int) {
+		pvcSentinel.Annotations = map[string]string{"sentinel": fmt.Sprintf("%d", i)}
+		_ = kube.Update(ctx, pvcSentinel)
+	}, alice, bob)
 
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
