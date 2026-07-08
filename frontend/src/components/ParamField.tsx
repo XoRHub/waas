@@ -99,14 +99,17 @@ export function ParamField({
 /** The registry entries for one protocol, filtered by tier and (optionally)
  * an allow-list of names. */
 export function paramsFor(
-  meta: { name: string; params: ParamMeta[] }[] | undefined,
+  meta: { name: string; params: ParamMeta[] | null }[] | undefined,
   protocol: string,
   tiers: ParamMeta['tier'][],
   allowList?: string[],
 ): ParamMeta[] {
   const entry = meta?.find((m) => m.name === protocol);
   if (!entry) return [];
-  return entry.params.filter(
+  // Defensive on top of the API contract ("params is always an array"):
+  // a protocol without registry entries (kasmvnc) crashed every param
+  // form here when the backend leaked null.
+  return (entry.params ?? []).filter(
     (p) => tiers.includes(p.tier) && (!allowList || allowList.includes(p.name)),
   );
 }

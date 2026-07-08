@@ -24,7 +24,15 @@ type protocolMeta struct {
 func (h *MetaHandler) Protocols(w http.ResponseWriter, _ *http.Request) {
 	out := make([]protocolMeta, 0, 3)
 	for _, proto := range params.Protocols() {
-		out = append(out, protocolMeta{Name: proto, Params: params.ForProtocol(proto)})
+		// Contract: params is ALWAYS an array. kasmvnc has no registry
+		// entries and ForProtocol returns a nil slice, which Go would
+		// serialize as null — that null crashed every param form
+		// (`entry.params.filter`).
+		list := params.ForProtocol(proto)
+		if list == nil {
+			list = []params.Param{}
+		}
+		out = append(out, protocolMeta{Name: proto, Params: list})
 	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	ok(w, out)

@@ -47,3 +47,24 @@ describe('tieredParams', () => {
     expect(advanced.map((x) => x.name)).toEqual(['console']);
   });
 });
+
+describe('paramsFor null-safety (kasmvnc/terminal regression)', () => {
+  // The backend contract says params is always an array, but a nil Go
+  // slice once leaked as null and crashed every param form on kasmvnc
+  // template selection. Every template protocol shape must be safe.
+  const shapes: { label: string; entry: ProtocolMeta }[] = [
+    { label: 'kasmvnc with null params', entry: { name: 'kasmvnc', params: null as unknown as ParamMeta[] } },
+    { label: 'kasmvnc with empty params', entry: { name: 'kasmvnc', params: [] } },
+    { label: 'vnc with params', entry: { name: 'vnc', params: [p('color-depth', 'ui')] } },
+  ];
+  for (const { label, entry } of shapes) {
+    it(`does not throw for ${label}`, () => {
+      const { simple, advanced } = tieredParams([entry], entry.name, undefined);
+      expect(Array.isArray(simple)).toBe(true);
+      expect(Array.isArray(advanced)).toBe(true);
+    });
+  }
+  it('returns [] for a protocol absent from the meta (ssh/rdp fallback)', () => {
+    expect(tieredParams(meta, 'ssh', undefined).simple).toEqual([]);
+  });
+});
