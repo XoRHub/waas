@@ -46,6 +46,9 @@ export interface SessionTarget {
   protocols: TargetProtocol[];
   defaultProtocol: string;
   capabilities: TargetCapabilities;
+  /** Pending template update: the workspace restarts with it at the
+   *  next resume. Workspace kind only. */
+  templateDrifted?: boolean;
 }
 
 export function targetFromWorkspace(ws: Workspace): SessionTarget {
@@ -64,6 +67,7 @@ export function targetFromWorkspace(ws: Workspace): SessionTarget {
     connectUrl: `/workspaces/${ws.id}/connect`,
     protocols,
     defaultProtocol: protocols.find((p) => p.default)?.name ?? ws.protocol ?? '',
+    templateDrifted: ws.templateDrifted,
     capabilities: {
       pause: true,
       wake: false,

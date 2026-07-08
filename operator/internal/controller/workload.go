@@ -2,6 +2,9 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -15,6 +18,17 @@ import (
 	"github.com/xorhub/waas/operator/pkg/metakeys"
 	"github.com/xorhub/waas/operator/pkg/policy"
 )
+
+// annotationPodTemplateHash fingerprints the desired pod template so
+// drift against the live workload is detectable without a field-by-field
+// diff. It hashes the template BEFORE this annotation is added.
+const annotationPodTemplateHash = "waas.xorhub.io/pod-template-hash"
+
+func podTemplateFingerprint(tpl corev1.PodTemplateSpec) string {
+	raw, _ := json.Marshal(tpl)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])[:16]
+}
 
 // buildPodTemplate assembles the desktop pod spec from the template's
 // workload passthrough and the workspace's admitted overrides. The home PVC
@@ -101,15 +115,16 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	}
 
 	labels, annotations := workloadMeta(ws, tpl)
-	// subPath mounts never refresh in place: hashing the config into the
-	// pod template makes a content change roll the workload.
+	// The kasmvnc config is content OUTSIDE the pod spec (a ConfigMap):
+	// its hash rides the annotations so the generic fingerprint below
+	// covers config edits too.
 	if tpl.Spec.KasmVNCConfig != "" {
 		if annotations == nil {
 			annotations = map[string]string{}
 		}
 		annotations[annotationKasmConfigHash] = kasmConfigHash(tpl.Spec.KasmVNCConfig)
 	}
-	return corev1.PodTemplateSpec{
+	built := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      labels,
 			Annotations: annotations,
@@ -148,6 +163,12 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 			Volumes: volumes,
 		},
 	}
+	// Fingerprint of everything above — the drift detector.
+	if built.Annotations == nil {
+		built.Annotations = map[string]string{}
+	}
+	built.Annotations[annotationPodTemplateHash] = podTemplateFingerprint(built)
+	return built
 }
 
 // workloadMeta merges the template's workload metadata and the
@@ -183,7 +204,11 @@ func effectiveProtocol(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTe
 // ensureWorkload reconciles the desktop workload towards the desired
 // replica count (0 when paused, 1 otherwise). It returns whether the
 // desktop is ready to serve — always false while paused.
-func (r *WorkspaceReconciler) ensureWorkload(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, error) {
+// ensureWorkload returns readiness and whether the live workload has
+// DRIFTED from the template (docs/adr/0001: template edits converge at
+// scale-up boundaries only, never mid-session — drifted=true means "a
+// new shape awaits the next resume").
+func (r *WorkspaceReconciler) ensureWorkload(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (ready, drifted bool, err error) {
 	switch tpl.Spec.WorkloadKindOrDefault() {
 	case waasv1alpha1.WorkloadPod:
 		return r.ensurePod(ctx, ws, tpl, pvcName, paused)
@@ -202,35 +227,37 @@ func desiredReplicas(paused bool) int32 {
 	return 1
 }
 
-func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, error) {
+func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, bool, error) {
 	name := computeName(ws)
 	want := desiredReplicas(paused)
 	existing := &appsv1.Deployment{}
 	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
-		// Reconcile the replica count in place (pause/resume): keep the
-		// object, only scale it. The pod template is otherwise create-only
-		// — EXCEPT the kasmvnc config hash: subPath mounts go silently
-		// stale, so a config change is the one template edit that rolls
-		// the workload (same desired-state stance as the ingress netpol).
 		changed := false
+		wasDown := existing.Spec.Replicas == nil || *existing.Spec.Replicas == 0
 		if existing.Spec.Replicas == nil || *existing.Spec.Replicas != want {
 			existing.Spec.Replicas = &want
 			changed = true
 		}
-		if kasmConfigDrifted(existing.Spec.Template.Annotations, tpl) {
-			existing.Spec.Template = r.buildPodTemplate(ctx, ws, tpl, pvcName)
+		// Boundary convergence (docs/adr/0001): template edits reach the
+		// workload only while no session can be killed — scaled to 0 or
+		// about to be. Mid-session, drift is REPORTED, never applied.
+		desired := r.buildPodTemplate(ctx, ws, tpl, pvcName)
+		drifted := existing.Spec.Template.Annotations[annotationPodTemplateHash] != desired.Annotations[annotationPodTemplateHash]
+		if drifted && (wasDown || want == 0) {
+			existing.Spec.Template = desired
 			changed = true
+			drifted = false
 		}
 		if changed {
 			if err := r.Update(ctx, existing); err != nil {
-				return false, fmt.Errorf("updating deployment %s: %w", name, err)
+				return false, false, fmt.Errorf("updating deployment %s: %w", name, err)
 			}
 		}
-		return existing.Status.ReadyReplicas > 0 && !paused, nil
+		return existing.Status.ReadyReplicas > 0 && !paused, drifted, nil
 	}
 	if !apierrors.IsNotFound(err) {
-		return false, fmt.Errorf("fetching deployment %s: %w", name, err)
+		return false, false, fmt.Errorf("fetching deployment %s: %w", name, err)
 	}
 
 	template := r.buildPodTemplate(ctx, ws, tpl, pvcName)
@@ -251,40 +278,44 @@ func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1al
 		},
 	}
 	if err := r.setOwnerIfLocal(ws, dep); err != nil {
-		return false, fmt.Errorf("setting owner on deployment %s: %w", name, err)
+		return false, false, fmt.Errorf("setting owner on deployment %s: %w", name, err)
 	}
 	if err := r.Create(ctx, dep); err != nil && !apierrors.IsAlreadyExists(err) {
-		return false, fmt.Errorf("creating deployment %s: %w", name, err)
+		return false, false, fmt.Errorf("creating deployment %s: %w", name, err)
 	}
-	return false, nil
+	return false, false, nil
 }
 
-func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, error) {
+func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, bool, error) {
 	name := computeName(ws)
 	want := desiredReplicas(paused)
 	existing := &appsv1.StatefulSet{}
 	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
 		changed := false
+		wasDown := existing.Spec.Replicas == nil || *existing.Spec.Replicas == 0
 		if existing.Spec.Replicas == nil || *existing.Spec.Replicas != want {
 			existing.Spec.Replicas = &want
 			changed = true
 		}
-		// See ensureDeployment: the kasmvnc config hash is the one
-		// template edit converged in place.
-		if kasmConfigDrifted(existing.Spec.Template.Annotations, tpl) {
-			existing.Spec.Template = r.buildPodTemplate(ctx, ws, tpl, pvcName)
+		// See ensureDeployment: boundary convergence, drift reported
+		// mid-session (docs/adr/0001).
+		desired := r.buildPodTemplate(ctx, ws, tpl, pvcName)
+		drifted := existing.Spec.Template.Annotations[annotationPodTemplateHash] != desired.Annotations[annotationPodTemplateHash]
+		if drifted && (wasDown || want == 0) {
+			existing.Spec.Template = desired
 			changed = true
+			drifted = false
 		}
 		if changed {
 			if err := r.Update(ctx, existing); err != nil {
-				return false, fmt.Errorf("updating statefulset %s: %w", name, err)
+				return false, false, fmt.Errorf("updating statefulset %s: %w", name, err)
 			}
 		}
-		return existing.Status.ReadyReplicas > 0 && !paused, nil
+		return existing.Status.ReadyReplicas > 0 && !paused, drifted, nil
 	}
 	if !apierrors.IsNotFound(err) {
-		return false, fmt.Errorf("fetching statefulset %s: %w", name, err)
+		return false, false, fmt.Errorf("fetching statefulset %s: %w", name, err)
 	}
 
 	template := r.buildPodTemplate(ctx, ws, tpl, pvcName)
@@ -303,12 +334,12 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 		},
 	}
 	if err := r.setOwnerIfLocal(ws, sts); err != nil {
-		return false, fmt.Errorf("setting owner on statefulset %s: %w", name, err)
+		return false, false, fmt.Errorf("setting owner on statefulset %s: %w", name, err)
 	}
 	if err := r.Create(ctx, sts); err != nil && !apierrors.IsAlreadyExists(err) {
-		return false, fmt.Errorf("creating statefulset %s: %w", name, err)
+		return false, false, fmt.Errorf("creating statefulset %s: %w", name, err)
 	}
-	return false, nil
+	return false, false, nil
 }
 
 // desktopEnv is the container environment: template env with the

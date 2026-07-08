@@ -87,6 +87,22 @@ export function SessionCard({
         </div>
         <div className="flex items-center gap-1">
           {target.capabilities.hasPhase && phase && <StatusBadge phase={phase} />}
+          {target.templateDrifted && (
+            <span className="group relative inline-flex">
+              <span
+                aria-label={t('portal.drift.full')}
+                className="cursor-help rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
+              >
+                {t('portal.drift.badge')}
+              </span>
+              <span
+                role="tooltip"
+                className="pointer-events-none absolute left-1/2 top-full z-30 mt-1 hidden w-64 -translate-x-1/2 rounded-md bg-slate-800 px-3 py-2 text-xs text-white shadow-lg group-hover:block dark:bg-slate-700"
+              >
+                {t('portal.drift.full')}
+              </span>
+            </span>
+          )}
           <div className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}

@@ -28,6 +28,12 @@ const (
 // Condition types set on Workspace.
 const (
 	ConditionReady = "Ready"
+	// ConditionTemplateDrifted says the template changed since this
+	// workspace's workload was (re)built: the new shape applies at the
+	// next scale-up boundary (resume / scheduled uptime), NEVER
+	// mid-session (see docs/adr/0001). The UI surfaces it as a
+	// "will restart with updates" notice.
+	ConditionTemplateDrifted = "TemplateDrifted"
 	// ConditionConnectionReady says the desktop server actually LISTENS
 	// on the default protocol port (TCP probe by the operator) — pod
 	// readiness proves the container is up, not that the desktop
@@ -211,6 +217,7 @@ type WorkspaceProtocolStatus struct {
 // +kubebuilder:resource:shortName=ws
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Drifted",type=string,JSONPath=`.status.conditions[?(@.type=="TemplateDrifted")].status`
 // +kubebuilder:printcolumn:name="Owner",type=string,JSONPath=`.spec.owner`
 // +kubebuilder:printcolumn:name="Template",type=string,JSONPath=`.spec.templateRef`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

@@ -746,6 +746,15 @@ func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTem
 		Protocol:    ws.Status.Protocol,
 		Paused:      ws.Spec.Paused,
 		CreatedAt:   ws.CreationTimestamp.Time,
+		TemplateDrifted: func() bool {
+			for i := range ws.Status.Conditions {
+				c := &ws.Status.Conditions[i]
+				if c.Type == waasv1alpha1.ConditionTemplateDrifted {
+					return c.Status == metav1.ConditionTrue
+				}
+			}
+			return false
+		}(),
 
 		Namespace:    ws.Spec.TargetNamespace,
 		WorkloadName: ws.Spec.WorkloadName,

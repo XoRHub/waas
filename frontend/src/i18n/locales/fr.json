@@ -102,6 +102,10 @@
       "message": "Message",
       "object": "Objet",
       "age": "Âge"
+    },
+    "drift": {
+      "badge": "mise à jour en attente",
+      "full": "Le modèle de ce workspace a été mis à jour. Le bureau redémarrera avec la nouvelle version à sa prochaine reprise (pause/reprise ou arrêt planifié)."
     }
   },
   "remote": {

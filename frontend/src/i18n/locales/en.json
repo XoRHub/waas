@@ -102,6 +102,10 @@
       "message": "Message",
       "object": "Object",
       "age": "Age"
+    },
+    "drift": {
+      "badge": "update pending",
+      "full": "This workspace's template was updated. The desktop will restart with the new version the next time it resumes (pause/resume or scheduled downtime)."
     }
   },
   "remote": {

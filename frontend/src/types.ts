@@ -116,6 +116,9 @@ export interface Workspace {
   protocols?: WorkspaceProtocol[];
   schedule?: WorkspaceSchedule;
   nextTransition?: ScheduledTransition;
+  /** The template changed since this workspace started: it will restart
+   *  with the new shape at its next resume (docs/adr/0001). */
+  templateDrifted?: boolean;
   /** The user-state volume, for the deletion dialog. */
   homeVolume?: { name: string; size?: string };
 }

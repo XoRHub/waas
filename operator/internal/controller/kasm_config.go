@@ -79,14 +79,3 @@ func (r *WorkspaceReconciler) ensureKasmConfig(ctx context.Context, ws *waasv1al
 	}
 	return nil
 }
-
-// kasmConfigDrifted compares a live pod template's config hash with the
-// template's desired one ("" both when the feature is unused, so
-// non-kasm workloads never drift).
-func kasmConfigDrifted(podAnnotations map[string]string, tpl *waasv1alpha1.WorkspaceTemplate) bool {
-	want := ""
-	if tpl.Spec.KasmVNCConfig != "" {
-		want = kasmConfigHash(tpl.Spec.KasmVNCConfig)
-	}
-	return podAnnotations[annotationKasmConfigHash] != want
-}

@@ -194,6 +194,11 @@ type Workspace struct {
 	Schedule *waasv1alpha1.WorkspaceSchedule `json:"schedule,omitempty"`
 	// NextTransition is the next planned lifecycle change (from status).
 	NextTransition *ScheduledTransition `json:"nextTransition,omitempty"`
+	// TemplateDrifted: the template changed since this workspace's
+	// workload was built; the new shape applies at the next resume
+	// (docs/adr/0001) — the card shows a "will restart with updates"
+	// notice.
+	TemplateDrifted bool `json:"templateDrifted,omitempty"`
 	// HomeVolume describes the user-state volume, for the deletion
 	// dialog ("volume X (10Gi) will be deleted — keep it?").
 	HomeVolume *HomeVolumeInfo `json:"homeVolume,omitempty"`
