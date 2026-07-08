@@ -1,7 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": "Monorepo config (supersedes the former waas-images/renovate.json): Dockerfiles, CI job images across .gitlab-ci.yml + .gitlab/ci/, tool pins in scripts and Makefiles.",
-  "extends": ["config:recommended", "docker:pinDigests"],
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigests"
+  ],
   "gitlabci": {
     "managerFilePatterns": [
       "/\\.gitlab-ci\\.ya?ml$/",
@@ -26,6 +30,15 @@
       ],
       "matchStrings": [
         "(?<depName>[a-z0-9.\\/-]+\\/(?:binfmt|trivy|cosign|buildkit)):(?<currentValue>v?[a-zA-Z0-9.-]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Container tools run via `docker run` in GitHub workflows (gitleaks, kubeconform, hadolint).",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "(?<depName>[a-z0-9.\\/-]+\\/(?:gitleaks|kubeconform|hadolint)):(?<currentValue>v?[a-zA-Z0-9.-]+)"
       ],
       "datasourceTemplate": "docker"
     },

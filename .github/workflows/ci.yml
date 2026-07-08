@@ -1,67 +1,404 @@
+# WaaS monorepo pipeline — GitHub is the canonical home (GitLab is
+# transitional; its pipeline stays untouched until it is retired).
+# Full picture in docs/ci-github.md.
+#
+#   PR:    selective per-component gates (dorny/paths-filter mirrors the
+#          .gitlab/ci/rules.yml change scopes) — lint + tests + security
+#          + image builds (NOT pushed, amd64 scanned locally)
+#   main:  same gates, ALL images built and pushed as <short-sha>
+#          (+ moving `main` tag) — a release PROMOTES the images of the
+#          released SHA, so every main commit must carry the full set
+#   release: release-please (manifest mode) runs at the END of the main
+#          pipeline; when its release PR merges it tags vX.Y.Z and the
+#          promote job re-tags the already-built-and-scanned <short-sha>
+#          manifest lists — never a rebuild — then cosign-signs the
+#          digests (keyless OIDC) and appends the digest table to the
+#          GitHub Release. Chaining promotion in the SAME workflow run
+#          (gated on the release_created output) sidesteps the
+#          GITHUB_TOKEN anti-recursion rule — no PAT/App needed — and
+#          guarantees the <short-sha> images exist before promotion.
+#
+# Multi-arch: one native amd64 leg (ubuntu-latest) + one arm64 leg whose
+# runner is picked by the WAAS_BUILD_STRATEGY repository variable:
+#   native → ubuntu-24.04-arm (free on public repos)
+#   anything else / unset → ubuntu-latest under QEMU (safe default)
+# A merge job assembles the manifest list, exactly like the GitLab side.
+#
+# Actions are pinned by commit SHA (Renovate: helpers:pinGitHubActionDigests).
+
 name: ci
 
 on:
+  pull_request:
   push:
     branches: [main]
-    tags: ["v*"]
-  pull_request:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  # Cancel superseded PR runs; never cancel main (promotion source).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  REGISTRY: ghcr.io
+
 jobs:
-  go:
+  # ------------------------------------------------------------------
+  # Path filtering. PR pipelines are selective; push pipelines on main
+  # force EVERYTHING (build-all invariant: release promotion needs the
+  # complete image set at any taggable SHA).
+  # ------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      go_lint: ${{ steps.plan.outputs.go_lint }}
+      go_test: ${{ steps.plan.outputs.go_test }}
+      images: ${{ steps.plan.outputs.images }}
+      frontend: ${{ steps.plan.outputs.frontend }}
+      helm: ${{ steps.plan.outputs.helm }}
+      drift: ${{ steps.plan.outputs.drift }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # Change scopes mirror .gitlab/ci/rules.yml and follow the REAL
+      # dependency graph (go.mod replace directives):
+      #   api-server -> operator + shared, wwt -> shared,
+      #   test/smoke -> operator, operator self-contained.
+      # &ci is the global-rebuild trap: shared CI config changes retrigger
+      # every scope. Keep it FIRST in every list.
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            ci: &ci
+              - '.github/workflows/**'
+            go-global: &go-global
+              - *ci
+              - 'go.work'
+              - 'go.work.sum'
+              - '.golangci.yml'
+            shared:
+              - *go-global
+              - 'shared/**'
+            operator:
+              - *go-global
+              - 'operator/**'
+            api-server:
+              - *go-global
+              - 'api-server/**'
+            wwt:
+              - *go-global
+              - 'wwt/**'
+            smoke:
+              - *go-global
+              - 'test/smoke/**'
+            frontend:
+              - *ci
+              - 'frontend/**'
+            helm:
+              - *ci
+              - 'helm/**'
+              - 'gitops/**'
+              - 'hack/dev/*.yaml'
+              - 'hack/ci/**'
+              - 'operator/api/**'
+              - 'operator/config/**'
+            image-operator:
+              - *ci
+              - 'operator/**'
+            # api-server's Dockerfile copies shared/ + operator/{api,pkg}.
+            image-api-server:
+              - *ci
+              - 'api-server/**'
+              - 'shared/**'
+              - 'operator/api/**'
+              - 'operator/pkg/**'
+              - 'operator/go.mod'
+              - 'operator/go.sum'
+            # wwt's Dockerfile copies shared/.
+            image-wwt:
+              - *ci
+              - 'wwt/**'
+              - 'shared/**'
+            image-frontend:
+              - *ci
+              - 'frontend/**'
+      - name: Compose job matrices
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          F_SHARED: ${{ steps.filter.outputs.shared }}
+          F_OPERATOR: ${{ steps.filter.outputs.operator }}
+          F_API: ${{ steps.filter.outputs.api-server }}
+          F_WWT: ${{ steps.filter.outputs.wwt }}
+          F_SMOKE: ${{ steps.filter.outputs.smoke }}
+          F_FRONTEND: ${{ steps.filter.outputs.frontend }}
+          F_HELM: ${{ steps.filter.outputs.helm }}
+          F_IMG_OPERATOR: ${{ steps.filter.outputs.image-operator }}
+          F_IMG_API: ${{ steps.filter.outputs.image-api-server }}
+          F_IMG_WWT: ${{ steps.filter.outputs.image-wwt }}
+          F_IMG_FRONTEND: ${{ steps.filter.outputs.image-frontend }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "push" ]; then
+            # main: full pipeline, no exceptions (promotion invariant).
+            F_SHARED=true F_OPERATOR=true F_API=true F_WWT=true F_SMOKE=true
+            F_FRONTEND=true F_HELM=true
+            F_IMG_OPERATOR=true F_IMG_API=true F_IMG_WWT=true F_IMG_FRONTEND=true
+          fi
+
+          LINT=() ; TEST=()
+          [ "$F_SHARED" = "true" ] && { LINT+=(shared); TEST+=(shared); }
+          [ "$F_OPERATOR" = "true" ] && { LINT+=(operator); TEST+=(operator); }
+          # Dependents: a change in a dependency re-gates the dependent.
+          if [ "$F_API" = "true" ] || [ "$F_SHARED" = "true" ] || [ "$F_OPERATOR" = "true" ]; then
+            LINT+=(api-server); TEST+=(api-server)
+          fi
+          if [ "$F_WWT" = "true" ] || [ "$F_SHARED" = "true" ]; then
+            LINT+=(wwt); TEST+=(wwt)
+          fi
+          # test/smoke is lint-only: its tests need a live cluster.
+          if [ "$F_SMOKE" = "true" ] || [ "$F_OPERATOR" = "true" ]; then
+            LINT+=(test/smoke)
+          fi
+
+          to_json() {
+            # ${arr[@]:-} yields one empty arg for an empty array: drop it.
+            if [ "$#" -eq 0 ]; then echo '[]'; else printf '%s\n' "$@" | jq -cRn '[inputs | select(length > 0)]'; fi
+          }
+          echo "go_lint=$(to_json "${LINT[@]:-}")" >> "$GITHUB_OUTPUT"
+          echo "go_test=$(to_json "${TEST[@]:-}")" >> "$GITHUB_OUTPUT"
+
+          img() { [ "$4" = "true" ] && printf '{"name":"%s","context":"%s","dockerfile":"%s"}\n' "$1" "$2" "$3" || true; }
+          {
+            img operator   operator operator/Dockerfile   "$F_IMG_OPERATOR"
+            img api-server .        api-server/Dockerfile "$F_IMG_API"
+            img wwt        .        wwt/Dockerfile        "$F_IMG_WWT"
+            img frontend   frontend frontend/Dockerfile   "$F_IMG_FRONTEND"
+          } | jq -cs . | sed 's/^/images=/' >> "$GITHUB_OUTPUT"
+
+          echo "frontend=${F_FRONTEND}" >> "$GITHUB_OUTPUT"
+          echo "helm=${F_HELM}" >> "$GITHUB_OUTPUT"
+          echo "drift=${F_OPERATOR}" >> "$GITHUB_OUTPUT"
+
+  # ------------------------------------------------------------------
+  # Go gates, matrix scoped per module by the changes job.
+  # ------------------------------------------------------------------
+  go-lint:
+    needs: changes
+    if: needs.changes.outputs.go_lint != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        module: [shared, operator, api-server, wwt]
+        module: ${{ fromJson(needs.changes.outputs.go_lint) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: ${{ matrix.module }}/go.mod
           cache-dependency-path: ${{ matrix.module }}/go.sum
-      - name: Build
-        working-directory: ${{ matrix.module }}
-        run: go build ./...
-      - name: Vet
-        working-directory: ${{ matrix.module }}
-        run: go vet ./...
+      - uses: golangci/golangci-lint-action@d583c34f0599d37dbac4a198b9c83201be380893 # v9.3.0
+        with:
+          version: v2.12.2 # keep >= the modules' go directive (see .gitlab/ci/go.yml)
+          working-directory: ${{ matrix.module }}
+
+  go-test:
+    needs: changes
+    if: needs.changes.outputs.go_test != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJson(needs.changes.outputs.go_test) }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
       - name: Test
         working-directory: ${{ matrix.module }}
-        run: go test -race ./...
+        run: |
+          go test -race -covermode=atomic -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tail -n 1
 
-  frontend:
+  # zz_generated.deepcopy.go, CRDs and docs/guacd-parameters.md are
+  # generated and committed; regenerating must be a no-op.
+  go-generated-drift:
+    needs: changes
+    if: needs.changes.outputs.drift == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          node-version: 22
+          go-version-file: operator/go.mod
+          cache-dependency-path: operator/go.sum
+      - run: make generate manifests docs-params
+      - run: git diff --exit-code -- operator helm/waas/crds docs
+
+  # ------------------------------------------------------------------
+  # Frontend gates (tsc -b is the lint gate — no eslint config yet).
+  # ------------------------------------------------------------------
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22.17.0
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install
-        working-directory: frontend
-        run: npm ci
-      - name: Build (typecheck + bundle)
-        working-directory: frontend
-        run: npm run build
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Test with coverage
+        # Coverage provider installed --no-save at the locked vitest
+        # version so the lockfile stays untouched (see .gitlab/ci/frontend.yml).
+        run: |
+          npm install --no-save "@vitest/coverage-v8@$(node -p "require('vitest/package.json').version")"
+          npx vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=text-summary
 
-  helm:
+  # ------------------------------------------------------------------
+  # Kubernetes manifest gates: chart lints and renders, every rendered
+  # object + gitops/ seed validates against a schema — including our own
+  # CRs, whose JSON Schemas derive from THIS commit's CRDs.
+  # ------------------------------------------------------------------
+  helm-manifests:
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
-      - name: Lint chart
-        run: helm lint helm/waas
-      - name: Render chart
-        run: helm template waas helm/waas > /dev/null
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.17.3
+      - name: Lint and render
+        run: |
+          helm lint helm/waas
+          helm template waas helm/waas > rendered-default.yaml
+          helm template waas helm/waas -f hack/dev/values-dev.yaml > rendered-dev.yaml
+      - name: CRDs to JSON Schemas
+        run: |
+          pip install pyyaml==6.0.2
+          python3 hack/ci/crd_to_jsonschema.py helm/waas/crds crd-schemas
+      - name: kubeconform
+        # -skip CustomResourceDefinition: no usable upstream schema for the
+        # CRD kind itself; CRDs are drift-checked and every CR validates
+        # against them here (see .gitlab/ci/manifests.yml).
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work \
+            ghcr.io/yannh/kubeconform:v0.6.7-alpine \
+            -strict -summary \
+            -skip CustomResourceDefinition \
+            -schema-location default \
+            -schema-location 'crd-schemas/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+            rendered-default.yaml rendered-dev.yaml \
+            gitops/governance/images.yaml gitops/governance/policies.yaml
 
-  # Multi-arch images to ghcr.io, only on main and version tags.
-  images:
+  # ------------------------------------------------------------------
+  # Blocking security gates — unconditional on every PR and main push:
+  # a gate that can be skipped by touching the "right" files is not a gate.
+  # ------------------------------------------------------------------
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: gitleaks (working-tree scan)
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 dir /repo --redact --verbose
+      - name: trivy fs (go.mod + package-lock.json vulnerability gate)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: hadolint
+        # waas-images/ Dockerfiles are out of scope here (their pipeline
+        # is not ported to GitHub yet — docs/ci-github.md).
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work hadolint/hadolint:2.12.0-alpine \
+            hadolint --failure-threshold warning \
+            operator/Dockerfile api-server/Dockerfile wwt/Dockerfile frontend/Dockerfile
+      - name: shellcheck
+        # Globs kept in sync with .gitlab/ci/manifests.yml; drop the
+        # .gitlab/ glob when the GitLab pipeline is retired.
+        run: shellcheck -S warning .gitlab/ci/*.sh hack/dev/*.sh hack/*.sh
+
+  # ------------------------------------------------------------------
+  # Image builds: one native amd64 leg + one arm64 leg (native runner or
+  # QEMU, per WAAS_BUILD_STRATEGY). PR: build only (nothing pushed, the
+  # amd64 image is scanned locally). main: push <short-sha>-<arch>, then
+  # merge assembles the manifest list. Builds run in parallel with the
+  # test gates (same DAG philosophy as GitLab: an ephemeral PR image with
+  # failing tests keeps the pipeline red; blocking gates for RELEASED
+  # bits are on main).
+  # ------------------------------------------------------------------
+  build-images:
+    needs: changes
+    if: needs.changes.outputs.images != '[]'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJson(needs.changes.outputs.images) }}
+        arch: [amd64, arm64]
+    runs-on: ${{ (matrix.arch == 'arm64' && vars.WAAS_BUILD_STRATEGY == 'native') && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: vars
+        run: |
+          echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        if: matrix.arch == 'arm64' && vars.WAAS_BUILD_STRATEGY != 'native'
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        if: github.event_name == 'push'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ${{ matrix.component.context }}
+          file: ${{ matrix.component.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          # provenance would wrap the per-arch tag in an attestation
+          # manifest list and confuse the imagetools merge.
+          provenance: false
+          tags: ${{ env.REGISTRY }}/${{ steps.vars.outputs.repo }}/${{ matrix.component.name }}:${{ steps.vars.outputs.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.component.name }}-${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.component.name }}-${{ matrix.arch }},mode=max,ignore-error=true
+      - name: Scan image (PR gate — on main the merged manifest is scanned)
+        if: github.event_name == 'pull_request' && matrix.arch == 'amd64'
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ steps.vars.outputs.repo }}/${{ matrix.component.name }}:${{ steps.vars.outputs.sha }}-${{ matrix.arch }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+  merge-manifests:
+    needs: [changes, build-images]
     if: github.event_name == 'push'
-    needs: [go, frontend, helm]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -69,43 +406,148 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: operator
-            context: operator
-            dockerfile: operator/Dockerfile
-          - name: api-server
-            context: .
-            dockerfile: api-server/Dockerfile
-          - name: wwt
-            context: .
-            dockerfile: wwt/Dockerfile
-          - name: frontend
-            context: frontend
-            dockerfile: frontend/Dockerfile
+        component: ${{ fromJson(needs.changes.outputs.images) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v5
-        id: meta
+      - name: Assemble manifest list
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA::7}"
+          IMAGE="$REGISTRY/${GITHUB_REPOSITORY,,}/${{ matrix.component.name }}"
+          docker buildx imagetools create -t "$IMAGE:$SHORT" "$IMAGE:$SHORT-amd64" "$IMAGE:$SHORT-arm64"
+          # Moving `main` tag: convenience pointer for dev clusters, never
+          # a deploy reference (ArgoCD pins release tags/digests).
+          docker buildx imagetools create -t "$IMAGE:main" "$IMAGE:$SHORT"
+
+  scan-images:
+    needs: [changes, merge-manifests]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJson(needs.changes.outputs.images) }}
+    steps:
+      - id: vars
+        run: |
+          echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.name }}
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=sha
-      - uses: docker/build-push-action@v6
+          image-ref: ${{ env.REGISTRY }}/${{ steps.vars.outputs.repo }}/${{ matrix.component.name }}:${{ steps.vars.outputs.sha }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+  # ------------------------------------------------------------------
+  # Release. release-please (manifest mode, SemVer, conventional commits)
+  # maintains a release PR; merging it lands the version bump (Chart.yaml
+  # via extra-files) and, on THAT main run, creates tag vX.Y.Z + the
+  # GitHub Release — then promote re-tags this run's freshly pushed
+  # <short-sha> images. needs: gates release-please on the full green
+  # pipeline, so a tag can only ever point at a releasable SHA.
+  # ------------------------------------------------------------------
+  release-please:
+    needs: [go-lint, go-test, go-generated-drift, frontend, helm-manifests, security, scan-images]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        id: rp
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Promotion of already-tested artifacts, never a rebuild (mirror of
+  # .gitlab/ci/release.yml): verify -> re-tag -> keyless cosign -> digest
+  # table appended to the Release notes. Signing verification:
+  #   cosign verify \
+  #     --certificate-identity-regexp 'https://github.com/<owner>/<repo>/\.github/workflows/ci\.yml@.*' \
+  #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  #     <image>@<digest>
+  promote:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # edit the Release notes
+      packages: write  # push the vX.Y.Z tags
+      id-token: write  # keyless cosign (Fulcio/Rekor)
+    env:
+      COMPONENTS: operator api-server wwt frontend
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Verify promotion preconditions
+        run: |
+          set -euo pipefail
+          V="${TAG#v}"
+          SHORT="${GITHUB_SHA::7}"
+          # The chart at the released SHA must reference the release (the
+          # git tag is what ArgoCD deploys; image tag defaults to
+          # appVersion). release-please bumps both lines via the
+          # x-release-please markers in Chart.yaml — this guards against
+          # the markers being dropped.
+          grep -Eq "^version:[[:space:]]*${V}[[:space:]]*$" helm/waas/Chart.yaml \
+            || { echo "FATAL Chart.yaml 'version' must be ${V} at ${TAG}"; exit 1; }
+          grep -Eq "^appVersion:[[:space:]]*\"${TAG}\"[[:space:]]*$" helm/waas/Chart.yaml \
+            || { echo "FATAL Chart.yaml 'appVersion' must be \"${TAG}\""; exit 1; }
+          for c in $COMPONENTS; do
+            IMAGE="$REGISTRY/${GITHUB_REPOSITORY,,}/$c"
+            docker buildx imagetools inspect "$IMAGE:$SHORT" >/dev/null \
+              || { echo "FATAL $IMAGE:$SHORT not found — promotion source missing"; exit 1; }
+            # Release tags are immutable; tolerate an identical re-run
+            # (idempotent retry after a partial failure).
+            if docker buildx imagetools inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
+              SRC=$(docker buildx imagetools inspect "$IMAGE:$SHORT" --format '{{.Manifest.Digest}}')
+              DST=$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{.Manifest.Digest}}')
+              [ "$SRC" = "$DST" ] \
+                || { echo "FATAL $IMAGE:$TAG already exists with a DIFFERENT digest — release tags are immutable"; exit 1; }
+            fi
+          done
+      - name: Promote and sign
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA::7}"
+          printf '\n## Images\n\n| Composant | Image (digest) |\n|---|---|\n' > release-images.md
+          for c in $COMPONENTS; do
+            IMAGE="$REGISTRY/${GITHUB_REPOSITORY,,}/$c"
+            docker buildx imagetools create -t "$IMAGE:$TAG" "$IMAGE:$SHORT"
+            DIGEST=$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{.Manifest.Digest}}')
+            cosign sign --yes \
+              -a version="$TAG" -a revision="$GITHUB_SHA" \
+              "$IMAGE@$DIGEST"
+            printf '| %s | `%s@%s` |\n' "$c" "$IMAGE" "$DIGEST" >> release-images.md
+          done
+      - name: Append digest table to the Release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --json body -q .body > notes.md
+          cat release-images.md >> notes.md
+          gh release edit "$TAG" --notes-file notes.md

@@ -5,8 +5,14 @@ description: >-
   and Windows (RDP via KubeVirt) desktops, declared as Kubernetes resources.
   The only external prerequisite is cert-manager.
 type: application
+# Bumped by release-please (extra-files block markers). The updater only
+# rewrites the numeric version inside the block, so the "v" prefix of
+# appVersion (= default image tag, matching the promoted vX.Y.Z image
+# tags) is preserved. Keep kubeVersion & friends OUTSIDE the block.
+# x-release-please-start-version
 version: 0.1.0
-appVersion: "0.1.0"
+appVersion: "v0.1.0"
+# x-release-please-end
 kubeVersion: ">=1.26.0-0"
 home: https://github.com/xorhub/waas
 sources:
