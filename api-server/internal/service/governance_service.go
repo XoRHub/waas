@@ -545,7 +545,10 @@ func (s *GovernanceService) AdminEffectivePolicy(ctx context.Context, userID str
 	out := &model.EffectivePolicy{
 		UserID:   user.ID,
 		Username: user.Username,
-		Groups:   user.Groups,
+		// Both non-nil guaranteed (see the model markers): the debug
+		// report's consumers iterate them unguarded.
+		Groups:    append([]string{}, user.Groups...),
+		Evaluated: []model.EvaluatedPolicy{},
 	}
 	pol, warnings, denial := policy.Resolve(policies.Items, id)
 	out.Warnings = warnings

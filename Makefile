@@ -48,6 +48,13 @@ generate manifests:
 docs-params:
 	cd operator && go run ./cmd/paramsdoc ../docs/guacd-parameters.md
 
+# Generated TypeScript API models (tygo): api-server/internal/model is
+# the single source of the frontend types (frontend/src/types.gen.ts,
+# facade in types.ts). Drift-checked in CI like the CRDs.
+generate-types:
+	cd api-server && go run github.com/gzuidhof/tygo@v0.2.21 generate
+	cd frontend && npx prettier --write src/types.gen.ts
+
 frontend-build:
 	cd frontend && npm ci && npm run build
 

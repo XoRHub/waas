@@ -239,8 +239,8 @@ jobs:
         with:
           go-version-file: operator/go.mod
           cache-dependency-path: operator/go.sum
-      - run: make generate manifests docs-params
-      - run: git diff --exit-code -- operator helm/waas/crds docs
+      - run: make generate manifests docs-params generate-types
+      - run: git diff --exit-code -- operator helm/waas/crds docs frontend/src/types.gen.ts
 
   # ------------------------------------------------------------------
   # Frontend gates (tsc -b is the lint gate — no eslint config yet).

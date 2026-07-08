@@ -50,7 +50,7 @@ type User struct {
 	// Groups mirrors the IdP OIDC groups claim: admin-editable
 	// until SSO login refreshes it automatically. Drives WorkspacePolicy
 	// and WorkspaceImage group matching.
-	Groups []string `json:"groups"`
+	Groups []string `json:"groups,omitempty"`
 	// Preferences is self-service UI state, editable via PATCH /me.
 	Preferences UserPreferences `json:"preferences"`
 }
@@ -318,7 +318,7 @@ type CatalogImage struct {
 	TagPolicy string `json:"tagPolicy,omitempty"`
 	// ImagePullSecretRef names the registry pull-credentials Secret.
 	ImagePullSecretRef string            `json:"imagePullSecretRef,omitempty"`
-	Protocols          []string          `json:"protocols"`
+	Protocols          []string          `json:"protocols,omitempty"`
 	Architectures      []string          `json:"architectures,omitempty"`
 	Enabled            bool              `json:"enabled"`
 	AllowedGroups      []string          `json:"allowedGroups,omitempty"`
@@ -377,6 +377,9 @@ type PolicyModel struct {
 
 // PolicyOverridesModel mirrors the CRD overrides block.
 type PolicyOverridesModel struct {
+	// AllowedFields: the EMPTY list is semantic (every override
+	// forbidden) and must serialize as [] — non-nil guaranteed by
+	// policyToModel.
 	AllowedFields []string `json:"allowedFields"`
 }
 
@@ -407,8 +410,11 @@ type PolicyLimitsModel struct {
 type EffectivePolicy struct {
 	UserID   string   `json:"userId"`
 	Username string   `json:"username"`
-	Groups   []string `json:"groups"`
+	// Groups: non-nil guaranteed by EffectivePolicyOf's construction.
+	Groups []string `json:"groups"`
 	// Evaluated lists every policy in resolution order (priority desc).
+	// non-nil guaranteed at construction (the report page iterates it
+	// unguarded).
 	Evaluated []EvaluatedPolicy `json:"evaluated"`
 	// Effective is the winning policy, absent when nothing matches
 	// (fail-closed: the user cannot create workspaces at all).

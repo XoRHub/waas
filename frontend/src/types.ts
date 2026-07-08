@@ -1,4 +1,37 @@
-export type Role = 'admin' | 'user';
+// Facade over the API types. The app imports from '@/types' only:
+//  - types.gen.ts   — GENERATED from api-server/internal/model (tygo,
+//                     `make generate-types`, drift-checked in CI);
+//  - types.manual.ts — hand-curated k8s passthrough shapes + Role;
+//  - below          — types not yet migrated to generation (see the
+//                     migration plan in the T8 commit).
+import type {
+  EnvVar,
+  Role,
+  WorkspacePlacement,
+  WorkspaceSchedule,
+  WorkspaceWorkload,
+} from './types.manual';
+import type {
+  QuotaStatus,
+  ScheduledTransition,
+  SessionCapabilities,
+  Workspace,
+  WorkspaceEvent,
+  WorkspaceProtocol,
+} from './types.gen';
+export type {
+  EnvVar,
+  Role,
+  WorkspacePlacement,
+  WorkspaceSchedule,
+  WorkspaceWorkload,
+  QuotaStatus,
+  ScheduledTransition,
+  SessionCapabilities,
+  Workspace,
+  WorkspaceEvent,
+  WorkspaceProtocol,
+};
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -45,33 +78,6 @@ export interface User {
 export type WorkspacePhase =
   'Pending' | 'Provisioning' | 'Running' | 'Paused' | 'Stopped' | 'Failed' | 'Terminating';
 
-/** Uptime/downtime schedule (cron), timezone-explicit. */
-export interface WorkspaceSchedule {
-  timezone?: string;
-  uptime?: string[];
-  downtime?: string[];
-}
-
-/** Next planned lifecycle change of a workspace. */
-export interface ScheduledTransition {
-  /** RFC3339 instant. */
-  time: string;
-  /** true = start (uptime) edge, false = stop (downtime) edge. */
-  up: boolean;
-}
-
-/** One connection option of a workspace, with its user-tunable guacd params. */
-export interface WorkspaceProtocol {
-  name: string;
-  port?: number;
-  default?: boolean;
-  /** Template-locked guacd params (template views only). */
-  params?: Record<string, string>;
-  userParams?: string[];
-  /** Name of the credentials Secret (reference only). */
-  credentialsSecretRef?: string;
-}
-
 // ---- Platform metadata (GET /api/v1/meta/protocols) ----
 // The guacd parameter registry, served verbatim from the operator's
 // single source of truth; every form derives from it.
@@ -96,31 +102,6 @@ export interface ParamMeta {
 export interface ProtocolMeta {
   name: string;
   params: ParamMeta[];
-}
-
-export interface Workspace {
-  id: string;
-  name: string;
-  displayName?: string;
-  templateRef: string;
-  ownerId: string;
-  phase: WorkspacePhase;
-  os?: string;
-  protocol?: string;
-  paused: boolean;
-  message?: string;
-  createdAt: string;
-  /** Frozen workloads namespace; empty = platform namespace (legacy). */
-  namespace?: string;
-  workloadName?: string;
-  protocols?: WorkspaceProtocol[];
-  schedule?: WorkspaceSchedule;
-  nextTransition?: ScheduledTransition;
-  /** The template changed since this workspace started: it will restart
-   *  with the new shape at its next resume (docs/adr/0001). */
-  templateDrifted?: boolean;
-  /** The user-state volume, for the deletion dialog. */
-  homeVolume?: { name: string; size?: string };
 }
 
 /** A home volume kept from a deleted workspace: still owned by the user
@@ -168,16 +149,6 @@ export interface WorkspaceTemplate {
   placement?: WorkspacePlacement;
 }
 
-/** Workload placement block of a template (CR shape verbatim). */
-export interface WorkspacePlacement {
-  /** Namespace pattern ({user}, {workspace}, {templateName}, {os}). */
-  namespace?: string;
-  namespaceLabels?: Record<string, string>;
-  namespaceAnnotations?: Record<string, string>;
-  /** '' | 'Retain' | 'DeleteWhenEmpty' */
-  cleanup?: string;
-}
-
 export interface AuditLog {
   id: string;
   occurredAt: string;
@@ -205,25 +176,6 @@ export interface LoginResult {
   accessToken: string;
   expiresAt: string;
   user: User;
-}
-
-/** What the user's policy allows in-session — the overlay reflects it,
- * the proxy enforces it. */
-export interface SessionCapabilities {
-  clipboardCopy: boolean;
-  clipboardPaste: boolean;
-}
-
-/** One aggregated Kubernetes event of a workspace (CR or child). */
-export interface WorkspaceEvent {
-  type: 'Normal' | 'Warning';
-  reason: string;
-  message: string;
-  objectKind: string;
-  objectName: string;
-  count: number;
-  firstSeen: string;
-  lastSeen: string;
 }
 
 export interface WorkspaceEventsPayload {
@@ -260,26 +212,6 @@ export interface CatalogImage {
   min?: Record<string, string>;
   max?: Record<string, string>;
   templates?: string[];
-}
-
-export interface QuotaStatus {
-  policy: string;
-  policyPriority: number;
-  maxWorkspaces?: number | null;
-  usedWorkspaces: number;
-  limits?: Record<string, string>;
-  used?: Record<string, string>;
-  perWorkspace?: Record<string, string>;
-  defaults?: Record<string, string>;
-  lifecycle?: Record<string, string>;
-  /** Policy-gated feature flags (e.g. remoteWorkspaces). */
-  features?: Record<string, boolean>;
-  /** Policy-level override allow-list (undefined = template list alone). */
-  allowedOverrides?: string[];
-  /** Breakdown of used.storage coming from retained volumes (already
-   * included in used.storage — server-computed, same as enforcement). */
-  retainedVolumes?: number;
-  retainedStorage?: string;
 }
 
 // ---- Remote workspaces (out-of-cluster machines via guacd) ----

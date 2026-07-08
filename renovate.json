@@ -15,9 +15,13 @@
   "packageRules": [
     {
       "description": "Ubuntu LTS bumps are a deliberate decision: group and label, never automerge.",
-      "matchPackageNames": ["ubuntu"],
+      "matchPackageNames": [
+        "ubuntu"
+      ],
       "groupName": "ubuntu base image",
-      "labels": ["os-bump"]
+      "labels": [
+        "os-bump"
+      ]
     }
   ],
   "customManagers": [
@@ -36,7 +40,9 @@
     {
       "customType": "regex",
       "description": "Container tools run via `docker run` in GitHub workflows (gitleaks, kubeconform, hadolint).",
-      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
       "matchStrings": [
         "(?<depName>[a-z0-9.\\/-]+\\/(?:gitleaks|kubeconform|hadolint)):(?<currentValue>v?[a-zA-Z0-9.-]+)"
       ],
@@ -57,7 +63,9 @@
     {
       "customType": "regex",
       "description": "Go tools invoked via `go run module@version` in CI jobs (gocover-cobertura).",
-      "managerFilePatterns": ["/^\\.gitlab/ci/.+\\.ya?ml$/"],
+      "managerFilePatterns": [
+        "/^\\.gitlab/ci/.+\\.ya?ml$/"
+      ],
       "matchStrings": [
         "go run (?<depName>[a-z0-9.-]+\\.[a-z]{2,}(?:\\/[a-zA-Z0-9._-]+)+)@(?<currentValue>v[0-9][a-zA-Z0-9.-]*)"
       ],
@@ -66,26 +74,49 @@
     {
       "customType": "regex",
       "description": "controller-gen pin in operator/Makefile.",
-      "managerFilePatterns": ["/^operator/Makefile$/"],
-      "matchStrings": ["CONTROLLER_GEN_VERSION \\?= (?<currentValue>v[0-9.]+)"],
+      "managerFilePatterns": [
+        "/^operator/Makefile$/"
+      ],
+      "matchStrings": [
+        "CONTROLLER_GEN_VERSION \\?= (?<currentValue>v[0-9.]+)"
+      ],
       "depNameTemplate": "sigs.k8s.io/controller-tools",
       "datasourceTemplate": "go"
     },
     {
       "customType": "regex",
       "description": "git-cliff invoked via npx in the release pipeline.",
-      "managerFilePatterns": ["/^\\.gitlab/ci/release\\.ya?ml$/"],
-      "matchStrings": ["git-cliff@(?<currentValue>[0-9.]+)"],
+      "managerFilePatterns": [
+        "/^\\.gitlab/ci/release\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "git-cliff@(?<currentValue>[0-9.]+)"
+      ],
       "depNameTemplate": "git-cliff",
       "datasourceTemplate": "npm"
     },
     {
       "customType": "regex",
       "description": "UBUNTU_VERSION default in the workspace base Dockerfile.",
-      "managerFilePatterns": ["/^waas-images/base/ubuntu/Dockerfile$/"],
-      "matchStrings": ["ARG UBUNTU_VERSION=(?<currentValue>[0-9.]+)"],
+      "managerFilePatterns": [
+        "/^waas-images/base/ubuntu/Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG UBUNTU_VERSION=(?<currentValue>[0-9.]+)"
+      ],
       "depNameTemplate": "ubuntu",
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "tygo pin in the root Makefile (generated TS types).",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "go run (?<depName>github\\.com/gzuidhof/tygo)@(?<currentValue>v[0-9.]+)"
+      ],
+      "datasourceTemplate": "go"
     }
   ]
 }
