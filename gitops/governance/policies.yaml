@@ -68,3 +68,27 @@ spec:
   # metadata = labels/annotations custom (denylist serveur).
   overrides:
     allowedFields: [env, resources, protocol, protocolParams, schedule, placement, metadata]
+---
+# Policy admins : le "tous droits" EXPLICITE et auditable (jamais un
+# bypass codé). Priorité 10000 = au-dessus de toute exception nominative ;
+# aucun champ limits/lifecycle = aucun cap ni TTL (les champs absents ne
+# contraignent pas) ; images vide = tout le catalogue. Le fail-closed
+# reste intact pour tous les autres utilisateurs : ceci n'est qu'une
+# policy de plus, visible dans Git et dans l'audit effective-policy.
+# Le chart peut rendre l'équivalent (adminPolicy.* dans values.yaml) —
+# n'activez PAS les deux canaux à la fois pour le même nom.
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspacePolicy
+metadata:
+  name: admins
+spec:
+  priority: 10000
+  subjects:
+    - kind: User
+      name: admin
+  images: []               # tout le catalogue
+  remoteWorkspaces: true
+  overrides:
+    allowedFields: [env, securityContext, podSecurityContext, volumes,
+                    nodeSelector, tolerations, resources, protocol,
+                    protocolParams, schedule, placement, metadata]

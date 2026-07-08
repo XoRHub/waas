@@ -1,0 +1,23 @@
+{{- if .Values.adminPolicy.enabled }}
+# Explicit all-rights policy for platform admins. Absent limits/lifecycle
+# fields do not constrain (nil = unlimited); the fail-closed default for
+# everyone else is untouched — this is just one more policy, resolved by
+# priority like any other and visible in the effective-policy audit.
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspacePolicy
+metadata:
+  name: {{ .Values.adminPolicy.name }}
+  namespace: {{ .Values.workspaces.namespace }}
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  priority: {{ .Values.adminPolicy.priority }}
+  subjects:
+    {{- toYaml .Values.adminPolicy.subjects | nindent 4 }}
+  images: []
+  remoteWorkspaces: true
+  overrides:
+    allowedFields: [env, securityContext, podSecurityContext, volumes,
+                    nodeSelector, tolerations, resources, protocol,
+                    protocolParams, schedule, placement, metadata]
+{{- end }}

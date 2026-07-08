@@ -20,6 +20,24 @@ workspaces:
   # existing ones keep their frozen spec.targetNamespace.
   defaultNamespacePattern: ""
 
+# Bootstrap of the explicit all-rights admin policy (priority 10000, no
+# limits/lifecycle = no caps or TTL, whole catalog, every override
+# field, remote workspaces on). The bypass stays a VISIBLE, auditable
+# WorkspacePolicy CR — never a code path. Disabled by default because
+# gitops/governance/policies.yaml is the canonical channel (ArgoCD);
+# enable it only when the chart is your sole governance source, and
+# never both at once for the same policy name.
+adminPolicy:
+  enabled: false
+  name: admins
+  priority: 10000
+  subjects:
+    - kind: User
+      name: admin
+    # Add your IDP admin groups here, e.g.:
+    # - kind: Group
+    #   name: "waas-admins"
+
 ingress:
   enabled: true
   className: ""
