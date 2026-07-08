@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xorhub/waas/wwt/internal/jwks"
+	"github.com/xorhub/waas/wwt/internal/kasm"
 	"github.com/xorhub/waas/wwt/internal/proxy"
 )
 
@@ -28,11 +29,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := proxy.NewHandler(issuer, jwks.NewClient(jwksURL),
-		proxy.NewHTTPAPIClient(apiURL, internalToken), guacdAddr)
+	keys := jwks.NewClient(jwksURL)
+	apiClient := proxy.NewHTTPAPIClient(apiURL, internalToken)
+	handler := proxy.NewHandler(issuer, keys, apiClient, guacdAddr)
 
 	mux := http.NewServeMux()
 	mux.Handle("/ws", handler)
+	// KasmVNC sessions: the whole client web app (assets + /websockify)
+	// is reverse-proxied under /kasm/{sessionID}/ — see internal/kasm.
+	mux.Handle("/kasm/", kasm.NewHandler(issuer, keys, apiClient))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 

@@ -157,6 +157,30 @@ func TestRejectsWithoutValidTokenBeforeDialingGuacd(t *testing.T) {
 	}
 }
 
+func TestGuacPathRejectsKasmvncSessions(t *testing.T) {
+	guacdAddr, dials := newFakeGuacd(t)
+	api := &fakeAPI{info: &ConnectionInfo{Protocol: "kasmvnc", Hostname: "ws-kasm", Port: 6901, Password: "pw"}}
+	handler, signer := newTestHandler(t, api, guacdAddr)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1", auth.ClipboardGrant{}, time.Minute))
+	if err != nil {
+		t.Fatalf("signing: %v", err)
+	}
+	resp, err := http.Get(server.URL + "/ws?token=" + token)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 for a kasmvnc session on the guacd path, got %d", resp.StatusCode)
+	}
+	if dials.Load() != 0 {
+		t.Fatalf("guacd must not be dialed for kasmvnc sessions; got %d dials", dials.Load())
+	}
+}
+
 func TestProxiesValidConnection(t *testing.T) {
 	guacdAddr, dials := newFakeGuacd(t)
 	api := &fakeAPI{info: &ConnectionInfo{Protocol: "vnc", Hostname: "ws-marc", Port: 5901, Password: "pw"}}

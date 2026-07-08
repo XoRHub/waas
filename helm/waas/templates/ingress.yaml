@@ -47,6 +47,14 @@ spec:
               service:
                 name: {{ .Release.Name }}-wwt
                 port: { name: http }
+          # KasmVNC sessions: the client web app and its WebSocket are
+          # reverse-proxied by wwt under /kasm/{sessionID}/.
+          - path: /kasm
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-wwt
+                port: { name: http }
           - path: /
             pathType: Prefix
             backend:

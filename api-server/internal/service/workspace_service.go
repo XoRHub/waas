@@ -610,7 +610,18 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 			}
 		}
 	}
+	kasmDefaults(info)
 	return info, nil
+}
+
+// kasmDefaults fills what a KasmVNC endpoint implies: the kasmweb images
+// authenticate HTTP Basic as the fixed user "kasm_user" — only the
+// password (VNC_PW) is per-workspace. A credentials Secret with an
+// explicit username still wins.
+func kasmDefaults(info *model.ConnectionInfo) {
+	if info.Protocol == "kasmvnc" && info.Username == "" {
+		info.Username = "kasm_user"
+	}
 }
 
 // remoteConnectionInfo resolves a remote-workspace session: target from
@@ -651,6 +662,7 @@ func (s *WorkspaceService) remoteConnectionInfo(ctx context.Context, session *mo
 	if err := s.applyCredentialsSecret(ctx, rw.SecretName, info); err != nil {
 		return nil, err
 	}
+	kasmDefaults(info)
 	return info, nil
 }
 

@@ -268,6 +268,51 @@ func TestRemoteWorkspaceLifecycleAndConnection(t *testing.T) {
 	}
 }
 
+// kasmvnc remotes: the registry accepts the protocol, rejects every
+// guacd param for it (none is registered — fail-closed), and the
+// resolver defaults the Basic username to the kasmweb images' fixed
+// "kasm_user" while the password still comes from the Secret.
+func TestRemoteKasmvncWorkspace(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{{ID: "u1", Username: "u1"}},
+		[]waasv1alpha1.WorkspacePolicy{remotePolicy(true)})
+	actor := Actor{ID: "u1", Username: "u1", Role: "user"}
+
+	// kasmvnc has no guacd parameters: any param must be rejected.
+	if _, err := f.remote.Create(ctx, actor, RemoteWorkspaceInput{
+		Name: "bad", Hostname: "h", Port: 6901, Protocol: "kasmvnc",
+		Params: map[string]string{"color-scheme": "green-black"},
+	}); !apierror.IsBadRequest(err) {
+		t.Fatalf("guacd params must be rejected on kasmvnc, got %v", err)
+	}
+
+	rw, err := f.remote.Create(ctx, actor, RemoteWorkspaceInput{
+		Name: "kasm-box", Hostname: "192.168.1.60", Port: 6901, Protocol: "kasmvnc",
+		Credentials: &RemoteCredentialsInput{Password: strp("vnc-pw-1")},
+	})
+	if err != nil {
+		t.Fatalf("creating kasmvnc remote: %v", err)
+	}
+
+	res, err := f.remote.Connect(ctx, actor, rw.ID, ConnectInput{})
+	if err != nil {
+		t.Fatalf("connecting: %v", err)
+	}
+	if res.Protocol != "kasmvnc" {
+		t.Fatalf("expected a kasmvnc session, got %+v", res)
+	}
+	info, err := f.workspace.ConnectionInfo(ctx, res.SessionID)
+	if err != nil {
+		t.Fatalf("resolving connection info: %v", err)
+	}
+	if info.Protocol != "kasmvnc" || info.Hostname != "192.168.1.60" || info.Port != 6901 {
+		t.Fatalf("target mismatch: %+v", info)
+	}
+	if info.Username != "kasm_user" || info.Password != "vnc-pw-1" {
+		t.Fatalf("expected the defaulted kasm_user + secret password, got %+v", info)
+	}
+}
+
 // Multi-protocol remotes: the endpoint list round-trips through the
 // repository, legacy single-protocol inputs and rows keep working, the
 // connect flow honors the chosen protocol, and the connection resolver

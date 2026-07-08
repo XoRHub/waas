@@ -17,6 +17,8 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8080',
       '/ws': { target: 'ws://localhost:8081', ws: true },
+      // KasmVNC sessions: whole client app + its WebSocket, see wwt.
+      '/kasm': { target: 'http://localhost:8081', ws: true },
     },
   },
 });

@@ -47,6 +47,10 @@ spec:
         - path:
             type: PathPrefix
             value: /ws
+        # KasmVNC sessions: client web app + WebSocket proxied by wwt.
+        - path:
+            type: PathPrefix
+            value: /kasm
       backendRefs:
         - name: {{ .Release.Name }}-wwt
           port: 8081

@@ -92,6 +92,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// kasmvnc sessions are reverse-proxied by the /kasm endpoint — guacd
+	// cannot speak to a KasmVNC server. Refusing here keeps a stolen
+	// token from ever confusing one data path for the other.
+	if info.Protocol == "kasmvnc" {
+		http.Error(w, "kasmvnc sessions connect through /kasm, not /ws", http.StatusConflict)
+		return
+	}
+
 	// 3. Only now dial guacd and run the handshake.
 	conn, err := net.DialTimeout("tcp", h.GuacdAddr, h.DialTimeout)
 	if err != nil {
@@ -139,6 +147,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) validateToken(ctx context.Context, token string) (*auth.ConnectionClaims, error) {
+	return ValidateConnectionToken(ctx, h.Keys, h.Issuer, token)
+}
+
+// ValidateConnectionToken verifies a connection JWT against the API
+// server's JWKS. Shared by the guacd tunnel and the kasm reverse proxy —
+// both paths gate on the exact same token semantics.
+func ValidateConnectionToken(ctx context.Context, keys *jwks.Client, issuer, token string) (*auth.ConnectionClaims, error) {
 	if token == "" {
 		return nil, fmt.Errorf("missing token")
 	}
@@ -150,15 +165,11 @@ func (h *Handler) validateToken(ctx context.Context, token string) (*auth.Connec
 		return nil, fmt.Errorf("parsing token: %w", err)
 	}
 	kid, _ := unverified.Header["kid"].(string)
-	key, err := h.key(ctx, kid)
-	if err != nil {
+	var key *rsa.PublicKey
+	if key, err = keys.Key(ctx, kid); err != nil {
 		return nil, err
 	}
-	return auth.VerifyConnectionToken(token, h.Issuer, key)
-}
-
-func (h *Handler) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
-	return h.Keys.Key(ctx, kid)
+	return auth.VerifyConnectionToken(token, issuer, key)
 }
 
 // pipe relays both directions until either side closes.

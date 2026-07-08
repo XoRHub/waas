@@ -130,6 +130,11 @@ parameters at connect time.
 | `username` | platform | string |  |  |  | Desktop credential — comes from the protocol's credentials Secret, never from a CR param. |
 | `wol-send-packet` | platform | bool |  |  |  | Wake-on-LAN — meaningless in-cluster, banned. |
 
+## kasmvnc
+
+| Parameter | Tier | Type | Constraints | Default | Live | Description |
+|---|---|---|---|---|---|---|
+
 ## Adding a parameter
 
 1. Add one entry to the registry in `operator/pkg/params/params.go`:

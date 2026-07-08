@@ -58,6 +58,10 @@ export const DesktopPane = forwardRef<
   const clipboardRef = useRef(new ClipboardSync());
   const sendClipboardRef = useRef<(text: string, force?: boolean) => void>(() => {});
   const [state, setState] = useState<ConnectionState>('connecting');
+  // kasmvnc sessions embed KasmVNC's own web client instead of the guac
+  // canvas: wwt reverse-proxies the whole app under /kasm/{session}.
+  const [kasmUrl, setKasmUrl] = useState<string | null>(null);
+  const kasmActiveRef = useRef(false);
   // Bumping the generation re-runs the connection effect: that IS the
   // reconnect (used by the overlay to apply reconnect-scoped params).
   const [generation, setGeneration] = useState(0);
@@ -72,7 +76,18 @@ export const DesktopPane = forwardRef<
   const effectiveJSON = JSON.stringify(effective ?? {});
 
   useImperativeHandle(ref, () => ({
-    disconnect: () => clientRef.current?.disconnect(),
+    disconnect: () => {
+      if (kasmActiveRef.current) {
+        // No client object to ask: unmounting the iframe closes its
+        // WebSocket, which is what ends the session server-side.
+        kasmActiveRef.current = false;
+        setKasmUrl(null);
+        setState('disconnected');
+        onStateChange?.('disconnected');
+        return;
+      }
+      clientRef.current?.disconnect();
+    },
     reconnect: () => setGeneration((g) => g + 1),
     setClipboard: (direction, enabled) => {
       tunnelRef.current?.sendMessage('', 'waas-clipboard', direction, enabled ? '1' : '0');
@@ -130,6 +145,24 @@ export const DesktopPane = forwardRef<
       }
       if (cancelled) return;
       if (result.capabilities) onCapabilities?.(result.capabilities);
+
+      if (result.protocol === 'kasmvnc') {
+        // KasmVNC ships its own web client; wwt reverse-proxies the app
+        // (assets + WebSocket) under /kasm/{session}. The client builds
+        // its WebSocket URL from the origin ROOT, so the proxied path is
+        // handed over as a query setting. The token authenticates the
+        // first request; wwt answers with a session-scoped cookie that
+        // covers the page's asset and WebSocket requests.
+        const q = new URLSearchParams({
+          autoconnect: '1',
+          resize: 'remote',
+          path: `kasm/${result.sessionId}/websockify`,
+          token: result.connectionToken,
+        });
+        kasmActiveRef.current = true;
+        setKasmUrl(`/kasm/${result.sessionId}/vnc.html?${q.toString()}`);
+        return;
+      }
 
       const params = new URLSearchParams({
         token: result.connectionToken,
@@ -274,6 +307,10 @@ export const DesktopPane = forwardRef<
       client?.disconnect();
       tunnelRef.current = null;
       clientRef.current = null;
+      // Unmounting the iframe closes the KasmVNC WebSocket: that is the
+      // kasm session's disconnect.
+      kasmActiveRef.current = false;
+      setKasmUrl(null);
       displayHost.replaceChildren();
     };
   }, [workspaceId, kind, effectiveJSON, onStateChange, onCapabilities, autoFocus, generation]);
@@ -285,6 +322,19 @@ export const DesktopPane = forwardRef<
       className="relative h-full w-full overflow-hidden bg-black outline-none focus:ring-1 focus:ring-blue-500/60"
     >
       <div ref={displayRef} className={state === 'connected' ? 'h-full w-full' : 'hidden'} />
+      {kasmUrl && (
+        // display:none iframes still load, so the "connecting" overlay
+        // below covers the pane until the KasmVNC page is up.
+        <iframe
+          src={kasmUrl}
+          title={t('connect.desktopFrame', 'Remote desktop')}
+          className={state === 'connected' ? 'h-full w-full border-0' : 'hidden'}
+          onLoad={() => {
+            setState('connected');
+            onStateChange?.('connected');
+          }}
+        />
+      )}
       {state !== 'connected' && (
         <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-white">
           <p>

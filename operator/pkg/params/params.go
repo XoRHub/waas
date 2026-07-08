@@ -433,8 +433,12 @@ func ForProtocol(protocol string) []Param {
 	return out
 }
 
-// Protocols lists the protocols the registry knows.
-func Protocols() []string { return []string{"vnc", "rdp", "ssh"} }
+// Protocols lists the protocols the registry knows. The first three are
+// guacd protocols with tunable parameters; kasmvnc is the web-native
+// KasmVNC path (kasmweb/* images), reverse-proxied by wwt instead of
+// brokered by guacd — it has no guacd parameters, so every override is
+// rejected by the registry gates (fail-closed by construction).
+func Protocols() []string { return []string{"vnc", "rdp", "ssh", "kasmvnc"} }
 
 // Lookup finds one parameter for a protocol, or nil.
 func Lookup(protocol, name string) *Param {
