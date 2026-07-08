@@ -217,6 +217,24 @@ export interface SessionCapabilities {
   clipboardPaste: boolean;
 }
 
+/** One aggregated Kubernetes event of a workspace (CR or child). */
+export interface WorkspaceEvent {
+  type: 'Normal' | 'Warning';
+  reason: string;
+  message: string;
+  objectKind: string;
+  objectName: string;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+}
+
+export interface WorkspaceEventsPayload {
+  events: WorkspaceEvent[];
+  /** Server-driven refresh cadence for the panel. */
+  pollIntervalSeconds: number;
+}
+
 export interface ConnectResult {
   sessionId: string;
   connectionToken: string;

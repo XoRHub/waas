@@ -131,7 +131,7 @@ func run() error {
 		Auth:             handler.NewAuthHandler(authSvc, oidcSvc, cfg.OIDC, signer),
 		Users:            handler.NewUserHandler(userSvc),
 		Templates:        handler.NewTemplateHandler(templateSvc),
-		Workspaces:       handler.NewWorkspaceHandler(workspaceSvc),
+		Workspaces:       handler.NewWorkspaceHandler(workspaceSvc).WithEventsPollInterval(cfg.EventsPollInterval),
 		RemoteWorkspaces: handler.NewRemoteWorkspaceHandler(remoteSvc),
 		Admin:            handler.NewAdminHandler(audit, sessionSvc),
 		Internal:         handler.NewInternalHandler(workspaceSvc),

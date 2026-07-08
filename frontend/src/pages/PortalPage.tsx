@@ -21,6 +21,7 @@ import {
 } from '@/hooks/useApi';
 import { UserMenu } from '@/components/UserMenu';
 import { Dialog } from '@/components/Dialog';
+import { EventsDialog } from '@/components/EventsDialog';
 import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
 import { ScheduleEditor, useNextTransitionLabel } from '@/components/ScheduleEditor';
 import { FolderedGrid, SessionCard } from '@/components/SessionCard';
@@ -436,6 +437,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const nextTransitionLabel = useNextTransitionLabel();
   const [asking, setAsking] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [eventsOpen, setEventsOpen] = useState(false);
 
   const target = targetFromWorkspace(workspace);
   // Badge and buttons follow the DERIVED phase: between a lifecycle
@@ -482,6 +484,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
         menuItems={[
           { label: t('portal.connectionSettings'), onClick: () => setSettingsOpen(true) },
           { label: t('portal.openInSplitView'), onClick: () => navigate(`/view?ws=${workspace.id}`) },
+          { label: t('portal.events.menu'), onClick: () => setEventsOpen(true) },
         ]}
         buttons={
           <>
@@ -524,6 +527,13 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
         />
       )}
       {asking && <OpenChoiceDialog onChoice={onChoice} onClose={() => setAsking(false)} />}
+      {eventsOpen && (
+        <EventsDialog
+          workspaceId={workspace.id}
+          title={workspace.displayName ?? workspace.name}
+          onClose={() => setEventsOpen(false)}
+        />
+      )}
       {settingsOpen && (
         <ConnectionSettingsDialog workspace={workspace} onClose={() => setSettingsOpen(false)} />
       )}

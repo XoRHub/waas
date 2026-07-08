@@ -55,6 +55,9 @@ type Config struct {
 	// done outside the API, lost end-of-session callbacks). Zero
 	// disables the sweeper.
 	SessionSweepInterval time.Duration
+	// EventsPollInterval is handed to the frontend events panel: how
+	// often it refetches while open (server-driven, no rebuild needed).
+	EventsPollInterval time.Duration
 
 	// OIDC configures the optional SSO login (Authentik or any OIDC
 	// provider). Enabled when IssuerURL and ClientID are both set; local
@@ -132,6 +135,7 @@ func Load() (*Config, error) {
 		TLSKeyFile:              os.Getenv("WAAS_TLS_KEY_FILE"),
 		IdleSweepInterval:       durationOr("WAAS_IDLE_SWEEP_INTERVAL", 5*time.Minute),
 		SessionSweepInterval:    durationOr("WAAS_SESSION_SWEEP_INTERVAL", time.Minute),
+		EventsPollInterval:      durationOr("WAAS_EVENTS_POLL_INTERVAL", 10*time.Second),
 	}
 	if origins := os.Getenv("WAAS_CORS_ALLOWED_ORIGINS"); origins != "" {
 		cfg.CORSAllowedOrigins = strings.Split(origins, ",")

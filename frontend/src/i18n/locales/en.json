@@ -10,7 +10,8 @@
     "delete": "Delete",
     "create": "Create",
     "actions": "Actions",
-    "edit": "Edit"
+    "edit": "Edit",
+    "close": "Close"
   },
   "login": {
     "title": "Sign in to your workspace",
@@ -91,7 +92,17 @@
     "namespacePreview": "Workloads namespace:",
     "quotaStorage": "Storage",
     "quotaStorageRetained": "incl. {{size}} retained · {{count}} volume(s)",
-    "fixedSizing": "Sizing set by the template: {{cpu}} vCPU, {{memory}} (your policy does not allow custom sizing)"
+    "fixedSizing": "Sizing set by the template: {{cpu}} vCPU, {{memory}} (your policy does not allow custom sizing)",
+    "events": {
+      "menu": "Events",
+      "title": "Events — {{name}}",
+      "empty": "No recent events for this workspace.",
+      "type": "Type",
+      "reason": "Reason",
+      "message": "Message",
+      "object": "Object",
+      "age": "Age"
+    }
   },
   "remote": {
     "tab": "Remote workspaces",

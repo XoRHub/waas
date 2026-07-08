@@ -2,20 +2,48 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/xorhub/waas/api-server/internal/middleware"
+	"github.com/xorhub/waas/api-server/internal/model"
 	"github.com/xorhub/waas/api-server/internal/service"
 )
 
 // WorkspaceHandler serves /api/v1/workspaces.
 type WorkspaceHandler struct {
 	svc *service.WorkspaceService
+	// eventsPollSeconds is handed to the events panel so its refresh
+	// cadence is server-configured (WAAS_EVENTS_POLL_INTERVAL).
+	eventsPollSeconds int
 }
 
 func NewWorkspaceHandler(svc *service.WorkspaceService) *WorkspaceHandler {
-	return &WorkspaceHandler{svc: svc}
+	return &WorkspaceHandler{svc: svc, eventsPollSeconds: 10}
+}
+
+// WithEventsPollInterval overrides the events panel refresh cadence.
+func (h *WorkspaceHandler) WithEventsPollInterval(d time.Duration) *WorkspaceHandler {
+	if d > 0 {
+		h.eventsPollSeconds = int(d.Seconds())
+	}
+	return h
+}
+
+// Events handles GET /api/v1/workspaces/{id}/events: the aggregated
+// Kubernetes events of the workspace and its children, authorization
+// enforced by the service (owner or admin).
+func (h *WorkspaceHandler) Events(w http.ResponseWriter, r *http.Request) {
+	events, err := h.svc.Events(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	if events == nil {
+		events = []model.WorkspaceEvent{}
+	}
+	ok(w, map[string]any{"events": events, "pollIntervalSeconds": h.eventsPollSeconds})
 }
 
 // NamespacePreview handles GET /api/v1/workspaces/namespace-preview

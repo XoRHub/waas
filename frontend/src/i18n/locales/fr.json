@@ -10,7 +10,8 @@
     "delete": "Supprimer",
     "create": "Créer",
     "actions": "Actions",
-    "edit": "Modifier"
+    "edit": "Modifier",
+    "close": "Fermer"
   },
   "login": {
     "title": "Connectez-vous à votre espace de travail",
@@ -91,7 +92,17 @@
     "namespacePreview": "Namespace des workloads :",
     "quotaStorage": "Stockage",
     "quotaStorageRetained": "dont {{size}} conservés · {{count}} volume(s)",
-    "fixedSizing": "Dimensionnement imposé par le template : {{cpu}} vCPU, {{memory}} (votre politique n'autorise pas le dimensionnement personnalisé)"
+    "fixedSizing": "Dimensionnement imposé par le template : {{cpu}} vCPU, {{memory}} (votre politique n'autorise pas le dimensionnement personnalisé)",
+    "events": {
+      "menu": "Événements",
+      "title": "Événements — {{name}}",
+      "empty": "Aucun événement récent pour ce workspace.",
+      "type": "Type",
+      "reason": "Raison",
+      "message": "Message",
+      "object": "Objet",
+      "age": "Âge"
+    }
   },
   "remote": {
     "tab": "Remote workspaces",

@@ -70,6 +70,7 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 				r.Post("/{id}/pause", h.Workspaces.Pause)
 				r.Post("/{id}/resume", h.Workspaces.Resume)
 				r.Post("/{id}/connect", h.Workspaces.Connect)
+				r.Get("/{id}/events", h.Workspaces.Events)
 			})
 
 			// Retained volumes: home volumes kept after workspace

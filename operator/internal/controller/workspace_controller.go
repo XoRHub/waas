@@ -269,6 +269,11 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			phase = waasv1alpha1.PhasePaused
 			condReason, condMsg = "Paused", "workspace is paused (scaled to 0); workload object and home volume retained"
 		}
+		// Lifecycle milestone on the TRANSITION only — reconciles are
+		// frequent, the event stream must not be.
+		if ws.Status.Phase != phase {
+			r.recordEvent(ws, corev1.EventTypeNormal, string(phase), condMsg)
+		}
 		if err := r.patchStatus(ctx, ws, func(st *waasv1alpha1.WorkspaceStatus) {
 			st.Phase = phase
 			st.OS = tpl.Spec.OS
@@ -287,6 +292,19 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	phase := waasv1alpha1.PhaseProvisioning
 	if ready {
 		phase = waasv1alpha1.PhaseRunning
+	}
+	// Lifecycle milestones on transitions: with the events panel these
+	// two lines make the CR tell its own story (provisioning started,
+	// desktop up), between the admission events and the pods' own.
+	if ws.Status.Phase != phase {
+		switch phase {
+		case waasv1alpha1.PhaseProvisioning:
+			r.recordEvent(ws, corev1.EventTypeNormal, "Provisioning",
+				fmt.Sprintf("provisioning desktop workload %s/%s", computeNamespace(ws), computeName(ws)))
+		case waasv1alpha1.PhaseRunning:
+			r.recordEvent(ws, corev1.EventTypeNormal, "Ready",
+				fmt.Sprintf("desktop is up (%s protocol on port %d)", effectiveProtocol(ws, tpl).Name, effectiveProtocol(ws, tpl).Port))
+		}
 	}
 	if err := r.patchStatus(ctx, ws, func(st *waasv1alpha1.WorkspaceStatus) {
 		st.Phase = phase

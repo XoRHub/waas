@@ -440,6 +440,20 @@ type SessionCapabilities struct {
 	ClipboardPaste bool `json:"clipboardPaste"`
 }
 
+// WorkspaceEvent is one aggregated Kubernetes Event of a workspace (the
+// CR itself or any managed child resource), pre-authorized server-side.
+type WorkspaceEvent struct {
+	// Type is Normal or Warning.
+	Type       string    `json:"type"`
+	Reason     string    `json:"reason"`
+	Message    string    `json:"message"`
+	ObjectKind string    `json:"objectKind"`
+	ObjectName string    `json:"objectName"`
+	Count      int32     `json:"count"`
+	FirstSeen  time.Time `json:"firstSeen"`
+	LastSeen   time.Time `json:"lastSeen"`
+}
+
 // ConnectionInfo is what the WebSocket proxy needs to reach a desktop. It is
 // only ever served on the internal service-to-service endpoint.
 type ConnectionInfo struct {

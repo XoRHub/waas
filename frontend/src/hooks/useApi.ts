@@ -3,6 +3,7 @@ import { api } from '@/lib/api';
 import { isTransient } from '@/lib/lifecycle';
 import { useAuthStore } from '@/stores/authStore';
 import type {
+  WorkspaceEventsPayload,
   AuditLog,
   AuthProviders,
   CatalogImage,
@@ -428,6 +429,20 @@ export function useCatalog() {
   return useQuery({
     queryKey: ['catalog'],
     queryFn: () => api.get<CatalogImage[]>('/api/v1/catalog'),
+  });
+}
+
+/**
+ * Aggregated Kubernetes events of one workspace (CR + children),
+ * authorized and sorted server-side. The refetch cadence is
+ * server-driven: the response carries pollIntervalSeconds
+ * (WAAS_EVENTS_POLL_INTERVAL), so operators tune it without a rebuild.
+ */
+export function useWorkspaceEvents(workspaceId: string) {
+  return useQuery({
+    queryKey: ['workspace-events', workspaceId],
+    queryFn: () => api.get<WorkspaceEventsPayload>(`/api/v1/workspaces/${workspaceId}/events`),
+    refetchInterval: (query) => (query.state.data?.data.pollIntervalSeconds ?? 10) * 1000,
   });
 }
 

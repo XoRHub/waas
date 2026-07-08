@@ -64,6 +64,21 @@ rules:
     resources: [persistentvolumeclaims]
     # watch: the "volumes" SSE kind (owner-scoped live updates).
     verbs: [get, list, delete, watch]
+  # Events panel: aggregated Kubernetes events of a workspace and its
+  # children — workloads live in dynamic per-user namespaces, so the
+  # reads must be cluster-wide. Child DISCOVERY (label-scoped list over
+  # the operator's managed inventory) needs read on those kinds too.
+  # Filtering per workspace ownership happens server-side; the UI never
+  # sees raw cluster objects.
+  - apiGroups: [""]
+    resources: [events, pods, services]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, replicasets]
+    verbs: [get, list]
+  - apiGroups: [kubevirt.io]
+    resources: [virtualmachines]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
