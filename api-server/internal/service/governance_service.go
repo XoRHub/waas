@@ -217,24 +217,15 @@ func (s *GovernanceService) usageOf(ctx context.Context, ownerID string, catalog
 	if err := s.kube.List(ctx, all, client.InNamespace(s.namespace)); err != nil {
 		return usage{}, fmt.Errorf("listing workspaces: %w", err)
 	}
-	var loads []policy.Load
-	for i := range all.Items {
-		ws := &all.Items[i]
-		if ws.Spec.Owner != ownerID || !ws.DeletionTimestamp.IsZero() {
-			continue
-		}
-		tpl := &waasv1alpha1.WorkspaceTemplate{}
-		err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: ws.Spec.TemplateRef}, tpl)
-		if apierrors.IsNotFound(err) {
-			loads = append(loads, policy.Load{Paused: ws.Spec.Paused})
-			continue
-		}
-		if err != nil {
-			return usage{}, err
-		}
-		load, _ := policy.LoadOf(ws, tpl, policy.FindImage(catalog, tpl.Spec.Image))
-		loads = append(loads, load)
+	templates := &waasv1alpha1.WorkspaceTemplateList{}
+	if err := s.kube.List(ctx, templates, client.InNamespace(s.namespace)); err != nil {
+		return usage{}, fmt.Errorf("listing templates: %w", err)
 	}
+	// ONE templates LIST + the shared pkg/policy.OwnerLoads: this used to
+	// be a per-workspace GET (an N+1 re-run by the 15s quota poll) with a
+	// locally diverged vanished-template fallback that undercounted
+	// storage versus the enforcement.
+	loads := policy.OwnerLoads(all.Items, ownerID, "", policy.TemplatesByName(templates.Items), catalog)
 	retained := &corev1.PersistentVolumeClaimList{}
 	if err := s.kube.List(ctx, retained, client.MatchingLabels{
 		waasv1alpha1.LabelRetained: "true",

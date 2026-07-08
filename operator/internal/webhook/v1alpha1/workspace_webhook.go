@@ -10,7 +10,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -432,24 +431,14 @@ func (v *WorkspaceValidator) otherLoads(ctx context.Context, ws *waasv1alpha1.Wo
 	if err := v.Client.List(ctx, all, client.InNamespace(ws.Namespace)); err != nil {
 		return nil, err
 	}
-	var loads []policy.Load
-	for i := range all.Items {
-		sib := &all.Items[i]
-		if sib.Name == ws.Name || sib.Spec.Owner != owner || !sib.DeletionTimestamp.IsZero() {
-			continue
-		}
-		tpl := &waasv1alpha1.WorkspaceTemplate{}
-		err := v.Client.Get(ctx, types.NamespacedName{Namespace: sib.Namespace, Name: sib.Spec.TemplateRef}, tpl)
-		if apierrors.IsNotFound(err) {
-			loads = append(loads, policy.Load{Storage: resource.MustParse(policy.DefaultHomeSize), Paused: sib.Spec.Paused})
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		load, _ := policy.LoadOf(sib, tpl, policy.FindImage(catalog, tpl.Spec.Image))
-		loads = append(loads, load)
+	templates := &waasv1alpha1.WorkspaceTemplateList{}
+	if err := v.Client.List(ctx, templates, client.InNamespace(ws.Namespace)); err != nil {
+		return nil, err
 	}
+	// Shared implementation (pkg/policy.OwnerLoads): the webhook, the
+	// reconciler and the portal quota view compute the SAME loads with
+	// the SAME vanished-template fallback.
+	loads := policy.OwnerLoads(all.Items, owner, ws.Name, policy.TemplatesByName(templates.Items), catalog)
 	// Retained volumes weigh on the aggregate storage cap (never on the
 	// workspace count): keeping a volume is keeping its quota share.
 	retained := &corev1.PersistentVolumeClaimList{}

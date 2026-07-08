@@ -310,6 +310,46 @@ type Load struct {
 	Detached bool
 }
 
+// TemplatesByName indexes a template list for OwnerLoads lookups (one
+// LIST + map lookups instead of one GET per workspace — the N+1 the
+// portal's quota poll used to run every 15s).
+func TemplatesByName(items []waasv1alpha1.WorkspaceTemplate) map[string]*waasv1alpha1.WorkspaceTemplate {
+	out := make(map[string]*waasv1alpha1.WorkspaceTemplate, len(items))
+	for i := range items {
+		out[items[i].Name] = &items[i]
+	}
+	return out
+}
+
+// OwnerLoads computes the quota-relevant footprint of one owner's live
+// workspaces (excludeName skipped — a workspace under admission counts
+// through its own load, not as its own sibling). It is THE shared
+// implementation for the webhook, the reconciler re-check and the
+// portal quota view: the three used to carry hand-copied loops whose
+// vanished-template fallbacks had silently diverged (the portal counted
+// 0 storage where the enforcement counted DefaultHomeSize — the view
+// undercut what admission applied). One fallback now: a workspace whose
+// template is gone still holds its home volume, so it weighs
+// DefaultHomeSize of storage and zero compute.
+func OwnerLoads(workspaces []waasv1alpha1.Workspace, owner, excludeName string,
+	templates map[string]*waasv1alpha1.WorkspaceTemplate, catalog []waasv1alpha1.WorkspaceImage) []Load {
+	var loads []Load
+	for i := range workspaces {
+		ws := &workspaces[i]
+		if ws.Name == excludeName || ws.Spec.Owner != owner || !ws.DeletionTimestamp.IsZero() {
+			continue
+		}
+		tpl := templates[ws.Spec.TemplateRef]
+		if tpl == nil {
+			loads = append(loads, Load{Storage: resource.MustParse(DefaultHomeSize), Paused: ws.Spec.Paused})
+			continue
+		}
+		load, _ := LoadOf(ws, tpl, FindImage(catalog, tpl.Spec.Image))
+		loads = append(loads, load)
+	}
+	return loads
+}
+
 // RetainedLoad is the footprint of one retained volume.
 func RetainedLoad(size resource.Quantity) Load {
 	return Load{Storage: size, Paused: true, Detached: true}
