@@ -215,6 +215,21 @@ jobs:
       fail-fast: false
       matrix:
         module: ${{ fromJson(needs.changes.outputs.go_test) }}
+    # Only the api-server leg talks to postgres (dual-backend repository
+    # suites); services cannot be conditional per matrix leg, the other
+    # legs simply never connect.
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:af194ccf3e2d7fe367012c7b88ce8b816c5c889b18a5b316799a1f0d7eac746a
+        env:
+          POSTGRES_PASSWORD: pg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -223,9 +238,22 @@ jobs:
           cache-dependency-path: ${{ matrix.module }}/go.sum
       - name: Test
         working-directory: ${{ matrix.module }}
+        env:
+          # Repository suites run every test against sqlite AND postgres
+          # when this is set (see internal/repository/backends_test.go).
+          WAAS_TEST_PG_URL: ${{ matrix.module == 'api-server' && 'postgres://postgres:pg@localhost:5432/postgres' || '' }}
         run: |
-          go test -race -covermode=atomic -coverprofile=coverage.out ./...
+          # -coverpkg attributes cross-package coverage (the router-level
+          # integration tests exercise handler/service code), which is
+          # what the ratchet below measures.
+          go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
           go tool cover -func=coverage.out | tail -n 1
+      # Floors sit under today's measured coverage (handler 56%,
+      # repository 78% as of T9): they catch regressions only — raise
+      # them as coverage grows, never lower them.
+      - name: Coverage ratchet
+        if: matrix.module == 'api-server'
+        run: hack/ci/coverage-ratchet.sh api-server/coverage.out internal/handler:40 internal/repository:50
 
   # zz_generated.deepcopy.go, CRDs and docs/guacd-parameters.md are
   # generated and committed; regenerating must be a no-op.

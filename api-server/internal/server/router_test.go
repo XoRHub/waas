@@ -51,25 +51,33 @@ func newTestServer(t *testing.T) (http.Handler, *auth.Signer) {
 
 	users := repository.NewSQLUserRepository(db)
 	sessions := repository.NewSQLSessionRepository(db)
+	remotes := repository.NewSQLRemoteWorkspaceRepository(db)
 	audit := service.NewAuditService(repository.NewSQLAuditRepository(db))
 	authSvc := service.NewAuthService(users, signer, audit, cfg.JWTIssuer, cfg.AccessTokenTTL)
 	userSvc := service.NewUserService(users, audit)
 	templateSvc := service.NewTemplateService(kube, cfg.WorkspaceNamespace, audit)
 	workspaceSvc := service.NewWorkspaceService(kube, cfg.WorkspaceNamespace, users, sessions, audit, signer,
-		cfg.JWTIssuer, cfg.ConnectionTokenTTL)
+		cfg.JWTIssuer, cfg.ConnectionTokenTTL).
+		WithRemoteWorkspaces(remotes)
+	remoteSvc := service.NewRemoteWorkspaceService(kube, cfg.WorkspaceNamespace, users, remotes, sessions,
+		audit, signer, cfg.JWTIssuer, cfg.ConnectionTokenTTL).
+		WithEvents(service.NewEventHub())
+	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit)
 
 	if err := userSvc.EnsureBootstrapAdmin(context.Background(), "admin", "admin-password"); err != nil {
 		t.Fatalf("bootstrapping admin: %v", err)
 	}
 
 	return New(cfg, signer, Handlers{
-		Auth:       handler.NewAuthHandler(authSvc, nil, cfg.OIDC, signer),
-		Users:      handler.NewUserHandler(userSvc),
-		Templates:  handler.NewTemplateHandler(templateSvc),
-		Workspaces: handler.NewWorkspaceHandler(workspaceSvc),
-		Admin:      handler.NewAdminHandler(audit, service.NewSessionService(sessions)),
-		Internal:   handler.NewInternalHandler(workspaceSvc),
-		Meta:       handler.NewMetaHandler(),
+		Auth:             handler.NewAuthHandler(authSvc, nil, cfg.OIDC, signer),
+		Users:            handler.NewUserHandler(userSvc),
+		Templates:        handler.NewTemplateHandler(templateSvc),
+		Workspaces:       handler.NewWorkspaceHandler(workspaceSvc),
+		RemoteWorkspaces: handler.NewRemoteWorkspaceHandler(remoteSvc),
+		Admin:            handler.NewAdminHandler(audit, service.NewSessionService(sessions)),
+		Internal:         handler.NewInternalHandler(workspaceSvc),
+		Governance:       handler.NewGovernanceHandler(governanceSvc),
+		Meta:             handler.NewMetaHandler(),
 	}), signer
 }
 

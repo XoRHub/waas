@@ -408,8 +408,8 @@ type PolicyLimitsModel struct {
 // outcome, and the winner — computed by the same pkg/policy code the
 // admission webhook runs.
 type EffectivePolicy struct {
-	UserID   string   `json:"userId"`
-	Username string   `json:"username"`
+	UserID   string `json:"userId"`
+	Username string `json:"username"`
 	// Groups: non-nil guaranteed by EffectivePolicyOf's construction.
 	Groups []string `json:"groups"`
 	// Evaluated lists every policy in resolution order (priority desc).

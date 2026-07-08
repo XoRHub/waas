@@ -1,0 +1,266 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/xorhub/waas/api-server/internal/database"
+	"github.com/xorhub/waas/api-server/internal/model"
+	"github.com/xorhub/waas/shared/auth"
+)
+
+// The dual-backend suites below assert the SAME behavior on sqlite and
+// PostgreSQL, deliberately hitting the historical divergence traps:
+// timestamp round-trips (RFC3339 scanners), JSON columns (groups,
+// preferences, params, protocols) and NULL vs zero-value handling.
+
+func TestUserRepositorySuite(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, db *database.DB) {
+		repo := NewSQLUserRepository(db)
+		ctx := context.Background()
+		created := time.Date(2026, 7, 8, 10, 30, 0, 0, time.UTC)
+
+		u := &model.User{
+			ID: "u1", Username: "alice", Email: "a@x", Role: auth.RoleUser,
+			Active: true, Groups: []string{"dev", "ops"},
+			Preferences: model.UserPreferences{Language: "fr", WorkspaceFolders: map[string]string{"w1": "infra"}},
+			CreatedAt:   created, UpdatedAt: created,
+		}
+		if err := repo.Create(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+		// Timestamp round-trip: the exact instant, whatever the backend
+		// stores it as (the RFC3339-scanner divergence class).
+		got, err := repo.FindByID(ctx, "u1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.CreatedAt.Equal(created) {
+			t.Fatalf("created_at round-trip: want %v got %v", created, got.CreatedAt)
+		}
+		if len(got.Groups) != 2 || got.Groups[0] != "dev" {
+			t.Fatalf("groups JSON round-trip: %v", got.Groups)
+		}
+		if got.Preferences.WorkspaceFolders["w1"] != "infra" {
+			t.Fatalf("preferences JSON round-trip: %+v", got.Preferences)
+		}
+
+		// Username lookup + duplicate rejection.
+		if _, err := repo.FindByUsername(ctx, "alice"); err != nil {
+			t.Fatal(err)
+		}
+		dup := *u
+		if err := repo.Create(ctx, &dup); !errors.Is(err, ErrDuplicate) {
+			t.Fatalf("duplicate create must return ErrDuplicate, got %v", err)
+		}
+
+		// Update: groups replaced wholesale (the admin-edit contract).
+		got.Groups = []string{"sec"}
+		got.Role = auth.RoleAdmin
+		if err := repo.Update(ctx, got); err != nil {
+			t.Fatal(err)
+		}
+		got, err = repo.FindByID(ctx, "u1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Groups) != 1 || got.Groups[0] != "sec" || got.Role != auth.RoleAdmin {
+			t.Fatalf("update round-trip: %+v", got)
+		}
+
+		// Missing rows fail typed, not with sql.ErrNoRows.
+		if _, err := repo.FindByID(ctx, "ghost"); !errors.Is(err, ErrUserNotFound) {
+			t.Fatalf("want ErrUserNotFound, got %v", err)
+		}
+
+		if n, err := repo.Count(ctx); err != nil || n != 1 {
+			t.Fatalf("count: %d %v", n, err)
+		}
+		if err := repo.Delete(ctx, "u1"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repo.FindByID(ctx, "u1"); !errors.Is(err, ErrUserNotFound) {
+			t.Fatal("deleted user must be gone")
+		}
+	})
+}
+
+func TestSessionRepositorySuite(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, db *database.DB) {
+		repo := NewSQLSessionRepository(db)
+		ctx := context.Background()
+		started := time.Date(2026, 7, 8, 9, 0, 0, 0, time.UTC)
+		// sessions.user_id is a real FK: the user must exist.
+		if err := NewSQLUserRepository(db).Create(ctx, &model.User{
+			ID: "u1", Username: "alice", Role: auth.RoleUser, Active: true,
+			CreatedAt: started, UpdatedAt: started,
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		s1 := &model.Session{
+			ID: "s1", UserID: "u1", WorkspaceID: "w1", WorkspaceName: "ws one",
+			Protocol: "kasmvnc", StartedAt: started,
+			Params: map[string]string{"color-depth": "16"},
+		}
+		s2 := &model.Session{
+			ID: "s2", UserID: "u1", WorkspaceID: "w1", WorkspaceName: "ws one",
+			Protocol: "vnc", StartedAt: started.Add(time.Minute), Kind: model.SessionKindWorkspace,
+		}
+		for _, s := range []*model.Session{s1, s2} {
+			if err := repo.Create(ctx, s); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		got, err := repo.FindByID(ctx, "s1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.EndedAt != nil {
+			t.Fatal("fresh session must be open (ended_at NULL round-trip)")
+		}
+		if got.Params["color-depth"] != "16" {
+			t.Fatalf("params JSON round-trip: %v", got.Params)
+		}
+		if !got.StartedAt.Equal(started) {
+			t.Fatalf("started_at round-trip: want %v got %v", started, got.StartedAt)
+		}
+
+		// End one, then close the rest via the workspace-wide sweep.
+		endAt := started.Add(2 * time.Minute)
+		if err := repo.End(ctx, "s1", endAt); err != nil {
+			t.Fatal(err)
+		}
+		open, err := repo.ListOpen(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(open) != 1 || open[0].ID != "s2" {
+			t.Fatalf("ListOpen after End: %+v", open)
+		}
+		n, err := repo.EndAllForWorkspace(ctx, "w1", endAt.Add(time.Minute))
+		if err != nil || n != 1 {
+			t.Fatalf("EndAllForWorkspace: n=%d err=%v", n, err)
+		}
+
+		activity, err := repo.Activity(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		act, ok := activity["w1"]
+		if !ok || act.ActiveNow {
+			t.Fatalf("activity after closing everything: %+v", activity)
+		}
+	})
+}
+
+func TestRemoteWorkspaceRepositorySuite(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, db *database.DB) {
+		repo := NewSQLRemoteWorkspaceRepository(db)
+		ctx := context.Background()
+		// remote_workspaces.owner_id is a real FK: the owner must exist.
+		now := time.Now().UTC()
+		if err := NewSQLUserRepository(db).Create(ctx, &model.User{
+			ID: "u1", Username: "alice", Role: auth.RoleUser, Active: true,
+			CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		rw := &model.RemoteWorkspace{
+			ID: "r1", OwnerID: "u1", Name: "lab", Hostname: "10.0.0.5",
+			Port: 22, Protocol: "ssh",
+			Protocols: []model.RemoteProtocol{
+				{Name: "ssh", Port: 22, Default: true},
+				{Name: "kasmvnc", Port: 6901},
+			},
+			MACAddress: "aa:bb:cc:dd:ee:ff",
+			SecretName: "waas-remote-r1",
+		}
+		if err := repo.Create(ctx, rw); err != nil {
+			t.Fatal(err)
+		}
+		got, err := repo.FindByID(ctx, "r1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Protocols) != 2 || got.Protocols[1].Name != "kasmvnc" {
+			t.Fatalf("protocols JSON round-trip: %+v", got.Protocols)
+		}
+		if got.MACAddress != "aa:bb:cc:dd:ee:ff" || got.SecretName != "waas-remote-r1" {
+			t.Fatalf("scalar round-trip: %+v", got)
+		}
+
+		byOwner, err := repo.ListByOwner(ctx, "u1")
+		if err != nil || len(byOwner) != 1 {
+			t.Fatalf("ListByOwner: %d %v", len(byOwner), err)
+		}
+		if all, err := repo.ListAll(ctx); err != nil || len(all) != 1 {
+			t.Fatalf("ListAll: %v", err)
+		}
+
+		got.Hostname = "10.0.0.9"
+		if err := repo.Update(ctx, got); err != nil {
+			t.Fatal(err)
+		}
+		got, _ = repo.FindByID(ctx, "r1")
+		if got.Hostname != "10.0.0.9" {
+			t.Fatal("update must persist")
+		}
+
+		if err := repo.Delete(ctx, "r1"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repo.FindByID(ctx, "r1"); !errors.Is(err, ErrRemoteWorkspaceNotFound) {
+			t.Fatalf("want ErrRemoteWorkspaceNotFound, got %v", err)
+		}
+	})
+}
+
+func TestAuditRepositorySuite(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, db *database.DB) {
+		repo := NewSQLAuditRepository(db)
+		ctx := context.Background()
+		base := time.Date(2026, 7, 8, 8, 0, 0, 0, time.UTC)
+
+		for i, action := range []string{"workspace.created", "workspace.deleted", "session.started"} {
+			entry := &model.AuditLog{
+				ID:         fmt.Sprintf("a%d", i),
+				OccurredAt: base.Add(time.Duration(i) * time.Hour),
+				ActorID:    "u1", ActorUsername: "alice",
+				Action: action, ResourceType: "workspace", ResourceID: "w1",
+			}
+			if err := repo.Insert(ctx, entry); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// Prefix filter on action + total count with pagination.
+		rows, total, err := repo.List(ctx, AuditFilter{Action: "workspace."}, 1, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if total != 2 || len(rows) != 1 {
+			t.Fatalf("action-prefix filter: total=%d rows=%d", total, len(rows))
+		}
+
+		// Time window bounds occurred_at on both ends.
+		rows, total, err = repo.List(ctx, AuditFilter{From: base.Add(30 * time.Minute), To: base.Add(90 * time.Minute)}, 1, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if total != 1 || rows[0].Action != "workspace.deleted" {
+			t.Fatalf("time-window filter: total=%d rows=%+v", total, rows)
+		}
+
+		// Actor substring match.
+		_, total, err = repo.List(ctx, AuditFilter{Actor: "lic"}, 1, 10)
+		if err != nil || total != 3 {
+			t.Fatalf("actor substring: total=%d err=%v", total, err)
+		}
+	})
+}
