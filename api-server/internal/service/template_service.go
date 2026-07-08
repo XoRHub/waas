@@ -42,14 +42,17 @@ func NewTemplateService(kube client.Client, namespace string, audit *AuditServic
 // the API accepts exactly what the CR schema accepts, so new CR fields
 // never need a parallel DTO — the "no duplicated schema" decision.
 type TemplateInput struct {
-	Name             string            `json:"name"`
-	DisplayName      string            `json:"displayName"`
-	Description      string            `json:"description"`
-	OS               string            `json:"os"`
-	Image            string            `json:"image"`
-	Port             int32             `json:"port"`
-	HomeSize         string            `json:"homeSize"`
-	HomeMountPath    string            `json:"homeMountPath,omitempty"`
+	Name          string `json:"name"`
+	DisplayName   string `json:"displayName"`
+	Description   string `json:"description"`
+	OS            string `json:"os"`
+	Image         string `json:"image"`
+	Port          int32  `json:"port"`
+	HomeSize      string `json:"homeSize"`
+	HomeMountPath string `json:"homeMountPath,omitempty"`
+	// KasmVNCConfig is the raw ~/.vnc/kasmvnc.yaml content (opaque,
+	// admin-only; requires a kasmvnc protocol entry).
+	KasmVNCConfig    string            `json:"kasmvncConfig,omitempty"`
 	StorageClassName string            `json:"storageClassName"`
 	Requests         map[string]string `json:"requests"`
 	Limits           map[string]string `json:"limits"`
@@ -210,6 +213,7 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 		}
 		spec.HomeMountPath = in.HomeMountPath
 	}
+	spec.KasmVNCConfig = in.KasmVNCConfig
 	if in.HomeSize != "" {
 		qty, err := resource.ParseQuantity(in.HomeSize)
 		if err != nil {
@@ -340,6 +344,7 @@ func templateToModel(tpl *waasv1alpha1.WorkspaceTemplate) model.WorkspaceTemplat
 		m.HomeSize = tpl.Spec.HomeSize.String()
 	}
 	m.HomeMountPath = tpl.Spec.HomeMountPath
+	m.KasmVNCConfig = tpl.Spec.KasmVNCConfig
 	if len(tpl.Spec.Resources.Requests) > 0 {
 		m.Requests = map[string]string{}
 		for name, qty := range tpl.Spec.Resources.Requests {

@@ -92,6 +92,24 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 			"not a registered",
 		},
 		{
+			"kasmvncConfig without kasmvnc protocol",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901})
+				tpl.Spec.KasmVNCConfig = "desktop: {}"
+				return tpl
+			}(),
+			"requires a kasmvnc protocol",
+		},
+		{
+			"kasmvncConfig with kasmvnc protocol",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
+				tpl.Spec.KasmVNCConfig = "desktop: {}"
+				return tpl
+			}(),
+			"",
+		},
+		{
 			"kasmvnc on windows",
 			func() *waasv1alpha1.WorkspaceTemplate {
 				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})

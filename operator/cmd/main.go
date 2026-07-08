@@ -64,10 +64,10 @@ func main() {
 		Client: client.Options{
 			Cache: &client.CacheOptions{
 				// The operator only touches its own per-workspace kasm
-				// credential Secrets, but a cached read would spin up an
-				// informer over EVERY Secret in the cluster. Read them
-				// straight from the API instead.
-				DisableFor: []client.Object{&corev1.Secret{}},
+				// credential Secrets and config ConfigMaps, but a cached
+				// read would spin up an informer over EVERY such object
+				// in the cluster. Read them straight from the API.
+				DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
 			},
 		},
 	})

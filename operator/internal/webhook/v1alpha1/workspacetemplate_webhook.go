@@ -75,6 +75,11 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 	if defaults > 1 {
 		return nil, v.deny(tpl, "at most one protocol may be marked default")
 	}
+	// kasmvncConfig only means something to a KasmVNC endpoint: an
+	// honest refusal beats a silently ignored field.
+	if tpl.Spec.KasmVNCConfig != "" && !seen[string(waasv1alpha1.ProtocolKasmVNC)] {
+		return nil, v.deny(tpl, "kasmvncConfig requires a kasmvnc protocol entry")
+	}
 	if s := tpl.Spec.Schedule; s != nil {
 		if err := (schedule.Spec{Timezone: s.Timezone, Uptime: s.Uptime, Downtime: s.Downtime}).Validate(); err != nil {
 			return nil, v.deny(tpl, fmt.Sprintf("schedule: %v", err))

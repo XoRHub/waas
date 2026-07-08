@@ -302,6 +302,21 @@ type WorkspaceTemplateSpec struct {
 	// +kubebuilder:validation:Pattern=`^/[^\0]+[^/\0]$`
 	HomeMountPath string `json:"homeMountPath,omitempty"`
 
+	// KasmVNCConfig is the raw content of the user-level KasmVNC
+	// configuration, materialized read-only at
+	// <homeMountPath>/.vnc/kasmvnc.yaml (a per-workspace ConfigMap
+	// mounted with subPath — the .vnc directory itself stays writable
+	// for the runtime artifacts KasmVNC generates there). The string is
+	// DELIBERATELY opaque: the operator neither parses nor validates it,
+	// so every upstream option works without schema churn. Templates are
+	// admin-managed CRs — this is admin-only surface; note it can loosen
+	// security-relevant settings (require_ssl, auth file paths), which
+	// is the admin's call. Empty = no mount, the image default applies.
+	// Only meaningful with the kasmvnc protocol; the webhook rejects it
+	// elsewhere.
+	// +optional
+	KasmVNCConfig string `json:"kasmvncConfig,omitempty"`
+
 	// StorageClassName selects the storage class for home volumes.
 	// +optional
 	StorageClassName *string `json:"storageClassName,omitempty"`

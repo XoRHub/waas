@@ -70,6 +70,27 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 		MountPath: tpl.Spec.EffectiveHomeMountPath(),
 	}}, mergeVolumeMounts(wl.VolumeMounts, ov.VolumeMounts)...)
 
+	// Opaque user-level KasmVNC config: single-file subPath mount ON TOP
+	// of the home volume — the .vnc directory itself stays writable for
+	// the runtime artifacts KasmVNC drops there (self.pem).
+	if tpl.Spec.KasmVNCConfig != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name: kasmConfigVolume,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: computeName(ws)},
+					Items:                []corev1.KeyToPath{{Key: kasmConfigKey, Path: kasmConfigKey}},
+				},
+			},
+		})
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      kasmConfigVolume,
+			MountPath: tpl.Spec.EffectiveHomeMountPath() + "/.vnc/" + kasmConfigKey,
+			SubPath:   kasmConfigKey,
+			ReadOnly:  true,
+		})
+	}
+
 	securityContext := wl.SecurityContext
 	if ov.SecurityContext != nil {
 		securityContext = ov.SecurityContext
@@ -80,6 +101,14 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	}
 
 	labels, annotations := workloadMeta(ws, tpl)
+	// subPath mounts never refresh in place: hashing the config into the
+	// pod template makes a content change roll the workload.
+	if tpl.Spec.KasmVNCConfig != "" {
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		annotations[annotationKasmConfigHash] = kasmConfigHash(tpl.Spec.KasmVNCConfig)
+	}
 	return corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      labels,
@@ -180,11 +209,22 @@ func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1al
 	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
 		// Reconcile the replica count in place (pause/resume): keep the
-		// object, only scale it.
+		// object, only scale it. The pod template is otherwise create-only
+		// — EXCEPT the kasmvnc config hash: subPath mounts go silently
+		// stale, so a config change is the one template edit that rolls
+		// the workload (same desired-state stance as the ingress netpol).
+		changed := false
 		if existing.Spec.Replicas == nil || *existing.Spec.Replicas != want {
 			existing.Spec.Replicas = &want
+			changed = true
+		}
+		if kasmConfigDrifted(existing.Spec.Template.Annotations, tpl) {
+			existing.Spec.Template = r.buildPodTemplate(ctx, ws, tpl, pvcName)
+			changed = true
+		}
+		if changed {
 			if err := r.Update(ctx, existing); err != nil {
-				return false, fmt.Errorf("scaling deployment %s to %d: %w", name, want, err)
+				return false, fmt.Errorf("updating deployment %s: %w", name, err)
 			}
 		}
 		return existing.Status.ReadyReplicas > 0 && !paused, nil
@@ -225,10 +265,20 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 	existing := &appsv1.StatefulSet{}
 	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
+		changed := false
 		if existing.Spec.Replicas == nil || *existing.Spec.Replicas != want {
 			existing.Spec.Replicas = &want
+			changed = true
+		}
+		// See ensureDeployment: the kasmvnc config hash is the one
+		// template edit converged in place.
+		if kasmConfigDrifted(existing.Spec.Template.Annotations, tpl) {
+			existing.Spec.Template = r.buildPodTemplate(ctx, ws, tpl, pvcName)
+			changed = true
+		}
+		if changed {
 			if err := r.Update(ctx, existing); err != nil {
-				return false, fmt.Errorf("scaling statefulset %s to %d: %w", name, want, err)
+				return false, fmt.Errorf("updating statefulset %s: %w", name, err)
 			}
 		}
 		return existing.Status.ReadyReplicas > 0 && !paused, nil

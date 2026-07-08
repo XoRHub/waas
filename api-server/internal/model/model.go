@@ -268,7 +268,9 @@ type WorkspaceTemplate struct {
 	HomeSize    string `json:"homeSize,omitempty"`
 	// HomeMountPath is where the home volume is mounted (default
 	// /home/user; kasmweb images expect /home/kasm-user).
-	HomeMountPath string            `json:"homeMountPath,omitempty"`
+	HomeMountPath string `json:"homeMountPath,omitempty"`
+	// KasmVNCConfig is the opaque ~/.vnc/kasmvnc.yaml content.
+	KasmVNCConfig string            `json:"kasmvncConfig,omitempty"`
 	Requests      map[string]string `json:"requests,omitempty"`
 	Limits        map[string]string `json:"limits,omitempty"`
 	CreatedAt     time.Time         `json:"createdAt"`

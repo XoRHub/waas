@@ -87,6 +87,7 @@ func (r *WorkspaceReconciler) now() time.Time {
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;create;update;delete
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;create;update;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;update;delete
@@ -205,6 +206,12 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Generated KasmVNC credentials must exist before the workload: its
 	// VNC_PW secretKeyRef references the pod-namespace copy.
 	if err := r.ensureKasmCredentials(ctx, ws, tpl); err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+	}
+
+	// User-level KasmVNC config: the ConfigMap must exist before the
+	// workload that mounts it.
+	if err := r.ensureKasmConfig(ctx, ws, tpl); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}
 
