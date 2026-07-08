@@ -38,10 +38,17 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	// the image is published for; missing catalog entry means no
 	// constraint (pre-governance).
 	var affinity *corev1.Affinity
+	var pullSecrets []corev1.LocalObjectReference
 	catalog := &waasv1alpha1.WorkspaceImageList{}
 	if err := r.List(ctx, catalog, client.InNamespace(ws.Namespace)); err == nil {
 		if img := policy.FindImage(catalog.Items, tpl.Spec.Image); img != nil {
 			affinity = archAffinity(img.Spec.Architectures)
+			// Private registry: the namespace-local copy (or the source
+			// itself when unplaced) ensured by ensurePullSecret.
+			if img.Spec.ImagePullSecretRef != "" {
+				pullSecrets = append(pullSecrets,
+					corev1.LocalObjectReference{Name: pullSecretPodName(ws, img.Spec.ImagePullSecretRef)})
+			}
 		}
 	}
 
@@ -81,6 +88,7 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 		Spec: corev1.PodSpec{
 			RestartPolicy:      corev1.RestartPolicyAlways,
 			Affinity:           affinity,
+			ImagePullSecrets:   pullSecrets,
 			NodeSelector:       mergeStringMap(wl.NodeSelector, ov.NodeSelector),
 			Tolerations:        append(append([]corev1.Toleration{}, wl.Tolerations...), ov.Tolerations...),
 			ServiceAccountName: wl.ServiceAccountName,

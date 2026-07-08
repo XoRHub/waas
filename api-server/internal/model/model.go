@@ -308,14 +308,16 @@ type CatalogImage struct {
 	// Registry approves every image under this prefix (exclusive with Image).
 	Registry string `json:"registry,omitempty"`
 	// TagPolicy: digest | tag | any (empty = tag).
-	TagPolicy     string            `json:"tagPolicy,omitempty"`
-	Protocols     []string          `json:"protocols"`
-	Architectures []string          `json:"architectures,omitempty"`
-	Enabled       bool              `json:"enabled"`
-	AllowedGroups []string          `json:"allowedGroups,omitempty"`
-	Defaults      map[string]string `json:"defaults,omitempty"`
-	Min           map[string]string `json:"min,omitempty"`
-	Max           map[string]string `json:"max,omitempty"`
+	TagPolicy string `json:"tagPolicy,omitempty"`
+	// ImagePullSecretRef names the registry pull-credentials Secret.
+	ImagePullSecretRef string            `json:"imagePullSecretRef,omitempty"`
+	Protocols          []string          `json:"protocols"`
+	Architectures      []string          `json:"architectures,omitempty"`
+	Enabled            bool              `json:"enabled"`
+	AllowedGroups      []string          `json:"allowedGroups,omitempty"`
+	Defaults           map[string]string `json:"defaults,omitempty"`
+	Min                map[string]string `json:"min,omitempty"`
+	Max                map[string]string `json:"max,omitempty"`
 	// Templates using this image, so the portal can go straight from
 	// catalog card to "create workspace".
 	Templates []string `json:"templates,omitempty"`

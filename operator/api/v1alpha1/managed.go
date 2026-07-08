@@ -10,6 +10,13 @@ import "k8s.io/apimachinery/pkg/runtime/schema"
 // into Retain.
 const LabelCleanup = "waas.xorhub.io/cleanup"
 
+// LabelPullSecret marks the operator's per-namespace copies of registry
+// pull credentials (WorkspaceImage.spec.imagePullSecretRef). They are
+// shared by every workspace of the namespace: NOT workspace content
+// (the janitor's emptiness check skips them — they must never pin a
+// DeleteWhenEmpty namespace), reclaimed by the namespace cascade.
+const LabelPullSecret = "waas.xorhub.io/pull-secret"
+
 // VirtualMachineGVK identifies kubevirt.io/v1 VirtualMachine (KubeVirt is
 // an optional runtime dependency, managed unstructured).
 var VirtualMachineGVK = schema.GroupVersionKind{Group: "kubevirt.io", Version: "v1", Kind: "VirtualMachine"}

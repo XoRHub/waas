@@ -289,14 +289,17 @@ type UpsertImageInput struct {
 	Image    string `json:"image,omitempty"`
 	Registry string `json:"registry,omitempty"`
 	// TagPolicy: digest | tag (default — :latest rejected) | any.
-	TagPolicy     string            `json:"tagPolicy,omitempty"`
-	Protocols     []string          `json:"protocols"`
-	Architectures []string          `json:"architectures"`
-	Enabled       *bool             `json:"enabled"`
-	AllowedGroups []string          `json:"allowedGroups"`
-	Defaults      map[string]string `json:"defaults"`
-	Min           map[string]string `json:"min"`
-	Max           map[string]string `json:"max"`
+	TagPolicy string `json:"tagPolicy,omitempty"`
+	// ImagePullSecretRef names an existing dockerconfigjson Secret (in
+	// the platform workspace namespace) for this entry's registry.
+	ImagePullSecretRef string            `json:"imagePullSecretRef,omitempty"`
+	Protocols          []string          `json:"protocols"`
+	Architectures      []string          `json:"architectures"`
+	Enabled            *bool             `json:"enabled"`
+	AllowedGroups      []string          `json:"allowedGroups"`
+	Defaults           map[string]string `json:"defaults"`
+	Min                map[string]string `json:"min"`
+	Max                map[string]string `json:"max"`
 }
 
 // AdminUpsertImage creates or updates a WorkspaceImage.
@@ -313,14 +316,15 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 		return nil, apierror.BadRequest("tagPolicy must be one of digest, tag, any")
 	}
 	spec := waasv1alpha1.WorkspaceImageSpec{
-		DisplayName:   in.DisplayName,
-		Description:   in.Description,
-		Image:         in.Image,
-		Registry:      strings.TrimSuffix(in.Registry, "/"),
-		TagPolicy:     waasv1alpha1.ImageTagPolicy(in.TagPolicy),
-		Enabled:       in.Enabled == nil || *in.Enabled,
-		AllowedGroups: in.AllowedGroups,
-		Architectures: in.Architectures,
+		DisplayName:        in.DisplayName,
+		Description:        in.Description,
+		Image:              in.Image,
+		Registry:           strings.TrimSuffix(in.Registry, "/"),
+		TagPolicy:          waasv1alpha1.ImageTagPolicy(in.TagPolicy),
+		Enabled:            in.Enabled == nil || *in.Enabled,
+		AllowedGroups:      in.AllowedGroups,
+		ImagePullSecretRef: in.ImagePullSecretRef,
+		Architectures:      in.Architectures,
 	}
 	for _, p := range in.Protocols {
 		switch waasv1alpha1.Protocol(p) {
@@ -669,15 +673,16 @@ func (s *GovernanceService) AdminUsage(ctx context.Context) ([]model.UserUsage, 
 
 func imageToModel(img *waasv1alpha1.WorkspaceImage) model.CatalogImage {
 	m := model.CatalogImage{
-		Name:          img.Name,
-		DisplayName:   img.Spec.DisplayName,
-		Description:   img.Spec.Description,
-		Image:         img.Spec.Image,
-		Registry:      img.Spec.Registry,
-		TagPolicy:     string(img.Spec.TagPolicy),
-		Enabled:       img.Spec.Enabled,
-		Architectures: img.Spec.Architectures,
-		AllowedGroups: img.Spec.AllowedGroups,
+		Name:               img.Name,
+		DisplayName:        img.Spec.DisplayName,
+		Description:        img.Spec.Description,
+		Image:              img.Spec.Image,
+		Registry:           img.Spec.Registry,
+		TagPolicy:          string(img.Spec.TagPolicy),
+		Enabled:            img.Spec.Enabled,
+		Architectures:      img.Spec.Architectures,
+		AllowedGroups:      img.Spec.AllowedGroups,
+		ImagePullSecretRef: img.Spec.ImagePullSecretRef,
 	}
 	for _, p := range img.Spec.Protocols {
 		m.Protocols = append(m.Protocols, string(p))

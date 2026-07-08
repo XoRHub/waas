@@ -103,6 +103,16 @@ type WorkspaceImageSpec struct {
 	// +optional
 	AllowedGroups []string `json:"allowedGroups,omitempty"`
 
+	// ImagePullSecretRef names an existing kubernetes.io/dockerconfigjson
+	// Secret (in the platform workspace namespace) holding the pull
+	// credentials for this entry's registry. The operator copies it into
+	// each workspace's target namespace (imagePullSecrets are read by the
+	// kubelet in the POD's namespace) and wires it into the PodSpec. A
+	// missing or unreadable source is FAIL-CLOSED: the workspace does not
+	// start and its Ready condition says PullSecretMissing.
+	// +optional
+	ImagePullSecretRef string `json:"imagePullSecretRef,omitempty"`
+
 	// Resources are the per-workspace sizing hints and hard bounds for
 	// this image.
 	// +optional

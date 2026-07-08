@@ -110,14 +110,25 @@ func (j *NamespaceJanitor) isEmpty(ctx context.Context, name string) (bool, erro
 	for _, gvk := range waasv1alpha1.WorkspaceContentGVKs() {
 		list := &unstructured.UnstructuredList{}
 		list.SetGroupVersionKind(gvk)
-		err := j.List(ctx, list, client.InNamespace(name), client.MatchingLabels{labelManagedBy: managerName}, client.Limit(1))
+		// Secrets need the full list: the shared pull-secret copies are
+		// managed-by us but are NOT workspace content — alone, they must
+		// never pin a DeleteWhenEmpty namespace (the namespace cascade
+		// reclaims them).
+		opts := []client.ListOption{client.InNamespace(name), client.MatchingLabels{labelManagedBy: managerName}}
+		if gvk.Kind != "Secret" {
+			opts = append(opts, client.Limit(1))
+		}
+		err := j.List(ctx, list, opts...)
 		if meta.IsNoMatchError(err) || runtime.IsNotRegisteredError(err) {
 			continue // optional kind (KubeVirt) not installed
 		}
 		if err != nil {
 			return false, fmt.Errorf("listing %s in %s: %w", gvk.Kind, name, err)
 		}
-		if len(list.Items) > 0 {
+		for i := range list.Items {
+			if gvk.Kind == "Secret" && list.Items[i].GetLabels()[waasv1alpha1.LabelPullSecret] == "true" {
+				continue
+			}
 			return false, nil
 		}
 	}

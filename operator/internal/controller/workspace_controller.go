@@ -208,6 +208,20 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}
 
+	// Private-registry pull credentials, fail-closed: a workspace whose
+	// catalog entry references an unresolvable secret must say so instead
+	// of crash-looping in ImagePullBackOff.
+	if denial, err := r.ensurePullSecret(ctx, ws, tpl); err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+	} else if denial != nil {
+		r.recordEvent(ws, corev1.EventTypeWarning, string(denial.Reason), denial.Message)
+		if err := r.setUnready(ctx, ws, waasv1alpha1.PhaseFailed, string(denial.Reason), denial.Message); err != nil {
+			return ctrl.Result{}, err
+		}
+		// The secret may arrive via GitOps; retry on the slow loop.
+		return ctrl.Result{RequeueAfter: requeueMissing}, nil
+	}
+
 	// Effective down-state = manual pause OR a scheduled downtime window,
 	// resolved by conflict rule B (see pkg/schedule). Down = scale to 0,
 	// NOT delete: the workload object and config are kept so resume is a
