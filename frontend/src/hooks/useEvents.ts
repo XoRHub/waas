@@ -4,9 +4,15 @@ import { useAuthStore } from '@/stores/authStore';
 
 // Which queries each event kind invalidates. The stream carries KINDS
 // only — data always comes back through the normal authorized API.
+// Partial keys match by prefix (react-query), so parameterized queries
+// like ['effective-policy', userId] are covered by their family key.
 const INVALIDATIONS: Record<string, string[][]> = {
   workspaces: [['workspaces'], ['quota']],
   'remote-workspaces': [['remote-workspaces'], ['admin-remote-workspaces']],
+  templates: [['workspace-templates'], ['catalog']],
+  images: [['catalog'], ['admin-images'], ['quota']],
+  policies: [['admin-policies'], ['quota'], ['effective-policy']],
+  volumes: [['volumes'], ['admin-volumes'], ['quota']],
 };
 
 /**

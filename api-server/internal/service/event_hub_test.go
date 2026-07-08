@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/xorhub/waas/api-server/internal/k8s"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
@@ -90,4 +92,53 @@ func TestEventHubRelaysWorkspaceWatch(t *testing.T) {
 	if got := recv(t, sub); got != "workspaces" {
 		t.Fatalf("expected a workspaces event from the watch, got %q", got)
 	}
+}
+
+func TestEventHubGenericWatchBroadcastAndOwnerScoping(t *testing.T) {
+	kube, err := k8s.NewClient(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := NewEventHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Templates broadcast (admin-managed, kind-only); volumes are scoped
+	// to the PVC's owner label.
+	go hub.RunWatch(ctx, kube, &waasv1alpha1.WorkspaceTemplateList{}, "templates", nil)
+	go hub.RunWatch(ctx, kube, &corev1.PersistentVolumeClaimList{}, "volumes",
+		func(obj k8sclient.Object) string { return obj.GetLabels()[ownerLabel] })
+
+	alice, cancelAlice := hub.Subscribe("alice", false)
+	bob, cancelBob := hub.Subscribe("bob", false)
+	defer cancelAlice()
+	defer cancelBob()
+	time.Sleep(100 * time.Millisecond)
+
+	tpl := &waasv1alpha1.WorkspaceTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "t1", Namespace: testNS},
+		Spec:       waasv1alpha1.WorkspaceTemplateSpec{DisplayName: "T", OS: waasv1alpha1.OSLinux, Image: "img:1"},
+	}
+	if err := kube.Create(ctx, tpl); err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, alice); got != "templates" {
+		t.Fatalf("template changes must broadcast, alice got %q", got)
+	}
+	if got := recv(t, bob); got != "templates" {
+		t.Fatalf("template changes must broadcast, bob got %q", got)
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "home-1", Namespace: testNS,
+			Labels: map[string]string{ownerLabel: "alice"},
+		},
+	}
+	if err := kube.Create(ctx, pvc); err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, alice); got != "volumes" {
+		t.Fatalf("owner must get her volume event, got %q", got)
+	}
+	assertSilent(t, bob)
 }

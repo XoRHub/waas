@@ -11,6 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+
 	"github.com/xorhub/waas/api-server/internal/config"
 	"github.com/xorhub/waas/api-server/internal/database"
 	"github.com/xorhub/waas/api-server/internal/handler"
@@ -111,6 +116,16 @@ func run() error {
 	// ArgoCD prune) or whose end-of-session callback was lost.
 	go service.NewSessionSweeper(kube, cfg.WorkspaceNamespace, sessions, remotes, audit, cfg.SessionSweepInterval).Run(ctx)
 	go events.RunWorkspaceWatch(ctx, kube, cfg.WorkspaceNamespace)
+	// Admin-managed objects change through GitOps and kubectl too: watch
+	// them and broadcast their KIND (never data — clients re-fetch through
+	// the per-user authorized API). Home volumes live wherever their
+	// workspace was placed: cluster-wide watch, scoped to the owner.
+	go events.RunWatch(ctx, kube, &waasv1alpha1.WorkspaceTemplateList{}, "templates", nil, k8sclient.InNamespace(cfg.WorkspaceNamespace))
+	go events.RunWatch(ctx, kube, &waasv1alpha1.WorkspaceImageList{}, "images", nil, k8sclient.InNamespace(cfg.WorkspaceNamespace))
+	go events.RunWatch(ctx, kube, &waasv1alpha1.WorkspacePolicyList{}, "policies", nil, k8sclient.InNamespace(cfg.WorkspaceNamespace))
+	go events.RunWatch(ctx, kube, &corev1.PersistentVolumeClaimList{}, "volumes",
+		func(obj k8sclient.Object) string { return obj.GetLabels()["waas.xorhub.io/owner"] },
+		k8sclient.MatchingLabels{"app.kubernetes.io/managed-by": "waas-operator"})
 
 	router := server.New(cfg, signer, server.Handlers{
 		Auth:             handler.NewAuthHandler(authSvc, oidcSvc, cfg.OIDC, signer),

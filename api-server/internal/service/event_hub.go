@@ -73,10 +73,23 @@ func (h *EventHub) Notify(kind, ownerID string) {
 // RunWorkspaceWatch relays cluster Workspace changes into the hub until
 // ctx ends, restarting the watch with a small backoff on failure.
 func (h *EventHub) RunWorkspaceWatch(ctx context.Context, kube client.WithWatch, namespace string) {
+	h.RunWatch(ctx, kube, &waasv1alpha1.WorkspaceList{}, "workspaces",
+		func(obj client.Object) string { return obj.GetLabels()[ownerLabel] },
+		client.InNamespace(namespace))
+}
+
+// RunWatch relays cluster changes of one list type into the hub as the
+// given kind until ctx ends, restarting the watch with a small backoff
+// on failure. ownerOf scopes delivery to that owner's streams (admins
+// see everything); nil broadcasts — right for admin-managed objects
+// (templates, catalog, policies) whose events carry no data anyway: the
+// re-fetch goes through the normal per-user authorized API.
+func (h *EventHub) RunWatch(ctx context.Context, kube client.WithWatch, list client.ObjectList,
+	kind string, ownerOf func(client.Object) string, opts ...client.ListOption) {
 	for ctx.Err() == nil {
-		w, err := kube.Watch(ctx, &waasv1alpha1.WorkspaceList{}, client.InNamespace(namespace))
+		w, err := kube.Watch(ctx, list, opts...)
 		if err != nil {
-			slog.Warn("workspace watch failed; retrying", "error", err)
+			slog.Warn("watch failed; retrying", "kind", kind, "error", err)
 			select {
 			case <-ctx.Done():
 				return
@@ -89,7 +102,11 @@ func (h *EventHub) RunWorkspaceWatch(ctx context.Context, kube client.WithWatch,
 			if !ok {
 				continue
 			}
-			h.Notify("workspaces", obj.GetLabels()[ownerLabel])
+			owner := ""
+			if ownerOf != nil {
+				owner = ownerOf(obj)
+			}
+			h.Notify(kind, owner)
 		}
 		w.Stop()
 	}
