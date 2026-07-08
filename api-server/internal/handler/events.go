@@ -35,6 +35,14 @@ func (h *EventsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := middleware.Actor(r)
 
+	// The server's ReadTimeout would cancel this request's context at
+	// the deadline (the background client-disconnect read inherits it) —
+	// SSE is the one endpoint that must outlive it. Clear both deadlines
+	// for this connection; disconnect detection keeps working, undated.
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Time{})
+	_ = rc.SetWriteDeadline(time.Time{})
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	// Disable proxy buffering (nginx honors this; traefik streams by default).

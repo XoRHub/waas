@@ -144,6 +144,16 @@ func run() error {
 		Addr:              cfg.ListenAddr,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
+		// ReadTimeout also arms the background read the server keeps
+		// during long responses (client-disconnect detection): hitting it
+		// cancels the request context. The SSE handler is the one
+		// long-lived response and clears its deadlines explicitly via
+		// ResponseController (see handler/events.go).
+		ReadTimeout: 30 * time.Second,
+		// WriteTimeout stays 0 ON PURPOSE: any non-zero value would cut
+		// every SSE stream at the deadline.
+		WriteTimeout: 0,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
