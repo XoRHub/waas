@@ -56,7 +56,7 @@ func TestProtocolConnections(t *testing.T) {
 	c.login(env("WAAS_SMOKE_USER", "admin"), env("WAAS_SMOKE_PASSWORD", "admin123"))
 
 	byProtocol := c.templatesByProtocol()
-	protocols := strings.Split(env("WAAS_SMOKE_PROTOCOLS", "vnc,rdp,ssh"), ",")
+	protocols := strings.Split(env("WAAS_SMOKE_PROTOCOLS", "vnc,rdp,ssh,kasmvnc"), ",")
 	for _, protocol := range protocols {
 		protocol = strings.TrimSpace(protocol)
 		// Sequential on purpose: parallel workspaces would race the
@@ -87,7 +87,10 @@ func (c *client) connectOnce(t *testing.T, template, protocol string) {
 		"templateRef": template,
 		"displayName": name,
 	}, &ws)
-	defer c.do("DELETE", "/api/v1/workspaces/"+ws.ID, nil, nil)
+	// keepVolume=false: retained homes count against the caller's storage
+	// quota, so a keep-by-default here makes runs poison each other (and
+	// the next protocol in THIS run). Retention has its own coverage.
+	defer c.do("DELETE", "/api/v1/workspaces/"+ws.ID+"?keepVolume=false", nil, nil)
 
 	deadline := time.Now().Add(readinessTimeout())
 	resumed := false
@@ -116,6 +119,15 @@ func (c *client) connectOnce(t *testing.T, template, protocol string) {
 		t.Fatalf("connect negotiated %q, wanted %q", conn.Protocol, protocol)
 	}
 
+	if protocol == "kasmvnc" {
+		// kasmvnc bypasses guacd: the proof is the KasmVNC RFB banner
+		// through wwt's reverse proxy.
+		if err := establishKasmSession(c.base, conn.SessionID, conn.ConnectionToken); err != nil {
+			t.Fatalf("kasmvnc session via wwt failed: %v", err)
+		}
+		t.Logf("kasmvnc session established through wwt (template %s)", template)
+		return
+	}
 	if err := establishSession(c.base, conn.ConnectionToken); err != nil {
 		t.Fatalf("%s session via guacd failed: %v", protocol, err)
 	}
@@ -309,4 +321,40 @@ func (c *client) do(method, path string, body any, out any) {
 	if err := json.Unmarshal(envelope.Data, out); err != nil {
 		c.t.Fatalf("%s %s: decoding data: %v", method, path, err)
 	}
+}
+
+// establishKasmSession opens wwt's kasm reverse proxy and reads the
+// KasmVNC WebSocket until the RFB banner proves the desktop is up.
+// Browsers always send an Origin header on WebSocket requests and
+// KasmVNC's handshake parser requires one — the dialer must too.
+func establishKasmSession(base, sessionID, token string) error {
+	u, err := url.Parse(base)
+	if err != nil {
+		return err
+	}
+	scheme := "ws"
+	if u.Scheme == "https" {
+		scheme = "wss"
+	}
+	wsURL := fmt.Sprintf("%s://%s/kasm/%s/websockify?token=%s", scheme, u.Host, sessionID, url.QueryEscape(token))
+	dialer := websocket.Dialer{Subprotocols: []string{"binary"}, HandshakeTimeout: 15 * time.Second}
+	sock, resp, err := dialer.Dial(wsURL, http.Header{"Origin": {base}})
+	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			return fmt.Errorf("kasm websocket dial: %w (status %d: %s)", err, resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		return fmt.Errorf("kasm websocket dial: %w", err)
+	}
+	defer sock.Close()
+
+	sock.SetReadDeadline(time.Now().Add(20 * time.Second))
+	_, message, err := sock.ReadMessage()
+	if err != nil {
+		return fmt.Errorf("stream closed before the desktop came up: %w", err)
+	}
+	if !bytes.HasPrefix(message, []byte("RFB ")) {
+		return fmt.Errorf("expected the KasmVNC RFB banner, got %q", message)
+	}
+	return nil
 }

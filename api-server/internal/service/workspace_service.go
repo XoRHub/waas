@@ -610,6 +610,16 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 			}
 		}
 	}
+	// Generated KasmVNC credentials: when no explicit source provided a
+	// password (template/override env, credentialsSecretRef), the
+	// operator generated one; its resolver copy lives next to the CR.
+	// Resolution failure is a hard error — connecting with a password the
+	// pod does not run with would be worse.
+	if info.Protocol == "kasmvnc" && info.Password == "" {
+		if err := s.applyCredentialsSecret(ctx, "waas-kasm-"+ws.Name, info); err != nil {
+			return nil, err
+		}
+	}
 	kasmDefaults(info)
 	return info, nil
 }

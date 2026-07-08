@@ -137,3 +137,42 @@ spec:
   placement:
     namespace: waas-{user}-{workspace}
     cleanup: DeleteWhenEmpty
+---
+# Kasm workspace: web-native KasmVNC endpoint, reverse-proxied by wwt —
+# guacd is not involved. No VNC_PW env on purpose: the operator generates
+# a per-workspace password Secret (resolver copy next to the CR, pod copy
+# in the target namespace). /dev/shm is memory-backed for Chromium-class
+# apps (the kasmweb standalone docs run with --shm-size=512m).
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: kasm-terminal
+spec:
+  displayName: "Kasm Terminal"
+  description: "Terminal web (image officielle kasmweb/terminal, KasmVNC)."
+  os: linux
+  image: docker.io/kasmweb/terminal:1.19.0
+  homeSize: 5Gi
+  homeMountPath: /home/kasm-user
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 3Gi }
+  env:
+    - name: VNC_RESOLUTION
+      value: "1920x1080"
+  workload:
+    kind: Deployment
+    podSecurityContext:
+      runAsNonRoot: true
+    volumes:
+      - name: dshm
+        emptyDir: { medium: Memory, sizeLimit: 512Mi }
+    volumeMounts:
+      - name: dshm
+        mountPath: /dev/shm
+  placement:
+    namespace: waas-{user}
+  protocols:
+    - name: kasmvnc
+      port: 6901
+      default: true

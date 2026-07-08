@@ -49,3 +49,22 @@ spec:
   resources:
     default: { cpu: 500m, memory: 1536Mi }
     max:     { cpu: "2",  memory: 3Gi }
+---
+# Official Kasm image, pulled straight from Docker Hub (nothing local to
+# build/load): the kasmvnc protocol path. terminal is the lightest
+# kasmweb image and is published multi-arch.
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: kasm-terminal
+spec:
+  displayName: "Kasm Terminal"
+  description: "Terminal web (image officielle kasmweb, accès KasmVNC natif)."
+  image: docker.io/kasmweb/terminal:1.19.0
+  protocols: [kasmvnc]
+  architectures: [amd64, arm64]
+  enabled: true
+  resources:
+    default: { cpu: 500m, memory: 1Gi }
+    min:     { cpu: 250m, memory: 512Mi }
+    max:     { cpu: "2",  memory: 3Gi }

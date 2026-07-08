@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -48,6 +49,7 @@ type TemplateInput struct {
 	Image            string            `json:"image"`
 	Port             int32             `json:"port"`
 	HomeSize         string            `json:"homeSize"`
+	HomeMountPath    string            `json:"homeMountPath,omitempty"`
 	StorageClassName string            `json:"storageClassName"`
 	Requests         map[string]string `json:"requests"`
 	Limits           map[string]string `json:"limits"`
@@ -202,6 +204,12 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 		Env:         in.Env,
 		Workload:    in.Workload,
 	}
+	if in.HomeMountPath != "" {
+		if !strings.HasPrefix(in.HomeMountPath, "/") {
+			return nil, apierror.BadRequest("homeMountPath must be an absolute path")
+		}
+		spec.HomeMountPath = in.HomeMountPath
+	}
 	if in.HomeSize != "" {
 		qty, err := resource.ParseQuantity(in.HomeSize)
 		if err != nil {
@@ -331,6 +339,7 @@ func templateToModel(tpl *waasv1alpha1.WorkspaceTemplate) model.WorkspaceTemplat
 	if tpl.Spec.HomeSize != nil {
 		m.HomeSize = tpl.Spec.HomeSize.String()
 	}
+	m.HomeMountPath = tpl.Spec.HomeMountPath
 	if len(tpl.Spec.Resources.Requests) > 0 {
 		m.Requests = map[string]string{}
 		for name, qty := range tpl.Spec.Resources.Requests {

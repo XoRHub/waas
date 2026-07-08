@@ -75,6 +75,31 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 			),
 			"at most one",
 		},
+		{
+			"clean kasmvnc",
+			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901, Default: true}),
+			"",
+		},
+		{
+			// kasmvnc bypasses guacd: no guacd param may be attached.
+			"kasmvnc with guacd params",
+			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901, Params: map[string]string{"color-depth": "16"}}),
+			"not a registered",
+		},
+		{
+			"kasmvnc with delegated params",
+			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901, UserParams: []string{"read-only"}}),
+			"not a registered",
+		},
+		{
+			"kasmvnc on windows",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
+				tpl.Spec.OS = waasv1alpha1.OSWindows
+				return tpl
+			}(),
+			"not available on windows",
+		},
 	}
 	for _, tc := range cases {
 		_, err := v.ValidateCreate(ctx, tc.tpl)

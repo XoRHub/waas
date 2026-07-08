@@ -17,7 +17,7 @@ spec:
   # listée ici — une image absente rend ses templates INVISIBLES à la
   # création (c'est ainsi que les templates SSH ont disparu du portail
   # quand dev-ssh manquait à cette liste).
-  images: [ubuntu-firefox, ubuntu-xfce, dev-ssh]
+  images: [ubuntu-firefox, ubuntu-xfce, dev-ssh, kasm-terminal]
   limits:
     maxWorkspaces: 1
     perWorkspace: { cpu: "2", memory: 4Gi, home: 10Gi }

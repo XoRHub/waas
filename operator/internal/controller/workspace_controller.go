@@ -37,7 +37,6 @@ const (
 	requeueMissing   = 30 * time.Second
 
 	defaultHomeSize = "10Gi"
-	homeMountPath   = "/home/user"
 
 	// finalizerTeardown marks workspaces whose workloads live outside the
 	// CR's namespace: owner references are illegal across namespaces, so
@@ -87,6 +86,7 @@ func (r *WorkspaceReconciler) now() time.Time {
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;create;update;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;update;delete
@@ -199,6 +199,12 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	pvcName, err := r.ensureHomePVC(ctx, ws, tpl)
 	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+	}
+
+	// Generated KasmVNC credentials must exist before the workload: its
+	// VNC_PW secretKeyRef references the pod-namespace copy.
+	if err := r.ensureKasmCredentials(ctx, ws, tpl); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}
 

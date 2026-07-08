@@ -304,7 +304,8 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 	}
 	for _, p := range in.Protocols {
 		switch waasv1alpha1.Protocol(p) {
-		case waasv1alpha1.ProtocolVNC, waasv1alpha1.ProtocolRDP, waasv1alpha1.ProtocolSSH:
+		case waasv1alpha1.ProtocolVNC, waasv1alpha1.ProtocolRDP, waasv1alpha1.ProtocolSSH,
+			waasv1alpha1.ProtocolKasmVNC:
 			spec.Protocols = append(spec.Protocols, waasv1alpha1.Protocol(p))
 		default:
 			return nil, apierror.BadRequest(fmt.Sprintf("unknown protocol %q", p))

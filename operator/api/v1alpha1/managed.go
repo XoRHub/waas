@@ -30,6 +30,9 @@ func WorkspaceContentGVKs() []schema.GroupVersionKind {
 		{Group: "", Version: "v1", Kind: "Pod"},
 		{Group: "", Version: "v1", Kind: "Service"},
 		{Group: "", Version: "v1", Kind: "PersistentVolumeClaim"},
+		// Generated KasmVNC credentials (pod-namespace copy, named like
+		// the workload so the name-based teardown sweep catches it).
+		{Group: "", Version: "v1", Kind: "Secret"},
 		VirtualMachineGVK,
 	}
 }

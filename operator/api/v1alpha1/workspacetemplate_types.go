@@ -199,8 +199,12 @@ type WorkspaceWorkload struct {
 // guacd terms: a protocol name, the port the workspace serves it on, and
 // the guacd connection parameters to use.
 type WorkspaceProtocol struct {
-	// Name is the guacamole protocol identifier.
-	// +kubebuilder:validation:Enum=vnc;rdp;ssh
+	// Name is the protocol identifier: a guacamole protocol (vnc, rdp,
+	// ssh) brokered by guacd, or kasmvnc — the web-native KasmVNC
+	// endpoint of kasmweb/* images, reverse-proxied by wwt (guacd is not
+	// involved; Params/UserParams are rejected for it, the registry has
+	// no kasmvnc entries).
+	// +kubebuilder:validation:Enum=vnc;rdp;ssh;kasmvnc
 	Name string `json:"name"`
 
 	// Port the workspace serves this protocol on.
@@ -289,6 +293,15 @@ type WorkspaceTemplateSpec struct {
 	// +optional
 	HomeSize *resource.Quantity `json:"homeSize,omitempty"`
 
+	// HomeMountPath is where the home volume is mounted in the pod.
+	// Defaults to /home/user (the waas-images convention); kasmweb/*
+	// images expect /home/kasm-user. Changing it on a template only
+	// affects pods rolled out afterwards — the volume itself is
+	// path-agnostic.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^/[^\0]+[^/\0]$`
+	HomeMountPath string `json:"homeMountPath,omitempty"`
+
 	// StorageClassName selects the storage class for home volumes.
 	// +optional
 	StorageClassName *string `json:"storageClassName,omitempty"`
@@ -327,6 +340,19 @@ type WorkspaceTemplateSpec struct {
 }
 
 // PlacementNamespacePattern returns the placement pattern, or "".
+// DefaultHomeMountPath is where the home volume lands when the template
+// does not say otherwise (the waas-images convention).
+const DefaultHomeMountPath = "/home/user"
+
+// EffectiveHomeMountPath returns the template's home mount path, or the
+// platform default.
+func (s *WorkspaceTemplateSpec) EffectiveHomeMountPath() string {
+	if s.HomeMountPath != "" {
+		return s.HomeMountPath
+	}
+	return DefaultHomeMountPath
+}
+
 func (s *WorkspaceTemplateSpec) PlacementNamespacePattern() string {
 	if s.Placement == nil {
 		return ""

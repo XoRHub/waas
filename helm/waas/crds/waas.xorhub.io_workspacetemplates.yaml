@@ -223,6 +223,15 @@ spec:
                   - name
                   type: object
                 type: array
+              homeMountPath:
+                description: |-
+                  HomeMountPath is where the home volume is mounted in the pod.
+                  Defaults to /home/user (the waas-images convention); kasmweb/*
+                  images expect /home/kasm-user. Changing it on a template only
+                  affects pods rolled out afterwards — the volume itself is
+                  path-agnostic.
+                pattern: ^/[^\0]+[^/\0]$
+                type: string
               homeSize:
                 anyOf:
                 - type: integer
@@ -351,11 +360,17 @@ spec:
                         The first entry wins when no entry is marked.
                       type: boolean
                     name:
-                      description: Name is the guacamole protocol identifier.
+                      description: |-
+                        Name is the protocol identifier: a guacamole protocol (vnc, rdp,
+                        ssh) brokered by guacd, or kasmvnc — the web-native KasmVNC
+                        endpoint of kasmweb/* images, reverse-proxied by wwt (guacd is not
+                        involved; Params/UserParams are rejected for it, the registry has
+                        no kasmvnc entries).
                       enum:
                       - vnc
                       - rdp
                       - ssh
+                      - kasmvnc
                       type: string
                     params:
                       additionalProperties:

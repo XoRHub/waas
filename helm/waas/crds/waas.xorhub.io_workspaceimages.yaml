@@ -112,6 +112,7 @@ spec:
                   - vnc
                   - rdp
                   - ssh
+                  - kasmvnc
                   type: string
                 minItems: 1
                 type: array

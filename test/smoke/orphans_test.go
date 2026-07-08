@@ -45,7 +45,7 @@ func TestZeroOrphansAfterDeletion(t *testing.T) {
 	c.login(env("WAAS_SMOKE_USER", "admin"), env("WAAS_SMOKE_PASSWORD", "admin123"))
 
 	byProtocol := c.templatesByProtocol()
-	protocols := strings.Split(env("WAAS_SMOKE_PROTOCOLS", "vnc,rdp,ssh"), ",")
+	protocols := strings.Split(env("WAAS_SMOKE_PROTOCOLS", "vnc,rdp,ssh,kasmvnc"), ",")
 	for _, protocol := range protocols {
 		protocol = strings.TrimSpace(protocol)
 		t.Run(protocol, func(t *testing.T) {

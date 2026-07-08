@@ -66,6 +66,11 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 		if violation := params.ValidateUserParamNames(entry.Name, entry.UserParams); violation != nil {
 			return nil, v.deny(tpl, fmt.Sprintf("protocols[%s].userParams: %v", entry.Name, violation))
 		}
+		// kasmvnc is the web endpoint of Linux kasmweb/* images; a
+		// windows template is a KubeVirt VM reached over RDP.
+		if entry.Name == string(waasv1alpha1.ProtocolKasmVNC) && tpl.Spec.OS == waasv1alpha1.OSWindows {
+			return nil, v.deny(tpl, "protocol kasmvnc is not available on windows templates")
+		}
 	}
 	if defaults > 1 {
 		return nil, v.deny(tpl, "at most one protocol may be marked default")

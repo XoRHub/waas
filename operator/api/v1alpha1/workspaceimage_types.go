@@ -6,13 +6,16 @@ import (
 )
 
 // Protocol is a desktop protocol a workspace image can serve.
-// +kubebuilder:validation:Enum=vnc;rdp;ssh
+// +kubebuilder:validation:Enum=vnc;rdp;ssh;kasmvnc
 type Protocol string
 
 const (
 	ProtocolVNC Protocol = "vnc"
 	ProtocolRDP Protocol = "rdp"
 	ProtocolSSH Protocol = "ssh"
+	// ProtocolKasmVNC is the web-native KasmVNC endpoint of kasmweb/*
+	// images: browser-only, reverse-proxied by wwt instead of guacd.
+	ProtocolKasmVNC Protocol = "kasmvnc"
 )
 
 // WorkspaceImageSpec is one admin-approved catalog entry. Only images

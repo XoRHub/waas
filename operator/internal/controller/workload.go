@@ -60,7 +60,7 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	}}, mergeVolumes(wl.Volumes, ov.Volumes)...)
 	mounts := append([]corev1.VolumeMount{{
 		Name:      "home",
-		MountPath: homeMountPath,
+		MountPath: tpl.Spec.EffectiveHomeMountPath(),
 	}}, mergeVolumeMounts(wl.VolumeMounts, ov.VolumeMounts)...)
 
 	securityContext := wl.SecurityContext
@@ -88,7 +88,7 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 			Containers: []corev1.Container{{
 				Name:            "desktop",
 				Image:           tpl.Spec.Image,
-				Env:             mergeEnv(tpl.Spec.Env, ov.Env),
+				Env:             desktopEnv(ws, tpl, ov),
 				Resources:       resources,
 				Ports:           ports,
 				SecurityContext: securityContext,
@@ -251,6 +251,18 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 		return false, fmt.Errorf("creating statefulset %s: %w", name, err)
 	}
 	return false, nil
+}
+
+// desktopEnv is the container environment: template env with the
+// workspace's admitted overrides on top, plus the generated KasmVNC
+// password (VNC_PW from the pod-namespace Secret) when no explicit
+// source provides one.
+func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides) []corev1.EnvVar {
+	env := mergeEnv(tpl.Spec.Env, ov.Env)
+	if kasmPasswordGenerated(ws, tpl) {
+		env = append(env, kasmEnv(ws))
+	}
+	return env
 }
 
 // mergeEnv lays override entries over the base list; an override with the

@@ -24,6 +24,13 @@ rules:
   - apiGroups: [""]
     resources: [pods, services]
     verbs: [create, delete, get, list, watch]
+  # Generated KasmVNC credentials: one Secret next to the CR (resolver
+  # copy, owner-ref'd) + one in the pod namespace (VNC_PW secretKeyRef);
+  # update keeps the pod copy converged on the resolver copy. Secret
+  # reads bypass the cache (see cmd/main.go) — no watch.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, delete, get, list, update]
   # Placement: the operator creates the per-user workload namespaces and
   # their bootstrap (quota from the owner's policy, default-deny ingress);
   # delete only fires from the namespace janitor for the opt-in

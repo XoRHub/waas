@@ -258,17 +258,20 @@ type WorkspaceProtocol struct {
 
 // WorkspaceTemplate is the API projection of a WorkspaceTemplate CR.
 type WorkspaceTemplate struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	DisplayName string            `json:"displayName"`
-	Description string            `json:"description,omitempty"`
-	OS          string            `json:"os"`
-	Image       string            `json:"image"`
-	Port        int32             `json:"port,omitempty"`
-	HomeSize    string            `json:"homeSize,omitempty"`
-	Requests    map[string]string `json:"requests,omitempty"`
-	Limits      map[string]string `json:"limits,omitempty"`
-	CreatedAt   time.Time         `json:"createdAt"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description,omitempty"`
+	OS          string `json:"os"`
+	Image       string `json:"image"`
+	Port        int32  `json:"port,omitempty"`
+	HomeSize    string `json:"homeSize,omitempty"`
+	// HomeMountPath is where the home volume is mounted (default
+	// /home/user; kasmweb images expect /home/kasm-user).
+	HomeMountPath string            `json:"homeMountPath,omitempty"`
+	Requests      map[string]string `json:"requests,omitempty"`
+	Limits        map[string]string `json:"limits,omitempty"`
+	CreatedAt     time.Time         `json:"createdAt"`
 	// Workload is the workload kind stamping desktops (Deployment,
 	// StatefulSet or Pod).
 	Workload string `json:"workload,omitempty"`

@@ -5,10 +5,12 @@ import (
 	"os"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -59,6 +61,15 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "waas-operator.waas.xorhub.io",
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				// The operator only touches its own per-workspace kasm
+				// credential Secrets, but a cached read would spin up an
+				// informer over EVERY Secret in the cluster. Read them
+				// straight from the API instead.
+				DisableFor: []client.Object{&corev1.Secret{}},
+			},
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
