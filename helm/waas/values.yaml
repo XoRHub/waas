@@ -80,6 +80,9 @@ apiServer:
   jwtIssuer: waas
   accessTokenTTL: 8h
   connectionTokenTTL: 5m
+  # Refresh cadence of the workspace Events panel (server-driven: the
+  # frontend honors whatever the API answers, no rebuild needed).
+  eventsPollInterval: 10s
   # Bootstrap admin password. Empty = generated and printed once in the
   # api-server logs on first boot.
   adminUsername: admin

@@ -138,6 +138,8 @@ spec:
               value: {{ .Values.apiServer.accessTokenTTL | quote }}
             - name: WAAS_CONNECTION_TOKEN_TTL
               value: {{ .Values.apiServer.connectionTokenTTL | quote }}
+            - name: WAAS_EVENTS_POLL_INTERVAL
+              value: {{ .Values.apiServer.eventsPollInterval | default "10s" | quote }}
             - name: WAAS_JWT_PRIVATE_KEY_FILE
               value: /etc/waas/keys/jwt-private-key
             - name: WAAS_ADMIN_USERNAME

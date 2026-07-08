@@ -19,6 +19,27 @@ and the fleet dashboard:
 only in *why* the workspace is down (manual vs schedule), so the UI can
 show the right action (resume vs "next uptime at …").
 
+## Conditions
+
+`status.conditions` follow the `metav1.Condition` convention (status
+subresource; every condition carries the `observedGeneration` it was
+evaluated against):
+
+| Type | True when | Notable reasons |
+|---|---|---|
+| `Ready` | the workload reports ready | `WorkspaceReady`, `Provisioning`, `Paused`, admission denial reason codes (`ImageNotInCatalog`, `QuotaExceeded`, `PullSecretMissing`, …) |
+| `ConnectionReady` | the desktop server ACCEPTS TCP connections on the default protocol port (operator probe) — pod readiness proves the container runs, this proves the desktop listens | `DesktopListening`, `DesktopNotListening`, `DesktopDown` |
+
+`kubectl get workspace` shows PHASE and READY. The operator also emits
+Kubernetes **Events** on the CR at every phase transition
+(Provisioning/Ready/Paused/Stopped) and on every admission decision —
+aggregated with the children's events in the portal's Events panel
+(`GET /api/v1/workspaces/{id}/events`, refresh cadence server-driven by
+`WAAS_EVENTS_POLL_INTERVAL` / `apiServer.eventsPollInterval`).
+`WorkspaceTemplate`/`WorkspacePolicy` carry no status by design: both
+are webhook-validated at admission, an `Accepted` condition would be
+tautological.
+
 ## Pause = scale to 0, not delete
 
 Pausing a workspace **scales its workload to 0 replicas** — it does not
