@@ -1,7 +1,7 @@
 package v1alpha1
 
 // Identity annotations stamped on Workspace objects. They carry the
-// Authentik-derived identity used for policy resolution and are part of
+// IdP-derived (OIDC) identity used for policy resolution and are part of
 // the trusted-writer contract: the admission webhook only accepts them
 // from the api-server's ServiceAccount and freezes them afterwards
 // (immutable on update, whoever the caller is). For any other creator
@@ -13,7 +13,7 @@ const (
 	// UUID; policy User subjects match either.
 	AnnotationUsername = "waas.xorhub.io/username"
 
-	// AnnotationGroups is the comma-separated list of Authentik groups
+	// AnnotationGroups is the comma-separated list of IdP (OIDC) groups
 	// the owner belonged to at creation time.
 	AnnotationGroups = "waas.xorhub.io/groups"
 

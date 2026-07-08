@@ -1,14 +1,14 @@
 # Workspace governance — catalog, policies, enforcement
 
 Admin-defined guardrails for self-service workspaces: the admin approves
-**images** (catalog) and assigns **limits** (policies) to Authentik
+**images** (catalog) and assigns **limits** (policies) to IdP (OIDC)
 users/groups; users deploy freely inside that envelope, whether they go
 through the portal or straight at the Kubernetes API.
 
 ## Data model
 
 ```
-Authentik (OIDC groups)                      Workspace CR
+OIDC IdP (groups claim)                      Workspace CR
         │                                        │ spec.templateRef
         │ mirrored: users.user_groups            ▼
         │ + identity annotations           WorkspaceTemplate
@@ -58,7 +58,7 @@ the sole governance source — never enable both for the same name.
 
 ## Identity binding (trusted-writer model, validated decision)
 
-- Portal path: the api-server authenticates against Authentik, then
+- Portal path: the api-server authenticates against the OIDC IdP, then
   writes `spec.owner` (platform UUID) plus the identity annotations
   `waas.xorhub.io/username` and `waas.xorhub.io/groups`. The webhook
   accepts those **only** from the SAs listed in `WAAS_TRUSTED_WRITERS`
@@ -235,7 +235,7 @@ model is deliberately simple: the api-server **writes the CR directly**
 - **User creation** takes a group selection: chips from the known groups
   (`GET /api/v1/admin/groups` = policy Group subjects ∪ existing users'
   groups) plus free entry. No group ⇒ only subjects-less policies match
-  (the `default` policy). Authentik stays the source of truth — the OIDC
+  (the `default` policy). The IdP stays the source of truth — the OIDC
   claim overwrites the mirror at the first SSO login.
 - The **Fleet** dashboard has a *Remote workspaces* tab
   (`GET /api/v1/admin/remote-workspaces`, metadata only, never
@@ -271,7 +271,7 @@ Full schema: `docs/openapi-governance.yaml`.
 | Quota race (two parallel creates) | Reconciler re-checks against *granted* capacity before creating compute; the loser goes `Failed/QuotaExceeded`. |
 | Webhook outage | `FailurePolicy=Fail`: no workspace admission while down — availability traded for integrity, deliberately. |
 | Rogue admin / compromised api-server SA | Its RBAC is namespace-scoped to the workspace namespace; catalog/policy edits are audited; bypass list is short, explicit and Helm-reviewed. |
-| Stale groups (user removed from a Authentik group) | Groups are frozen per-workspace at creation; the sweeper/reconciler re-evaluate with stored identity. Residual risk until OIDC login refresh lands — documented, and an admin can edit `users.groups` + pause offending workspaces today. |
+| Stale groups (user removed from an IdP group) | Groups are frozen per-workspace at creation; the sweeper/reconciler re-evaluate with stored identity. Residual risk until OIDC login refresh lands — documented, and an admin can edit `users.groups` + pause offending workspaces today. |
 
 Residual gaps (assumed): identity annotations are not re-synced when a
 user's groups change (next OIDC login will fix); `WAAS_POLICY_BYPASS`

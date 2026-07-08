@@ -161,7 +161,7 @@ spec:
             {{- end }}
             {{- with .Values.apiServer.oidc }}
             {{- if .issuerURL }}
-            # SSO (Authentik or any OIDC provider). Local login stays
+            # SSO (any OIDC provider). Local login stays
             # available as break-glass; groups sync at every SSO login.
             - name: WAAS_OIDC_ISSUER
               value: {{ .issuerURL | quote }}

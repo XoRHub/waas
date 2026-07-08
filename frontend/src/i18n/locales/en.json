@@ -256,7 +256,7 @@
       "never": "Never",
       "deleteConfirm": "Delete this user?",
       "groups": "Groups",
-      "groupsHint": "Comma-separated Authentik group names. Overwritten at each SSO login when OIDC is enabled.",
+      "groupsHint": "Comma-separated IdP (OIDC) group names. Overwritten at each SSO login when OIDC is enabled.",
       "edit": "Edit {{username}}",
       "effectivePolicy": "Effective policy",
       "noPolicy": "no policy matches — workspace creation is denied",

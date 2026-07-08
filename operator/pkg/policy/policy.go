@@ -30,7 +30,7 @@ type Identity struct {
 	Owner string
 	// Username is the human identity (OIDC preferred_username/sub).
 	Username string
-	// Groups are Authentik group names.
+	// Groups are IdP (OIDC) group names.
 	Groups []string
 }
 

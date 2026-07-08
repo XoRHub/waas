@@ -69,7 +69,7 @@ var hints = map[string]hint{
 	"UpsertImageInput.protocols":     {value: seq(str("vnc")), comment: "vnc | rdp | ssh"},
 	"UpsertImageInput.architectures": {comment: "e.g. [amd64, arm64]; [] = no scheduling constraint"},
 	"UpsertImageInput.enabled":       {value: boolean(true)},
-	"UpsertImageInput.allowedGroups": {comment: "Authentik groups; [] = everyone"},
+	"UpsertImageInput.allowedGroups": {comment: "IdP (OIDC) groups; [] = everyone"},
 	"UpsertImageInput.defaults":      {comment: `e.g. {cpu: "2", memory: 4Gi}`},
 	"UpsertImageInput.min":           {comment: `e.g. {cpu: "1", memory: 2Gi}`},
 	"UpsertImageInput.max":           {comment: `e.g. {cpu: "4", memory: 16Gi}`},

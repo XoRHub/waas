@@ -42,7 +42,7 @@ metadata:
 spec:
   priority: 100
   subjects:
-    # Groupes Authentik, tels qu'émis dans le claim OIDC "groups" et
+    # Groupes IdP, tels qu'émis dans le claim OIDC "groups" et
     # recopiés dans users.user_groups par l'admin (puis par le login
     # OIDC quand il sera branché).
     - kind: Group

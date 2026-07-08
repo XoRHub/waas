@@ -37,7 +37,7 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;
-  /** Authentik group mirror: synced at every SSO login, admin-editable. */
+  /** IdP (OIDC) group mirror: synced at every SSO login, admin-editable. */
   groups?: string[];
   preferences?: UserPreferences;
 }

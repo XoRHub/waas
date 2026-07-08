@@ -59,7 +59,7 @@ type Config struct {
 	// often it refetches while open (server-driven, no rebuild needed).
 	EventsPollInterval time.Duration
 
-	// OIDC configures the optional SSO login (Authentik or any OIDC
+	// OIDC configures the optional SSO login (any OIDC
 	// provider). Enabled when IssuerURL and ClientID are both set; local
 	// username/password login always remains available (bootstrap admin,
 	// break-glass when the IdP is down).
@@ -87,19 +87,19 @@ func (w WoLConfig) Enabled() bool { return w.RelayURL != "" }
 // OIDCConfig is the SSO provider wiring.
 type OIDCConfig struct {
 	// IssuerURL is the OIDC discovery issuer, e.g.
-	// https://authentik.example.com/application/o/waas/
+	// https://idp.example.com/application/o/waas/
 	IssuerURL    string
 	ClientID     string
 	ClientSecret string
 	// RedirectURL is this api-server's public callback URL, e.g.
 	// https://waas.example.com/api/v1/auth/oidc/callback
 	RedirectURL string
-	// Scopes requested at authorization. Authentik ships the groups claim
+	// Scopes requested at authorization. Most IdPs ship the groups claim
 	// in its default profile scope mapping.
 	Scopes []string
 	// UsernameClaim maps the IdP identity to the platform username.
 	UsernameClaim string
-	// GroupsClaim carries the Authentik group names mirrored into
+	// GroupsClaim carries the IdP group names mirrored into
 	// users.user_groups at every login (drives WorkspacePolicy matching).
 	GroupsClaim string
 	// AdminGroups grant the platform admin role; when set, role is synced
@@ -150,7 +150,7 @@ func Load() (*Config, error) {
 		UsernameClaim: envOr("WAAS_OIDC_USERNAME_CLAIM", "preferred_username"),
 		GroupsClaim:   envOr("WAAS_OIDC_GROUPS_CLAIM", "groups"),
 		AdminGroups:   splitList(os.Getenv("WAAS_OIDC_ADMIN_GROUPS")),
-		ProviderName:  envOr("WAAS_OIDC_PROVIDER_NAME", "SSO"),
+		ProviderName:  envOr("WAAS_OIDC_PROVIDER_NAME", "OIDC"),
 		FrontendURL:   envOr("WAAS_OIDC_FRONTEND_URL", "/"),
 	}
 	cfg.WoL = WoLConfig{

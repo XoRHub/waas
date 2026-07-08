@@ -1,4 +1,4 @@
-// Package naming normalizes identity-derived strings (Authentik
+// Package naming normalizes identity-derived strings (IdP
 // usernames, workspace display names) into DNS-1123 labels, and resolves
 // the placement namespace pattern. It is the single normalization used by
 // the api-server (resolution at creation), the admission webhook
@@ -106,7 +106,7 @@ type Placeholder struct {
 // before entering a name; none can be absent at creation time.
 func Placeholders() []Placeholder {
 	return []Placeholder{
-		{Token: TokenUser, Source: "identity (Authentik username)", Description: "owner of the workspace"},
+		{Token: TokenUser, Source: "identity (IdP username)", Description: "owner of the workspace"},
 		{Token: TokenWorkspace, Source: "workspace displayName", Description: "the workspace being created"},
 		{Token: TokenTemplateName, Source: "WorkspaceTemplate metadata.name", Description: "template the workspace is stamped from"},
 		{Token: TokenOS, Source: "WorkspaceTemplate spec.os", Description: "linux or windows — the actual provisioning path"},

@@ -84,12 +84,12 @@ apiServer:
   # api-server logs on first boot.
   adminUsername: admin
   adminPassword: ""
-  # SSO login (Authentik or any OIDC provider). Optional: local login
+  # SSO login (any OIDC provider). Optional: local login
   # always stays available (bootstrap admin, break-glass when the IdP is
   # down). When enabled, the IdP's groups claim is mirrored into the user
   # record at every login and drives WorkspacePolicy matching.
   oidc:
-    # e.g. https://authentik.example.com/application/o/waas/
+    # e.g. https://idp.example.com/application/o/waas/
     issuerURL: ""
     clientID: ""
     # Client secret comes from a Secret (ESO/Vault-friendly). Default:
@@ -101,12 +101,12 @@ apiServer:
     redirectURL: ""
     # SPA origin for the post-login redirect ("/" when same-origin).
     frontendURL: "/"
-    # Authentik ships groups in its default profile scope mapping.
+    # Most IdPs ship groups in their default profile scope mapping.
     scopes: [openid, profile, email]
     groupsClaim: groups
     # IdP groups granting the platform admin role (synced each login).
     adminGroups: []
-    providerName: Authentik
+    providerName: OIDC
   # Wake-on-LAN relay for remote workspaces. A magic packet must be
   # emitted on the target machine's L2 network, which a pod cannot reach —
   # so it is delegated to an external relay (device or agent on that LAN)

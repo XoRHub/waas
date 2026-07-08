@@ -14,7 +14,7 @@ const (
 	SubjectGroup SubjectKind = "Group"
 )
 
-// PolicySubject binds a policy to an identity. Groups are Authentik
+// PolicySubject binds a policy to an identity. Groups are IdP (OIDC)
 // group names carried by the OIDC claims; users match the workspace
 // owner identity (see the webhook's trusted-writer model).
 type PolicySubject struct {

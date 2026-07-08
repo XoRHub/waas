@@ -56,12 +56,12 @@ metadata:
   name: ubuntu-devtools
 spec:
   displayName: "Dev Tools (VS Code, toolchains)"
-  description: "Poste de dev — réservé au groupe Authentik nymphe:dev."
+  description: "Poste de dev — réservé au groupe IdP nymphe:dev."
   image: registry.xorhub.io/waas/waas-images/ubuntu-devtools:1.0.0
   protocols: [vnc]
   architectures: [amd64]
   enabled: true
-  # Restriction globale par groupe Authentik : même une policy listant
+  # Restriction globale par groupe IdP (OIDC) : même une policy listant
   # cette image ne la donne pas à un utilisateur hors du groupe.
   allowedGroups: ["nymphe:dev"]
   resources:

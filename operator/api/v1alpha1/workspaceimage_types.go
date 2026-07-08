@@ -98,7 +98,7 @@ type WorkspaceImageSpec struct {
 	Enabled bool `json:"enabled"`
 
 	// AllowedGroups restricts this image to members of at least one of
-	// these Authentik groups. Empty = every authenticated user (still
+	// these IdP (OIDC) groups. Empty = every authenticated user (still
 	// subject to the policy's image subset).
 	// +optional
 	AllowedGroups []string `json:"allowedGroups,omitempty"`

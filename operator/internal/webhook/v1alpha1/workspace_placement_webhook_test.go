@@ -49,7 +49,7 @@ func TestPlacementForeignNamespaceDenied(t *testing.T) {
 func TestPlacementExistingOwnedNamespaceAllowed(t *testing.T) {
 	// A namespace that does not match the current username-derived prefix
 	// but carries this owner's ownership label stays reachable (e.g. the
-	// username changed upstream in Authentik).
+	// username changed upstream at the IdP).
 	owned := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name:   "waas-legacy-alias",
 		Labels: map[string]string{waasv1alpha1.LabelOwner: ownerUUID},

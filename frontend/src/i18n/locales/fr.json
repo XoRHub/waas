@@ -256,7 +256,7 @@
       "never": "Jamais",
       "deleteConfirm": "Supprimer cet utilisateur ?",
       "groups": "Groupes",
-      "groupsHint": "Noms de groupes Authentik, séparés par des virgules. Écrasés à chaque login SSO quand OIDC est activé.",
+      "groupsHint": "Noms de groupes (IdP OIDC), séparés par des virgules. Écrasés à chaque login SSO quand OIDC est activé.",
       "edit": "Modifier {{username}}",
       "effectivePolicy": "Policy effective",
       "noPolicy": "aucune policy ne correspond — création de workspace refusée",

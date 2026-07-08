@@ -588,9 +588,9 @@ func (s *GovernanceService) AdminEffectivePolicy(ctx context.Context, userID str
 
 // AdminKnownGroups lists the group names the platform already knows: the
 // Group subjects of every policy plus the groups mirrored onto existing
-// users. These are Authentik group names (from the OIDC claim / admin
+// users. These are IdP group names (from the OIDC claim / admin
 // edits) — the source the admin picks from when creating a user. Not an
-// exhaustive Authentik directory: it surfaces the groups that actually
+// exhaustive IdP directory: it surfaces the groups that actually
 // matter here (those a policy targets or a user already has).
 func (s *GovernanceService) AdminKnownGroups(ctx context.Context) ([]string, error) {
 	set := map[string]bool{}

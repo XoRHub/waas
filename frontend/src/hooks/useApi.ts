@@ -364,7 +364,7 @@ export interface CreateUserInput {
   password: string;
   role: string;
   maxWorkspaces?: number;
-  /** Authentik groups seeded at creation (overwritten at first SSO login). */
+  /** IdP (OIDC) groups seeded at creation (overwritten at first SSO login). */
   groups?: string[];
 }
 

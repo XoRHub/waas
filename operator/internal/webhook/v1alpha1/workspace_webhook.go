@@ -35,7 +35,7 @@ import (
 // exact same gate as the portal.
 //
 // Identity model (trusted-writer, validated design decision): the
-// api-server authenticates users against Authentik and is the only caller
+// api-server authenticates users against the OIDC IdP and is the only caller
 // whose spec.owner and identity annotations are believed. Any other
 // caller gets its identity from the Kubernetes request userInfo:
 // spec.owner must equal the authenticated username and the identity

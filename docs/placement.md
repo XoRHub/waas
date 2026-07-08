@@ -36,7 +36,7 @@ template ; le namespace **résolu** est montré à la création
 
 | Token | Source | Absence |
 |---|---|---|
-| `{user}` | username Authentik (identité de confiance) | jamais absent (identité requise) |
+| `{user}` | username IdP OIDC (identité de confiance) | jamais absent (identité requise) |
 | `{workspace}` | displayName du workspace | vide → `x` (sanitization) |
 | `{templateName}` | `metadata.name` du template | jamais absent |
 | `{os}` | `template.spec.os` — le chemin de provisioning réel (pod vs VM), requis et validé par enum | jamais absent |

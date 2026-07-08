@@ -33,7 +33,7 @@ spec:
 ```
 
 - Résolution identique au reste de la gouvernance (priorité, groupes
-  Authentik) ; les admins plateforme passent toujours.
+  l'IdP) ; les admins plateforme passent toujours.
 - Le flag est projeté vers le portail via `GET /api/v1/me/quota`
   (`features.remoteWorkspaces`) : l'onglet n'existe pas pour les autres.
 - Chaque entrée appartient strictement à son créateur — même un admin ne

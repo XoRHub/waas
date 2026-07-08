@@ -47,7 +47,7 @@ type User struct {
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 	LastLoginAt   *time.Time `json:"lastLoginAt,omitempty"`
-	// Groups mirrors the Authentik OIDC groups claim: admin-editable
+	// Groups mirrors the IdP OIDC groups claim: admin-editable
 	// until SSO login refreshes it automatically. Drives WorkspacePolicy
 	// and WorkspaceImage group matching.
 	Groups []string `json:"groups"`

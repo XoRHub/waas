@@ -21,8 +21,9 @@ import (
 	"github.com/xorhub/waas/shared/auth"
 )
 
-// OIDCService implements SSO login against Authentik (or any OIDC
-// provider). It exists NEXT TO local auth, never instead of it: local login
+// OIDCService implements SSO login against any OIDC IdP (Authentik,
+// Keycloak, Okta, Zitadel…). It exists NEXT TO local auth, never instead
+// of it: local login
 // stays available for the bootstrap admin and as break-glass when the IdP
 // is down.
 //

@@ -37,7 +37,7 @@ type CreateUserInput struct {
 	Password      string    `json:"password"`
 	Role          auth.Role `json:"role"`
 	MaxWorkspaces int       `json:"maxWorkspaces"`
-	// Groups seeds the Authentik group mirror at creation (drives policy
+	// Groups seeds the IdP group mirror at creation (drives policy
 	// matching). Overwritten by the IdP claim at the first OIDC login when
 	// SSO is enabled; empty = only subjects-less policies match (the
 	// "default" policy).
@@ -51,7 +51,7 @@ type UpdateUserInput struct {
 	Role          *auth.Role `json:"role"`
 	Active        *bool      `json:"active"`
 	MaxWorkspaces *int       `json:"maxWorkspaces"`
-	// Groups overrides the Authentik group mirror. Temporary admin
+	// Groups overrides the IdP group mirror. Temporary admin
 	// affordance until OIDC login syncs it from the IdP.
 	Groups *[]string `json:"groups"`
 }
