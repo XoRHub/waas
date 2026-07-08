@@ -40,7 +40,21 @@ break on the lexicographically smallest name and emit a warning.
 `subjects: []` matches every authenticated user; ship a `default`
 policy at priority 0 as the restrictive fallback. **No matching policy
 = denial** (fail closed). Convention: 0 default, 100–999 groups,
-1000+ per-user exceptions.
+1000+ per-user exceptions, 10000 the `admins` policy.
+
+### Admin all-rights policy
+
+Admins are subject to the admission gates like everyone else — the
+escape hatch is the bootstrapped `admins` WorkspacePolicy (priority
+10000, subject `User:admin` + your IDP admin groups): no
+`limits`/`lifecycle` fields (absent fields constrain nothing — the
+quota/TTL checks are all nil-guarded), whole catalog, every override
+field, remote workspaces on. This keeps the bypass **explicit and
+auditable** (a CR in Git, visible in effective-policy) instead of a
+code path, and leaves fail-closed intact for every other user.
+Canonical channel: `gitops/governance/policies.yaml`; the chart can
+render the equivalent (`adminPolicy.*`, disabled by default) when it is
+the sole governance source — never enable both for the same name.
 
 ## Identity binding (trusted-writer model, validated decision)
 

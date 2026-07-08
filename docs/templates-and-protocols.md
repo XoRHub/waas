@@ -102,6 +102,30 @@ user-tunable via `userParams`.
   re-validates at connect time, so the preference is a convenience, not a
   grant.
 
+### KasmVNC user config (`spec.kasmvncConfig`)
+
+kasmvnc templates may embed the raw content of the user-level KasmVNC
+YAML. The string is **opaque by design** (never parsed by the operator,
+every upstream option works); it materializes as a per-workspace
+ConfigMap mounted read-only at `<homeMountPath>/.vnc/kasmvnc.yaml`
+(single-file subPath on top of the home volume — `.vnc` stays writable
+for KasmVNC's runtime artifacts). A content change rolls the workload
+(hash annotation on the pod template); clearing the field removes the
+file and the image default applies. The webhook rejects the field on
+templates without a kasmvnc protocol. Trust boundary: templates are
+admin-managed CRs — the config can loosen security-relevant KasmVNC
+settings (`require_ssl`, auth file paths), which is the admin's call.
+
+### Private registries (`WorkspaceImage.spec.imagePullSecretRef`)
+
+Pull credentials belong to the CATALOG entry (the admin approving a
+private image/registry provides its secret), never to templates. The
+operator copies the referenced dockerconfigjson Secret into each
+workspace's target namespace (`waas-pull-<ref>`, shared per namespace,
+rotations propagate) and wires `imagePullSecrets` into the PodSpec.
+Missing source = fail-closed: `PhaseFailed` / `PullSecretMissing`
+condition, retried on the slow loop.
+
 ## Creator overrides
 
 The template decides what workspace creators may deviate:
