@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -59,6 +60,10 @@ type WorkspaceReconciler struct {
 	// Now is the reconciler's clock; nil means time.Now. Injectable so
 	// schedule transitions are testable at a chosen instant.
 	Now func() time.Time
+	// Probe checks that a TCP endpoint accepts connections (the
+	// ConnectionReady condition); nil means a short net.Dial. Injectable
+	// for tests.
+	Probe func(addr string) error
 	// PlatformNamespace is where guacd/wwt run (usually the Helm release
 	// namespace, which may differ from the namespace holding the CRs).
 	// The bootstrap NetworkPolicy of placed namespaces lets it in; empty
@@ -77,6 +82,17 @@ func (r *WorkspaceReconciler) now() time.Time {
 		return r.Now()
 	}
 	return time.Now()
+}
+
+func (r *WorkspaceReconciler) probe(addr string) error {
+	if r.Probe != nil {
+		return r.Probe(addr)
+	}
+	conn, err := net.DialTimeout("tcp", addr, 750*time.Millisecond)
+	if err == nil {
+		conn.Close()
+	}
+	return err
 }
 
 // +kubebuilder:rbac:groups=waas.xorhub.io,resources=workspaces,verbs=get;list;watch;update;delete
@@ -306,6 +322,24 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				fmt.Sprintf("desktop is up (%s protocol on port %d)", effectiveProtocol(ws, tpl).Name, effectiveProtocol(ws, tpl).Port))
 		}
 	}
+	// ConnectionReady: pod readiness proves the container runs, not that
+	// the desktop server LISTENS. Probe the service endpoint once the
+	// workload reports ready; while it lags, requeue on a short loop.
+	connReady := false
+	var connReason, connMsg string
+	def := effectiveProtocol(ws, tpl)
+	switch {
+	case !ready:
+		connReason, connMsg = "DesktopDown", "workload is not ready"
+	default:
+		addr := fmt.Sprintf("%s.%s.svc.cluster.local:%d", computeName(ws), computeNamespace(ws), def.Port)
+		if err := r.probe(addr); err != nil {
+			connReason, connMsg = "DesktopNotListening", fmt.Sprintf("%s did not accept a TCP connection: %v", addr, err)
+		} else {
+			connReady, connReason, connMsg = true, "DesktopListening", fmt.Sprintf("desktop accepts connections on port %d (%s)", def.Port, def.Name)
+		}
+	}
+
 	if err := r.patchStatus(ctx, ws, func(st *waasv1alpha1.WorkspaceStatus) {
 		st.Phase = phase
 		st.OS = tpl.Spec.OS
@@ -327,6 +361,11 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		} else {
 			setCondition(st, metav1.ConditionFalse, "Provisioning", "waiting for desktop to become ready")
 		}
+		connStatus := metav1.ConditionFalse
+		if connReady {
+			connStatus = metav1.ConditionTrue
+		}
+		setTypedCondition(st, waasv1alpha1.ConditionConnectionReady, connStatus, connReason, connMsg)
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -336,6 +375,11 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{RequeueAfter: earliestRequeue(requeueTransient, scheduleRequeue)}, nil
 	}
 	// Wake up at whichever comes first: the next schedule edge or the TTL.
+	// Ready but the desktop server not accepting yet: bounded retry loop
+	// until ConnectionReady turns true (rare beyond a few seconds).
+	if ready && !connReady {
+		return ctrl.Result{RequeueAfter: earliestRequeue(10*time.Second, earliestRequeue(scheduleRequeue, lifetimeRequeue))}, nil
+	}
 	if rq := earliestRequeue(scheduleRequeue, lifetimeRequeue); rq > 0 {
 		return ctrl.Result{RequeueAfter: rq}, nil
 	}
@@ -747,6 +791,12 @@ func (r *WorkspaceReconciler) patchStatus(ctx context.Context, ws *waasv1alpha1.
 	}
 	mutate(&fresh.Status)
 	fresh.Status.ObservedGeneration = fresh.Generation
+	// Conditions follow the Kubernetes convention: ObservedGeneration is
+	// the generation the condition was last evaluated against — every
+	// reconcile evaluates them, so stamp them all.
+	for i := range fresh.Status.Conditions {
+		fresh.Status.Conditions[i].ObservedGeneration = fresh.Generation
+	}
 	if err := r.Status().Update(ctx, fresh); err != nil {
 		return fmt.Errorf("updating status of workspace %s: %w", ws.Name, err)
 	}
@@ -761,8 +811,12 @@ func (r *WorkspaceReconciler) setUnready(ctx context.Context, ws *waasv1alpha1.W
 }
 
 func setCondition(st *waasv1alpha1.WorkspaceStatus, status metav1.ConditionStatus, reason, message string) {
+	setTypedCondition(st, waasv1alpha1.ConditionReady, status, reason, message)
+}
+
+func setTypedCondition(st *waasv1alpha1.WorkspaceStatus, condType string, status metav1.ConditionStatus, reason, message string) {
 	cond := metav1.Condition{
-		Type:               waasv1alpha1.ConditionReady,
+		Type:               condType,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,

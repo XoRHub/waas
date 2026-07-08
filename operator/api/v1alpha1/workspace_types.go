@@ -28,6 +28,11 @@ const (
 // Condition types set on Workspace.
 const (
 	ConditionReady = "Ready"
+	// ConditionConnectionReady says the desktop server actually LISTENS
+	// on the default protocol port (TCP probe by the operator) — pod
+	// readiness proves the container is up, not that the desktop
+	// accepts connections.
+	ConditionConnectionReady = "ConnectionReady"
 )
 
 // WorkspaceSpec defines the desired state of a user workspace.
@@ -205,6 +210,7 @@ type WorkspaceProtocolStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=ws
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Owner",type=string,JSONPath=`.spec.owner`
 // +kubebuilder:printcolumn:name="Template",type=string,JSONPath=`.spec.templateRef`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

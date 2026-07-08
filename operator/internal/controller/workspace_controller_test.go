@@ -37,7 +37,9 @@ func newFixture(t *testing.T, objs ...client.Object) (*WorkspaceReconciler, clie
 		WithObjects(objs...).
 		WithStatusSubresource(&waasv1alpha1.Workspace{}, &appsv1.Deployment{}, &appsv1.StatefulSet{}).
 		Build()
-	return &WorkspaceReconciler{Client: c}, c
+	// Probe succeeds by default: unit tests exercise reconcile logic, not
+	// real TCP reachability (covered by its own test with a failing stub).
+	return &WorkspaceReconciler{Client: c, Probe: func(string) error { return nil }}, c
 }
 
 func linuxTemplate() *waasv1alpha1.WorkspaceTemplate {
