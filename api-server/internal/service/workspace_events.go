@@ -39,6 +39,13 @@ func (s *WorkspaceService) Events(ctx context.Context, actor Actor, id string) (
 	gvks := append(waasv1alpha1.WorkspaceContentGVKs(),
 		schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "ReplicaSet"})
 	for _, gvk := range gvks {
+		// Secrets/ConfigMaps are inventory (teardown/janitor surface) but
+		// emit no Kubernetes events worth showing — and the api-server
+		// deliberately has NO cluster-wide read on Secrets (least
+		// privilege beats completeness here).
+		if gvk.Group == "" && (gvk.Kind == "Secret" || gvk.Kind == "ConfigMap") {
+			continue
+		}
 		list := &unstructured.UnstructuredList{}
 		list.SetGroupVersionKind(gvk)
 		err := s.kube.List(ctx, list, client.InNamespace(targetNS),
