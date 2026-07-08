@@ -59,8 +59,11 @@ func IdentityOf(ws *waasv1alpha1.Workspace) Identity {
 type Reason string
 
 const (
-	ReasonNoPolicy           Reason = "NoPolicyMatches"
-	ReasonImageNotInCatalog  Reason = "ImageNotInCatalog"
+	ReasonNoPolicy          Reason = "NoPolicyMatches"
+	ReasonImageNotInCatalog Reason = "ImageNotInCatalog"
+	// ReasonImageTagPolicy: the reference violates the matched catalog
+	// entry's pinning discipline (tagPolicy digest/tag/any).
+	ReasonImageTagPolicy     Reason = "ImageTagPolicy"
 	ReasonImageDisabled      Reason = "ImageDisabled"
 	ReasonImageNotAllowed    Reason = "ImageNotAllowed"
 	ReasonProtocolMismatch   Reason = "ProtocolMismatch"
@@ -211,16 +214,88 @@ func AllowedImages(catalog []waasv1alpha1.WorkspaceImage, pol *waasv1alpha1.Work
 	return out
 }
 
-// FindImage locates the catalog entry approving an exact image ref, as
-// used by a WorkspaceTemplate. Verbatim match only: approving
-// "repo:1.0.0" does not approve "repo:1.0.1" or a digest form.
+// FindImage locates the catalog entry approving an image ref, as used by
+// a WorkspaceTemplate. An exact entry matches verbatim (approving
+// "repo:1.0.0" does not approve "repo:1.0.1" or a digest form) and
+// always beats a registry entry; among registry entries the longest
+// prefix wins. Registry matching is path-boundary safe:
+// "docker.io/kasmweb" matches docker.io/kasmweb/terminal:… but never
+// docker.io/kasmweb-evil/*. The tag discipline of the matched entry is
+// enforced separately by CheckTagDiscipline.
 func FindImage(catalog []waasv1alpha1.WorkspaceImage, ref string) *waasv1alpha1.WorkspaceImage {
 	for i := range catalog {
-		if catalog[i].Spec.Image == ref {
+		if catalog[i].Spec.Image != "" && catalog[i].Spec.Image == ref {
 			return &catalog[i]
 		}
 	}
-	return nil
+	var best *waasv1alpha1.WorkspaceImage
+	for i := range catalog {
+		prefix := strings.TrimSuffix(catalog[i].Spec.Registry, "/")
+		if prefix == "" || !strings.HasPrefix(ref, prefix+"/") {
+			continue
+		}
+		if best == nil || len(prefix) > len(strings.TrimSuffix(best.Spec.Registry, "/")) {
+			best = &catalog[i]
+		}
+	}
+	return best
+}
+
+// CheckTagDiscipline enforces the matched entry's tagPolicy on the
+// template's reference. Unset defaults differ by entry kind: an EXACT
+// entry is a verbatim approval — the admin wrote that precise string,
+// :latest included — so it defaults to "any"; a REGISTRY entry approves
+// a whole namespace and defaults to "tag" (moving references need the
+// explicit tagPolicy: any opt-in — an unpinned image silently changing
+// under running templates is exactly what the catalog exists to
+// prevent).
+func CheckTagDiscipline(img *waasv1alpha1.WorkspaceImage, ref string) *Denial {
+	pol := img.Spec.TagPolicy
+	if pol == "" {
+		if img.Spec.Image != "" {
+			pol = waasv1alpha1.TagPolicyAny
+		} else {
+			pol = waasv1alpha1.TagPolicyTag
+		}
+	}
+	hasDigest := strings.Contains(ref, "@sha256:")
+	switch pol {
+	case waasv1alpha1.TagPolicyAny:
+		return nil
+	case waasv1alpha1.TagPolicyDigest:
+		if !hasDigest {
+			return denyf(ReasonImageTagPolicy,
+				"catalog entry %q requires digest-pinned images (@sha256:…); %q has none",
+				img.Name, ref)
+		}
+		return nil
+	default: // TagPolicyTag
+		if hasDigest {
+			return nil
+		}
+		tag := imageTag(ref)
+		if tag == "" || tag == "latest" {
+			return denyf(ReasonImageTagPolicy,
+				"catalog entry %q requires a fixed tag; %q is a moving reference (set tagPolicy: any to allow it)",
+				img.Name, ref)
+		}
+		return nil
+	}
+}
+
+// imageTag extracts the tag of a reference, "" when tag-less. The last
+// colon only counts when it comes after the last path separator (a
+// registry port, e.g. host:5000/repo, is not a tag).
+func imageTag(ref string) string {
+	if at := strings.Index(ref, "@"); at >= 0 {
+		ref = ref[:at]
+	}
+	slash := strings.LastIndex(ref, "/")
+	colon := strings.LastIndex(ref, ":")
+	if colon > slash {
+		return ref[colon+1:]
+	}
+	return ""
 }
 
 // Load is the quota-relevant footprint of one existing workspace.

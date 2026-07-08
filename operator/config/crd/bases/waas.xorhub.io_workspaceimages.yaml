@@ -23,6 +23,9 @@ spec:
     - jsonPath: .spec.image
       name: Image
       type: string
+    - jsonPath: .spec.registry
+      name: Registry
+      type: string
     - jsonPath: .spec.enabled
       name: Enabled
       type: boolean
@@ -98,7 +101,8 @@ spec:
                 description: |-
                   Image is the exact reference approved by the admin. Templates must
                   match it verbatim; pin the digest for immutability (the waas-images
-                  pipeline publishes immutable tags precisely for this).
+                  pipeline publishes immutable tags precisely for this). Exactly one
+                  of image/registry must be set.
                 minLength: 1
                 type: string
               protocols:
@@ -116,6 +120,17 @@ spec:
                   type: string
                 minItems: 1
                 type: array
+              registry:
+                description: |-
+                  Registry approves every image UNDER this prefix instead of one
+                  exact reference — e.g. "docker.io/kasmweb" approves
+                  docker.io/kasmweb/terminal:1.19.0 (path-boundary match: it never
+                  approves docker.io/kasmweb-evil/*). An exact image entry always
+                  beats a registry entry; among registry entries the longest prefix
+                  wins. Combine with tagPolicy: a whole-registry approval with
+                  moving tags allowed is the loosest possible gate.
+                minLength: 1
+                type: string
               resources:
                 description: |-
                   Resources are the per-workspace sizing hints and hard bounds for
@@ -174,12 +189,28 @@ spec:
                         x-kubernetes-int-or-string: true
                     type: object
                 type: object
+              tagPolicy:
+                description: |-
+                  TagPolicy is the pinning discipline the matched template reference
+                  must satisfy: digest (must carry @sha256:…), tag (fixed tag
+                  required — :latest and tag-less references rejected), any
+                  (everything allowed, latest included). Unset defaults to "any" on
+                  exact image entries (the approval is verbatim) and to "tag" on
+                  registry entries (broad approvals stay pinned unless explicitly
+                  loosened).
+                enum:
+                - digest
+                - tag
+                - any
+                type: string
             required:
             - displayName
             - enabled
-            - image
             - protocols
             type: object
+            x-kubernetes-validations:
+            - message: exactly one of image or registry must be set
+              rule: has(self.image) != has(self.registry)
         required:
         - spec
         type: object

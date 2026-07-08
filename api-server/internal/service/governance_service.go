@@ -88,17 +88,22 @@ func (s *GovernanceService) Catalog(ctx context.Context, actor Actor) ([]model.C
 	if err := s.kube.List(ctx, templates, client.InNamespace(s.namespace)); err != nil {
 		return nil, fmt.Errorf("listing templates: %w", err)
 	}
-	templatesByImage := map[string][]string{}
+	// Registry entries approve by prefix, so the template→entry
+	// association must use the same matcher as enforcement (exact entry
+	// wins, then longest registry prefix), keyed by entry name.
+	templatesByEntry := map[string][]string{}
 	for i := range templates.Items {
 		t := &templates.Items[i]
-		templatesByImage[t.Spec.Image] = append(templatesByImage[t.Spec.Image], t.Name)
+		if entry := policy.FindImage(images.Items, t.Spec.Image); entry != nil {
+			templatesByEntry[entry.Name] = append(templatesByEntry[entry.Name], t.Name)
+		}
 	}
 
 	allowed := policy.AllowedImages(images.Items, pol, id)
 	out := make([]model.CatalogImage, 0, len(allowed))
 	for i := range allowed {
 		m := imageToModel(&allowed[i])
-		m.Templates = templatesByImage[allowed[i].Spec.Image]
+		m.Templates = templatesByEntry[allowed[i].Name]
 		out = append(out, m)
 	}
 	return out, nil
@@ -277,9 +282,14 @@ func (s *GovernanceService) AdminListImages(ctx context.Context) ([]model.Catalo
 
 // UpsertImageInput is the admin payload for a catalog entry.
 type UpsertImageInput struct {
-	DisplayName   string            `json:"displayName"`
-	Description   string            `json:"description"`
-	Image         string            `json:"image"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
+	// Exactly one of image (exact reference) / registry (prefix
+	// approving everything under it) must be set.
+	Image    string `json:"image,omitempty"`
+	Registry string `json:"registry,omitempty"`
+	// TagPolicy: digest | tag (default — :latest rejected) | any.
+	TagPolicy     string            `json:"tagPolicy,omitempty"`
 	Protocols     []string          `json:"protocols"`
 	Architectures []string          `json:"architectures"`
 	Enabled       *bool             `json:"enabled"`
@@ -291,13 +301,23 @@ type UpsertImageInput struct {
 
 // AdminUpsertImage creates or updates a WorkspaceImage.
 func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, name string, in UpsertImageInput) (*model.CatalogImage, error) {
-	if name == "" || in.Image == "" || in.DisplayName == "" || len(in.Protocols) == 0 {
-		return nil, apierror.BadRequest("name, displayName, image and protocols are required")
+	if name == "" || in.DisplayName == "" || len(in.Protocols) == 0 {
+		return nil, apierror.BadRequest("name, displayName and protocols are required")
+	}
+	if (in.Image == "") == (in.Registry == "") {
+		return nil, apierror.BadRequest("exactly one of image (exact reference) or registry (approved prefix) must be set")
+	}
+	switch waasv1alpha1.ImageTagPolicy(in.TagPolicy) {
+	case "", waasv1alpha1.TagPolicyDigest, waasv1alpha1.TagPolicyTag, waasv1alpha1.TagPolicyAny:
+	default:
+		return nil, apierror.BadRequest("tagPolicy must be one of digest, tag, any")
 	}
 	spec := waasv1alpha1.WorkspaceImageSpec{
 		DisplayName:   in.DisplayName,
 		Description:   in.Description,
 		Image:         in.Image,
+		Registry:      strings.TrimSuffix(in.Registry, "/"),
+		TagPolicy:     waasv1alpha1.ImageTagPolicy(in.TagPolicy),
 		Enabled:       in.Enabled == nil || *in.Enabled,
 		AllowedGroups: in.AllowedGroups,
 		Architectures: in.Architectures,
@@ -653,6 +673,8 @@ func imageToModel(img *waasv1alpha1.WorkspaceImage) model.CatalogImage {
 		DisplayName:   img.Spec.DisplayName,
 		Description:   img.Spec.Description,
 		Image:         img.Spec.Image,
+		Registry:      img.Spec.Registry,
+		TagPolicy:     string(img.Spec.TagPolicy),
 		Enabled:       img.Spec.Enabled,
 		Architectures: img.Spec.Architectures,
 		AllowedGroups: img.Spec.AllowedGroups,

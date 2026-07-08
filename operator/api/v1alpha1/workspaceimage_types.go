@@ -18,12 +18,29 @@ const (
 	ProtocolKasmVNC Protocol = "kasmvnc"
 )
 
+// ImageTagPolicy is the pinning discipline for images matched by a
+// catalog entry.
+// +kubebuilder:validation:Enum=digest;tag;any
+type ImageTagPolicy string
+
+const (
+	// TagPolicyDigest requires an @sha256:… digest on the reference.
+	TagPolicyDigest ImageTagPolicy = "digest"
+	// TagPolicyTag requires a fixed tag: :latest and tag-less references
+	// are rejected. The default.
+	TagPolicyTag ImageTagPolicy = "tag"
+	// TagPolicyAny allows anything, :latest included — an explicit
+	// opt-in, never a default.
+	TagPolicyAny ImageTagPolicy = "any"
+)
+
 // WorkspaceImageSpec is one admin-approved catalog entry. Only images
 // present in the catalog AND enabled can be referenced (through a
 // WorkspaceTemplate) by a Workspace; everything else is rejected at
 // admission. The catalog is deliberately separate from WorkspaceTemplate:
 // the template says HOW to deploy, this object records WHAT is approved
 // and for WHOM, and disabling it must not tear the template down.
+// +kubebuilder:validation:XValidation:rule="has(self.image) != has(self.registry)",message="exactly one of image or registry must be set"
 type WorkspaceImageSpec struct {
 	// DisplayName is the human-facing name shown in the portal catalog.
 	// +kubebuilder:validation:MinLength=1
@@ -35,9 +52,32 @@ type WorkspaceImageSpec struct {
 
 	// Image is the exact reference approved by the admin. Templates must
 	// match it verbatim; pin the digest for immutability (the waas-images
-	// pipeline publishes immutable tags precisely for this).
+	// pipeline publishes immutable tags precisely for this). Exactly one
+	// of image/registry must be set.
+	// +optional
 	// +kubebuilder:validation:MinLength=1
-	Image string `json:"image"`
+	Image string `json:"image,omitempty"`
+
+	// Registry approves every image UNDER this prefix instead of one
+	// exact reference — e.g. "docker.io/kasmweb" approves
+	// docker.io/kasmweb/terminal:1.19.0 (path-boundary match: it never
+	// approves docker.io/kasmweb-evil/*). An exact image entry always
+	// beats a registry entry; among registry entries the longest prefix
+	// wins. Combine with tagPolicy: a whole-registry approval with
+	// moving tags allowed is the loosest possible gate.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Registry string `json:"registry,omitempty"`
+
+	// TagPolicy is the pinning discipline the matched template reference
+	// must satisfy: digest (must carry @sha256:…), tag (fixed tag
+	// required — :latest and tag-less references rejected), any
+	// (everything allowed, latest included). Unset defaults to "any" on
+	// exact image entries (the approval is verbatim) and to "tag" on
+	// registry entries (broad approvals stay pinned unless explicitly
+	// loosened).
+	// +optional
+	TagPolicy ImageTagPolicy `json:"tagPolicy,omitempty"`
 
 	// Protocols the image can serve. A template using this image must
 	// pick a port whose protocol is listed here.
@@ -97,6 +137,7 @@ type ComputeSize struct {
 // +kubebuilder:resource:shortName=wsi
 // +kubebuilder:printcolumn:name="Display Name",type=string,JSONPath=`.spec.displayName`
 // +kubebuilder:printcolumn:name="Image",type=string,JSONPath=`.spec.image`
+// +kubebuilder:printcolumn:name="Registry",type=string,JSONPath=`.spec.registry`
 // +kubebuilder:printcolumn:name="Enabled",type=boolean,JSONPath=`.spec.enabled`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

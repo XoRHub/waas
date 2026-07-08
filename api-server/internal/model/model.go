@@ -301,10 +301,14 @@ type WorkspaceTemplate struct {
 // CatalogImage is the API projection of a WorkspaceImage CR, already
 // filtered down to what the requesting user may deploy.
 type CatalogImage struct {
-	Name          string            `json:"name"`
-	DisplayName   string            `json:"displayName"`
-	Description   string            `json:"description,omitempty"`
-	Image         string            `json:"image"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description,omitempty"`
+	Image       string `json:"image,omitempty"`
+	// Registry approves every image under this prefix (exclusive with Image).
+	Registry string `json:"registry,omitempty"`
+	// TagPolicy: digest | tag | any (empty = tag).
+	TagPolicy     string            `json:"tagPolicy,omitempty"`
 	Protocols     []string          `json:"protocols"`
 	Architectures []string          `json:"architectures,omitempty"`
 	Enabled       bool              `json:"enabled"`

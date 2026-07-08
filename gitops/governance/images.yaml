@@ -68,3 +68,52 @@ spec:
     default: { cpu: "1",  memory: 2Gi }
     min:     { cpu: 500m, memory: 1Gi }
     max:     { cpu: "4",  memory: 8Gi }
+---
+# Images Kasm officielles (docker.io/kasmweb) — accès KasmVNC natif,
+# proxifié par wwt. Pinnées tag@digest (Renovate bump les deux d'un
+# coup — le template DOIT porter la même chaîne, match verbatim) ;
+# tagPolicy digest verrouille la discipline même si la ref change.
+#
+# Alternative « registry » : une seule entrée peut approuver tout un
+# préfixe au lieu d'une image exacte — utile pour ouvrir kasmweb/* en
+# bloc, au prix d'architectures/ressources communes à toutes les images
+# matchées (kasmweb mélange amd64-only et multi-arch : préférer les
+# entrées exactes quand le placement compte) :
+#
+#   spec:
+#     registry: docker.io/kasmweb
+#     tagPolicy: digest        # tag (défaut) | digest | any (:latest)
+#     protocols: [kasmvnc]
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: kasm-terminal
+spec:
+  displayName: "Kasm Terminal"
+  description: "Terminal web (image officielle kasmweb, KasmVNC natif)."
+  image: docker.io/kasmweb/terminal:1.19.0@sha256:4403ce7d6980a44187a8a64046fdbc352abc2d7cb15f904988c2a0927fcd8417
+  tagPolicy: digest
+  protocols: [kasmvnc]
+  architectures: [amd64, arm64]
+  enabled: true
+  resources:
+    default: { cpu: 500m, memory: 1Gi }
+    min:     { cpu: 250m, memory: 512Mi }
+    max:     { cpu: "2",  memory: 3Gi }
+---
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: kasm-firefox
+spec:
+  displayName: "Kasm Firefox"
+  description: "Firefox (image officielle kasmweb, KasmVNC natif)."
+  image: docker.io/kasmweb/firefox:1.19.0@sha256:0ae54ed42da4141f93b21a19ed38fbda168415de56dc983197f8ac26c6ee6d28
+  tagPolicy: digest
+  protocols: [kasmvnc]
+  architectures: [amd64, arm64]
+  enabled: true
+  resources:
+    default: { cpu: "1",  memory: 2Gi }
+    min:     { cpu: 500m, memory: 1Gi }
+    max:     { cpu: "2",  memory: 4Gi }

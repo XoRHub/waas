@@ -44,6 +44,18 @@
     },
     {
       "customType": "regex",
+      "description": "Official kasmweb images referenced by the workspace catalog and templates (tag@digest bumped together — the catalog matches templates verbatim).",
+      "managerFilePatterns": [
+        "/^gitops/governance/images\\.ya?ml$/",
+        "/^hack/dev/(images|templates)-dev\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "(?<depName>docker\\.io/kasmweb/[a-z0-9-]+):(?<currentValue>[0-9][a-zA-Z0-9.-]*)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
       "description": "Go tools invoked via `go run module@version` in CI jobs (gocover-cobertura).",
       "managerFilePatterns": ["/^\\.gitlab/ci/.+\\.ya?ml$/"],
       "matchStrings": [

@@ -63,6 +63,9 @@ func (r *WorkspaceReconciler) evaluateGovernance(ctx context.Context, ws *waasv1
 	if d := policy.ImageAllowed(img, pol, id); d != nil {
 		return pol, d
 	}
+	if d := policy.CheckTagDiscipline(img, tpl.Spec.Image); d != nil {
+		return pol, d
+	}
 	if d := policy.CheckProtocol(tpl, img); d != nil {
 		return pol, d
 	}
