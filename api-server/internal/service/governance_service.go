@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/params"
 	"github.com/xorhub/waas/operator/pkg/policy"
 
 	"github.com/xorhub/waas/api-server/internal/apierror"
@@ -327,13 +328,13 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 		Architectures:      in.Architectures,
 	}
 	for _, p := range in.Protocols {
-		switch waasv1alpha1.Protocol(p) {
-		case waasv1alpha1.ProtocolVNC, waasv1alpha1.ProtocolRDP, waasv1alpha1.ProtocolSSH,
-			waasv1alpha1.ProtocolKasmVNC:
-			spec.Protocols = append(spec.Protocols, waasv1alpha1.Protocol(p))
-		default:
-			return nil, apierror.BadRequest(fmt.Sprintf("unknown protocol %q", p))
+		// params.Protocols() is the single source of protocol names — a
+		// hand-written switch here was the 4th copy of the list and
+		// nearly missed the kasmvnc addition.
+		if !slices.Contains(params.Protocols(), p) {
+			return nil, apierror.BadRequest(fmt.Sprintf("unknown protocol %q (must be one of %v)", p, params.Protocols()))
 		}
+		spec.Protocols = append(spec.Protocols, waasv1alpha1.Protocol(p))
 	}
 	res, err := computeSizes(in.Defaults, in.Min, in.Max)
 	if err != nil {
