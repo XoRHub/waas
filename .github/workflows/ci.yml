@@ -236,6 +236,13 @@ jobs:
         with:
           go-version-file: ${{ matrix.module }}/go.mod
           cache-dependency-path: ${{ matrix.module }}/go.sum
+      # The operator's test/envtest suite needs a real apiserver+etcd;
+      # exporting KUBEBUILDER_ASSETS makes the plain `go test ./...`
+      # below run it (the suite skips itself when unset).
+      - name: Install envtest control plane
+        if: matrix.module == 'operator'
+        working-directory: operator
+        run: echo "KUBEBUILDER_ASSETS=$(make -s envtest-assets)" >> "$GITHUB_ENV"
       - name: Test
         working-directory: ${{ matrix.module }}
         env:

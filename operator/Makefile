@@ -5,13 +5,31 @@
 CONTROLLER_GEN_VERSION ?= v0.19.0
 CONTROLLER_GEN := go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
 
-.PHONY: build test generate manifests docker-build
+# envtest: real apiserver + etcd for test/envtest (CRD schema/CEL,
+# webhooks end-to-end, finalizer lifecycle). SETUP_ENVTEST_VERSION is the
+# downloader tool; ENVTEST_K8S_VERSION picks the control-plane binaries
+# and should track the k8s.io/* minor in go.mod.
+SETUP_ENVTEST_VERSION ?= v0.24.1
+ENVTEST_K8S_VERSION ?= 1.35.x
+SETUP_ENVTEST := go run sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
+
+.PHONY: build test test-envtest envtest-assets generate manifests docker-build
 
 build: generate
 	go build ./...
 
 test: generate
 	go test ./...
+
+# Prints the local path of the envtest control-plane binaries,
+# downloading them on first use. CI consumes this to set
+# KUBEBUILDER_ASSETS for the whole operator test run.
+envtest-assets:
+	@$(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path
+
+test-envtest:
+	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+		go test ./test/envtest/ -count=1
 
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
