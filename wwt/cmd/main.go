@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -47,17 +48,29 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	slog.Info("wwt listening", "addr", listenAddr, "guacd", guacdAddr, "tls", tlsCert != "")
-	var err error
-	if tlsCert != "" && tlsKey != "" {
-		err = srv.ListenAndServeTLS(tlsCert, tlsKey)
-	} else {
-		err = srv.ListenAndServe()
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		slog.Error("wwt cannot listen", "addr", listenAddr, "error", err)
+		os.Exit(1)
 	}
+	slog.Info("wwt listening", "addr", listenAddr, "guacd", guacdAddr, "tls", tlsCert != "")
+	err = serve(srv, ln, tlsCert, tlsKey)
 	slog.Error("wwt exited", "error", err)
 	os.Exit(1)
 }
 
+// serve runs the server on ln, with TLS when BOTH cert and key are set
+// (an unreadable pair fails loudly instead of silently serving plain
+// HTTP). Split from main so the branch is testable.
+func serve(srv *http.Server, ln net.Listener, certFile, keyFile string) error {
+	if certFile != "" && keyFile != "" {
+		return srv.ServeTLS(ln, certFile, keyFile)
+	}
+	return srv.Serve(ln)
+}
+
+// envOr is knowingly duplicated with api-server's config (6 lines across
+// a Go module boundary — a shared package would cost more than the copy).
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

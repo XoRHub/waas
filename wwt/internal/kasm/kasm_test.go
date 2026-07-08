@@ -275,3 +275,66 @@ func readAll(t *testing.T, resp *http.Response) string {
 		}
 	}
 }
+
+// The cookie IS the connection JWT: once it expires, every page/asset/WS
+// request must be rejected without touching the upstream.
+func TestExpiredCookieIsRejected(t *testing.T) {
+	upstream, hits := newFakeKasmVNC(t)
+	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", "sess-1", "ws1", auth.ClipboardGrant{}, -time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1/assets/app.js", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: expired})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for an expired cookie, got %d", resp.StatusCode)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("upstream must not be touched with an expired cookie; got %d hits", hits.Load())
+	}
+}
+
+// Reconnection path: the frontend opens a new iframe with a FRESH query
+// token while the browser still holds the stale cookie — the query must
+// win and re-set the cookie.
+func TestFreshQueryTokenBeatsExpiredCookie(t *testing.T) {
+	upstream, _ := newFakeKasmVNC(t)
+	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", "sess-1", "ws1", auth.ClipboardGrant{}, -time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := connectionToken(t, signer, "sess-1")
+
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1/vnc.html?token="+fresh, nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: expired})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readAll(t, resp)
+	if resp.StatusCode != http.StatusOK || body != "KASM_PAGE /vnc.html" {
+		t.Fatalf("fresh query token must win over the stale cookie, got %d %q", resp.StatusCode, body)
+	}
+	refreshed := ""
+	for _, c := range resp.Cookies() {
+		if c.Name == cookieName {
+			refreshed = c.Value
+		}
+	}
+	if refreshed != fresh {
+		t.Fatal("the session cookie must be re-set from the fresh token")
+	}
+}
