@@ -131,10 +131,7 @@ function EditUserDialog({ user, onClose }: { user: User; onClose: () => void }) 
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    update.mutate(
-      { id: user.id, input: { role, maxWorkspaces, groups } },
-      { onSuccess: onClose },
-    );
+    update.mutate({ id: user.id, input: { role, maxWorkspaces, groups } }, { onSuccess: onClose });
   };
 
   const field =
@@ -167,60 +164,59 @@ function EditUserDialog({ user, onClose }: { user: User; onClose: () => void }) 
         </>
       }
     >
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('admin.usersPage.role')}
-          </span>
-          <select className={field} value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="user">user</option>
-            <option value="admin">admin</option>
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('admin.usersPage.maxWorkspaces')}
-          </span>
-          <input
-            type="number"
-            min={0}
-            className={field}
-            value={maxWorkspaces}
-            onChange={(e) => setMaxWorkspaces(Number(e.target.value))}
-          />
-        </label>
-        <GroupsPicker value={groups} onChange={setGroups} hint={t('admin.usersPage.groupsHint')} />
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('admin.usersPage.role')}
+        </span>
+        <select className={field} value={role} onChange={(e) => setRole(e.target.value)}>
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+      </label>
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('admin.usersPage.maxWorkspaces')}
+        </span>
+        <input
+          type="number"
+          min={0}
+          className={field}
+          value={maxWorkspaces}
+          onChange={(e) => setMaxWorkspaces(Number(e.target.value))}
+        />
+      </label>
+      <GroupsPicker value={groups} onChange={setGroups} hint={t('admin.usersPage.groupsHint')} />
 
-        {report && (
-          <div className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-700/50">
-            <p className="font-medium text-slate-700 dark:text-slate-200">
-              {t('admin.usersPage.effectivePolicy')}:{' '}
-              {report.effective ? (
-                <span className="text-blue-600 dark:text-blue-400">
-                  {report.effective.name} (priority {report.effective.priority})
-                </span>
-              ) : (
-                <span className="text-red-600 dark:text-red-400">
-                  {t('admin.usersPage.noPolicy')}
-                </span>
-              )}
-            </p>
-            <ul className="mt-1 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
-              {report.evaluated.map((p) => (
-                <li key={p.name}>
-                  {p.selected ? '▶ ' : p.matched ? '✓ ' : '✗ '}
-                  {p.name} (prio {p.priority}
-                  {p.via ? `, via ${p.via}` : ''})
-                </li>
-              ))}
-            </ul>
-            {report.warnings?.map((warning) => (
-              <p key={warning} className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                ⚠ {warning}
-              </p>
+      {report && (
+        <div className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-700/50">
+          <p className="font-medium text-slate-700 dark:text-slate-200">
+            {t('admin.usersPage.effectivePolicy')}:{' '}
+            {report.effective ? (
+              <span className="text-blue-600 dark:text-blue-400">
+                {report.effective.name} (priority {report.effective.priority})
+              </span>
+            ) : (
+              <span className="text-red-600 dark:text-red-400">
+                {t('admin.usersPage.noPolicy')}
+              </span>
+            )}
+          </p>
+          <ul className="mt-1 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+            {report.evaluated.map((p) => (
+              <li key={p.name}>
+                {p.selected ? '▶ ' : p.matched ? '✓ ' : '✗ '}
+                {p.name} (prio {p.priority}
+                {p.via ? `, via ${p.via}` : ''})
+              </li>
             ))}
-          </div>
-        )}
-
+          </ul>
+          {report.warnings?.map((warning) => (
+            <p key={warning} className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+              ⚠ {warning}
+            </p>
+          ))}
+        </div>
+      )}
     </Dialog>
   );
 }
@@ -240,7 +236,10 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    create.mutate({ ...input, groups: groups.length > 0 ? groups : undefined }, { onSuccess: onClose });
+    create.mutate(
+      { ...input, groups: groups.length > 0 ? groups : undefined },
+      { onSuccess: onClose },
+    );
   };
 
   const field =
@@ -271,58 +270,58 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
         </>
       }
     >
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('admin.usersPage.username')}
-          </span>
-          <input
-            className={field}
-            value={input.username}
-            onChange={(e) => set({ username: e.target.value })}
-            required
-          />
-        </label>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('admin.usersPage.email')}
-          </span>
-          <input
-            type="email"
-            className={field}
-            value={input.email}
-            onChange={(e) => set({ email: e.target.value })}
-          />
-        </label>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('admin.usersPage.password')}
-          </span>
-          <input
-            type="password"
-            className={field}
-            value={input.password}
-            onChange={(e) => set({ password: e.target.value })}
-            required
-          />
-        </label>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('admin.usersPage.role')}
-          </span>
-          <select
-            className={field}
-            value={input.role}
-            onChange={(e) => set({ role: e.target.value })}
-          >
-            <option value="user">user</option>
-            <option value="admin">admin</option>
-          </select>
-        </label>
-        <GroupsPicker
-          value={groups}
-          onChange={setGroups}
-          hint={t('admin.usersPage.createGroupsHint')}
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('admin.usersPage.username')}
+        </span>
+        <input
+          className={field}
+          value={input.username}
+          onChange={(e) => set({ username: e.target.value })}
+          required
         />
+      </label>
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('admin.usersPage.email')}
+        </span>
+        <input
+          type="email"
+          className={field}
+          value={input.email}
+          onChange={(e) => set({ email: e.target.value })}
+        />
+      </label>
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('admin.usersPage.password')}
+        </span>
+        <input
+          type="password"
+          className={field}
+          value={input.password}
+          onChange={(e) => set({ password: e.target.value })}
+          required
+        />
+      </label>
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('admin.usersPage.role')}
+        </span>
+        <select
+          className={field}
+          value={input.role}
+          onChange={(e) => set({ role: e.target.value })}
+        >
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+      </label>
+      <GroupsPicker
+        value={groups}
+        onChange={setGroups}
+        hint={t('admin.usersPage.createGroupsHint')}
+      />
     </Dialog>
   );
 }

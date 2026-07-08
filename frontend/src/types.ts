@@ -43,13 +43,7 @@ export interface User {
 }
 
 export type WorkspacePhase =
-  | 'Pending'
-  | 'Provisioning'
-  | 'Running'
-  | 'Paused'
-  | 'Stopped'
-  | 'Failed'
-  | 'Terminating';
+  'Pending' | 'Provisioning' | 'Running' | 'Paused' | 'Stopped' | 'Failed' | 'Terminating';
 
 /** Uptime/downtime schedule (cron), timezone-explicit. */
 export interface WorkspaceSchedule {

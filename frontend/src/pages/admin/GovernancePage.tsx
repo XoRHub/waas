@@ -33,7 +33,10 @@ function deepMerge(base: unknown, over: unknown): unknown {
   ) {
     const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
     for (const [k, v] of Object.entries(over as Record<string, unknown>)) {
-      out[k] = k in (base as Record<string, unknown>) ? deepMerge((base as Record<string, unknown>)[k], v) : v;
+      out[k] =
+        k in (base as Record<string, unknown>)
+          ? deepMerge((base as Record<string, unknown>)[k], v)
+          : v;
     }
     return out;
   }
@@ -97,7 +100,9 @@ function CatalogSection() {
                   <td className="px-4 py-3 font-medium">{img.displayName}</td>
                   <td className="max-w-xs truncate px-4 py-3 font-mono text-xs">{img.image}</td>
                   <td className="px-4 py-3">{img.protocols.join(', ')}</td>
-                  <td className="px-4 py-3">{img.allowedGroups?.join(', ') || t('governance.everyone')}</td>
+                  <td className="px-4 py-3">
+                    {img.allowedGroups?.join(', ') || t('governance.everyone')}
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -139,7 +144,9 @@ function CatalogSection() {
           name={editing === 'new' ? '' : editing.name}
           isNew={editing === 'new'}
           body={editing === 'new' ? undefined : imageBody(editing)}
-          onSave={(name, body) => upsert.mutate({ name, body }, { onSuccess: () => setEditing(null) })}
+          onSave={(name, body) =>
+            upsert.mutate({ name, body }, { onSuccess: () => setEditing(null) })
+          }
           pending={upsert.isPending}
           error={upsert.error?.message}
           onClose={() => setEditing(null)}
@@ -208,7 +215,9 @@ function PoliciesSection() {
                   </div>
                   <div>
                     <dt className="inline font-medium">{t('governance.images')}: </dt>
-                    <dd className="inline">{pol.images?.join(', ') || t('governance.allCatalog')}</dd>
+                    <dd className="inline">
+                      {pol.images?.join(', ') || t('governance.allCatalog')}
+                    </dd>
                   </div>
                   {pol.limits.defaults && (
                     <div>
@@ -239,7 +248,9 @@ function PoliciesSection() {
           body={editing === 'new' ? undefined : policyBody(editing)}
           validate={validate}
           fieldToggles={overrideFields.data?.data}
-          onSave={(name, body) => upsert.mutate({ name, body }, { onSuccess: () => setEditing(null) })}
+          onSave={(name, body) =>
+            upsert.mutate({ name, body }, { onSuccess: () => setEditing(null) })
+          }
           pending={upsert.isPending}
           error={upsert.error?.message}
           onClose={() => setEditing(null)}
@@ -281,7 +292,10 @@ function validatePolicy(value: unknown, knownFields?: string[]): YamlIssue[] {
     } else {
       for (const s of pol.subjects as Record<string, unknown>[]) {
         if (s?.kind !== 'User' && s?.kind !== 'Group') {
-          issues.push({ line: 0, message: `subjects: kind must be User or Group (got "${String(s?.kind)}")` });
+          issues.push({
+            line: 0,
+            message: `subjects: kind must be User or Group (got "${String(s?.kind)}")`,
+          });
         }
       }
     }
@@ -363,7 +377,9 @@ function GovernanceEditor({
     const parsed = parseYaml(text).value as Record<string, unknown> | undefined;
     if (parsed === undefined || typeof parsed !== 'object') return; // unparseable: fix the YAML first
     const overrides = (parsed.overrides ?? {}) as Record<string, unknown>;
-    const current = Array.isArray(overrides.allowedFields) ? overrides.allowedFields.map(String) : [];
+    const current = Array.isArray(overrides.allowedFields)
+      ? overrides.allowedFields.map(String)
+      : [];
     overrides.allowedFields = current.includes(field)
       ? current.filter((f) => f !== field)
       : [...current, field];

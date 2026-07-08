@@ -72,7 +72,10 @@ function VolumesFleet() {
         </thead>
         <tbody className="text-slate-800 dark:text-slate-100">
           {volumes.data.data.map((v) => (
-            <tr key={`${v.namespace}/${v.name}`} className="border-b border-slate-100 last:border-0 dark:border-slate-700">
+            <tr
+              key={`${v.namespace}/${v.name}`}
+              className="border-b border-slate-100 last:border-0 dark:border-slate-700"
+            >
               <td className="px-4 py-3 font-medium">{v.name}</td>
               <td className="px-4 py-3 font-mono text-xs">{v.namespace}</td>
               <td className="px-4 py-3">{v.size}</td>
@@ -133,7 +136,10 @@ function WorkspacesFleet() {
         </thead>
         <tbody className="text-slate-800 dark:text-slate-100">
           {workspaces.data.data.map((ws) => (
-            <tr key={ws.id} className="border-b border-slate-100 last:border-0 dark:border-slate-700">
+            <tr
+              key={ws.id}
+              className="border-b border-slate-100 last:border-0 dark:border-slate-700"
+            >
               <td className="px-4 py-3 font-medium">{ws.displayName || ws.name}</td>
               <td className="px-4 py-3 font-mono text-xs">{ws.ownerId}</td>
               <td className="px-4 py-3">{ws.templateRef}</td>
@@ -192,7 +198,10 @@ function RemoteFleet() {
         </thead>
         <tbody className="text-slate-800 dark:text-slate-100">
           {remotes.data.data.map((rw) => (
-            <tr key={rw.id} className="border-b border-slate-100 last:border-0 dark:border-slate-700">
+            <tr
+              key={rw.id}
+              className="border-b border-slate-100 last:border-0 dark:border-slate-700"
+            >
               <td className="px-4 py-3 font-medium">{rw.name}</td>
               <td className="px-4 py-3">{rw.ownerUsername || rw.ownerId}</td>
               <td className="px-4 py-3 font-mono text-xs">

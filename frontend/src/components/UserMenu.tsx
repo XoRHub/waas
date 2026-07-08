@@ -49,7 +49,8 @@ export function UserMenu() {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          {/* Mouse-only backdrop: keyboard users close with Escape (useEscape). */}
+          <div role="presentation" className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
             role="menu"
             className="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-lg bg-white py-1 shadow-lg ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"

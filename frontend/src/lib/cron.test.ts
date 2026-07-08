@@ -3,12 +3,26 @@ import { nextOccurrence, validateCron, validateTimezone } from './cron';
 
 describe('validateCron', () => {
   it('accepts standard 5-field expressions', () => {
-    for (const ok of ['0 8 * * 1-5', '*/15 * * * *', '0 22 * * *', '30 6 1,15 * *', '0 9 * * mon-fri']) {
+    for (const ok of [
+      '0 8 * * 1-5',
+      '*/15 * * * *',
+      '0 22 * * *',
+      '30 6 1,15 * *',
+      '0 9 * * mon-fri',
+    ]) {
       expect(validateCron(ok), ok).toBe(true);
     }
   });
   it('rejects malformed expressions', () => {
-    for (const bad of ['', '0 8 * *', '60 8 * * *', '0 25 * * *', '0 8 * * 8-9', 'foo bar * * *', '0 8 * * * *']) {
+    for (const bad of [
+      '',
+      '0 8 * *',
+      '60 8 * * *',
+      '0 25 * * *',
+      '0 8 * * 8-9',
+      'foo bar * * *',
+      '0 8 * * * *',
+    ]) {
       expect(validateCron(bad), bad).toBe(false);
     }
   });

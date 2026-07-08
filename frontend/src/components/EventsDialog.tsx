@@ -70,7 +70,10 @@ export function EventsDialog({
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
               {events.map((ev, i) => (
-                <tr key={`${ev.objectKind}-${ev.objectName}-${ev.reason}-${i}`} className="align-top">
+                <tr
+                  key={`${ev.objectKind}-${ev.objectName}-${ev.reason}-${i}`}
+                  className="align-top"
+                >
                   <td className="py-2 pr-3">
                     <span
                       className={

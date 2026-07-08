@@ -75,8 +75,9 @@ export function ProtocolTabs({
       );
     }
     return (
-      <span
-        role="button"
+      <button
+        type="button"
+        disabled={Boolean(block)}
         title={
           block === 'last'
             ? t('protocolTabs.lastProtocol')
@@ -96,7 +97,7 @@ export function ProtocolTabs({
         }`}
       >
         ✕
-      </span>
+      </button>
     );
   };
 

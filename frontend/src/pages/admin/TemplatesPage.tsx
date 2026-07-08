@@ -25,7 +25,9 @@ function validateWorkload(value: unknown): YamlIssue[] {
   }
   const kind = (value as Record<string, unknown>).kind;
   if (kind !== undefined && !['Deployment', 'StatefulSet', 'Pod'].includes(String(kind))) {
-    return [{ line: 0, message: `kind: must be Deployment, StatefulSet or Pod (got "${String(kind)}")` }];
+    return [
+      { line: 0, message: `kind: must be Deployment, StatefulSet or Pod (got "${String(kind)}")` },
+    ];
   }
   return [];
 }
@@ -279,384 +281,377 @@ function TemplateDialog({
         </>
       }
     >
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="text-sm text-slate-600 dark:text-slate-300">
-              {t('admin.templatesPage.name')}
-            </span>
-            <input
-              className={field}
-              value={input.name}
-              onChange={(e) => set({ name: e.target.value })}
-              disabled={!isNew}
-              pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?"
-              required
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm text-slate-600 dark:text-slate-300">
-              {t('admin.templatesPage.displayName')}
-            </span>
-            <input
-              className={field}
-              value={input.displayName}
-              onChange={(e) => set({ displayName: e.target.value })}
-              required
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm text-slate-600 dark:text-slate-300">
-              {t('admin.templatesPage.os')}
-            </span>
-            <select
-              className={field}
-              value={input.os}
-              onChange={(e) => set({ os: e.target.value })}
-            >
-              <option value="linux">Linux</option>
-              <option value="windows">Windows</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-sm text-slate-600 dark:text-slate-300">
-              {t('admin.templatesPage.image')}
-            </span>
-            <input
-              className={field}
-              value={input.image}
-              onChange={(e) => set({ image: e.target.value })}
-              required
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm text-slate-600 dark:text-slate-300">
-              {t('admin.templatesPage.homeSize')}
-            </span>
-            <input
-              className={field}
-              value={input.homeSize}
-              onChange={(e) => set({ homeSize: e.target.value })}
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm text-slate-600 dark:text-slate-300">
-              {t('admin.templatesPage.storageClass')}
-            </span>
-            <input
-              className={field}
-              value={input.storageClassName ?? ''}
-              onChange={(e) => set({ storageClassName: e.target.value })}
-              placeholder={t('admin.templatesPage.storageClassDefault')}
-            />
-          </label>
-        </div>
-
+      <div className="grid grid-cols-2 gap-3">
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('admin.templatesPage.description')}
+            {t('admin.templatesPage.name')}
           </span>
-          <textarea
+          <input
             className={field}
-            value={input.description}
-            onChange={(e) => set({ description: e.target.value })}
-            rows={2}
+            value={input.name}
+            onChange={(e) => set({ name: e.target.value })}
+            disabled={!isNew}
+            pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?"
+            required
           />
         </label>
-
-        {/* ---------------- resources ---------------- */}
-        <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
-            {t('admin.templatesPage.resources')}
-          </legend>
-          <div className="grid grid-cols-2 gap-3">
-            {(['requests', 'limits'] as const).map((kind) => (
-              <div key={kind} className="space-y-2">
-                <p className="text-xs uppercase text-slate-400">{kind}</p>
-                {(['cpu', 'memory'] as const).map((res) => (
-                  <label key={res} className="block">
-                    <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
-                      {res}
-                    </span>
-                    <input
-                      className={fieldSm}
-                      value={input[kind]?.[res] ?? ''}
-                      placeholder={res === 'cpu' ? '500m' : '1Gi'}
-                      onChange={(e) => {
-                        const next = { ...input[kind] };
-                        if (e.target.value === '') delete next[res];
-                        else next[res] = e.target.value;
-                        set({ [kind]: next } as Partial<TemplateInput>);
-                      }}
-                    />
-                  </label>
-                ))}
-              </div>
-            ))}
-          </div>
-        </fieldset>
-
-        {/* ---------------- protocols (one tab per protocol) ---------------- */}
-        <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
-            {t('admin.templatesPage.protocols')}
-          </legend>
-          <p className="text-xs text-slate-400 dark:text-slate-500">
-            {t('admin.templatesPage.protocolsHint')}
-          </p>
-          <ProtocolTabs
-            protocols={protocols.map((p) => p.name)}
-            active={activeProto}
-            onSelect={setActiveProto}
-            badge={(p) =>
-              protocols.find((x) => x.name === p)?.default ? (
-                <span className="text-[10px]" title={t('portal.protocolDefault')}>
-                  ●
-                </span>
-              ) : null
-            }
-            addable={unusedProtocols}
-            onAdd={addProtocol}
-            onRemove={removeProtocol}
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('admin.templatesPage.displayName')}
+          </span>
+          <input
+            className={field}
+            value={input.displayName}
+            onChange={(e) => set({ displayName: e.target.value })}
+            required
           />
-          {protocols.length === 0 && (
-            <p className="text-xs text-slate-400 dark:text-slate-500">
-              {t('admin.templatesPage.noProtocolsYet')}
-            </p>
-          )}
-          {currentProto ? (
-            <div className="space-y-3">
-              <div className="flex items-end gap-3">
-                <label className="block w-24">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {t('admin.templatesPage.port')}
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('admin.templatesPage.os')}
+          </span>
+          <select className={field} value={input.os} onChange={(e) => set({ os: e.target.value })}>
+            <option value="linux">Linux</option>
+            <option value="windows">Windows</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('admin.templatesPage.image')}
+          </span>
+          <input
+            className={field}
+            value={input.image}
+            onChange={(e) => set({ image: e.target.value })}
+            required
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('admin.templatesPage.homeSize')}
+          </span>
+          <input
+            className={field}
+            value={input.homeSize}
+            onChange={(e) => set({ homeSize: e.target.value })}
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('admin.templatesPage.storageClass')}
+          </span>
+          <input
+            className={field}
+            value={input.storageClassName ?? ''}
+            onChange={(e) => set({ storageClassName: e.target.value })}
+            placeholder={t('admin.templatesPage.storageClassDefault')}
+          />
+        </label>
+      </div>
+
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('admin.templatesPage.description')}
+        </span>
+        <textarea
+          className={field}
+          value={input.description}
+          onChange={(e) => set({ description: e.target.value })}
+          rows={2}
+        />
+      </label>
+
+      {/* ---------------- resources ---------------- */}
+      <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+          {t('admin.templatesPage.resources')}
+        </legend>
+        <div className="grid grid-cols-2 gap-3">
+          {(['requests', 'limits'] as const).map((kind) => (
+            <div key={kind} className="space-y-2">
+              <p className="text-xs uppercase text-slate-400">{kind}</p>
+              {(['cpu', 'memory'] as const).map((res) => (
+                <label key={res} className="block">
+                  <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                    {res}
                   </span>
                   <input
-                    type="number"
                     className={fieldSm}
-                    value={currentProto.port || ''}
-                    min={1}
-                    max={65535}
-                    onChange={(e) => patchActive({ port: Number(e.target.value) })}
-                    required
+                    value={input[kind]?.[res] ?? ''}
+                    placeholder={res === 'cpu' ? '500m' : '1Gi'}
+                    onChange={(e) => {
+                      const next = { ...input[kind] };
+                      if (e.target.value === '') delete next[res];
+                      else next[res] = e.target.value;
+                      set({ [kind]: next } as Partial<TemplateInput>);
+                    }}
                   />
                 </label>
-                <label className="flex items-center gap-1.5 pb-2 text-sm text-slate-600 dark:text-slate-300">
-                  <input
-                    type="radio"
-                    name="default-protocol"
-                    checked={!!currentProto.default}
-                    onChange={() =>
-                      set({
-                        protocols: protocols.map((p) => ({ ...p, default: p.name === activeProto })),
-                      })
-                    }
-                  />
-                  {t('portal.protocolDefault')}
-                </label>
-              </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </fieldset>
 
-              <label className="block">
+      {/* ---------------- protocols (one tab per protocol) ---------------- */}
+      <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+          {t('admin.templatesPage.protocols')}
+        </legend>
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          {t('admin.templatesPage.protocolsHint')}
+        </p>
+        <ProtocolTabs
+          protocols={protocols.map((p) => p.name)}
+          active={activeProto}
+          onSelect={setActiveProto}
+          badge={(p) =>
+            protocols.find((x) => x.name === p)?.default ? (
+              <span className="text-[10px]" title={t('portal.protocolDefault')}>
+                ●
+              </span>
+            ) : null
+          }
+          addable={unusedProtocols}
+          onAdd={addProtocol}
+          onRemove={removeProtocol}
+        />
+        {protocols.length === 0 && (
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            {t('admin.templatesPage.noProtocolsYet')}
+          </p>
+        )}
+        {currentProto ? (
+          <div className="space-y-3">
+            <div className="flex items-end gap-3">
+              <label className="block w-24">
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {t('admin.templatesPage.credentialsSecret')}
+                  {t('admin.templatesPage.port')}
                 </span>
                 <input
+                  type="number"
                   className={fieldSm}
-                  value={currentProto.credentialsSecretRef ?? ''}
-                  onChange={(e) => patchActive({ credentialsSecretRef: e.target.value })}
-                  placeholder={t('admin.templatesPage.credentialsSecretHint')}
+                  value={currentProto.port || ''}
+                  min={1}
+                  max={65535}
+                  onChange={(e) => patchActive({ port: Number(e.target.value) })}
+                  required
                 />
               </label>
-
-              {/* Same registry-driven form as the user connection settings,
-                  with the admin extra: the per-param overridable flag. */}
-              <ProtocolParamsForm
-                meta={meta.data?.data}
-                protocol={currentProto.name}
-                values={currentProto.params ?? {}}
-                onChange={(name, value) => {
-                  const params = { ...currentProto.params };
-                  if (value === '') delete params[name];
-                  else params[name] = value;
-                  patchActive({ params });
-                }}
-                renderParamExtra={(pm) => (
-                  <label className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                    <input
-                      type="checkbox"
-                      checked={currentProto.userParams?.includes(pm.name) ?? false}
-                      onChange={(e) => {
-                        const setNames = new Set(currentProto.userParams ?? []);
-                        if (e.target.checked) setNames.add(pm.name);
-                        else setNames.delete(pm.name);
-                        patchActive({ userParams: [...setNames] });
-                      }}
-                    />
-                    {t('admin.templatesPage.userOverridable')}
-                    {pm.tier === 'advanced' && (
-                      <span className="rounded bg-amber-100 px-1 text-[10px] uppercase text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
-                        {t('admin.templatesPage.advanced')}
-                      </span>
-                    )}
-                  </label>
-                )}
-              />
-            </div>
-          ) : null}
-        </fieldset>
-
-        {/* ---------------- env ---------------- */}
-        <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
-            {t('admin.templatesPage.env')}
-          </legend>
-          <p className="text-xs text-slate-400 dark:text-slate-500">
-            {t('admin.templatesPage.envHint')}
-          </p>
-          {(input.env ?? []).map((env, i) => (
-            <EnvRow
-              key={i}
-              env={env}
-              onChange={(next) =>
-                set({ env: (input.env ?? []).map((e, j) => (j === i ? next : e)) })
-              }
-              onRemove={() => set({ env: (input.env ?? []).filter((_, j) => j !== i) })}
-            />
-          ))}
-          <button
-            type="button"
-            onClick={() => set({ env: [...(input.env ?? []), { name: '', value: '' }] })}
-            className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-          >
-            + {t('admin.templatesPage.addEnv')}
-          </button>
-        </fieldset>
-
-        {/* ---------------- user overrides ---------------- */}
-        <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
-            {t('admin.templatesPage.overrides')}
-          </legend>
-          <p className="mb-2 text-xs text-slate-400 dark:text-slate-500">
-            {t('admin.templatesPage.overridesHint')}
-          </p>
-          <div className="grid grid-cols-3 gap-1.5">
-            {(overrideFields.data?.data ?? []).map(({ name: f, description }) => (
-              <label
-                key={f}
-                title={description}
-                className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300"
-              >
+              <label className="flex items-center gap-1.5 pb-2 text-sm text-slate-600 dark:text-slate-300">
                 <input
-                  type="checkbox"
-                  checked={input.overrides?.allowedFields?.includes(f) ?? false}
-                  onChange={(e) => {
-                    const fields = new Set(input.overrides?.allowedFields ?? []);
-                    if (e.target.checked) fields.add(f);
-                    else fields.delete(f);
-                    set({ overrides: { ...input.overrides, allowedFields: [...fields] } });
-                  }}
+                  type="radio"
+                  name="default-protocol"
+                  checked={!!currentProto.default}
+                  onChange={() =>
+                    set({
+                      protocols: protocols.map((p) => ({ ...p, default: p.name === activeProto })),
+                    })
+                  }
                 />
-                <span className="font-mono text-xs">{f}</span>
+                {t('portal.protocolDefault')}
               </label>
-            ))}
-          </div>
-          <label className="mt-2 block">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              {t('admin.templatesPage.overridesOwner')}
-            </span>
-            <input
-              className={fieldSm}
-              value={input.overrides?.owner ?? ''}
-              onChange={(e) => set({ overrides: { ...input.overrides, owner: e.target.value } })}
-            />
-          </label>
-        </fieldset>
-
-        {/* ---------------- placement (workload namespace) ------------ */}
-        <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
-            {t('admin.templatesPage.placement')}
-          </legend>
-          <label className="block">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              {t('admin.templatesPage.placementPattern')}
-            </span>
-            <input
-              className={`${fieldSm} font-mono`}
-              placeholder="waas-{user}"
-              value={input.placement?.namespace ?? ''}
-              onChange={(e) =>
-                set({
-                  placement: { ...input.placement, namespace: e.target.value || undefined },
-                })
-              }
-            />
-            <span className="mt-0.5 block text-xs text-slate-400 dark:text-slate-500">
-              {t('admin.templatesPage.placementHint')}
-            </span>
-          </label>
-          {/* Contextual help straight from the naming engine (GET
-              /meta/placeholders) — never a hand-maintained copy. */}
-          {(placeholders.data?.data ?? []).length > 0 && (
-            <div className="rounded-md bg-slate-50 p-2 text-xs text-slate-500 dark:bg-slate-700/40 dark:text-slate-400">
-              <p className="mb-1 font-medium">{t('admin.templatesPage.placeholdersTitle')}</p>
-              <ul className="space-y-0.5">
-                {(placeholders.data?.data ?? []).map((ph) => (
-                  <li key={ph.token}>
-                    <span className="font-mono text-slate-700 dark:text-slate-200">{ph.token}</span>{' '}
-                    — {ph.description} <span className="text-slate-400">({ph.source})</span>
-                  </li>
-                ))}
-              </ul>
             </div>
-          )}
-          <label className="block">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              {t('admin.templatesPage.placementCleanup')}
-            </span>
-            <select
-              className={fieldSm}
-              value={input.placement?.cleanup ?? ''}
-              onChange={(e) =>
-                set({
-                  placement: { ...input.placement, cleanup: e.target.value || undefined },
-                })
-              }
-            >
-              <option value="">Retain ({t('portal.protocolDefault')})</option>
-              <option value="Retain">Retain</option>
-              <option value="DeleteWhenEmpty">DeleteWhenEmpty</option>
-            </select>
-          </label>
-        </fieldset>
 
-        {/* ---------------- schedule (uptime/downtime) ---------------- */}
-        <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
-            {t('schedule.title')}
-          </legend>
-          <ScheduleEditor value={input.schedule} onChange={(schedule) => set({ schedule })} />
-        </fieldset>
+            <label className="block">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {t('admin.templatesPage.credentialsSecret')}
+              </span>
+              <input
+                className={fieldSm}
+                value={currentProto.credentialsSecretRef ?? ''}
+                onChange={(e) => patchActive({ credentialsSecretRef: e.target.value })}
+                placeholder={t('admin.templatesPage.credentialsSecretHint')}
+              />
+            </label>
 
-        {/* ---------------- workload (advanced) ---------------- */}
-        <details className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-200">
-            {t('admin.templatesPage.workload')}
-          </summary>
-          <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-            {t('admin.templatesPage.workloadHint')}
-          </p>
-          <div className="mt-2">
-            <YamlEditor
-              value={workloadText}
-              onChange={setWorkloadText}
-              rows={8}
-              validate={validateWorkload}
+            {/* Same registry-driven form as the user connection settings,
+                  with the admin extra: the per-param overridable flag. */}
+            <ProtocolParamsForm
+              meta={meta.data?.data}
+              protocol={currentProto.name}
+              values={currentProto.params ?? {}}
+              onChange={(name, value) => {
+                const params = { ...currentProto.params };
+                if (value === '') delete params[name];
+                else params[name] = value;
+                patchActive({ params });
+              }}
+              renderParamExtra={(pm) => (
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={currentProto.userParams?.includes(pm.name) ?? false}
+                    onChange={(e) => {
+                      const setNames = new Set(currentProto.userParams ?? []);
+                      if (e.target.checked) setNames.add(pm.name);
+                      else setNames.delete(pm.name);
+                      patchActive({ userParams: [...setNames] });
+                    }}
+                  />
+                  {t('admin.templatesPage.userOverridable')}
+                  {pm.tier === 'advanced' && (
+                    <span className="rounded bg-amber-100 px-1 text-[10px] uppercase text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                      {t('admin.templatesPage.advanced')}
+                    </span>
+                  )}
+                </label>
+              )}
             />
           </div>
-          {workloadError && <p className="text-sm text-red-600">{workloadError}</p>}
-        </details>
+        ) : null}
+      </fieldset>
 
+      {/* ---------------- env ---------------- */}
+      <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+          {t('admin.templatesPage.env')}
+        </legend>
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          {t('admin.templatesPage.envHint')}
+        </p>
+        {(input.env ?? []).map((env, i) => (
+          <EnvRow
+            key={i}
+            env={env}
+            onChange={(next) => set({ env: (input.env ?? []).map((e, j) => (j === i ? next : e)) })}
+            onRemove={() => set({ env: (input.env ?? []).filter((_, j) => j !== i) })}
+          />
+        ))}
+        <button
+          type="button"
+          onClick={() => set({ env: [...(input.env ?? []), { name: '', value: '' }] })}
+          className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+        >
+          + {t('admin.templatesPage.addEnv')}
+        </button>
+      </fieldset>
+
+      {/* ---------------- user overrides ---------------- */}
+      <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+          {t('admin.templatesPage.overrides')}
+        </legend>
+        <p className="mb-2 text-xs text-slate-400 dark:text-slate-500">
+          {t('admin.templatesPage.overridesHint')}
+        </p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {(overrideFields.data?.data ?? []).map(({ name: f, description }) => (
+            <label
+              key={f}
+              title={description}
+              className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300"
+            >
+              <input
+                type="checkbox"
+                checked={input.overrides?.allowedFields?.includes(f) ?? false}
+                onChange={(e) => {
+                  const fields = new Set(input.overrides?.allowedFields ?? []);
+                  if (e.target.checked) fields.add(f);
+                  else fields.delete(f);
+                  set({ overrides: { ...input.overrides, allowedFields: [...fields] } });
+                }}
+              />
+              <span className="font-mono text-xs">{f}</span>
+            </label>
+          ))}
+        </div>
+        <label className="mt-2 block">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            {t('admin.templatesPage.overridesOwner')}
+          </span>
+          <input
+            className={fieldSm}
+            value={input.overrides?.owner ?? ''}
+            onChange={(e) => set({ overrides: { ...input.overrides, owner: e.target.value } })}
+          />
+        </label>
+      </fieldset>
+
+      {/* ---------------- placement (workload namespace) ------------ */}
+      <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+          {t('admin.templatesPage.placement')}
+        </legend>
+        <label className="block">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            {t('admin.templatesPage.placementPattern')}
+          </span>
+          <input
+            className={`${fieldSm} font-mono`}
+            placeholder="waas-{user}"
+            value={input.placement?.namespace ?? ''}
+            onChange={(e) =>
+              set({
+                placement: { ...input.placement, namespace: e.target.value || undefined },
+              })
+            }
+          />
+          <span className="mt-0.5 block text-xs text-slate-400 dark:text-slate-500">
+            {t('admin.templatesPage.placementHint')}
+          </span>
+        </label>
+        {/* Contextual help straight from the naming engine (GET
+              /meta/placeholders) — never a hand-maintained copy. */}
+        {(placeholders.data?.data ?? []).length > 0 && (
+          <div className="rounded-md bg-slate-50 p-2 text-xs text-slate-500 dark:bg-slate-700/40 dark:text-slate-400">
+            <p className="mb-1 font-medium">{t('admin.templatesPage.placeholdersTitle')}</p>
+            <ul className="space-y-0.5">
+              {(placeholders.data?.data ?? []).map((ph) => (
+                <li key={ph.token}>
+                  <span className="font-mono text-slate-700 dark:text-slate-200">{ph.token}</span> —{' '}
+                  {ph.description} <span className="text-slate-400">({ph.source})</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <label className="block">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            {t('admin.templatesPage.placementCleanup')}
+          </span>
+          <select
+            className={fieldSm}
+            value={input.placement?.cleanup ?? ''}
+            onChange={(e) =>
+              set({
+                placement: { ...input.placement, cleanup: e.target.value || undefined },
+              })
+            }
+          >
+            <option value="">Retain ({t('portal.protocolDefault')})</option>
+            <option value="Retain">Retain</option>
+            <option value="DeleteWhenEmpty">DeleteWhenEmpty</option>
+          </select>
+        </label>
+      </fieldset>
+
+      {/* ---------------- schedule (uptime/downtime) ---------------- */}
+      <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+          {t('schedule.title')}
+        </legend>
+        <ScheduleEditor value={input.schedule} onChange={(schedule) => set({ schedule })} />
+      </fieldset>
+
+      {/* ---------------- workload (advanced) ---------------- */}
+      <details className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-200">
+          {t('admin.templatesPage.workload')}
+        </summary>
+        <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+          {t('admin.templatesPage.workloadHint')}
+        </p>
+        <div className="mt-2">
+          <YamlEditor
+            value={workloadText}
+            onChange={setWorkloadText}
+            rows={8}
+            validate={validateWorkload}
+          />
+        </div>
+        {workloadError && <p className="text-sm text-red-600">{workloadError}</p>}
+      </details>
     </Dialog>
   );
 }
@@ -711,7 +706,10 @@ function EnvRow({
                 onChange({
                   ...env,
                   valueFrom: {
-                    secretKeyRef: { name: e.target.value, key: env.valueFrom?.secretKeyRef?.key ?? '' },
+                    secretKeyRef: {
+                      name: e.target.value,
+                      key: env.valueFrom?.secretKeyRef?.key ?? '',
+                    },
                   },
                 })
               }
@@ -727,7 +725,10 @@ function EnvRow({
                 onChange({
                   ...env,
                   valueFrom: {
-                    secretKeyRef: { name: env.valueFrom?.secretKeyRef?.name ?? '', key: e.target.value },
+                    secretKeyRef: {
+                      name: env.valueFrom?.secretKeyRef?.name ?? '',
+                      key: e.target.value,
+                    },
                   },
                 })
               }
@@ -745,7 +746,11 @@ function EnvRow({
           />
         </label>
       )}
-      <button type="button" onClick={onRemove} className="pb-2 text-sm text-red-600 hover:underline">
+      <button
+        type="button"
+        onClick={onRemove}
+        className="pb-2 text-sm text-red-600 hover:underline"
+      >
         ✕
       </button>
     </div>

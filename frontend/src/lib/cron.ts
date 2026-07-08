@@ -18,7 +18,20 @@ const FIELDS: Field[] = [
   {
     min: 1,
     max: 12,
-    names: { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 },
+    names: {
+      jan: 1,
+      feb: 2,
+      mar: 3,
+      apr: 4,
+      may: 5,
+      jun: 6,
+      jul: 7,
+      aug: 8,
+      sep: 9,
+      oct: 10,
+      nov: 11,
+      dec: 12,
+    },
   },
   { min: 0, max: 7, names: { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 } }, // day of week (7 = sunday)
 ];
@@ -124,7 +137,13 @@ function zonedParts(instant: Date, tz: string): ZonedParts {
   });
   const get = (type: string) =>
     Number(fmt.formatToParts(instant).find((p) => p.type === type)?.value ?? NaN);
-  return { y: get('year'), mo: get('month'), d: get('day'), h: get('hour') % 24, mi: get('minute') };
+  return {
+    y: get('year'),
+    mo: get('month'),
+    d: get('day'),
+    h: get('hour') % 24,
+    mi: get('minute'),
+  };
 }
 
 // utcFromZoned inverts zonedParts: the UTC instant showing the given wall
@@ -167,8 +186,7 @@ export function nextOccurrence(exprs: string[], tz: string, from = new Date()): 
       // may match; otherwise both must (an unrestricted field always does).
       const domOK = cron!.dom.has(d);
       const dowOK = cron!.dow.has(dow);
-      const dayOK =
-        cron!.domRestricted && cron!.dowRestricted ? domOK || dowOK : domOK && dowOK;
+      const dayOK = cron!.domRestricted && cron!.dowRestricted ? domOK || dowOK : domOK && dowOK;
       if (!dayOK) continue;
       for (const h of [...cron!.hour].sort((a, b) => a - b)) {
         for (const mi of [...cron!.minute].sort((a, b) => a - b)) {

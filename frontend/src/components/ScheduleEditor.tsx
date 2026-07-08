@@ -47,7 +47,9 @@ export function ScheduleEditor({
     const list = crons ?? [];
     const bad = list.find((c) => !validateCron(c));
     if (bad) {
-      return <p className="mt-0.5 text-xs text-red-600">{t('schedule.invalidCron', { cron: bad })}</p>;
+      return (
+        <p className="mt-0.5 text-xs text-red-600">{t('schedule.invalidCron', { cron: bad })}</p>
+      );
     }
     if (list.length === 0 || tzInvalid || !tz) return null;
     const next = nextOccurrence(list, tz);
@@ -95,7 +97,9 @@ export function ScheduleEditor({
           {sideStatus(schedule.uptime, true)}
         </label>
         <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">{t('schedule.downtime')}</span>
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('schedule.downtime')}
+          </span>
           <textarea
             className={`${fieldSm} font-mono`}
             rows={3}

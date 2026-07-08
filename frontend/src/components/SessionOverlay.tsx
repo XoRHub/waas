@@ -68,6 +68,10 @@ export function SessionOverlay({
   const [receivedClip, setReceivedClip] = useState('');
   const [clipDraft, setClipDraft] = useState('');
   useEffect(() => {
+    // Reading an imperative handle when the panel opens: the value is
+    // not reactive state, and reading it at every toggle CALL SITE would
+    // duplicate this line across the app.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) setReceivedClip(pane.current?.readRemoteClipboard() ?? '');
   }, [open, pane]);
 
@@ -107,9 +111,12 @@ export function SessionOverlay({
   const savedParams = isRemote ? (entry?.params ?? {}) : (saved?.params ?? {});
   // Reconnect-scoped tunables (live ones — the clipboard — have their own
   // switches above).
-  const reconnectParams = paramsFor(meta.data?.data, protocol, ['ui', 'advanced'], allowList).filter(
-    (p) => !p.live,
-  );
+  const reconnectParams = paramsFor(
+    meta.data?.data,
+    protocol,
+    ['ui', 'advanced'],
+    allowList,
+  ).filter((p) => !p.live);
 
   const effCopy = copyOn ?? capabilities?.clipboardCopy ?? false;
   const effPaste = pasteOn ?? capabilities?.clipboardPaste ?? false;
@@ -195,9 +202,7 @@ export function SessionOverlay({
 
           {/* -------- view -------- */}
           <section className="space-y-2">
-            <h4 className="text-xs uppercase tracking-wide text-slate-400">
-              {t('overlay.view')}
-            </h4>
+            <h4 className="text-xs uppercase tracking-wide text-slate-400">{t('overlay.view')}</h4>
             <button
               onClick={() => target.capabilities.splitView && navigate(`/view?ws=${target.id}`)}
               disabled={!target.capabilities.splitView}

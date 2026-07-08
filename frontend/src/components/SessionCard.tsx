@@ -98,7 +98,12 @@ export function SessionCard({
             </button>
             {menuOpen && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                {/* Mouse-only backdrop: keyboard users close with Escape (useEscape). */}
+                <div
+                  role="presentation"
+                  className="fixed inset-0 z-10"
+                  onClick={() => setMenuOpen(false)}
+                />
                 <div
                   role="menu"
                   className="absolute right-0 z-20 mt-1 w-52 overflow-hidden rounded-lg bg-white py-1 text-sm shadow-lg ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"

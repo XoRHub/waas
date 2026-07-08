@@ -53,7 +53,10 @@ describe('paramsFor null-safety (kasmvnc/terminal regression)', () => {
   // slice once leaked as null and crashed every param form on kasmvnc
   // template selection. Every template protocol shape must be safe.
   const shapes: { label: string; entry: ProtocolMeta }[] = [
-    { label: 'kasmvnc with null params', entry: { name: 'kasmvnc', params: null as unknown as ParamMeta[] } },
+    {
+      label: 'kasmvnc with null params',
+      entry: { name: 'kasmvnc', params: null as unknown as ParamMeta[] },
+    },
     { label: 'kasmvnc with empty params', entry: { name: 'kasmvnc', params: [] } },
     { label: 'vnc with params', entry: { name: 'vnc', params: [p('color-depth', 'ui')] } },
   ];

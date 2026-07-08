@@ -22,7 +22,9 @@ export function StatusBadge({ phase }: { phase: EffectivePhase }) {
   const { t } = useTranslation();
   const style = PHASE_STYLES[phase] ?? PHASE_STYLES.Stopped;
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${style}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${style}`}
+    >
       {t(`portal.phase.${phase}`)}
     </span>
   );

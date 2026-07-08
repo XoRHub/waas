@@ -10,7 +10,14 @@ import type { Workspace } from '@/types';
 const MAX_PANES = 3;
 
 type LeafNode = { type: 'leaf'; id: number; workspaceId: string | null };
-type SplitNode = { type: 'split'; id: number; dir: 'row' | 'col'; ratio: number; a: PaneNode; b: PaneNode };
+type SplitNode = {
+  type: 'split';
+  id: number;
+  dir: 'row' | 'col';
+  ratio: number;
+  a: PaneNode;
+  b: PaneNode;
+};
 type PaneNode = LeafNode | SplitNode;
 
 let nextId = 1;
@@ -60,7 +67,11 @@ function setLeafWorkspace(node: PaneNode, leafId: number, workspaceId: string | 
 function setSplitRatio(node: PaneNode, splitId: number, ratio: number): PaneNode {
   if (node.type === 'leaf') return node;
   if (node.id === splitId) return { ...node, ratio };
-  return { ...node, a: setSplitRatio(node.a, splitId, ratio), b: setSplitRatio(node.b, splitId, ratio) };
+  return {
+    ...node,
+    a: setSplitRatio(node.a, splitId, ratio),
+    b: setSplitRatio(node.b, splitId, ratio),
+  };
 }
 
 // ---- Page ----
@@ -79,8 +90,7 @@ export function SplitViewPage() {
 
   const onSplit = (leafId: number, dir: 'row' | 'col') =>
     setRoot((r) => (countLeaves(r) < MAX_PANES ? splitLeaf(r, leafId, dir) : r));
-  const onClose = (leafId: number) =>
-    setRoot((r) => closeLeaf(r, leafId) ?? newLeaf());
+  const onClose = (leafId: number) => setRoot((r) => closeLeaf(r, leafId) ?? newLeaf());
   const onPick = (leafId: number, workspaceId: string | null) =>
     setRoot((r) => setLeafWorkspace(r, leafId, workspaceId));
   const onRatio = (splitId: number, ratio: number) =>
@@ -95,7 +105,14 @@ export function SplitViewPage() {
         <span className="text-xs text-slate-400">{t('splitView.hint', { max: MAX_PANES })}</span>
       </header>
       <div className="min-h-0 flex-1">
-        <PaneTree node={root} canSplit={canSplit} onSplit={onSplit} onClose={onClose} onPick={onPick} onRatio={onRatio} />
+        <PaneTree
+          node={root}
+          canSplit={canSplit}
+          onSplit={onSplit}
+          onClose={onClose}
+          onPick={onPick}
+          onRatio={onRatio}
+        />
       </div>
     </div>
   );
@@ -140,8 +157,14 @@ function Split({ split, ...actions }: { split: SplitNode } & PaneActions) {
   };
 
   return (
-    <div ref={containerRef} className={`flex h-full w-full ${horizontal ? 'flex-row' : 'flex-col'}`}>
-      <div style={{ flexBasis: `${split.ratio * 100}%` }} className="min-h-0 min-w-0 shrink-0 grow-0">
+    <div
+      ref={containerRef}
+      className={`flex h-full w-full ${horizontal ? 'flex-row' : 'flex-col'}`}
+    >
+      <div
+        style={{ flexBasis: `${split.ratio * 100}%` }}
+        className="min-h-0 min-w-0 shrink-0 grow-0"
+      >
         <PaneTree node={split.a} {...actions} />
       </div>
       <div

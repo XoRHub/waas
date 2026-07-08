@@ -318,6 +318,10 @@ export const DesktopPane = forwardRef<
   return (
     <div
       ref={containerRef}
+      // A remote-desktop surface: focusable on purpose (keyboard input
+      // is forwarded to the desktop) — role application tells assistive
+      // tech that keys are consumed here, not by the page.
+      role="application"
       tabIndex={0}
       className="relative h-full w-full overflow-hidden bg-black outline-none focus:ring-1 focus:ring-blue-500/60"
     >

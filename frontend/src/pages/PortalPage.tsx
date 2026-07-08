@@ -30,7 +30,14 @@ import { useEvents } from '@/hooks/useEvents';
 import { effectivePhase } from '@/lib/lifecycle';
 import { targetFromRemote, targetFromWorkspace } from '@/lib/target';
 import { templateAvailability } from '@/lib/templates';
-import { displayCpu, displayMemory, formatCpu, formatMemory, parseCpu, parseMemory } from '@/lib/quantity';
+import {
+  displayCpu,
+  displayMemory,
+  formatCpu,
+  formatMemory,
+  parseCpu,
+  parseMemory,
+} from '@/lib/quantity';
 import type {
   RemoteProtocol,
   RemoteWorkspace,
@@ -71,7 +78,10 @@ export function PortalPage() {
             {t('portal.title')}
           </h1>
           <nav className="flex gap-1">
-            <button className={tabClass(activeTab === 'workspaces')} onClick={() => setTab('workspaces')}>
+            <button
+              className={tabClass(activeTab === 'workspaces')}
+              onClick={() => setTab('workspaces')}
+            >
               {t('portal.tabWorkspaces')}
             </button>
             {remoteEnabled && (
@@ -177,7 +187,10 @@ function SkeletonGrid({ count = 6 }: { count?: number }) {
   return (
     <div className="grid animate-pulse gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800">
+        <div
+          key={i}
+          className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800"
+        >
           <div className="flex items-start justify-between">
             <div className="space-y-2">
               <div className="h-4 w-32 rounded bg-slate-200 dark:bg-slate-700" />
@@ -205,7 +218,8 @@ function QuotaBanner() {
   return (
     <div className="mb-5 flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl bg-white px-5 py-3 text-sm shadow-sm dark:bg-slate-800">
       <span className="text-slate-500 dark:text-slate-400">
-        {t('portal.quotaPolicy')} <span className="font-medium text-slate-800 dark:text-slate-100">{q.policy}</span>
+        {t('portal.quotaPolicy')}{' '}
+        <span className="font-medium text-slate-800 dark:text-slate-100">{q.policy}</span>
       </span>
       {q.maxWorkspaces != null && (
         <span className="text-slate-500 dark:text-slate-400">
@@ -241,7 +255,12 @@ function QuotaBanner() {
           </span>
           {(q.retainedVolumes ?? 0) > 0 && (
             <span className="ml-1 text-xs">
-              ({t('portal.quotaStorageRetained', { size: q.retainedStorage, count: q.retainedVolumes })})
+              (
+              {t('portal.quotaStorageRetained', {
+                size: q.retainedStorage,
+                count: q.retainedVolumes,
+              })}
+              )
             </span>
           )}
         </span>
@@ -383,13 +402,18 @@ function VolumesSection() {
         </thead>
         <tbody>
           {items.map((v) => (
-            <tr key={`${v.namespace}/${v.name}`} className="border-b border-slate-100 last:border-0 dark:border-slate-700/60">
+            <tr
+              key={`${v.namespace}/${v.name}`}
+              className="border-b border-slate-100 last:border-0 dark:border-slate-700/60"
+            >
               <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">
                 {v.name}
                 <span className="ml-2 text-xs font-normal text-slate-400">{v.namespace}</span>
               </td>
               <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{v.size}</td>
-              <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{v.originWorkspace || '—'}</td>
+              <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                {v.originWorkspace || '—'}
+              </td>
               <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                 {v.retainedAt ? new Date(v.retainedAt).toLocaleString() : '—'}
               </td>
@@ -410,7 +434,9 @@ function VolumesSection() {
           ))}
         </tbody>
       </table>
-      <p className="px-4 py-3 text-xs text-slate-400 dark:text-slate-500">{t('volumes.quotaNote')}</p>
+      <p className="px-4 py-3 text-xs text-slate-400 dark:text-slate-500">
+        {t('volumes.quotaNote')}
+      </p>
     </div>
   );
 }
@@ -483,7 +509,10 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
         }
         menuItems={[
           { label: t('portal.connectionSettings'), onClick: () => setSettingsOpen(true) },
-          { label: t('portal.openInSplitView'), onClick: () => navigate(`/view?ws=${workspace.id}`) },
+          {
+            label: t('portal.openInSplitView'),
+            onClick: () => navigate(`/view?ws=${workspace.id}`),
+          },
           { label: t('portal.events.menu'), onClick: () => setEventsOpen(true) },
         ]}
         buttons={
@@ -518,10 +547,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
           workspace={workspace}
           pending={remove.isPending}
           onConfirm={(keepVolume) =>
-            remove.mutate(
-              { id: workspace.id, keepVolume },
-              { onSuccess: () => setDeleting(false) },
-            )
+            remove.mutate({ id: workspace.id, keepVolume }, { onSuccess: () => setDeleting(false) })
           }
           onClose={() => setDeleting(false)}
         />
@@ -564,10 +590,12 @@ function ConnectionSettingsDialog({
   const [chosen, setChosen] = useState(initialChosen);
   const [tab, setTab] = useState(names.includes(initialChosen) ? initialChosen : (names[0] ?? ''));
   // Params kept per protocol so switching tabs never loses edits.
-  const [paramsByProto, setParamsByProto] = useState<Record<string, Record<string, string>>>(() => ({
-    ...saved?.paramsByProtocol,
-    ...(saved?.params ? { [initialChosen]: saved.params } : {}),
-  }));
+  const [paramsByProto, setParamsByProto] = useState<Record<string, Record<string, string>>>(
+    () => ({
+      ...saved?.paramsByProtocol,
+      ...(saved?.params ? { [initialChosen]: saved.params } : {}),
+    }),
+  );
 
   const selected = protocols.find((p) => p.name === tab);
   const isAdmin = user?.role === 'admin';
@@ -710,11 +738,7 @@ function OpenChoiceDialog({
         </button>
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-        <input
-          type="checkbox"
-          checked={remember}
-          onChange={(e) => setRemember(e.target.checked)}
-        />
+        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
         {t('portal.rememberChoice')}
       </label>
     </Dialog>
@@ -773,7 +797,9 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   >({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [envRows, setEnvRows] = useState<{ name: string; value: string }[]>([]);
-  const [scheduleOverride, setScheduleOverride] = useState<WorkspaceSchedule | undefined>(undefined);
+  const [scheduleOverride, setScheduleOverride] = useState<WorkspaceSchedule | undefined>(
+    undefined,
+  );
   const [homeVolumeName, setHomeVolumeName] = useState('');
   const nsPreview = useNamespacePreview(templateRef, displayName);
   const volumes = useVolumes();
@@ -916,8 +942,7 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
             settings[workspace.id] = {
               protocol: chosenProtocol,
               params: cleanedByProto[effectiveProtocol],
-              paramsByProtocol:
-                Object.keys(cleanedByProto).length > 0 ? cleanedByProto : undefined,
+              paramsByProtocol: Object.keys(cleanedByProto).length > 0 ? cleanedByProto : undefined,
             };
             updateProfile.mutate({
               preferences: { ...user?.preferences, workspaceSettings: settings },
@@ -954,200 +979,205 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
         </>
       }
     >
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.template')}</span>
+        <select
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+          value={templateRef}
+          onChange={(e) => selectTemplate(e.target.value)}
+          required
+        >
+          <option value="" disabled>
+            —
+          </option>
+          {availability.map(({ template: tpl, available }) => (
+            <option key={tpl.name} value={tpl.name} disabled={!available}>
+              {tpl.displayName} ({tpl.os}
+              {tpl.protocols?.length ? ` · ${tpl.protocols.map((p) => p.name).join('/')}` : ''})
+              {available ? '' : ` — ${t('portal.templateUnavailable')}`}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('portal.displayName')}
+        </span>
+        <input
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+        />
+      </label>
+      {/* Resolved server-side: what the precedence chain (template >
+            global > built-in) actually yields for THIS user — never
+            computed by the UI. */}
+      {template && nsPreview.data?.data.namespace && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {t('portal.namespacePreview')}{' '}
+          <span className="font-mono text-slate-700 dark:text-slate-200">
+            {nsPreview.data.data.namespace}
+          </span>
+        </p>
+      )}
+      {/* Reattach a retained volume as the home of this workspace. */}
+      {template && attachableVolumes.length > 0 && (
         <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.template')}</span>
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('volumes.attachExisting')}
+          </span>
           <select
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-            value={templateRef}
-            onChange={(e) => selectTemplate(e.target.value)}
-            required
+            value={homeVolumeName}
+            onChange={(e) => setHomeVolumeName(e.target.value)}
           >
-            <option value="" disabled>
-              —
-            </option>
-            {availability.map(({ template: tpl, available }) => (
-              <option key={tpl.name} value={tpl.name} disabled={!available}>
-                {tpl.displayName} ({tpl.os}
-                {tpl.protocols?.length ? ` · ${tpl.protocols.map((p) => p.name).join('/')}` : ''})
-                {available ? '' : ` — ${t('portal.templateUnavailable')}`}
+            <option value="">{t('volumes.attachNone')}</option>
+            {attachableVolumes.map((v) => (
+              <option key={v.name} value={v.name}>
+                {v.name} — {v.size}
+                {v.originWorkspace ? ` (${v.originWorkspace})` : ''}
               </option>
             ))}
           </select>
-        </label>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('portal.displayName')}
+          <span className="text-xs text-slate-400 dark:text-slate-500">
+            {t('volumes.attachHint')}
           </span>
-          <input
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
         </label>
-        {/* Resolved server-side: what the precedence chain (template >
-            global > built-in) actually yields for THIS user — never
-            computed by the UI. */}
-        {template && nsPreview.data?.data.namespace && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {t('portal.namespacePreview')}{' '}
-            <span className="font-mono text-slate-700 dark:text-slate-200">
-              {nsPreview.data.data.namespace}
-            </span>
-          </p>
-        )}
-        {/* Reattach a retained volume as the home of this workspace. */}
-        {template && attachableVolumes.length > 0 && (
-          <label className="block">
-            <span className="text-sm text-slate-600 dark:text-slate-300">
-              {t('volumes.attachExisting')}
-            </span>
-            <select
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-              value={homeVolumeName}
-              onChange={(e) => setHomeVolumeName(e.target.value)}
-            >
-              <option value="">{t('volumes.attachNone')}</option>
-              {attachableVolumes.map((v) => (
-                <option key={v.name} value={v.name}>
-                  {v.name} — {v.size}
-                  {v.originWorkspace ? ` (${v.originWorkspace})` : ''}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-slate-400 dark:text-slate-500">
-              {t('volumes.attachHint')}
-            </span>
-          </label>
-        )}
+      )}
 
-        {template && !canOverride('resources') && (
-          // No "resources" right: the sizing is the template's and the
-          // payload OMITS spec.resources entirely — sending it (even with
-          // identical values) counts as an override and the webhook
-          // rejects it. Display only.
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {t('portal.fixedSizing', {
-              cpu: displayCpu(cpuBounds.initial),
-              memory: displayMemory(memBounds.initial),
-            })}
-          </p>
-        )}
-        {template && canOverride('resources') && (
-          <fieldset className="space-y-4">
-            <ResourceSlider
-              label={t('portal.cpu')}
-              value={cpuValue}
-              bounds={cpuBounds}
-              step={CPU_STEP}
-              display={(v) => `${displayCpu(v)} vCPU`}
-              onChange={setCpu}
-            />
-            <ResourceSlider
-              label={t('portal.memory')}
-              value={memValue}
-              bounds={memBounds}
-              step={MEM_STEP}
-              display={displayMemory}
-              onChange={setMemory}
-            />
-            {q?.limits && (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {t('portal.quotaRemaining', {
-                  cpu: displayCpu(remaining('cpu', parseCpu) ?? 0),
-                  memory: displayMemory(remaining('memory', parseMemory) ?? 0),
-                })}
-              </p>
-            )}
-          </fieldset>
-        )}
+      {template && !canOverride('resources') && (
+        // No "resources" right: the sizing is the template's and the
+        // payload OMITS spec.resources entirely — sending it (even with
+        // identical values) counts as an override and the webhook
+        // rejects it. Display only.
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {t('portal.fixedSizing', {
+            cpu: displayCpu(cpuBounds.initial),
+            memory: displayMemory(memBounds.initial),
+          })}
+        </p>
+      )}
+      {template && canOverride('resources') && (
+        <fieldset className="space-y-4">
+          <ResourceSlider
+            label={t('portal.cpu')}
+            value={cpuValue}
+            bounds={cpuBounds}
+            step={CPU_STEP}
+            display={(v) => `${displayCpu(v)} vCPU`}
+            onChange={setCpu}
+          />
+          <ResourceSlider
+            label={t('portal.memory')}
+            value={memValue}
+            bounds={memBounds}
+            step={MEM_STEP}
+            display={displayMemory}
+            onChange={setMemory}
+          />
+          {q?.limits && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {t('portal.quotaRemaining', {
+                cpu: displayCpu(remaining('cpu', parseCpu) ?? 0),
+                memory: displayMemory(remaining('memory', parseMemory) ?? 0),
+              })}
+            </p>
+          )}
+        </fieldset>
+      )}
 
-        {template && tplProtocols.length > 0 && (
-          <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-            <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
-              {t('portal.connection')}
-            </legend>
-            {tplProtocols.length > 1 ? (
-              <>
-                <ProtocolTabs
-                  protocols={protoNames}
-                  active={tab}
-                  onSelect={setProtoTab}
-                  badge={(p) => (p === effectiveProtocol ? <span className="text-[10px]">●</span> : null)}
+      {template && tplProtocols.length > 0 && (
+        <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
+            {t('portal.connection')}
+          </legend>
+          {tplProtocols.length > 1 ? (
+            <>
+              <ProtocolTabs
+                protocols={protoNames}
+                active={tab}
+                onSelect={setProtoTab}
+                badge={(p) =>
+                  p === effectiveProtocol ? <span className="text-[10px]">●</span> : null
+                }
+              />
+              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <input
+                  type="radio"
+                  name="create-chosen-protocol"
+                  checked={effectiveProtocol === tab}
+                  disabled={!protocolOverridable}
+                  onChange={() => setChosen(tab)}
                 />
-                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                  <input
-                    type="radio"
-                    name="create-chosen-protocol"
-                    checked={effectiveProtocol === tab}
-                    disabled={!protocolOverridable}
-                    onChange={() => setChosen(tab)}
-                  />
-                  {t('portal.useThisProtocol')}
-                  {tab === defaultProtocol && (
-                    <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
-                  )}
-                  {!protocolOverridable && (
-                    <span className="text-xs text-slate-400" title={t('portal.protocolLockedHint')}>
-                      🔒 {t('portal.protocolLocked')}
-                    </span>
-                  )}
-                </label>
-              </>
-            ) : (
-              // Single protocol (typically a legacy template with the
-              // OS-derived synthesized entry): show it instead of an
-              // empty box — the connection is never a mystery.
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                {t('portal.protocol')}:{' '}
-                <span className="font-medium">{tplProtocols[0].name.toUpperCase()}</span>
-                {tplProtocols[0].port ? (
-                  <span className="text-slate-400"> · {t('portal.port')} {tplProtocols[0].port}</span>
-                ) : null}{' '}
-                <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
-              </p>
-            )}
-            {/* The SAME shared per-protocol form as connection settings
+                {t('portal.useThisProtocol')}
+                {tab === defaultProtocol && (
+                  <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
+                )}
+                {!protocolOverridable && (
+                  <span className="text-xs text-slate-400" title={t('portal.protocolLockedHint')}>
+                    🔒 {t('portal.protocolLocked')}
+                  </span>
+                )}
+              </label>
+            </>
+          ) : (
+            // Single protocol (typically a legacy template with the
+            // OS-derived synthesized entry): show it instead of an
+            // empty box — the connection is never a mystery.
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              {t('portal.protocol')}:{' '}
+              <span className="font-medium">{tplProtocols[0].name.toUpperCase()}</span>
+              {tplProtocols[0].port ? (
+                <span className="text-slate-400">
+                  {' '}
+                  · {t('portal.port')} {tplProtocols[0].port}
+                </span>
+              ) : null}{' '}
+              <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
+            </p>
+          )}
+          {/* The SAME shared per-protocol form as connection settings
                 and the admin template editor: template-locked values as
                 placeholders, userParams allow-list (admins bypass). */}
-            {tabProto && (
-              <ProtocolParamsForm
-                meta={meta.data?.data}
-                protocol={tabProto.name}
-                values={protoParamsByProto[tabProto.name] ?? {}}
-                onChange={(name, value) =>
-                  setProtoParamsByProto((prev) => ({
-                    ...prev,
-                    [tabProto.name]: { ...prev[tabProto.name], [name]: value },
-                  }))
-                }
-                allowList={isAdmin ? undefined : (tabProto.userParams ?? [])}
-                placeholders={tabProto.params}
-              />
-            )}
-          </fieldset>
-        )}
+          {tabProto && (
+            <ProtocolParamsForm
+              meta={meta.data?.data}
+              protocol={tabProto.name}
+              values={protoParamsByProto[tabProto.name] ?? {}}
+              onChange={(name, value) =>
+                setProtoParamsByProto((prev) => ({
+                  ...prev,
+                  [tabProto.name]: { ...prev[tabProto.name], [name]: value },
+                }))
+              }
+              allowList={isAdmin ? undefined : (tabProto.userParams ?? [])}
+              placeholders={tabProto.params}
+            />
+          )}
+        </fieldset>
+      )}
 
-        {/* Advanced panel (template overrides): only rendered for users
+      {/* Advanced panel (template overrides): only rendered for users
             whose template ∩ policy rights (or admin role) allow at least
             one overridable field — invisible to everyone else. */}
-        {template && (canOverride('env') || canOverride('schedule')) && (
-          <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-            <legend className="px-1">
-              <button
-                type="button"
-                onClick={() => setAdvancedOpen((v) => !v)}
-                className="flex items-center gap-1 text-sm text-slate-600 dark:text-slate-300"
-              >
-                <span className="text-xs">{advancedOpen ? '▼' : '▶'}</span>
-                {t('portal.advancedMode')}
-              </button>
-            </legend>
-            {advancedOpen && (
-              <div className="space-y-3">
-                <p className="text-xs text-slate-400 dark:text-slate-500">
-                  {t('portal.advancedModeHint')}
-                </p>
-                {canOverride('env') && (
+      {template && (canOverride('env') || canOverride('schedule')) && (
+        <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <legend className="px-1">
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              className="flex items-center gap-1 text-sm text-slate-600 dark:text-slate-300"
+            >
+              <span className="text-xs">{advancedOpen ? '▼' : '▶'}</span>
+              {t('portal.advancedMode')}
+            </button>
+          </legend>
+          {advancedOpen && (
+            <div className="space-y-3">
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                {t('portal.advancedModeHint')}
+              </p>
+              {canOverride('env') && (
                 <div className="space-y-2">
                   <span className="text-sm text-slate-600 dark:text-slate-300">
                     {t('portal.envOverrides')}
@@ -1192,23 +1222,22 @@ function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                     + {t('portal.addEnvVar')}
                   </button>
                 </div>
-                )}
-                {canOverride('schedule') && (
-                  <div className="space-y-2">
-                    <span className="text-sm text-slate-600 dark:text-slate-300">
-                      {t('schedule.title')}
-                    </span>
-                    <ScheduleEditor
-                      value={scheduleOverride ?? template?.schedule}
-                      onChange={setScheduleOverride}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </fieldset>
-        )}
-
+              )}
+              {canOverride('schedule') && (
+                <div className="space-y-2">
+                  <span className="text-sm text-slate-600 dark:text-slate-300">
+                    {t('schedule.title')}
+                  </span>
+                  <ScheduleEditor
+                    value={scheduleOverride ?? template?.schedule}
+                    onChange={setScheduleOverride}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </fieldset>
+      )}
     </Dialog>
   );
 }
@@ -1404,7 +1433,12 @@ function RemoteWorkspaceDialog({
       : [{ name: 'ssh', port: 22, default: true }],
   );
   const [tab, setTab] = useState(() => protocols[0]?.name ?? 'ssh');
-  const [creds, setCreds] = useState({ username: '', password: '', privateKey: '', passphrase: '' });
+  const [creds, setCreds] = useState({
+    username: '',
+    password: '',
+    privateKey: '',
+    passphrase: '',
+  });
 
   const names = protocols.map((p) => p.name);
   const current = protocols.find((p) => p.name === tab);
@@ -1430,7 +1464,9 @@ function RemoteWorkspaceDialog({
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     const cleanedProtocols = protocols.map((p) => {
-      const cleaned = Object.fromEntries(Object.entries(p.params ?? {}).filter(([, v]) => v !== ''));
+      const cleaned = Object.fromEntries(
+        Object.entries(p.params ?? {}).filter(([, v]) => v !== ''),
+      );
       return { ...p, params: Object.keys(cleaned).length > 0 ? cleaned : undefined };
     });
     // Empty fields are omitted = "keep the stored value" on edit.
@@ -1486,132 +1522,133 @@ function RemoteWorkspaceDialog({
         </>
       }
     >
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.name')}</span>
-          <input
-            required
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.hostname')}</span>
-          <input
-            required
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-            placeholder="203.0.113.10"
-            value={hostname}
-            onChange={(e) => setHostname(e.target.value)}
-          />
-        </label>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.mac')}</span>
-          <input
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-            placeholder="aa:bb:cc:dd:ee:ff"
-            value={macAddress}
-            onChange={(e) => setMacAddress(e.target.value)}
-          />
-          <span className="mt-0.5 block text-xs text-slate-400 dark:text-slate-500">
-            {t('remote.macHint')}
-          </span>
-        </label>
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.name')}</span>
+        <input
+          required
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </label>
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.hostname')}</span>
+        <input
+          required
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+          placeholder="203.0.113.10"
+          value={hostname}
+          onChange={(e) => setHostname(e.target.value)}
+        />
+      </label>
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">{t('remote.mac')}</span>
+        <input
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+          placeholder="aa:bb:cc:dd:ee:ff"
+          value={macAddress}
+          onChange={(e) => setMacAddress(e.target.value)}
+        />
+        <span className="mt-0.5 block text-xs text-slate-400 dark:text-slate-500">
+          {t('remote.macHint')}
+        </span>
+      </label>
 
-        {/* One tab per endpoint the machine serves — the same tabs and
+      {/* One tab per endpoint the machine serves — the same tabs and
             registry-driven form as connection settings and the admin
             template editor. The owner may tune any non-platform param. */}
-        <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
-            {t('portal.connection')}
-          </legend>
-          <ProtocolTabs
-            protocols={names}
-            active={tab}
-            onSelect={setTab}
-            badge={(p) =>
-              protocols.find((x) => x.name === p)?.default ? (
-                <span className="text-[10px]" title={t('portal.protocolDefault')}>
-                  ●
-                </span>
-              ) : null
-            }
-            addable={unused}
-            onAdd={addProtocol}
-            onRemove={removeProtocol}
-          />
-          {current && (
-            <>
-              <div className="flex items-end gap-3">
-                <label className="block w-28">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {t('portal.port')}
-                  </span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={65535}
-                    required
-                    className="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                    value={current.port || ''}
-                    onChange={(e) => patchCurrent({ port: Number(e.target.value) })}
-                  />
-                </label>
-                <label className="flex items-center gap-1.5 pb-2 text-sm text-slate-600 dark:text-slate-300">
-                  <input
-                    type="radio"
-                    name="remote-default-protocol"
-                    checked={!!current.default}
-                    onChange={() =>
-                      setProtocols((prev) => prev.map((p) => ({ ...p, default: p.name === tab })))
-                    }
-                  />
-                  {t('portal.protocolDefault')}
-                </label>
-              </div>
-              <ProtocolParamsForm
-                meta={meta.data?.data}
-                protocol={current.name}
-                values={current.params ?? {}}
-                onChange={(name, value) => {
-                  const params = { ...current.params };
-                  if (value === '') delete params[name];
-                  else params[name] = value;
-                  patchCurrent({ params });
-                }}
-              />
-            </>
-          )}
-        </fieldset>
-
-        <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
-            {t('remote.credentials')}
-          </legend>
-          <p className="text-xs text-slate-400 dark:text-slate-500">{t('remote.credentialsHint')}</p>
-          {credField('username', t('remote.username'))}
-          {credField('password', t('remote.password'), 'password')}
-          {names.includes('ssh') && (
-            <>
-              <label className="block">
+      <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
+          {t('portal.connection')}
+        </legend>
+        <ProtocolTabs
+          protocols={names}
+          active={tab}
+          onSelect={setTab}
+          badge={(p) =>
+            protocols.find((x) => x.name === p)?.default ? (
+              <span className="text-[10px]" title={t('portal.protocolDefault')}>
+                ●
+              </span>
+            ) : null
+          }
+          addable={unused}
+          onAdd={addProtocol}
+          onRemove={removeProtocol}
+        />
+        {current && (
+          <>
+            <div className="flex items-end gap-3">
+              <label className="block w-28">
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {t('remote.privateKey')}
+                  {t('portal.port')}
                 </span>
-                <textarea
-                  rows={3}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                  placeholder={remote ? t('remote.keepStored') : '-----BEGIN OPENSSH PRIVATE KEY-----'}
-                  value={creds.privateKey}
-                  onChange={(e) => setCreds((c) => ({ ...c, privateKey: e.target.value }))}
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  required
+                  className="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                  value={current.port || ''}
+                  onChange={(e) => patchCurrent({ port: Number(e.target.value) })}
                 />
               </label>
-              {credField('passphrase', t('remote.passphrase'), 'password')}
-            </>
-          )}
-        </fieldset>
+              <label className="flex items-center gap-1.5 pb-2 text-sm text-slate-600 dark:text-slate-300">
+                <input
+                  type="radio"
+                  name="remote-default-protocol"
+                  checked={!!current.default}
+                  onChange={() =>
+                    setProtocols((prev) => prev.map((p) => ({ ...p, default: p.name === tab })))
+                  }
+                />
+                {t('portal.protocolDefault')}
+              </label>
+            </div>
+            <ProtocolParamsForm
+              meta={meta.data?.data}
+              protocol={current.name}
+              values={current.params ?? {}}
+              onChange={(name, value) => {
+                const params = { ...current.params };
+                if (value === '') delete params[name];
+                else params[name] = value;
+                patchCurrent({ params });
+              }}
+            />
+          </>
+        )}
+      </fieldset>
 
+      <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
+          {t('remote.credentials')}
+        </legend>
+        <p className="text-xs text-slate-400 dark:text-slate-500">{t('remote.credentialsHint')}</p>
+        {credField('username', t('remote.username'))}
+        {credField('password', t('remote.password'), 'password')}
+        {names.includes('ssh') && (
+          <>
+            <label className="block">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {t('remote.privateKey')}
+              </span>
+              <textarea
+                rows={3}
+                autoComplete="off"
+                spellCheck={false}
+                className="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                placeholder={
+                  remote ? t('remote.keepStored') : '-----BEGIN OPENSSH PRIVATE KEY-----'
+                }
+                value={creds.privateKey}
+                onChange={(e) => setCreds((c) => ({ ...c, privateKey: e.target.value }))}
+              />
+            </label>
+            {credField('passphrase', t('remote.passphrase'), 'password')}
+          </>
+        )}
+      </fieldset>
     </Dialog>
   );
 }

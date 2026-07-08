@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { DesktopPane, type ConnectionState, type DesktopPaneHandle } from '@/components/DesktopPane';
+import {
+  DesktopPane,
+  type ConnectionState,
+  type DesktopPaneHandle,
+} from '@/components/DesktopPane';
 import { SessionOverlay } from '@/components/SessionOverlay';
 import {
   useRemoteWorkspaces,
@@ -225,6 +229,9 @@ function DesktopView({
         kind={kind}
         onStateChange={onStateChange}
         onCapabilities={onCapabilities}
+        // Grabbing focus IS the feature: a remote desktop that does not
+        // receive keystrokes on open is broken, not accessible.
+        // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
       />
       {state === 'connected' && (

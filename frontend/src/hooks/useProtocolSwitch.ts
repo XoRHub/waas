@@ -25,7 +25,10 @@ export function useProtocolSwitch(target: SessionTarget, opts?: { confirm?: bool
 
   const switchTo = (next: string) => {
     if (next === active || updateProfile.isPending) return;
-    if (opts?.confirm && !window.confirm(t('overlay.switchConfirm', { protocol: next.toUpperCase() }))) {
+    if (
+      opts?.confirm &&
+      !window.confirm(t('overlay.switchConfirm', { protocol: next.toUpperCase() }))
+    ) {
       return;
     }
     const byProto = { ...saved?.paramsByProtocol };

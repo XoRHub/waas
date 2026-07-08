@@ -29,7 +29,11 @@ const queryClient = new QueryClient({
 function useTheme() {
   const prefTheme = useAuthStore((s) => s.user?.preferences?.theme);
   const theme: Theme =
-    prefTheme === 'light' || prefTheme === 'dark' ? prefTheme : prefTheme === '' ? 'system' : storedTheme();
+    prefTheme === 'light' || prefTheme === 'dark'
+      ? prefTheme
+      : prefTheme === ''
+        ? 'system'
+        : storedTheme();
   useEffect(() => {
     applyTheme(theme);
     return watchSystemTheme(() => theme);
