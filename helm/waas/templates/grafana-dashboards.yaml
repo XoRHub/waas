@@ -1,0 +1,50 @@
+{{- /*
+Grafana dashboards, one source of truth: helm/waas/dashboards/*.json,
+consumed identically by both deployment modes (never fork the JSON).
+
+  mode "configmap": one ConfigMap per dashboard with the
+    grafana_dashboard: "1" label — the discovery sidecar of the official
+    grafana chart / kube-prometheus-stack loads it; grafana_folder is the
+    sidecar's folder annotation.
+  mode "operator": one GrafanaDashboard CR (grafana.integreatly.org/
+    v1beta1) per dashboard for grafana-operator. Its CRDs are NOT
+    installed by this chart — opt-in, like the prometheus-operator ones.
+*/ -}}
+{{- if .Values.grafana.dashboards.enabled }}
+{{- $mode := .Values.grafana.dashboards.mode }}
+{{- if not (has $mode (list "configmap" "operator")) }}
+{{- fail (printf "grafana.dashboards.mode must be \"configmap\" or \"operator\", got %q" $mode) }}
+{{- end }}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+{{- $name := base $path | trimSuffix ".json" }}
+---
+{{- if eq $mode "configmap" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $.Release.Name }}-dashboard-{{ $name }}
+  labels:
+    grafana_dashboard: "1"
+    {{- include "waas.labels" $ | nindent 4 }}
+  annotations:
+    grafana_folder: {{ $.Values.grafana.dashboards.folder | quote }}
+data:
+  {{ base $path }}: |-
+{{ $.Files.Get $path | indent 4 }}
+{{- else }}
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: {{ $.Release.Name }}-{{ $name }}
+  labels:
+    {{- include "waas.labels" $ | nindent 4 }}
+spec:
+  folder: {{ $.Values.grafana.dashboards.folder | quote }}
+  instanceSelector:
+    matchLabels:
+      {{- toYaml $.Values.grafana.dashboards.instanceSelector.matchLabels | nindent 6 }}
+  json: |-
+{{ $.Files.Get $path | indent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}

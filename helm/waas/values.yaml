@@ -177,6 +177,23 @@ metrics:
     labels: {}
     interval: 30s
 
+# Grafana dashboards over the metrics above (helm/waas/dashboards/*.json,
+# one file consumed identically by both modes).
+grafana:
+  dashboards:
+    enabled: false
+    # "configmap": one ConfigMap per dashboard labeled
+    #   grafana_dashboard: "1", picked up by the sidecar of the official
+    #   grafana chart / kube-prometheus-stack. No extra operator needed.
+    # "operator": one GrafanaDashboard CR (grafana.integreatly.org/
+    #   v1beta1) per dashboard, for grafana-operator. Requires its CRDs
+    #   and an existing Grafana instance matched by instanceSelector.
+    mode: configmap
+    # Only used in mode "operator".
+    instanceSelector:
+      matchLabels: {}
+    folder: WaaS
+
 postgres:
   # Set enabled=false and fill externalURL to bring your own PostgreSQL 17.
   enabled: true

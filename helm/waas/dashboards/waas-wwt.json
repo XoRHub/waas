@@ -1,0 +1,90 @@
+{
+  "title": "WaaS / WebSocket Proxy",
+  "uid": "waas-wwt",
+  "tags": ["waas"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Active desktop tunnels",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 10 }, "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (protocol) (waas_wwt_active_tunnels)",
+          "legendFormat": "{{protocol}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "guacd tunnel throughput",
+      "description": "Bytes relayed through the guacd tunnel; the kasmvnc plane is not byte-counted.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 10 }, "min": 0, "unit": "Bps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (direction) (rate(waas_wwt_proxied_bytes_total[5m]))",
+          "legendFormat": "{{direction}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Rejected connection tokens (24h)",
+      "description": "Expired, forged or malformed connection JWTs on /ws and /kasm. A spike is a token-TTL misconfiguration or probing.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 50 }] }
+        },
+        "overrides": []
+      },
+      "targets": [{ "refId": "A", "expr": "sum(increase(waas_wwt_token_validation_failures_total[24h]))" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Clipboard streams blocked (24h)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+      "targets": [{ "refId": "A", "expr": "sum(increase(waas_wwt_clipboard_blocked_total[24h]))" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Clipboard blocks by direction",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 10 }, "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (direction) (increase(waas_wwt_clipboard_blocked_total[1h]))",
+          "legendFormat": "{{direction}}"
+        }
+      ]
+    }
+  ]
+}
