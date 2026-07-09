@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StatusBadge } from '@/components/StatusBadge';
-import { useUpdateProfile } from '@/hooks/useApi';
+import { useReloadWorkspace, useUpdateProfile } from '@/hooks/useApi';
 import { useEscape } from '@/hooks/useEscape';
 import { useProtocolSwitch } from '@/hooks/useProtocolSwitch';
 import { useAuthStore } from '@/stores/authStore';
@@ -46,9 +46,14 @@ export function SessionCard({
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const updateProfile = useUpdateProfile();
+  const reload = useReloadWorkspace();
   const [menuOpen, setMenuOpen] = useState(false);
   useEscape(menuOpen, () => setMenuOpen(false));
   const { active, switchTo, pending: switching } = useProtocolSwitch(target);
+  // The drift badge triggers the manual reload only where it can work:
+  // reload-capable targets (operator-managed compute) that are Running —
+  // a down workspace converges at its next start anyway.
+  const canReload = target.capabilities.reload && phase === 'Running';
 
   // Folders are a per-target preference keyed by id — they apply to
   // remote machines exactly like in-cluster workspaces.
@@ -89,17 +94,31 @@ export function SessionCard({
           {target.capabilities.hasPhase && phase && <StatusBadge phase={phase} />}
           {target.templateDrifted && (
             <span className="group relative inline-flex">
-              <span
+              <button
+                type="button"
                 aria-label={t('portal.drift.full')}
-                className="cursor-help rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
+                disabled={reload.isPending}
+                onClick={() => {
+                  if (!canReload) return;
+                  if (window.confirm(t('portal.drift.reloadConfirm'))) reload.mutate(target.id);
+                }}
+                className={`rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 disabled:opacity-40 dark:bg-amber-900/50 dark:text-amber-200 ${
+                  canReload
+                    ? 'cursor-pointer hover:bg-amber-200 dark:hover:bg-amber-900'
+                    : 'cursor-help'
+                }`}
               >
                 {t('portal.drift.badge')}
-              </span>
+              </button>
               <span
                 role="tooltip"
                 className="pointer-events-none absolute left-1/2 top-full z-30 mt-1 hidden w-64 -translate-x-1/2 rounded-md bg-slate-800 px-3 py-2 text-xs text-white shadow-lg group-hover:block dark:bg-slate-700"
               >
-                {t('portal.drift.full')}
+                <ul className="list-disc space-y-1 pl-4 text-left">
+                  <li>{t('portal.drift.why')}</li>
+                  <li>{t('portal.drift.when')}</li>
+                  {canReload && <li>{t('portal.drift.how')}</li>}
+                </ul>
               </span>
             </span>
           )}

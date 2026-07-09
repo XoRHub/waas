@@ -2,14 +2,19 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog } from '@/components/Dialog';
 import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
-import { useProtocolMeta, useUpdateProfile } from '@/hooks/useApi';
+import { useProtocolMeta, useUpdateProfile, useUpdateWorkspaceOverrides } from '@/hooks/useApi';
+import { WorkspaceRuntimeForm } from '@/dialogs/WorkspaceRuntimeForm';
 import { useAuthStore } from '@/stores/authStore';
 import type { Workspace } from '@/types';
 
-// ConnectionSettingsDialog: one tab per configured protocol (VNC/RDP/SSH)
-// instead of a single endless form; each tab tunes that protocol's guacd
-// parameters and one protocol is marked as the connection choice. Saved
-// in the profile; the server re-validates at connect time.
+const RUNTIME_FORM_ID = 'workspace-runtime-form';
+
+// ConnectionSettingsDialog: two top-level tabs. "Connection" tunes the
+// guacd parameters per protocol (VNC/RDP/SSH) and the connection choice,
+// saved in the profile and re-validated server-side at connect time.
+// "Workspace" reconfigures the instantiated workspace itself (env, node
+// placement, sizing) through PATCH /workspaces/{id}/overrides — applied
+// at the next stop/start boundary or via the drift badge reload.
 export function ConnectionSettingsDialog({
   workspace,
   onClose,
@@ -20,7 +25,9 @@ export function ConnectionSettingsDialog({
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const updateProfile = useUpdateProfile();
+  const updateOverrides = useUpdateWorkspaceOverrides();
   const meta = useProtocolMeta();
+  const [topTab, setTopTab] = useState<'connection' | 'workspace'>('connection');
   const saved = user?.preferences?.workspaceSettings?.[workspace.id];
   const protocols = workspace.protocols ?? [];
   const names = protocols.map((p) => p.name);
@@ -62,32 +69,89 @@ export function ConnectionSettingsDialog({
     );
   };
 
+  const cancelButton = (
+    <button
+      onClick={onClose}
+      className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+    >
+      {t('app.cancel')}
+    </button>
+  );
+
   return (
     <Dialog
       title={t('portal.connectionSettings')}
       onClose={onClose}
       footer={
-        <>
-          {updateProfile.isError && (
-            <p className="mr-auto text-sm text-red-600">{updateProfile.error.message}</p>
-          )}
-          <button
-            onClick={onClose}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
-          >
-            {t('app.cancel')}
-          </button>
-          <button
-            onClick={onSave}
-            disabled={updateProfile.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {t('app.save')}
-          </button>
-        </>
+        topTab === 'connection' ? (
+          <>
+            {updateProfile.isError && (
+              <p className="mr-auto text-sm text-red-600">{updateProfile.error.message}</p>
+            )}
+            {cancelButton}
+            <button
+              onClick={onSave}
+              disabled={updateProfile.isPending}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {t('app.save')}
+            </button>
+          </>
+        ) : (
+          <>
+            {updateOverrides.isError && (
+              <p className="mr-auto text-sm text-red-600">{updateOverrides.error.message}</p>
+            )}
+            {cancelButton}
+            {/* Submits the runtime form living in the scrollable body. */}
+            <button
+              type="submit"
+              form={RUNTIME_FORM_ID}
+              disabled={updateOverrides.isPending}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {t('app.apply')}
+            </button>
+          </>
+        )
       }
     >
-      {names.length > 0 ? (
+      {/* Top-level sections (same look as the protocol tabs below, but
+          these are labelled sections, not protocol names). */}
+      <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-700">
+        {(
+          [
+            ['connection', t('portal.settingsTabConnection')],
+            ['workspace', t('portal.settingsTabWorkspace')],
+          ] as const
+        ).map(([section, label]) => (
+          <button
+            key={section}
+            type="button"
+            onClick={() => setTopTab(section)}
+            className={`-mb-px rounded-t-md border-x border-t px-3 py-1.5 text-sm font-medium ${
+              section === topTab
+                ? 'border-slate-200 bg-white text-blue-600 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-400'
+                : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {topTab === 'workspace' ? (
+        <WorkspaceRuntimeForm
+          workspace={workspace}
+          formId={RUNTIME_FORM_ID}
+          onApply={(input) => {
+            if (!input) {
+              onClose();
+              return;
+            }
+            updateOverrides.mutate({ id: workspace.id, input }, { onSuccess: onClose });
+          }}
+        />
+      ) : names.length > 0 ? (
         <>
           <ProtocolTabs
             protocols={names}

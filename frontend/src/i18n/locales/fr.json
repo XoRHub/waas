@@ -7,6 +7,7 @@
     "logout": "Se déconnecter",
     "cancel": "Annuler",
     "save": "Enregistrer",
+    "apply": "Appliquer",
     "delete": "Supprimer",
     "create": "Créer",
     "actions": "Actions",
@@ -105,7 +106,33 @@
     },
     "drift": {
       "badge": "mise à jour en attente",
-      "full": "Le modèle de ce workspace a été mis à jour. Le bureau redémarrera avec la nouvelle version à sa prochaine reprise (pause/reprise ou arrêt planifié)."
+      "full": "La configuration de ce workspace a changé (modèle mis à jour ou réglages modifiés). Le bureau redémarrera avec la nouvelle version à sa prochaine reprise — ou immédiatement, en cliquant sur ce badge.",
+      "why": "La configuration de ce workspace a changé : son modèle a été mis à jour, ou vous avez modifié ses réglages.",
+      "when": "Elle s'applique automatiquement au prochain arrêt/redémarrage (pause/reprise ou arrêt planifié).",
+      "how": "Cliquez pour redémarrer le bureau et l'appliquer maintenant.",
+      "reloadConfirm": "Redémarrer le bureau maintenant pour appliquer les changements en attente ? Le travail non sauvegardé de la session en cours sera perdu."
+    },
+    "settingsTabConnection": "Connexion",
+    "settingsTabWorkspace": "Workspace",
+    "runtime": {
+      "hint": "Les modifications de ce workspace s'appliquent à son prochain arrêt/redémarrage ; d'ici là, la card affiche un badge « mise à jour en attente » sur lequel cliquer pour redémarrer immédiatement.",
+      "locked": "non autorisé par ce modèle ou votre politique",
+      "placement": "Placement sur les nœuds",
+      "nodeSelector": "Sélecteur de nœud",
+      "selectorKey": "label",
+      "selectorValue": "valeur",
+      "addSelector": "Ajouter un sélecteur",
+      "tolerations": "Tolérations",
+      "tolKey": "clé de taint",
+      "tolOperator": "Opérateur",
+      "tolValue": "valeur",
+      "tolEffect": "Effet",
+      "tolAnyEffect": "tout effet",
+      "addToleration": "Ajouter une tolération",
+      "valueFromRef": "valeur issue d'une référence Secret/ConfigMap",
+      "resources": "Ressources",
+      "customSizing": "Dimensionnement personnalisé",
+      "templateSizing": "Le dimensionnement du modèle s'applique."
     }
   },
   "remote": {

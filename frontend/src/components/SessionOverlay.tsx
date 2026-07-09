@@ -27,6 +27,7 @@ const EMPTY_TARGET: SessionTarget = {
     connectionSettings: false,
     editEndpoint: false,
     hasPhase: false,
+    reload: false,
   },
 };
 

@@ -14,6 +14,7 @@ import {
   useVolumes,
 } from '@/hooks/useApi';
 import { useAuthStore } from '@/stores/authStore';
+import { canOverrideField } from '@/lib/overrides';
 import { templateAvailability } from '@/lib/templates';
 import {
   displayCpu,
@@ -25,12 +26,13 @@ import {
 } from '@/lib/quantity';
 import type { TemplateEnvVar, WorkspaceSchedule } from '@/types';
 
-// Slider steps: 0.25 vCPU and 256Mi.
-const CPU_STEP = 250;
-const MEM_STEP = 256 * 1024 * 1024;
+// Slider steps: 0.25 vCPU and 256Mi. Exported with the floors so the
+// runtime settings tab sizes its sliders identically.
+export const CPU_STEP = 250;
+export const MEM_STEP = 256 * 1024 * 1024;
 // Floors when neither the image nor the policy declares a minimum.
-const CPU_FLOOR = 250;
-const MEM_FLOOR = 512 * 1024 * 1024;
+export const CPU_FLOOR = 250;
+export const MEM_FLOOR = 512 * 1024 * 1024;
 
 export interface SliderBounds {
   min: number;
@@ -169,12 +171,14 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const protoNames = tplProtocols.map((p) => p.name);
   const defaultProtocol = tplProtocols.find((p) => p.default)?.name ?? tplProtocols[0]?.name ?? '';
   const isAdmin = user?.role === 'admin';
-  // A field is overridable when the template allows it AND the policy
-  // does not restrict it away (admins bypass both, like the webhook).
-  const policyAllows = (field: string) =>
-    !q?.allowedOverrides || q.allowedOverrides.includes(field);
+  // Template ∩ policy gate, shared with the runtime settings tab
+  // (lib/overrides mirrors the webhook; enforcement stays server-side).
   const canOverride = (field: string) =>
-    isAdmin || ((template?.allowedOverrides?.includes(field) ?? false) && policyAllows(field));
+    canOverrideField(field, {
+      isAdmin,
+      templateAllows: template?.allowedOverrides,
+      policyAllows: q?.allowedOverrides,
+    });
   const protocolOverridable = canOverride('protocol');
   const effectiveProtocol = (protocolOverridable && chosen) || defaultProtocol;
   const tab = protoNames.includes(protoTab) ? protoTab : effectiveProtocol || protoNames[0] || '';

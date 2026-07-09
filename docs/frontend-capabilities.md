@@ -14,7 +14,7 @@ SessionTarget = {
   protocols: [{name, port, default, params, userParams}],
   defaultProtocol,
   capabilities: { pause, wake, splitView, connectionSettings,
-                  editEndpoint, hasPhase },
+                  editEndpoint, hasPhase, reload },
 }
 ```
 
@@ -28,7 +28,7 @@ legacy synthétisent leur endpoint unique à la lecture).
 
 | Composant | Contextes | Différences portées par |
 |---|---|---|
-| `SessionCard` + `FolderedGrid` | cards in-cluster **et** remote | capacités (badge si `hasPhase`, WoL si `wake`) + slots d'actions |
+| `SessionCard` + `FolderedGrid` | cards in-cluster **et** remote | capacités (badge si `hasPhase`, WoL si `wake`, badge de dérive cliquable → reload si `reload` et phase Running) + slots d'actions |
 | `useProtocolSwitch` | chips de card + overlay, les deux kinds | préférence `workspaceSettings[id].protocol`, confirmée en session |
 | `ProtocolTabs` + `ProtocolParamsForm` | création, connection settings, dialog remote, éditeur de template admin | `allowList` (userParams vs admin/owner), `placeholders` (valeurs verrouillées), `renderParamExtra` (checkbox admin) |
 | `SessionOverlay` | session in-cluster **et** remote | capacités (split view), stockage des params (prefs vs endpoint serveur) |
@@ -41,7 +41,9 @@ d'overlay ou de formulaire de protocole s'écrit UNE fois contre
 un nouveau flag dans `TargetCapabilities` + un rendu conditionnel dans le
 composant unique — jamais un composant parallèle. Ce qui reste
 volontairement séparé : WoL, credentials machine, édition d'endpoint
-(remote) ; pause/resume, settings de connexion, split view (in-cluster).
+(remote) ; pause/resume, settings de connexion, split view, reload de
+configuration en attente (in-cluster — une machine remote n'a pas de
+template dont dériver).
 
 Les contrôles restent **côté serveur** : le webhook/policy filtre les
 protocoles et paramètres, `Connect` valide le protocole choisi contre ce
@@ -69,13 +71,17 @@ enforcement vers le client.
 | Surface | In-cluster | Remote |
 |---|---|---|
 | Création | tabs + params/protocole + radio « se connecter avec » (verrouillée si non overridable) | tabs + port/endpoint + défaut + « add protocol » |
-| Card | chips de switch (si >1 protocole servi) | chips de switch (si >1 endpoint) |
-| Connection settings | tabs + params (allow-list userParams, admin bypass) | via le dialog d'édition (mêmes tabs) |
+| Card | chips de switch (si >1 protocole servi) + badge de dérive cliquable (reload confirmé, si Running) | chips de switch (si >1 endpoint) ; pas de badge de dérive |
+| Connection settings | deux niveaux : onglet « Connexion » (tabs protocole + params, allow-list userParams, admin bypass) + onglet « Workspace » (env / placement / ressources, gating template ∩ policy via `lib/overrides`) | via le dialog d'édition (mêmes tabs protocole) ; pas d'onglet Workspace (rien d'instancié) |
 | Session (overlay) | switch confirmé + params reconnect (prefs) | switch confirmé + params reconnect (endpoint serveur) |
 | Admin template | tabs + params + checkbox user-overridable | n/a (pas de template) |
 
 Couverture automatique : `lib/target.test.ts` (adaptateurs, synthèse
 legacy, capacités), `lib/lifecycle.test.ts` (états dérivés),
+`lib/overrides.test.ts` (gating template ∩ policy),
+`components/SessionCard.test.tsx` (badge de dérive : reload confirmé,
+gating capacité/phase), `dialogs/ConnectionSettingsDialog.test.tsx`
+(onglet Workspace : gating par groupe, PATCH des seuls champs modifiés),
 `remote_workspace_service_test.go` (multi-protocoles : round-trip,
 connect sur endpoint non-défaut, résolution port/params, refus des
 non-déclarés, compat entrée legacy), `event_hub_test.go` (fan-out par

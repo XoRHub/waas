@@ -9,6 +9,7 @@ import type {
   CatalogImage,
   ConnectResult,
   EffectivePolicy,
+  EnvVar,
   LoginResult,
   ProtocolMeta,
   RemoteWorkspace,
@@ -16,6 +17,7 @@ import type {
   RemoteWorkspaceInput,
   RetainedVolume,
   TemplateEnvVar,
+  Toleration,
   PolicyModel,
   Session,
   QuotaStatus,
@@ -173,6 +175,42 @@ export function useWorkspaceAction() {
     mutationFn: ({ id, action }: { id: string; action: 'pause' | 'resume' }) =>
       api.post<Workspace>(`/api/v1/workspaces/${id}/${action}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+  });
+}
+
+// Manual reload: ONE immediate convergence boundary — the desktop
+// restarts now on its pending configuration (template edit or override
+// change). Deliberately not a pause/resume: it never touches the pause
+// intent or the schedule conflict resolution (docs/adr/0001).
+export function useReloadWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<Workspace>(`/api/v1/workspaces/${id}/reload`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+  });
+}
+
+/** Runtime-reconfiguration payload: a PROVIDED field replaces the stored
+ * override wholesale (empty clears it), absent fields stay untouched. */
+export interface UpdateOverridesInput {
+  env?: EnvVar[];
+  nodeSelector?: Record<string, string>;
+  tolerations?: Toleration[];
+  resources?: Record<string, string>;
+}
+
+// Reconfigures an instantiated workspace (env, node placement, sizing).
+// The admission webhook is the judge of what the caller may override;
+// the change reaches the desktop at the next boundary or manual reload.
+export function useUpdateWorkspaceOverrides() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateOverridesInput }) =>
+      api.patch<Workspace>(`/api/v1/workspaces/${id}/overrides`, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      void queryClient.invalidateQueries({ queryKey: ['quota'] });
+    },
   });
 }
 

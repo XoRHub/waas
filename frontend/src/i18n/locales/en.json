@@ -7,6 +7,7 @@
     "logout": "Sign out",
     "cancel": "Cancel",
     "save": "Save",
+    "apply": "Apply",
     "delete": "Delete",
     "create": "Create",
     "actions": "Actions",
@@ -105,7 +106,33 @@
     },
     "drift": {
       "badge": "update pending",
-      "full": "This workspace's template was updated. The desktop will restart with the new version the next time it resumes (pause/resume or scheduled downtime)."
+      "full": "This workspace's configuration changed (template update or your own settings). The desktop will restart with the new version the next time it resumes — or now, by clicking this badge.",
+      "why": "The configuration of this workspace changed: its template was updated, or you changed its settings.",
+      "when": "It applies automatically at the next stop/start (pause/resume or scheduled downtime).",
+      "how": "Click to restart the desktop and apply it now.",
+      "reloadConfirm": "Restart the desktop now to apply the pending changes? Unsaved work in the current session will be lost."
+    },
+    "settingsTabConnection": "Connection",
+    "settingsTabWorkspace": "Workspace",
+    "runtime": {
+      "hint": "Changes to this workspace apply at its next stop/start; until then the card shows an \"update pending\" badge you can click to restart immediately.",
+      "locked": "not allowed by this template or your policy",
+      "placement": "Node placement",
+      "nodeSelector": "Node selector",
+      "selectorKey": "label",
+      "selectorValue": "value",
+      "addSelector": "Add selector",
+      "tolerations": "Tolerations",
+      "tolKey": "taint key",
+      "tolOperator": "Operator",
+      "tolValue": "value",
+      "tolEffect": "Effect",
+      "tolAnyEffect": "any effect",
+      "addToleration": "Add toleration",
+      "valueFromRef": "value from a Secret/ConfigMap reference",
+      "resources": "Resources",
+      "customSizing": "Custom sizing",
+      "templateSizing": "The template sizing applies."
     }
   },
   "remote": {

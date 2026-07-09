@@ -34,6 +34,10 @@ export interface TargetCapabilities {
   editEndpoint: boolean;
   /** Has an operator-reported lifecycle phase. */
   hasPhase: boolean;
+  /** Manual reload of a pending configuration change (drift badge click):
+   *  operator-managed compute only — remote machines have no template to
+   *  drift from. */
+  reload: boolean;
 }
 
 export interface SessionTarget {
@@ -75,6 +79,7 @@ export function targetFromWorkspace(ws: Workspace): SessionTarget {
       connectionSettings: true,
       editEndpoint: false,
       hasPhase: true,
+      reload: true,
     },
   };
 }
@@ -101,6 +106,7 @@ export function targetFromRemote(rw: RemoteWorkspace): SessionTarget {
       connectionSettings: false,
       editEndpoint: true,
       hasPhase: false,
+      reload: false,
     },
   };
 }

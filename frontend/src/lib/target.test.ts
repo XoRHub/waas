@@ -52,6 +52,7 @@ describe('targetFromWorkspace', () => {
       connectionSettings: true,
       editEndpoint: false,
       hasPhase: true,
+      reload: true,
     });
   });
 });
@@ -68,6 +69,7 @@ describe('targetFromRemote', () => {
       splitView: false,
       editEndpoint: true,
       hasPhase: false,
+      reload: false, // no template to drift from
     });
   });
 
