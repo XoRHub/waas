@@ -13,12 +13,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/internal/controller"
 	"github.com/xorhub/waas/operator/internal/kubevirt"
+	waasmetrics "github.com/xorhub/waas/operator/internal/metrics"
 	webhookv1alpha1 "github.com/xorhub/waas/operator/internal/webhook/v1alpha1"
 	"github.com/xorhub/waas/operator/pkg/naming"
 )
@@ -75,6 +77,10 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+
+	// Fleet gauges (workspaces by phase, drifted count) are computed at
+	// scrape time from the manager's cache — see internal/metrics.
+	ctrlmetrics.Registry.MustRegister(waasmetrics.NewWorkspaceCollector(mgr.GetClient()))
 
 	// Operator-wide placement pattern (precedence: template pattern >
 	// this > built-in "waas-workspace"). An invalid pattern is a refusal

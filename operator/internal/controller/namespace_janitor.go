@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/internal/metrics"
 )
 
 // NamespaceJanitor reconciles operator-created namespaces against their
@@ -85,6 +86,7 @@ func (j *NamespaceJanitor) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := j.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
 		return ctrl.Result{}, fmt.Errorf("deleting empty namespace %s: %w", ns.Name, err)
 	}
+	metrics.NamespaceReclaims.Inc()
 	if j.Recorder != nil {
 		j.Recorder.Event(ns, corev1.EventTypeNormal, "NamespaceReclaimed",
 			fmt.Sprintf("namespace %q is empty and its cleanup policy is DeleteWhenEmpty; deleting it (quota and network policy cascade with it)", ns.Name))

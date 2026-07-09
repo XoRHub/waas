@@ -24,6 +24,7 @@ import (
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/internal/kubevirt"
+	"github.com/xorhub/waas/operator/internal/metrics"
 	"github.com/xorhub/waas/operator/pkg/schedule"
 )
 
@@ -570,6 +571,7 @@ func (r *WorkspaceReconciler) finalizeHomeVolume(ctx context.Context, ws *waasv1
 // leak; docs/workspace-deletion.md documents the manual unblock.
 func (r *WorkspaceReconciler) reportTeardownFailure(ctx context.Context, ws *waasv1alpha1.Workspace, stage string, err error) {
 	msg := fmt.Sprintf("%s failed: %v — deletion is retried with backoff; see docs/workspace-deletion.md to unblock", stage, err)
+	metrics.TeardownFailures.Inc()
 	r.recordEvent(ws, corev1.EventTypeWarning, "TeardownFailed", msg)
 	// Best-effort: the CR is going away, a lost status write must not
 	// mask the original teardown error.
