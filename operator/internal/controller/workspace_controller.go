@@ -992,6 +992,16 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&waasv1alpha1.WorkspaceTemplate{},
 			handler.EnqueueRequestsFromMapFunc(r.mapTemplateToWorkspaces),
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		// Catalog entries feed the pod template too (arch affinity, pull
+		// secret): an edit must re-evaluate drift as well. Which templates
+		// an entry governs is a catalog-GLOBAL question (exact match, else
+		// best registry-prefix across all entries — adding or removing one
+		// can change another entry's matches), so any catalog spec change
+		// re-enqueues the namespace's whole fleet: catalog edits are rare
+		// admin operations and an in-sync reconcile is a cheap no-op.
+		Watches(&waasv1alpha1.WorkspaceImage{},
+			handler.EnqueueRequestsFromMapFunc(r.mapCatalogToWorkspaces),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("workspace").
 		Complete(r)
 }
@@ -1011,6 +1021,22 @@ func (r *WorkspaceReconciler) mapTemplateToWorkspaces(ctx context.Context, obj c
 		if list.Items[i].Spec.TemplateRef == obj.GetName() {
 			reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
 		}
+	}
+	return reqs
+}
+
+// mapCatalogToWorkspaces enqueues the namespace's whole fleet on a
+// catalog edit — see the Watches comment: best-prefix resolution makes
+// the affected set non-local to the edited entry, and over-enqueueing
+// only costs no-op reconciles on rare admin operations.
+func (r *WorkspaceReconciler) mapCatalogToWorkspaces(ctx context.Context, obj client.Object) []ctrl.Request {
+	list := &waasv1alpha1.WorkspaceList{}
+	if err := r.List(ctx, list, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	reqs := make([]ctrl.Request, 0, len(list.Items))
+	for i := range list.Items {
+		reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
 	}
 	return reqs
 }

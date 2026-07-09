@@ -81,4 +81,8 @@ La détection elle-même est déclenchée par un watch des
 `WorkspaceTemplate` (spec/generation seulement) qui ré-enqueue les
 workspaces estampillés du template édité : un workspace Running n'a pas
 de requeue périodique, sans ce watch la dérive ne serait évaluée qu'à
-la faveur d'un événement fortuit. Test : `template_watch_test.go`.
+la faveur d'un événement fortuit. Les `WorkspaceImage` sont watchées
+pareillement (elles alimentent le podTemplate : affinité d'architecture,
+pull secret) — la résolution image→template étant globale au catalogue
+(meilleur préfixe registry), une édition ré-enqueue la flotte entière du
+namespace, no-op quand rien ne change. Test : `template_watch_test.go`.
