@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/xorhub/waas/wwt/internal/jwks"
 	"github.com/xorhub/waas/wwt/internal/kasm"
 	"github.com/xorhub/waas/wwt/internal/proxy"
@@ -41,6 +43,12 @@ func main() {
 	mux.Handle("/kasm/", kasm.NewHandler(issuer, keys, apiClient))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	// Prometheus scrape endpoint, opt-in and cluster-internal only: the
+	// ingress/httproute allow-lists never expose it (do not add it there).
+	metricsEnabled := os.Getenv("WWT_METRICS_ENABLED") == "true"
+	if metricsEnabled {
+		mux.Handle("/metrics", promhttp.Handler())
+	}
 
 	srv := &http.Server{
 		Addr:              listenAddr,
@@ -53,7 +61,7 @@ func main() {
 		slog.Error("wwt cannot listen", "addr", listenAddr, "error", err)
 		os.Exit(1)
 	}
-	slog.Info("wwt listening", "addr", listenAddr, "guacd", guacdAddr, "tls", tlsCert != "")
+	slog.Info("wwt listening", "addr", listenAddr, "guacd", guacdAddr, "tls", tlsCert != "", "metrics", metricsEnabled)
 	err = serve(srv, ln, tlsCert, tlsKey)
 	slog.Error("wwt exited", "error", err)
 	os.Exit(1)

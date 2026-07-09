@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"strings"
 	"sync"
+
+	"github.com/xorhub/waas/wwt/internal/metrics"
 )
 
 // ClipboardFilter enforces the connection token's clipboard grant on the
@@ -126,6 +128,13 @@ func (f *ClipboardFilter) rewriteWithReplies(frame []byte, side string) (kept []
 		case "clipboard":
 			if directionBlocked && len(inst.Args) > 0 {
 				blocked[inst.Args[0]] = true
+				// One increment per blocked STREAM (this instruction opens
+				// it); the dropped blob/end continuations don't recount.
+				direction := "copy"
+				if side == "client" {
+					direction = "paste"
+				}
+				metrics.ClipboardBlocked.WithLabelValues(direction).Inc()
 				if side == "client" {
 					// 0x0303 CLIENT_FORBIDDEN: the writer aborts cleanly
 					// instead of waiting for an ack that will never come.

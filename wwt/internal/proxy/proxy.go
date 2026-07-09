@@ -23,6 +23,7 @@ import (
 	"github.com/xorhub/waas/shared/auth"
 	"github.com/xorhub/waas/wwt/internal/guac"
 	"github.com/xorhub/waas/wwt/internal/jwks"
+	"github.com/xorhub/waas/wwt/internal/metrics"
 )
 
 // APIClient is the slice of the API server's internal API the proxy needs.
@@ -137,7 +138,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	slog.InfoContext(ctx, "session connected",
 		"session", claims.SessionID, "workspace", claims.WorkspaceID, "guacdConnection", connID,
 		"clipboardCopy", claims.Clipboard.Copy, "clipboardPaste", claims.Clipboard.Paste)
+	metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolGuacd).Inc()
 	h.pipe(ws, conn, guacdReader, guac.NewClipboardFilter(claims.Clipboard.Copy, claims.Clipboard.Paste))
+	metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolGuacd).Dec()
 
 	// Best-effort bookkeeping once the stream closes.
 	endCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -152,8 +155,17 @@ func (h *Handler) validateToken(ctx context.Context, token string) (*auth.Connec
 
 // ValidateConnectionToken verifies a connection JWT against the API
 // server's JWKS. Shared by the guacd tunnel and the kasm reverse proxy —
-// both paths gate on the exact same token semantics.
+// both paths gate on the exact same token semantics (and the same
+// rejection counter).
 func ValidateConnectionToken(ctx context.Context, keys *jwks.Client, issuer, token string) (*auth.ConnectionClaims, error) {
+	claims, err := validateConnectionToken(ctx, keys, issuer, token)
+	if err != nil {
+		metrics.TokenValidationFailures.Inc()
+	}
+	return claims, err
+}
+
+func validateConnectionToken(ctx context.Context, keys *jwks.Client, issuer, token string) (*auth.ConnectionClaims, error) {
 	if token == "" {
 		return nil, fmt.Errorf("missing token")
 	}
@@ -218,6 +230,7 @@ func (h *Handler) pipe(ws *websocket.Conn, guacd net.Conn, guacdReader *bufio.Re
 					if err := writeWS(frame); err != nil {
 						return
 					}
+					metrics.ProxiedBytes.WithLabelValues(metrics.DirectionToBrowser).Add(float64(len(frame)))
 				}
 			}
 			if err != nil {
@@ -265,6 +278,7 @@ func (h *Handler) pipe(ws *websocket.Conn, guacd net.Conn, guacdReader *bufio.Re
 				if _, err := guacd.Write(forward); err != nil {
 					return
 				}
+				metrics.ProxiedBytes.WithLabelValues(metrics.DirectionToDesktop).Add(float64(len(forward)))
 			}
 		}
 	}()

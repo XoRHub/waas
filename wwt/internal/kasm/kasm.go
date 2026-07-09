@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/xorhub/waas/wwt/internal/jwks"
+	"github.com/xorhub/waas/wwt/internal/metrics"
 	"github.com/xorhub/waas/wwt/internal/proxy"
 )
 
@@ -146,9 +147,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// and only returns once the tunnel closes — which is exactly the
 	// session-end signal the platform needs.
 	isDesktopStream := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+	if isDesktopStream {
+		// The upgraded request only returns once the tunnel closes: its
+		// whole lifetime is the desktop stream. Asset requests don't count.
+		metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolKasm).Inc()
+	}
 	h.proxyTo(info, sid, rest).ServeHTTP(w, r)
 
 	if isDesktopStream {
+		metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolKasm).Dec()
 		endCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		h.API.EndSession(endCtx, sid)
