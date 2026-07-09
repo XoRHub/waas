@@ -202,6 +202,23 @@ type Workspace struct {
 	// HomeVolume describes the user-state volume, for the deletion
 	// dialog ("volume X (10Gi) will be deleted — keep it?").
 	HomeVolume *HomeVolumeInfo `json:"homeVolume,omitempty"`
+	// Runtime is the workspace's CURRENT admitted deviations (env,
+	// placement, sizing) — what the runtime settings tab edits through
+	// PATCH /workspaces/{id}/overrides.
+	Runtime *WorkspaceRuntime `json:"runtime,omitempty"`
+}
+
+// WorkspaceRuntime mirrors the workspace's runtime-reconfigurable
+// overrides. PATCH /workspaces/{id}/overrides replaces each PROVIDED
+// field wholesale; the change reaches the live desktop at the next
+// scale-up boundary or on manual reload (docs/adr/0001).
+type WorkspaceRuntime struct {
+	Env          []corev1.EnvVar     `json:"env,omitempty"`
+	NodeSelector map[string]string   `json:"nodeSelector,omitempty"`
+	Tolerations  []corev1.Toleration `json:"tolerations,omitempty"`
+	// Resources is the user-chosen sizing ({"cpu","memory"} quantities),
+	// empty when the template sizing applies.
+	Resources map[string]string `json:"resources,omitempty"`
 }
 
 // HomeVolumeInfo is the display projection of a workspace's home volume.

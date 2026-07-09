@@ -341,6 +341,35 @@ func TestWorkspaceAuxiliaryRoutes(t *testing.T) {
 		t.Fatalf("resume: %d %s", rec.Code, rec.Body)
 	}
 
+	// Runtime reconfiguration: the PATCHed field comes back in the
+	// projection's runtime block.
+	rec = doJSON(t, h, http.MethodPatch, "/api/v1/workspaces/"+id+"/overrides", token, map[string]any{
+		"env": []map[string]string{{"name": "HTTP_PROXY", "value": "http://proxy:3128"}},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update overrides: %d %s", rec.Code, rec.Body)
+	}
+	runtime := decodeData[struct {
+		Runtime struct {
+			Env []struct {
+				Name string `json:"name"`
+			} `json:"env"`
+		} `json:"runtime"`
+	}](t, rec.Body.Bytes())
+	if len(runtime.Runtime.Env) != 1 || runtime.Runtime.Env[0].Name != "HTTP_PROXY" {
+		t.Fatalf("runtime block must echo the override, got %s", rec.Body)
+	}
+	if rec := doJSON(t, h, http.MethodPatch, "/api/v1/workspaces/"+id+"/overrides", token, map[string]any{}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty overrides patch: want 400, got %d %s", rec.Code, rec.Body)
+	}
+
+	// Reload: no operator runs here, the workspace never reaches Running —
+	// the endpoint answers with the phase conflict, proving the route and
+	// the running-only contract.
+	if rec := doJSON(t, h, http.MethodPost, "/api/v1/workspaces/"+id+"/reload", token, nil); rec.Code != http.StatusConflict {
+		t.Fatalf("reload of a non-running workspace: want 409, got %d %s", rec.Code, rec.Body)
+	}
+
 	// Aggregated Kubernetes events: contract is an array plus the poll
 	// hint, even when the fake cluster has recorded nothing.
 	rec = doJSON(t, h, http.MethodGet, "/api/v1/workspaces/"+id+"/events", token, nil)

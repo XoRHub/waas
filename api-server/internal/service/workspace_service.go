@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -376,6 +377,140 @@ func (s *WorkspaceService) SetPaused(ctx context.Context, actor Actor, id string
 		action = "workspace.paused"
 	}
 	s.audit.Record(ctx, actor, action, "workspace", id, "name="+ws.Name)
+	m := workspaceToModel(ws, s.templateOf(ctx, ws))
+	return &m, nil
+}
+
+// UpdateOverridesInput is the runtime-reconfiguration payload of
+// PATCH /workspaces/{id}/overrides. Pointer fields distinguish "leave
+// alone" (absent) from "replace with this value" (present): a provided
+// field REPLACES the stored override wholesale — an empty list/map
+// clears it — consistent with the "presence = override" semantics of
+// the spec (see operator/pkg/policy/overrides.go).
+type UpdateOverridesInput struct {
+	Env          *[]corev1.EnvVar     `json:"env,omitempty"`
+	NodeSelector *map[string]string   `json:"nodeSelector,omitempty"`
+	Tolerations  *[]corev1.Toleration `json:"tolerations,omitempty"`
+	// Resources is the user-chosen sizing ({"cpu","memory"} quantities);
+	// an empty map reverts to the template sizing.
+	Resources *map[string]string `json:"resources,omitempty"`
+}
+
+// UpdateOverrides reconfigures an instantiated workspace's runtime
+// deviations (env, node placement, sizing). The admission webhook
+// re-runs CheckOverrides on the update — the UI mirrors the rights but
+// this service never judges them itself (defense in depth: the
+// webhook's "[Reason] message" denial comes back as a 403). The change
+// reaches the live desktop at the next scale-up boundary or on manual
+// reload (docs/adr/0001); the drift badge flags it meanwhile.
+func (s *WorkspaceService) UpdateOverrides(ctx context.Context, actor Actor, id string, in UpdateOverridesInput) (*model.Workspace, error) {
+	if in.Env == nil && in.NodeSelector == nil && in.Tolerations == nil && in.Resources == nil {
+		return nil, apierror.BadRequest("no override field provided (env, nodeSelector, tolerations, resources)")
+	}
+	ws, err := s.fetchByID(ctx, actor, id)
+	if err != nil {
+		return nil, err
+	}
+	ov := ws.Spec.Overrides
+	if ov == nil {
+		ov = &waasv1alpha1.WorkspaceOverrides{}
+	}
+	// Empty collections normalize to nil: "cleared" and "never set" must
+	// be the same state on the CR (presence = override).
+	if in.Env != nil {
+		ov.Env = *in.Env
+		if len(ov.Env) == 0 {
+			ov.Env = nil
+		}
+	}
+	if in.NodeSelector != nil {
+		ov.NodeSelector = *in.NodeSelector
+		if len(ov.NodeSelector) == 0 {
+			ov.NodeSelector = nil
+		}
+	}
+	if in.Tolerations != nil {
+		ov.Tolerations = *in.Tolerations
+		if len(ov.Tolerations) == 0 {
+			ov.Tolerations = nil
+		}
+	}
+	// An all-empty overrides block means "no deviation": store nil, as a
+	// creation without overrides would.
+	if reflect.DeepEqual(*ov, waasv1alpha1.WorkspaceOverrides{}) {
+		ov = nil
+	}
+	ws.Spec.Overrides = ov
+	if in.Resources != nil {
+		rr, err := requirementsFrom(*in.Resources)
+		if err != nil {
+			return nil, err
+		}
+		ws.Spec.Resources = rr
+	}
+	if err := s.kube.Update(ctx, ws); err != nil {
+		if denial, ok := policyDenial(err); ok {
+			s.audit.Record(ctx, actor, "workspace.denied", "workspace", id, denial)
+			return nil, apierror.Forbidden(denial)
+		}
+		return nil, fmt.Errorf("updating workspace %s: %w", ws.Name, err)
+	}
+	// Same audit contract as workspace.overrides_applied at creation:
+	// field names and env var NAMES, never values (an env override may
+	// carry a credential).
+	s.audit.Record(ctx, actor, "workspace.overrides_updated", "workspace", id,
+		"name="+ws.Name+" "+updateOverridesSummary(in))
+	m := workspaceToModel(ws, s.templateOf(ctx, ws))
+	return &m, nil
+}
+
+// updateOverridesSummary renders the audit-safe description of one
+// overrides update: the replaced fields and env var names, no values.
+func updateOverridesSummary(in UpdateOverridesInput) string {
+	var parts []string
+	if in.Env != nil {
+		names := make([]string, 0, len(*in.Env))
+		for _, e := range *in.Env {
+			names = append(names, e.Name)
+		}
+		parts = append(parts, "env="+strings.Join(names, ","))
+	}
+	if in.NodeSelector != nil {
+		parts = append(parts, "nodeSelector")
+	}
+	if in.Tolerations != nil {
+		parts = append(parts, "tolerations")
+	}
+	if in.Resources != nil {
+		parts = append(parts, "resources")
+	}
+	return "updated: " + strings.Join(parts, " ")
+}
+
+// Reload asks the operator for ONE immediate convergence boundary: the
+// desktop restarts now on its up-to-date configuration (a pending
+// template edit or override change). Implemented as a dedicated
+// one-shot annotation — NOT a pause/resume: spec.paused and the
+// manual-state-at annotation stay untouched, so a reload can never
+// disturb the schedule conflict resolution (rule B) or the pause
+// intent (docs/workspace-lifecycle.md).
+func (s *WorkspaceService) Reload(ctx context.Context, actor Actor, id string) (*model.Workspace, error) {
+	ws, err := s.fetchByID(ctx, actor, id)
+	if err != nil {
+		return nil, err
+	}
+	if ws.Status.Phase != waasv1alpha1.PhaseRunning {
+		return nil, apierror.Conflict(fmt.Sprintf(
+			"workspace is %s, not Running; pending changes apply when it next starts", ws.Status.Phase))
+	}
+	if ws.Annotations == nil {
+		ws.Annotations = map[string]string{}
+	}
+	ws.Annotations[waasv1alpha1.AnnotationReloadRequestedAt] = time.Now().UTC().Format(time.RFC3339)
+	if err := s.kube.Update(ctx, ws); err != nil {
+		return nil, fmt.Errorf("updating workspace %s: %w", ws.Name, err)
+	}
+	s.audit.Record(ctx, actor, "workspace.reloaded", "workspace", id, "name="+ws.Name)
 	m := workspaceToModel(ws, s.templateOf(ctx, ws))
 	return &m, nil
 }
@@ -799,6 +934,23 @@ func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTem
 	}
 	if nt := ws.Status.NextTransition; nt != nil {
 		m.NextTransition = &model.ScheduledTransition{Time: nt.Time.Time, Up: nt.Up}
+	}
+	// Runtime deviations: what the runtime settings tab edits. Resources
+	// echo the requests as the {"cpu","memory"} strings the PATCH accepts.
+	runtime := &model.WorkspaceRuntime{}
+	if ov := ws.Spec.Overrides; ov != nil {
+		runtime.Env = ov.Env
+		runtime.NodeSelector = ov.NodeSelector
+		runtime.Tolerations = ov.Tolerations
+	}
+	if ws.Spec.Resources != nil {
+		runtime.Resources = map[string]string{}
+		for name, qty := range ws.Spec.Resources.Requests {
+			runtime.Resources[string(name)] = qty.String()
+		}
+	}
+	if runtime.Env != nil || runtime.NodeSelector != nil || runtime.Tolerations != nil || runtime.Resources != nil {
+		m.Runtime = runtime
 	}
 	if m.Phase == "" {
 		m.Phase = string(waasv1alpha1.PhasePending)

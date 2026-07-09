@@ -7,6 +7,7 @@
 import type {
   EnvVar,
   Role,
+  Toleration,
   WorkspacePlacement,
   WorkspaceSchedule,
   WorkspaceWorkload,
@@ -18,10 +19,12 @@ import type {
   Workspace,
   WorkspaceEvent,
   WorkspaceProtocol,
+  WorkspaceRuntime,
 } from './types.gen';
 export type {
   EnvVar,
   Role,
+  Toleration,
   WorkspacePlacement,
   WorkspaceSchedule,
   WorkspaceWorkload,
@@ -31,6 +34,7 @@ export type {
   Workspace,
   WorkspaceEvent,
   WorkspaceProtocol,
+  WorkspaceRuntime,
 };
 
 export type Theme = 'light' | 'dark' | 'system';

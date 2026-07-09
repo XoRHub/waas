@@ -171,6 +171,37 @@ func (h *WorkspaceHandler) Resume(w http.ResponseWriter, r *http.Request) {
 	ok(w, ws)
 }
 
+// UpdateOverrides handles PATCH /api/v1/workspaces/{id}/overrides: the
+// runtime reconfiguration of an instantiated workspace (env, node
+// placement, resources). Each provided field replaces the stored
+// override wholesale; the admission webhook is the single judge of what
+// the caller may override.
+func (h *WorkspaceHandler) UpdateOverrides(w http.ResponseWriter, r *http.Request) {
+	var in service.UpdateOverridesInput
+	if err := decode(r, &in); err != nil {
+		fail(w, r, err)
+		return
+	}
+	ws, err := h.svc.UpdateOverrides(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), in)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, ws)
+}
+
+// Reload handles POST /api/v1/workspaces/{id}/reload: one immediate
+// convergence boundary — the desktop restarts on its up-to-date
+// configuration. Never touches the pause intent or the schedule.
+func (h *WorkspaceHandler) Reload(w http.ResponseWriter, r *http.Request) {
+	ws, err := h.svc.Reload(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, ws)
+}
+
 // Connect handles POST /api/v1/workspaces/{id}/connect: records a session
 // and returns the short-lived connection token for the WebSocket proxy.
 // The body is optional: {protocol, params} picks a non-default protocol

@@ -5,6 +5,7 @@
 import type {
   EnvVar,
   Role,
+  Toleration,
   WorkspacePlacement,
   WorkspaceSchedule,
   WorkspaceWorkload,
@@ -227,6 +228,28 @@ export interface Workspace {
    * dialog ("volume X (10Gi) will be deleted — keep it?").
    */
   homeVolume?: HomeVolumeInfo;
+  /**
+   * Runtime is the workspace's CURRENT admitted deviations (env,
+   * placement, sizing) — what the runtime settings tab edits through
+   * PATCH /workspaces/{id}/overrides.
+   */
+  runtime?: WorkspaceRuntime;
+}
+/**
+ * WorkspaceRuntime mirrors the workspace's runtime-reconfigurable
+ * overrides. PATCH /workspaces/{id}/overrides replaces each PROVIDED
+ * field wholesale; the change reaches the live desktop at the next
+ * scale-up boundary or on manual reload (docs/adr/0001).
+ */
+export interface WorkspaceRuntime {
+  env?: EnvVar[];
+  nodeSelector?: { [key: string]: string };
+  tolerations?: Toleration[];
+  /**
+   * Resources is the user-chosen sizing ({"cpu","memory"} quantities),
+   * empty when the template sizing applies.
+   */
+  resources?: { [key: string]: string };
 }
 /**
  * HomeVolumeInfo is the display projection of a workspace's home volume.

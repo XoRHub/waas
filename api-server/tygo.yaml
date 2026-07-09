@@ -12,6 +12,7 @@ packages:
       import type {
         EnvVar,
         Role,
+        Toleration,
         WorkspacePlacement,
         WorkspaceSchedule,
         WorkspaceWorkload,
@@ -19,6 +20,7 @@ packages:
     type_mappings:
       time.Time: "string /* RFC3339 */"
       corev1.EnvVar: "EnvVar"
+      corev1.Toleration: "Toleration"
       auth.Role: "Role"
       waasv1alpha1.WorkspaceSchedule: "WorkspaceSchedule"
       waasv1alpha1.WorkspaceWorkload: "WorkspaceWorkload"

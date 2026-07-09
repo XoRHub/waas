@@ -69,6 +69,10 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 				r.Delete("/{id}", h.Workspaces.Delete)
 				r.Post("/{id}/pause", h.Workspaces.Pause)
 				r.Post("/{id}/resume", h.Workspaces.Resume)
+				// Runtime reconfiguration + one-shot reload of an
+				// instantiated workspace (docs/adr/0001).
+				r.Patch("/{id}/overrides", h.Workspaces.UpdateOverrides)
+				r.Post("/{id}/reload", h.Workspaces.Reload)
 				r.Post("/{id}/connect", h.Workspaces.Connect)
 				r.Get("/{id}/events", h.Workspaces.Events)
 			})

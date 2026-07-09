@@ -15,6 +15,16 @@ export interface EnvVar {
   };
 }
 
+/** k8s corev1.Toleration passthrough (operator/effect are upstream
+ *  enums: Exists/Equal, NoSchedule/PreferNoSchedule/NoExecute). */
+export interface Toleration {
+  key?: string;
+  operator?: string;
+  value?: string;
+  effect?: string;
+  tolerationSeconds?: number;
+}
+
 export interface WorkspaceSchedule {
   timezone?: string;
   uptime?: string[];
