@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/xorhub/waas/api-server/internal/config"
 	"github.com/xorhub/waas/api-server/internal/handler"
@@ -34,6 +35,9 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
+	if cfg.MetricsEnabled {
+		r.Use(middleware.Metrics)
+	}
 	if len(cfg.CORSAllowedOrigins) > 0 {
 		r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
 	}
@@ -43,6 +47,12 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	r.Get("/.well-known/jwks.json", h.Auth.JWKS)
+
+	// Prometheus scrape endpoint, opt-in and cluster-internal only: the
+	// ingress/httproute allow-lists never expose it (do not add it there).
+	if cfg.MetricsEnabled {
+		r.Handle("/metrics", promhttp.Handler())
+	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", h.Auth.Login)

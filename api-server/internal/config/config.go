@@ -59,6 +59,12 @@ type Config struct {
 	// often it refetches while open (server-driven, no rebuild needed).
 	EventsPollInterval time.Duration
 
+	// MetricsEnabled mounts the Prometheus /metrics endpoint (and its
+	// request-observing middleware). Off by default: the endpoint is
+	// unauthenticated and must only exist when a scraper wants it —
+	// cluster-internal only, never routed through the public ingress.
+	MetricsEnabled bool
+
 	// OIDC configures the optional SSO login (any OIDC
 	// provider). Enabled when IssuerURL and ClientID are both set; local
 	// username/password login always remains available (bootstrap admin,
@@ -136,6 +142,7 @@ func Load() (*Config, error) {
 		IdleSweepInterval:       durationOr("WAAS_IDLE_SWEEP_INTERVAL", 5*time.Minute),
 		SessionSweepInterval:    durationOr("WAAS_SESSION_SWEEP_INTERVAL", time.Minute),
 		EventsPollInterval:      durationOr("WAAS_EVENTS_POLL_INTERVAL", 10*time.Second),
+		MetricsEnabled:          os.Getenv("WAAS_METRICS_ENABLED") == "true",
 	}
 	if origins := os.Getenv("WAAS_CORS_ALLOWED_ORIGINS"); origins != "" {
 		cfg.CORSAllowedOrigins = strings.Split(origins, ",")

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/xorhub/waas/api-server/internal/metrics"
 	"github.com/xorhub/waas/api-server/internal/model"
 	"github.com/xorhub/waas/api-server/internal/repository"
 )
@@ -29,8 +30,11 @@ func NewAuditService(repo repository.AuditRepository) *AuditService {
 	return &AuditService{repo: repo}
 }
 
-// Record appends one audit entry.
+// Record appends one audit entry. Every entry also bumps the per-action
+// metric counter — policy refusals (workspace.denied and friends) become
+// alertable without a second detection path.
 func (s *AuditService) Record(ctx context.Context, actor Actor, action, resourceType, resourceID, detail string) {
+	metrics.AuditEvents.WithLabelValues(action).Inc()
 	entry := &model.AuditLog{
 		ID:            uuid.NewString(),
 		OccurredAt:    time.Now().UTC(),

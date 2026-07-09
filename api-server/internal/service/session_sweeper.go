@@ -11,6 +11,7 @@ import (
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 
+	"github.com/xorhub/waas/api-server/internal/metrics"
 	"github.com/xorhub/waas/api-server/internal/model"
 	"github.com/xorhub/waas/api-server/internal/repository"
 )
@@ -71,6 +72,9 @@ func (s *SessionSweeper) sweep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The sweeper is the one place that periodically knows the whole open
+	// set: refresh the gauge here rather than duplicating that knowledge.
+	metrics.ActiveSessions.Set(float64(len(open)))
 	if len(open) == 0 {
 		return nil
 	}

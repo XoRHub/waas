@@ -9,6 +9,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+
+	"github.com/xorhub/waas/api-server/internal/metrics"
 )
 
 // EventHub fans platform change notifications out to the connected SSE
@@ -43,12 +45,14 @@ func (h *EventHub) Subscribe(ownerID string, admin bool) (<-chan string, func())
 	h.mu.Lock()
 	h.subs[sub] = struct{}{}
 	h.mu.Unlock()
+	metrics.SSEClients.Inc()
 	cancel := func() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		if _, live := h.subs[sub]; live {
 			delete(h.subs, sub)
 			close(sub.ch)
+			metrics.SSEClients.Dec()
 		}
 	}
 	return sub.ch, cancel

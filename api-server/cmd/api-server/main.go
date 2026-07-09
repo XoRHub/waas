@@ -69,6 +69,10 @@ func run() error {
 		}
 	}
 
+	if cfg.MetricsEnabled {
+		slog.Info("Prometheus metrics enabled", "endpoint", "/metrics")
+	}
+
 	users := repository.NewSQLUserRepository(db)
 	sessions := repository.NewSQLSessionRepository(db)
 	remotes := repository.NewSQLRemoteWorkspaceRepository(db)
