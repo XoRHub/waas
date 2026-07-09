@@ -145,6 +145,38 @@ guacd:
     requests: { cpu: 250m, memory: 256Mi }
     limits: { memory: 1Gi }
 
+# Prometheus metrics. Everything is opt-in: /metrics endpoints are only
+# SERVED when enabled=true (not merely hidden from the manifests), and
+# they are cluster-internal only — the ingress/httproute allow-lists never
+# route them. See docs/observability.md for the exposed metrics.
+metrics:
+  # Serve /metrics on each component: api-server (:8080), wwt (:8081),
+  # operator (controller-runtime endpoint, :8080). false disables the
+  # endpoints themselves, including the operator's previously always-on
+  # controller-runtime metrics server.
+  enabled: false
+  # Stamp prometheus.io/scrape|port|path annotations on the pods, for a
+  # classic Prometheus with kubernetes_sd annotation-based discovery (no
+  # prometheus-operator CRDs required). Needs metrics.enabled.
+  scrapeAnnotations: false
+  # PodMonitor for the OPERATOR (monitoring.coreos.com/v1, requires
+  # prometheus-operator CRDs). Pod-level on purpose: the operator has no
+  # metrics Service, and a PodMonitor selects pods directly. Needs
+  # metrics.enabled.
+  podMonitor:
+    enabled: false
+    # Extra labels so the target Prometheus' podMonitorSelector matches
+    # (e.g. release: prometheus for kube-prometheus-stack defaults).
+    labels: {}
+    interval: 30s
+  # ServiceMonitor for api-server + wwt (monitoring.coreos.com/v1,
+  # requires prometheus-operator CRDs): both already have a ClusterIP
+  # Service carrying the shared http port. Needs metrics.enabled.
+  serviceMonitor:
+    enabled: false
+    labels: {}
+    interval: 30s
+
 postgres:
   # Set enabled=false and fill externalURL to bring your own PostgreSQL 17.
   enabled: true

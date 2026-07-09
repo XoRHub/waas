@@ -12,6 +12,21 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{ .Values.image.tag | default .Chart.AppVersion }}
 {{- end }}
 
+{{/*
+Scrape annotations for annotation-based Prometheus discovery. Usage:
+  {{ include "waas.scrapeAnnotations" (dict "root" $ "port" 8080) }}
+Emits nothing unless BOTH metrics.enabled and metrics.scrapeAnnotations
+are set (annotations pointing at a disabled endpoint would only create
+scrape errors).
+*/}}
+{{- define "waas.scrapeAnnotations" -}}
+{{- if and .root.Values.metrics.enabled .root.Values.metrics.scrapeAnnotations -}}
+prometheus.io/scrape: "true"
+prometheus.io/port: {{ .port | quote }}
+prometheus.io/path: /metrics
+{{- end }}
+{{- end }}
+
 {{/* Secrets are generated once and reused across upgrades via lookup. */}}
 {{- define "waas.existingSecret" -}}
 {{ (lookup "v1" "Secret" .Release.Namespace (printf "%s-secrets" .Release.Name)).data | default dict | toJson }}

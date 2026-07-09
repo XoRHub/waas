@@ -113,6 +113,10 @@ spec:
       labels:
         app.kubernetes.io/name: waas-api-server
         app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- with include "waas.scrapeAnnotations" (dict "root" $ "port" 8080) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
     spec:
       serviceAccountName: {{ .Release.Name }}-api-server
       securityContext:
@@ -140,6 +144,12 @@ spec:
               value: {{ .Values.apiServer.connectionTokenTTL | quote }}
             - name: WAAS_EVENTS_POLL_INTERVAL
               value: {{ .Values.apiServer.eventsPollInterval | default "10s" | quote }}
+            {{- if .Values.metrics.enabled }}
+            # Serves Prometheus /metrics on the app port (cluster-internal
+            # only — the ingress allow-list never routes it).
+            - name: WAAS_METRICS_ENABLED
+              value: "true"
+            {{- end }}
             - name: WAAS_JWT_PRIVATE_KEY_FILE
               value: /etc/waas/keys/jwt-private-key
             - name: WAAS_ADMIN_USERNAME
@@ -243,6 +253,10 @@ kind: Service
 metadata:
   name: {{ .Release.Name }}-api-server
   labels:
+    # name/instance also live on the Service so the opt-in ServiceMonitor
+    # (templates/metrics.yaml) can select it.
+    app.kubernetes.io/name: waas-api-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
     {{- include "waas.labels" . | nindent 4 }}
 spec:
   type: ClusterIP

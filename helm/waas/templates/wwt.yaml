@@ -16,6 +16,10 @@ spec:
       labels:
         app.kubernetes.io/name: waas-wwt
         app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- with include "waas.scrapeAnnotations" (dict "root" $ "port" 8081) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
     spec:
       securityContext:
         runAsNonRoot: true
@@ -38,6 +42,12 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
                   key: internal-token
+            {{- if .Values.metrics.enabled }}
+            # Serves Prometheus /metrics on the app port (cluster-internal
+            # only — the ingress allow-list never routes it).
+            - name: WWT_METRICS_ENABLED
+              value: "true"
+            {{- end }}
           ports:
             - name: http
               containerPort: 8081
@@ -59,6 +69,10 @@ kind: Service
 metadata:
   name: {{ .Release.Name }}-wwt
   labels:
+    # name/instance also live on the Service so the opt-in ServiceMonitor
+    # (templates/metrics.yaml) can select it.
+    app.kubernetes.io/name: waas-wwt
+    app.kubernetes.io/instance: {{ .Release.Name }}
     {{- include "waas.labels" . | nindent 4 }}
 spec:
   type: ClusterIP

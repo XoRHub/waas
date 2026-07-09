@@ -1,0 +1,56 @@
+{{- /*
+Prometheus-operator discovery objects (monitoring.coreos.com CRDs, NOT
+installed by this chart — that is why every block is opt-in and nothing
+here uses lookup: helm template/install must succeed on clusters without
+the CRDs as long as the toggles stay off).
+
+Split (documented in docs/observability.md): the operator gets a
+PodMonitor because it has no metrics Service to point a ServiceMonitor
+at; api-server and wwt already expose their app port through a ClusterIP
+Service, so a ServiceMonitor rides it.
+*/ -}}
+{{- if and .Values.metrics.enabled .Values.metrics.podMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ .Release.Name }}-operator
+  labels:
+    app.kubernetes.io/name: waas-operator
+    {{- include "waas.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waas-operator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.metrics.podMonitor.interval }}
+{{- end }}
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+{{- range $component := list "api-server" "wwt" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $.Release.Name }}-{{ $component }}
+  labels:
+    app.kubernetes.io/name: waas-{{ $component }}
+    {{- include "waas.labels" $ | nindent 4 }}
+    {{- with $.Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waas-{{ $component }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ $.Values.metrics.serviceMonitor.interval }}
+{{- end }}
+{{- end }}

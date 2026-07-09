@@ -137,6 +137,10 @@ spec:
       labels:
         app.kubernetes.io/name: waas-operator
         app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- with include "waas.scrapeAnnotations" (dict "root" $ "port" 8080) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
     spec:
       serviceAccountName: {{ .Release.Name }}-operator
       securityContext:
@@ -148,6 +152,11 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - --leader-elect
+            {{- if not .Values.metrics.enabled }}
+            # Opt-in like everywhere else: without metrics.enabled the
+            # controller-runtime metrics server does not even listen.
+            - --metrics-bind-address=0
+            {{- end }}
           env:
             - name: ENABLE_WEBHOOKS
               value: {{ .Values.operator.webhook.enabled | quote }}
@@ -173,8 +182,10 @@ spec:
           ports:
             - name: webhook
               containerPort: 9443
+            {{- if .Values.metrics.enabled }}
             - name: metrics
               containerPort: 8080
+            {{- end }}
           livenessProbe:
             httpGet: { path: /healthz, port: 8081 }
             initialDelaySeconds: 15
