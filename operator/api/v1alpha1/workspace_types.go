@@ -28,11 +28,14 @@ const (
 // Condition types set on Workspace.
 const (
 	ConditionReady = "Ready"
-	// ConditionTemplateDrifted says the template changed since this
-	// workspace's workload was (re)built: the new shape applies at the
-	// next scale-up boundary (resume / scheduled uptime), NEVER
-	// mid-session (see docs/adr/0001). The UI surfaces it as a
-	// "will restart with updates" notice.
+	// ConditionTemplateDrifted says the desired configuration changed
+	// since this workspace's workload was (re)built — a template edit OR
+	// a workspace override update, both feed the fingerprint: the new
+	// shape applies at the next scale-up boundary (resume / scheduled
+	// uptime) or on manual reload, NEVER silently mid-session (see
+	// docs/adr/0001). The UI surfaces it as a clickable "update pending"
+	// notice. The name predates override-driven drift and is kept for
+	// API compatibility.
 	ConditionTemplateDrifted = "TemplateDrifted"
 	// ConditionConnectionReady says the desktop server actually LISTENS
 	// on the default protocol port (TCP probe by the operator) — pod

@@ -207,8 +207,11 @@ func effectiveProtocol(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTe
 // ensureWorkload returns readiness and whether the live workload has
 // DRIFTED from the template (docs/adr/0001: template edits converge at
 // scale-up boundaries only, never mid-session — drifted=true means "a
-// new shape awaits the next resume").
-func (r *WorkspaceReconciler) ensureWorkload(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (ready, drifted bool, err error) {
+// new shape awaits the next resume"). reloaded=true means the user's
+// one-shot reload request (AnnotationReloadRequestedAt) forced that
+// boundary NOW: the pending shape was applied and the workload restarts;
+// the caller consumes the annotation and emits the event.
+func (r *WorkspaceReconciler) ensureWorkload(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (ready, drifted, reloaded bool, err error) {
 	switch tpl.Spec.WorkloadKindOrDefault() {
 	case waasv1alpha1.WorkloadPod:
 		return r.ensurePod(ctx, ws, tpl, pvcName, paused)
@@ -219,6 +222,11 @@ func (r *WorkspaceReconciler) ensureWorkload(ctx context.Context, ws *waasv1alph
 	}
 }
 
+// reloadRequested reads the api-server's one-shot manual reload signal.
+func reloadRequested(ws *waasv1alpha1.Workspace) bool {
+	return ws.Annotations[waasv1alpha1.AnnotationReloadRequestedAt] != ""
+}
+
 // desiredReplicas is 0 while paused (scale-to-0), 1 otherwise.
 func desiredReplicas(paused bool) int32 {
 	if paused {
@@ -227,7 +235,7 @@ func desiredReplicas(paused bool) int32 {
 	return 1
 }
 
-func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, bool, error) {
+func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, bool, bool, error) {
 	name := computeName(ws)
 	want := desiredReplicas(paused)
 	existing := &appsv1.Deployment{}
@@ -249,15 +257,26 @@ func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1al
 			changed = true
 			drifted = false
 		}
+		// Manual reload (docs/adr/0001): the owner explicitly asked for
+		// one immediate boundary, so the pending shape applies mid-session
+		// — the Recreate strategy guarantees the old pod terminates before
+		// the new one starts, the same down-then-up a pause/resume yields.
+		reloaded := false
+		if drifted && reloadRequested(ws) {
+			existing.Spec.Template = desired
+			changed = true
+			drifted = false
+			reloaded = true
+		}
 		if changed {
 			if err := r.Update(ctx, existing); err != nil {
-				return false, false, fmt.Errorf("updating deployment %s: %w", name, err)
+				return false, false, false, fmt.Errorf("updating deployment %s: %w", name, err)
 			}
 		}
-		return existing.Status.ReadyReplicas > 0 && !paused, drifted, nil
+		return existing.Status.ReadyReplicas > 0 && !paused && !reloaded, drifted, reloaded, nil
 	}
 	if !apierrors.IsNotFound(err) {
-		return false, false, fmt.Errorf("fetching deployment %s: %w", name, err)
+		return false, false, false, fmt.Errorf("fetching deployment %s: %w", name, err)
 	}
 
 	template := r.buildPodTemplate(ctx, ws, tpl, pvcName)
@@ -278,15 +297,15 @@ func (r *WorkspaceReconciler) ensureDeployment(ctx context.Context, ws *waasv1al
 		},
 	}
 	if err := r.setOwnerIfLocal(ws, dep); err != nil {
-		return false, false, fmt.Errorf("setting owner on deployment %s: %w", name, err)
+		return false, false, false, fmt.Errorf("setting owner on deployment %s: %w", name, err)
 	}
 	if err := r.Create(ctx, dep); err != nil && !apierrors.IsAlreadyExists(err) {
-		return false, false, fmt.Errorf("creating deployment %s: %w", name, err)
+		return false, false, false, fmt.Errorf("creating deployment %s: %w", name, err)
 	}
-	return false, false, nil
+	return false, false, false, nil
 }
 
-func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, bool, error) {
+func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, bool, bool, error) {
 	name := computeName(ws)
 	want := desiredReplicas(paused)
 	existing := &appsv1.StatefulSet{}
@@ -307,15 +326,25 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 			changed = true
 			drifted = false
 		}
+		// Manual reload: same one-shot boundary as ensureDeployment. The
+		// single-replica StatefulSet rolling update deletes the pod before
+		// recreating it, so no two pods ever share the RWO home volume.
+		reloaded := false
+		if drifted && reloadRequested(ws) {
+			existing.Spec.Template = desired
+			changed = true
+			drifted = false
+			reloaded = true
+		}
 		if changed {
 			if err := r.Update(ctx, existing); err != nil {
-				return false, false, fmt.Errorf("updating statefulset %s: %w", name, err)
+				return false, false, false, fmt.Errorf("updating statefulset %s: %w", name, err)
 			}
 		}
-		return existing.Status.ReadyReplicas > 0 && !paused, drifted, nil
+		return existing.Status.ReadyReplicas > 0 && !paused && !reloaded, drifted, reloaded, nil
 	}
 	if !apierrors.IsNotFound(err) {
-		return false, false, fmt.Errorf("fetching statefulset %s: %w", name, err)
+		return false, false, false, fmt.Errorf("fetching statefulset %s: %w", name, err)
 	}
 
 	template := r.buildPodTemplate(ctx, ws, tpl, pvcName)
@@ -334,12 +363,12 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 		},
 	}
 	if err := r.setOwnerIfLocal(ws, sts); err != nil {
-		return false, false, fmt.Errorf("setting owner on statefulset %s: %w", name, err)
+		return false, false, false, fmt.Errorf("setting owner on statefulset %s: %w", name, err)
 	}
 	if err := r.Create(ctx, sts); err != nil && !apierrors.IsAlreadyExists(err) {
-		return false, false, fmt.Errorf("creating statefulset %s: %w", name, err)
+		return false, false, false, fmt.Errorf("creating statefulset %s: %w", name, err)
 	}
-	return false, false, nil
+	return false, false, false, nil
 }
 
 // desktopEnv is the container environment: template env with the

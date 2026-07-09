@@ -36,6 +36,15 @@ const (
 	// by the user and still counted against their storage quota. No volume
 	// is ever deleted without this explicit opt-in.
 	AnnotationDeleteHome = "waas.xorhub.io/delete-home"
+
+	// AnnotationReloadRequestedAt is the RFC3339 timestamp of a manual
+	// reload request (POST /workspaces/{id}/reload): the user asks for ONE
+	// immediate convergence boundary — the running workload restarts on
+	// the up-to-date pod template (docs/adr/0001) and the operator removes
+	// the annotation once consumed. Deliberately disjoint from spec.paused
+	// and AnnotationManualStateAt: a reload must never disturb the pause
+	// intent or the schedule conflict resolution (rule B).
+	AnnotationReloadRequestedAt = "waas.xorhub.io/reload-requested-at"
 )
 
 // Platform labels stamped on every object the operator manages (workloads,

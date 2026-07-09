@@ -119,3 +119,25 @@ The api-server stamps the manual action time in the
 opposite edge passes. With no schedule, `spec.paused` is the only signal
 (pure manual pause/resume).
 
+## Manual reload (immediate convergence boundary)
+
+A workspace whose configuration changed while it runs — a template edit
+or a runtime override update (`PATCH /api/v1/workspaces/{id}/overrides`;
+see docs/adr/0001) — normally picks the new shape up at its next
+scale-up boundary. `POST /api/v1/workspaces/{id}/reload` (the portal's
+clickable "update pending" badge, confirmation included) forces that
+boundary NOW:
+
+- the api-server stamps the one-shot annotation
+  `waas.xorhub.io/reload-requested-at` (Running workspaces only, 409
+  otherwise — a down workspace converges at its next start anyway);
+- the operator applies the pending pod template mid-session (Recreate /
+  the single-replica rolling update stops the old pod before the new one
+  starts; a bare Pod is deleted and recreated), emits the
+  `WorkloadReloaded` event and removes the annotation;
+- a request with nothing pending is consumed silently, never deferred.
+
+A reload deliberately touches **neither** `spec.paused` **nor**
+`waas.xorhub.io/manual-state-at`: it is not a pause/resume and never
+shifts the schedule conflict resolution (rule B above).
+

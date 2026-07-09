@@ -51,3 +51,28 @@ kasm.
 - Les tests de la sémantique vivent dans
   `operator/internal/controller/kasm_config_test.go`
   (`TestKasmConfigBoundaryConvergence`).
+
+## Note additive (2026-07-10) — reload manuel et overrides runtime
+
+La doctrine couvre les DEUX sources de dérive — template édité **et**
+overrides du workspace (le fingerprint hache le podTemplate construit
+des deux). La reconfiguration runtime d'un workspace instancié
+(`PATCH /api/v1/workspaces/{id}/overrides` : env, nodeSelector,
+tolerations, resources) produit donc la même dérive signalée-jamais-
+appliquée qu'une édition de template.
+
+S'y ajoute un **reload manuel** : au lieu d'attendre la prochaine
+frontière, l'utilisateur peut en forcer UNE, immédiate.
+`POST /api/v1/workspaces/{id}/reload` stampe l'annotation one-shot
+`waas.xorhub.io/reload-requested-at` ; le reconciler applique le
+podTemplate en attente sur le workload qui tourne (la stratégie
+Recreate — ou le rolling update mono-réplica du StatefulSet, ou la
+recréation du Pod nu — garantit l'arrêt avant redémarrage, jamais deux
+pods sur le home RWO), émet l'event `WorkloadReloaded` puis consomme
+l'annotation. Une demande sans dérive en attente, ou sur un workspace à
+l'arrêt, est consommée sans redémarrage. Un reload ne touche NI
+`spec.paused` NI `waas.xorhub.io/manual-state-at` : il ne peut pas
+interférer avec la règle B du scheduler (docs/workspace-lifecycle.md).
+Côté portail, le badge « mise à jour en attente » devient cliquable
+(confirmation : le bureau redémarre, le travail non sauvegardé est
+perdu). Tests : `operator/internal/controller/workload_reload_test.go`.

@@ -263,16 +263,29 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	var ready, drifted bool
+	var ready, drifted, reloaded bool
 	if tpl.Spec.OS == waasv1alpha1.OSWindows {
 		// Windows/KubeVirt path: drift detection deliberately out of
 		// scope (unstructured VM spec, path still untested end to end).
 		ready, err = r.ensureVirtualMachine(ctx, ws, tpl, pvcName, !down)
 	} else {
-		ready, drifted, err = r.ensureWorkload(ctx, ws, tpl, pvcName, down)
+		ready, drifted, reloaded, err = r.ensureWorkload(ctx, ws, tpl, pvcName, down)
 	}
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+	}
+	// The reload request is ONE-SHOT: consumed when applied, and cleared
+	// just as well when there is nothing to apply (no drift, workspace
+	// down — the boundary converges anyway, drift out of scope). A stale
+	// request must never fire at some later resume.
+	if reloadRequested(ws) && (reloaded || down || !drifted) {
+		if reloaded {
+			r.recordEvent(ws, corev1.EventTypeNormal, "WorkloadReloaded",
+				"manual reload: the desktop restarts now on the up-to-date configuration")
+		}
+		if err := r.clearReloadRequest(ctx, ws); err != nil {
+			return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+		}
 	}
 	// The Service is kept across pause so the in-cluster DNS name stays
 	// stable and resume needs no endpoint churn.
@@ -317,7 +330,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// at its next resume (docs/adr/0001).
 	if drifted && !hasDriftCondition(ws) {
 		r.recordEvent(ws, corev1.EventTypeNormal, "TemplateDrifted",
-			fmt.Sprintf("template %q changed: the workspace picks the new shape up at its next resume", tpl.Name))
+			fmt.Sprintf("desired configuration changed (template %q or workspace overrides): the workspace picks the new shape up at its next resume, or on manual reload", tpl.Name))
 	}
 
 	// Lifecycle milestones on transitions: with the events panel these
@@ -410,6 +423,23 @@ func effectiveSchedule(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTe
 		return schedule.Spec{}
 	}
 	return schedule.Spec{Timezone: src.Timezone, Uptime: src.Uptime, Downtime: src.Downtime}
+}
+
+// clearReloadRequest consumes the one-shot reload annotation. Fresh
+// fetch: the CR may have been updated earlier in this reconcile.
+func (r *WorkspaceReconciler) clearReloadRequest(ctx context.Context, ws *waasv1alpha1.Workspace) error {
+	fresh := &waasv1alpha1.Workspace{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(ws), fresh); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if _, ok := fresh.Annotations[waasv1alpha1.AnnotationReloadRequestedAt]; !ok {
+		return nil
+	}
+	delete(fresh.Annotations, waasv1alpha1.AnnotationReloadRequestedAt)
+	if err := r.Update(ctx, fresh); err != nil {
+		return fmt.Errorf("clearing reload annotation on %s: %w", ws.Name, err)
+	}
+	return nil
 }
 
 // manualStateAt reads the api-server's manual pause/resume timestamp.
@@ -617,7 +647,7 @@ func (r *WorkspaceReconciler) ensureHomePVC(ctx context.Context, ws *waasv1alpha
 
 // ensurePod creates a bare desktop pod (workload kind "Pod") if missing and
 // reports readiness. Deployment/StatefulSet variants live in workload.go.
-func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, bool, error) {
+func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, pvcName string, paused bool) (bool, bool, bool, error) {
 	name := computeName(ws)
 	existing := &corev1.Pod{}
 	err := r.Get(ctx, computeKey(ws), existing)
@@ -626,23 +656,32 @@ func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Wo
 		// (state lives on the home PVC, so resume recreates it cleanly).
 		if paused {
 			if delErr := r.Delete(ctx, existing); delErr != nil && !apierrors.IsNotFound(delErr) {
-				return false, false, fmt.Errorf("pausing pod %s: %w", name, delErr)
+				return false, false, false, fmt.Errorf("pausing pod %s: %w", name, delErr)
 			}
-			return false, false, nil
+			return false, false, false, nil
 		}
 		// A bare Pod converges by recreation only (docs/adr/0001): a
 		// template edit while it runs is REPORTED as drift and applies
 		// at the next pause/resume, which rebuilds the pod from scratch.
 		desired := r.buildPodTemplate(ctx, ws, tpl, pvcName)
 		drifted := existing.Annotations[annotationPodTemplateHash] != desired.Annotations[annotationPodTemplateHash]
-		return podReady(existing), drifted, nil
+		// Manual reload: recreation IS a bare Pod's only boundary — delete
+		// now, the workload watch requeues and the next reconcile rebuilds
+		// the pod from the up-to-date template.
+		if drifted && reloadRequested(ws) {
+			if delErr := r.Delete(ctx, existing); delErr != nil && !apierrors.IsNotFound(delErr) {
+				return false, false, false, fmt.Errorf("reloading pod %s: %w", name, delErr)
+			}
+			return false, false, true, nil
+		}
+		return podReady(existing), drifted, false, nil
 	}
 	if !apierrors.IsNotFound(err) {
-		return false, false, fmt.Errorf("fetching pod %s: %w", name, err)
+		return false, false, false, fmt.Errorf("fetching pod %s: %w", name, err)
 	}
 	// Not found + paused: nothing to run, stay down.
 	if paused {
-		return false, false, nil
+		return false, false, false, nil
 	}
 
 	template := r.buildPodTemplate(ctx, ws, tpl, pvcName)
@@ -656,12 +695,12 @@ func (r *WorkspaceReconciler) ensurePod(ctx context.Context, ws *waasv1alpha1.Wo
 		Spec: template.Spec,
 	}
 	if err := r.setOwnerIfLocal(ws, pod); err != nil {
-		return false, false, fmt.Errorf("setting owner on pod %s: %w", name, err)
+		return false, false, false, fmt.Errorf("setting owner on pod %s: %w", name, err)
 	}
 	if err := r.Create(ctx, pod); err != nil && !apierrors.IsAlreadyExists(err) {
-		return false, false, fmt.Errorf("creating pod %s: %w", name, err)
+		return false, false, false, fmt.Errorf("creating pod %s: %w", name, err)
 	}
-	return false, false, nil
+	return false, false, false, nil
 }
 
 // ensureVirtualMachine creates the KubeVirt VM for a windows workspace and
@@ -831,16 +870,19 @@ func setCondition(st *waasv1alpha1.WorkspaceStatus, status metav1.ConditionStatu
 	setTypedCondition(st, waasv1alpha1.ConditionReady, status, reason, message)
 }
 
-// setDriftCondition reports docs/adr/0001 drift: True = a template edit
-// awaits the next scale-up boundary.
+// setDriftCondition reports docs/adr/0001 drift: True = a pending
+// configuration change (template edit or workspace override update)
+// awaits the next scale-up boundary or a manual reload. The condition
+// type and reason are kept for API compatibility even though the cause
+// may be the workspace's own overrides.
 func setDriftCondition(st *waasv1alpha1.WorkspaceStatus, drifted bool) {
 	if drifted {
 		setTypedCondition(st, waasv1alpha1.ConditionTemplateDrifted, metav1.ConditionTrue,
-			"TemplateChanged", "the template changed since this workspace started; the new shape applies at the next resume (the desktop will restart with updates)")
+			"TemplateChanged", "the desired configuration (template or overrides) changed since this workspace started; the new shape applies at the next resume or on manual reload (the desktop will restart with updates)")
 		return
 	}
 	setTypedCondition(st, waasv1alpha1.ConditionTemplateDrifted, metav1.ConditionFalse,
-		"InSync", "the workload matches its template")
+		"InSync", "the workload matches its desired configuration")
 }
 
 // hasDriftCondition reads the PREVIOUS reconcile's verdict (event
