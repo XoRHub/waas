@@ -76,3 +76,9 @@ interférer avec la règle B du scheduler (docs/workspace-lifecycle.md).
 Côté portail, le badge « mise à jour en attente » devient cliquable
 (confirmation : le bureau redémarre, le travail non sauvegardé est
 perdu). Tests : `operator/internal/controller/workload_reload_test.go`.
+
+La détection elle-même est déclenchée par un watch des
+`WorkspaceTemplate` (spec/generation seulement) qui ré-enqueue les
+workspaces estampillés du template édité : un workspace Running n'a pas
+de requeue périodique, sans ce watch la dérive ne serait évaluée qu'à
+la faveur d'un événement fortuit. Test : `template_watch_test.go`.

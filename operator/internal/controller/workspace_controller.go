@@ -970,7 +970,11 @@ func podReady(pod *corev1.Pod) bool {
 // filtered. Workloads are mapped back to their Workspace through the
 // platform labels rather than Owns(): placed workloads live in another
 // namespace and cannot carry an owner reference (the labels cover the
-// legacy same-namespace objects too).
+// legacy same-namespace objects too). Templates are watched too: drift
+// (docs/adr/0001) must be DETECTED when the template is edited — a
+// running workspace has no timed requeue, so without this watch the
+// TemplateDrifted condition (and the portal badge) would wait for some
+// unrelated event instead of appearing right away.
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	mapFn := handler.EnqueueRequestsFromMapFunc(r.mapObjectToWorkspace)
 	wsPredicate := predicate.Or[client.Object](
@@ -983,8 +987,32 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&appsv1.Deployment{}, mapFn).
 		Watches(&appsv1.StatefulSet{}, mapFn).
 		Watches(&corev1.Service{}, mapFn).
+		// Spec edits only (generation): status/metadata churn on a
+		// template must not re-reconcile its whole fleet.
+		Watches(&waasv1alpha1.WorkspaceTemplate{},
+			handler.EnqueueRequestsFromMapFunc(r.mapTemplateToWorkspaces),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("workspace").
 		Complete(r)
+}
+
+// mapTemplateToWorkspaces enqueues every workspace stamped from the
+// edited template (same namespace, spec.templateRef match): each one
+// re-evaluates its drift fingerprint against the new shape. Also covers
+// the GitOps ordering case — a template applied AFTER its workspaces
+// unblocks them immediately instead of on the retry loop.
+func (r *WorkspaceReconciler) mapTemplateToWorkspaces(ctx context.Context, obj client.Object) []ctrl.Request {
+	list := &waasv1alpha1.WorkspaceList{}
+	if err := r.List(ctx, list, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	var reqs []ctrl.Request
+	for i := range list.Items {
+		if list.Items[i].Spec.TemplateRef == obj.GetName() {
+			reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
+	}
+	return reqs
 }
 
 // mapObjectToWorkspace resolves the Workspace behind a watched workload:
