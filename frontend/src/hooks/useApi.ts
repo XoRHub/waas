@@ -229,6 +229,35 @@ export function useDeleteWorkspace() {
   });
 }
 
+// ---- Admin fleet (fleet-wide list + delete ONLY; the live-session
+// actions — connect, pause, overrides… — are strictly owner-only and
+// deliberately have no admin route) ----
+
+export function useAdminWorkspaces() {
+  return useQuery({
+    queryKey: ['admin-workspaces'],
+    queryFn: () => api.get<Workspace[]>('/api/v1/admin/workspaces'),
+    refetchInterval: (query) => {
+      const items = query.state.data?.data ?? [];
+      return items.some(isTransient) ? 3000 : 15000;
+    },
+  });
+}
+
+export function useAdminDeleteWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, keepVolume }: { id: string; keepVolume: boolean }) =>
+      api.delete<void>(`/api/v1/admin/workspaces/${id}?keepVolume=${keepVolume}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin-workspaces'] });
+      // Fleet deletes retain the home volume: it reappears on the
+      // volumes tab right away.
+      void queryClient.invalidateQueries({ queryKey: ['admin-volumes'] });
+    },
+  });
+}
+
 // ---- Retained volumes (home volumes kept after workspace deletion) ----
 
 export function useVolumes() {

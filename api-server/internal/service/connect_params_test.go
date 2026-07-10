@@ -23,8 +23,13 @@ import (
 
 // seedRunningWorkspace seeds the given template plus a Running workspace
 // CR stamped from it (status through the subresource, like the operator
-// writes it).
+// writes it). The workspace belongs to "u1", the tests' default actor.
 func seedRunningWorkspace(t *testing.T, f *remoteFixture, uid string, tpl *waasv1alpha1.WorkspaceTemplate) {
+	t.Helper()
+	seedRunningWorkspaceOwned(t, f, uid, "u1", tpl)
+}
+
+func seedRunningWorkspaceOwned(t *testing.T, f *remoteFixture, uid, owner string, tpl *waasv1alpha1.WorkspaceTemplate) {
 	t.Helper()
 	ctx := context.Background()
 	if err := f.kube.Create(ctx, tpl); err != nil {
@@ -32,7 +37,7 @@ func seedRunningWorkspace(t *testing.T, f *remoteFixture, uid string, tpl *waasv
 	}
 	ws := &waasv1alpha1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{Name: "w1", Namespace: testNS, UID: types.UID(uid)},
-		Spec:       waasv1alpha1.WorkspaceSpec{TemplateRef: tpl.Name, Owner: "u1"},
+		Spec:       waasv1alpha1.WorkspaceSpec{TemplateRef: tpl.Name, Owner: owner},
 	}
 	if err := f.kube.Create(ctx, ws); err != nil {
 		t.Fatal(err)
@@ -132,14 +137,42 @@ func TestConnectParamsCategorySelector(t *testing.T) {
 }
 
 func TestConnectParamsAdminBypass(t *testing.T) {
+	ctx := context.Background()
 	f := newRemoteFixture(t, []model.User{{ID: "a1", Username: "root", Role: auth.RoleAdmin}},
 		[]waasv1alpha1.WorkspacePolicy{restrictivePolicy(waasv1alpha1.FieldEnv)})
-	runningWorkspace(t, f, "uid-1")
+	// The admin's OWN workspace: the rights bypass applies there only.
+	seedRunningWorkspaceOwned(t, f, "uid-1", "a1", &waasv1alpha1.WorkspaceTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "xfce", Namespace: testNS},
+		Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			OS: waasv1alpha1.OSLinux, Image: "reg/xfce:1",
+			Protocols: []waasv1alpha1.WorkspaceProtocol{
+				{Name: "vnc", Port: 5901, Default: true,
+					UserParams: []string{"cat:display", "enable-audio"}},
+			},
+			Overrides: &waasv1alpha1.TemplateOverrides{
+				AllowedFields: []waasv1alpha1.OverridableField{waasv1alpha1.FieldProtocolParams},
+			},
+		},
+	})
 	admin := Actor{ID: "a1", Role: string(auth.RoleAdmin)}
-	// Admin bypasses both rights (and ownership: admins see all).
-	if _, err := f.workspace.Connect(context.Background(), admin, "uid-1",
+	// Admin bypasses the protocolParams rights on their own workspace.
+	if _, err := f.workspace.Connect(ctx, admin, "uid-1",
 		ConnectInput{Params: map[string]string{"color-depth": "16"}}); err != nil {
 		t.Fatalf("admin must bypass the protocolParams rights: %v", err)
+	}
+
+	// Another user's workspace: ownership is strict, the role opens no
+	// session there — 404, exactly like a plain non-owner.
+	other := &waasv1alpha1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "w2", Namespace: testNS, UID: types.UID("uid-2")},
+		Spec:       waasv1alpha1.WorkspaceSpec{TemplateRef: "xfce", Owner: "u1"},
+	}
+	if err := f.kube.Create(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.workspace.Connect(ctx, admin, "uid-2", ConnectInput{}); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Fatalf("admin connect on another user's workspace must be not-found, got %v", err)
 	}
 }
 

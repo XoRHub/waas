@@ -63,7 +63,9 @@ const volumes: RetainedVolume[] = [
 ];
 
 const apiMock = createApiMock({
-  '/api/v1/workspaces': fleet,
+  // The fleet reads the ADMIN route: /api/v1/workspaces only ever
+  // returns the caller's own rows now, whatever the role.
+  '/api/v1/admin/workspaces': fleet,
   '/api/v1/admin/remote-workspaces': remotes,
   '/api/v1/admin/volumes': volumes,
 });
@@ -100,7 +102,7 @@ describe('admin fleet grouped by owner', () => {
     const row = (await screen.findByText('alice-two')).closest('tr')!;
     await userEvent.click(within(row).getByRole('button', { name: 'Delete' }));
 
-    expect(apiMock.api.delete).toHaveBeenCalledWith('/api/v1/workspaces/w-a2?keepVolume=true');
+    expect(apiMock.api.delete).toHaveBeenCalledWith('/api/v1/admin/workspaces/w-a2?keepVolume=true');
   });
 
   it('groups remote workspaces by owner too', async () => {

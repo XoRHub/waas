@@ -123,11 +123,13 @@ type ConnectResult struct {
 	Capabilities *model.SessionCapabilities `json:"capabilities,omitempty"`
 }
 
-// List returns the caller's workspaces, or every workspace for admins.
-func (s *WorkspaceService) List(ctx context.Context, actor Actor) ([]model.Workspace, error) {
-	isAdmin := actor.Role == string(auth.RoleAdmin)
+// List returns the caller's own workspaces (all=false — the personal
+// "My Workspaces" listing, admins included: their role never widens this
+// view), or every workspace in the namespace for the admin fleet
+// (all=true, /admin route only). Same contract as ListRetainedVolumes.
+func (s *WorkspaceService) List(ctx context.Context, actor Actor, all bool) ([]model.Workspace, error) {
 	opts := []client.ListOption{client.InNamespace(s.namespace)}
-	if !isAdmin {
+	if !all {
 		opts = append(opts, client.MatchingLabels{ownerLabel: actor.ID})
 	}
 	list := &waasv1alpha1.WorkspaceList{}
@@ -143,15 +145,15 @@ func (s *WorkspaceService) List(ctx context.Context, actor Actor) ([]model.Works
 			templates[tplList.Items[i].Name] = &tplList.Items[i]
 		}
 	}
-	// Owner usernames are resolved for admins only (the fleet view groups
-	// by owner); non-admins only ever see their own rows. Best-effort per
-	// owner, cached per request — a deleted owner just leaves the field
-	// empty, same as RemoteWorkspaceService.AdminList.
+	// Owner usernames are resolved for the fleet listing only (it groups
+	// by owner); the personal listing is single-owner by construction.
+	// Best-effort per owner, cached per request — a deleted owner just
+	// leaves the field empty, same as RemoteWorkspaceService.AdminList.
 	usernames := map[string]string{}
 	out := make([]model.Workspace, 0, len(list.Items))
 	for i := range list.Items {
 		ws := workspaceToModel(&list.Items[i], templates[list.Items[i].Spec.TemplateRef])
-		if isAdmin {
+		if all {
 			name, ok := usernames[ws.OwnerID]
 			if !ok {
 				if u, err := s.users.FindByID(ctx, ws.OwnerID); err == nil {
@@ -336,8 +338,17 @@ func (s *WorkspaceService) templateOf(ctx context.Context, ws *waasv1alpha1.Work
 // owned, still counted against the storage quota; false stamps the
 // explicit opt-in annotation the operator's finalizer requires before
 // deleting user state. No volume is ever deleted without that opt-in.
-func (s *WorkspaceService) Delete(ctx context.Context, actor Actor, id string, keepVolume bool) error {
-	ws, err := s.fetchByID(ctx, actor, id)
+// asAdmin skips the ownership check (the /admin route middleware already
+// guarantees the role) and marks the audit line — fleet cleanup of any
+// user's workspace, same contract as DeleteRetainedVolume.
+func (s *WorkspaceService) Delete(ctx context.Context, actor Actor, id string, keepVolume, asAdmin bool) error {
+	var ws *waasv1alpha1.Workspace
+	var err error
+	if asAdmin {
+		ws, err = s.findByUID(ctx, id)
+	} else {
+		ws, err = s.fetchByID(ctx, actor, id)
+	}
 	if err != nil {
 		return err
 	}
@@ -365,8 +376,11 @@ func (s *WorkspaceService) Delete(ctx context.Context, actor Actor, id string, k
 		s.audit.Record(ctx, actor, "session.ended_with_workspace", "workspace", id,
 			fmt.Sprintf("name=%s openSessions=%d", ws.Name, n))
 	}
-	s.audit.Record(ctx, actor, "workspace.deleted", "workspace", id,
-		fmt.Sprintf("name=%s keepVolume=%t", ws.Name, keepVolume))
+	detail := fmt.Sprintf("name=%s keepVolume=%t", ws.Name, keepVolume)
+	if asAdmin {
+		detail += fmt.Sprintf(" owner=%s via=admin", ws.Spec.Owner)
+	}
+	s.audit.Record(ctx, actor, "workspace.deleted", "workspace", id, detail)
 	return nil
 }
 
@@ -645,8 +659,8 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 // ensureKasmConfig (admin template config + policy clipboard enforcement)
 // and mounted read-only in the pod. This is what a "show me the applied
 // KasmVNC config" view must display — the template's raw field alone
-// misses the policy layer. Same authorization scope as Get: the owner
-// sees their own workspace's config, admins see any. The ConfigMap is
+// misses the policy layer. Same authorization scope as Get: strictly
+// the workspace's owner, like every by-ID action. The ConfigMap is
 // addressed with the SAME CRD naming helpers the operator uses
 // (EffectiveWorkloadName/EffectiveTargetNamespace), never a re-derived
 // convention. 404 when no config exists (non-kasmvnc template, or not
@@ -933,7 +947,11 @@ func (s *WorkspaceService) fetchByID(ctx context.Context, actor Actor, id string
 	if err != nil {
 		return nil, err
 	}
-	if actor.Role != string(auth.RoleAdmin) && ws.Spec.Owner != actor.ID {
+	// Ownership is strict, no role bypass — a workspace is a personal,
+	// live session (same contract as RemoteWorkspaceService.fetchOwned).
+	// Admins manage the fleet through the dedicated /admin routes (list,
+	// delete), never by acting inside another user's workspace.
+	if ws.Spec.Owner != actor.ID {
 		// 404, not 403: don't leak the existence of other users' workspaces.
 		return nil, apierror.NotFound("workspace not found")
 	}

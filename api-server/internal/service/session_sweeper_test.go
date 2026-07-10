@@ -93,7 +93,7 @@ func TestWorkspaceDeleteEndsItsOpenSessions(t *testing.T) {
 	openSession(t, f, "s-open", "uid-doomed", model.SessionKindWorkspace)
 
 	admin := Actor{ID: "u1", Role: string(auth.RoleAdmin)}
-	if err := f.workspace.Delete(ctx, admin, "uid-doomed", true); err != nil {
+	if err := f.workspace.Delete(ctx, admin, "uid-doomed", true, false); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	assertEnded(t, f, "s-open", true)

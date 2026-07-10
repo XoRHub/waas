@@ -59,9 +59,21 @@ func (h *WorkspaceHandler) NamespacePreview(w http.ResponseWriter, r *http.Reque
 	ok(w, map[string]string{"namespace": namespace})
 }
 
-// List handles GET /api/v1/workspaces.
+// List handles GET /api/v1/workspaces — the caller's OWN workspaces,
+// whatever their role (the admin fleet has its own route).
 func (h *WorkspaceHandler) List(w http.ResponseWriter, r *http.Request) {
-	workspaces, err := h.svc.List(r.Context(), middleware.Actor(r))
+	workspaces, err := h.svc.List(r.Context(), middleware.Actor(r), false)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	list(w, workspaces, len(workspaces), 1, len(workspaces))
+}
+
+// AdminList handles GET /api/v1/admin/workspaces — every user's
+// workspaces, OwnerUsername resolved (the fleet view groups by owner).
+func (h *WorkspaceHandler) AdminList(w http.ResponseWriter, r *http.Request) {
+	workspaces, err := h.svc.List(r.Context(), middleware.Actor(r), true)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -99,7 +111,20 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 // (the frontend dialog always sends the parameter).
 func (h *WorkspaceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	keepVolume := r.URL.Query().Get("keepVolume") != "false"
-	if err := h.svc.Delete(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), keepVolume); err != nil {
+	if err := h.svc.Delete(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), keepVolume, false); err != nil {
+		fail(w, r, err)
+		return
+	}
+	noContent(w)
+}
+
+// AdminDelete handles DELETE /api/v1/admin/workspaces/{id}?keepVolume=…
+// — fleet cleanup of any user's workspace, audited with via=admin. The
+// fleet UI always sends keepVolume=true: destroying user data goes
+// through the volumes tab.
+func (h *WorkspaceHandler) AdminDelete(w http.ResponseWriter, r *http.Request) {
+	keepVolume := r.URL.Query().Get("keepVolume") != "false"
+	if err := h.svc.Delete(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), keepVolume, true); err != nil {
 		fail(w, r, err)
 		return
 	}

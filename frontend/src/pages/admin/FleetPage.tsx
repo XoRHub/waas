@@ -2,10 +2,10 @@ import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useAdminDeleteVolume,
+  useAdminDeleteWorkspace,
   useAdminRemoteWorkspaces,
   useAdminVolumes,
-  useDeleteWorkspace,
-  useWorkspaces,
+  useAdminWorkspaces,
 } from '@/hooks/useApi';
 import { StatusBadge } from '@/components/StatusBadge';
 import type { Workspace } from '@/types';
@@ -87,10 +87,13 @@ function OwnerGroup({
   );
 }
 
+// WorkspacesFleet reads the ADMIN route: /api/v1/workspaces is now
+// strictly the caller's own rows, whatever the role — only
+// /api/v1/admin/workspaces carries the whole fleet (with ownerUsername).
 function WorkspacesFleet() {
   const { t } = useTranslation();
-  const workspaces = useWorkspaces();
-  const remove = useDeleteWorkspace();
+  const workspaces = useAdminWorkspaces();
+  const remove = useAdminDeleteWorkspace();
 
   if (workspaces.isPending) {
     return <p className="text-slate-500">{t('app.loading')}</p>;
@@ -123,7 +126,7 @@ function WorkspaceTable({
   remove,
 }: {
   items: Workspace[];
-  remove: ReturnType<typeof useDeleteWorkspace>;
+  remove: ReturnType<typeof useAdminDeleteWorkspace>;
 }) {
   const { t } = useTranslation();
   return (

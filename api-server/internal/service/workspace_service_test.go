@@ -7,9 +7,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/xorhub/waas/api-server/internal/k8s"
 	"github.com/xorhub/waas/api-server/internal/model"
+	"github.com/xorhub/waas/api-server/internal/repository"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/shared/auth"
 )
@@ -80,9 +83,10 @@ func TestOverridesSummaryIsAuditSafe(t *testing.T) {
 // TestEffectiveKasmVNCConfig pins the read path of the operator-
 // materialized kasmvnc.yaml: the ConfigMap is addressed via the CRD's own
 // EffectiveWorkloadName/EffectiveTargetNamespace (never a re-derived
-// naming convention), the owner and admins may read it, any other user
-// gets the same 404 as Get (no existence leak), and a workspace without
-// the ConfigMap (non-kasmvnc, or not reconciled yet) is a clean 404.
+// naming convention), only the owner may read it — any other actor,
+// admin included, gets the same 404 as Get (no existence leak) — and a
+// workspace without the ConfigMap (non-kasmvnc, or not reconciled yet)
+// is a clean 404.
 func TestEffectiveKasmVNCConfig(t *testing.T) {
 	kube, err := k8s.NewClient(true)
 	if err != nil {
@@ -117,11 +121,13 @@ func TestEffectiveKasmVNCConfig(t *testing.T) {
 	if err != nil || got != effective {
 		t.Fatalf("owner must read the effective config, got %q, %v", got, err)
 	}
+	// Any other actor, admin included: same 404 as Get — ownership is
+	// strict on every by-ID action, and never a 403 leaking existence.
 	admin := Actor{ID: "root", Role: "admin"}
-	if got, err = svc.EffectiveKasmVNCConfig(ctx, admin, "uid-cad"); err != nil || got != effective {
-		t.Fatalf("admin must read the effective config, got %q, %v", got, err)
+	if _, err = svc.EffectiveKasmVNCConfig(ctx, admin, "uid-cad"); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Fatalf("non-owner admin must get not-found, got %v", err)
 	}
-	// Another user: same 404 as Get — never a 403 leaking existence.
 	if _, err = svc.EffectiveKasmVNCConfig(ctx, Actor{ID: "u2", Role: "user"}, "uid-cad"); err == nil ||
 		!strings.Contains(err.Error(), "not found") {
 		t.Fatalf("non-owner must get not-found, got %v", err)
@@ -199,10 +205,30 @@ func TestResolveWorkloadName(t *testing.T) {
 	}
 }
 
-// TestListResolvesOwnerUsernamesForAdmins pins the fleet-grouping
-// contract: admins get OwnerUsername resolved per row (best-effort — a
-// deleted owner leaves it empty without failing the List), non-admins
-// never pay the lookup since they only see their own workspaces.
+// seedOwnedWorkspace stamps a bare Workspace CR for a given owner (label
+// + spec), enough for the List/ownership tests.
+func seedOwnedWorkspace(t *testing.T, f *remoteFixture, name, owner string) {
+	t.Helper()
+	ws := &waasv1alpha1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: testNS,
+			UID:       types.UID("uid-" + name),
+			Labels:    map[string]string{ownerLabel: owner},
+		},
+		Spec: waasv1alpha1.WorkspaceSpec{TemplateRef: "xfce", Owner: owner},
+	}
+	if err := f.kube.Create(context.Background(), ws); err != nil {
+		t.Fatalf("seeding workspace %s: %v", name, err)
+	}
+}
+
+// TestListResolvesOwnerUsernamesForAdmins pins the two listing scopes.
+// Fleet listing (all=true, /admin route): every workspace, OwnerUsername
+// resolved per row (best-effort — a deleted owner leaves it empty
+// without failing the List). Personal listing (all=false): the actor's
+// OWN rows only — an admin's role never widens their "My Workspaces"
+// page — and no username enrichment.
 func TestListResolvesOwnerUsernamesForAdmins(t *testing.T) {
 	ctx := context.Background()
 	f := newRemoteFixture(t, []model.User{
@@ -210,31 +236,18 @@ func TestListResolvesOwnerUsernamesForAdmins(t *testing.T) {
 		{ID: "u1", Username: "alice"},
 	}, nil)
 
-	seed := func(name, owner string) {
-		ws := &waasv1alpha1.Workspace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: testNS,
-				Labels:    map[string]string{ownerLabel: owner},
-			},
-			Spec: waasv1alpha1.WorkspaceSpec{TemplateRef: "xfce", Owner: owner},
-		}
-		if err := f.kube.Create(ctx, ws); err != nil {
-			t.Fatalf("seeding workspace %s: %v", name, err)
-		}
-	}
-	seed("ws-admin", "admin1")
-	seed("ws-alice", "u1")
+	seedOwnedWorkspace(t, f, "ws-admin", "admin1")
+	seedOwnedWorkspace(t, f, "ws-alice", "u1")
 	// Owner deleted from the DB after the CR was created.
-	seed("ws-orphan", "ghost")
+	seedOwnedWorkspace(t, f, "ws-orphan", "ghost")
 
 	admin := Actor{ID: "admin1", Username: "boss", Role: string(auth.RoleAdmin)}
-	rows, err := f.workspace.List(ctx, admin)
+	rows, err := f.workspace.List(ctx, admin, true)
 	if err != nil {
 		t.Fatalf("admin List: %v", err)
 	}
 	if len(rows) != 3 {
-		t.Fatalf("admin must see all 3 workspaces, got %d", len(rows))
+		t.Fatalf("fleet listing must see all 3 workspaces, got %d", len(rows))
 	}
 	byName := map[string]model.Workspace{}
 	for _, ws := range rows {
@@ -250,10 +263,20 @@ func TestListResolvesOwnerUsernamesForAdmins(t *testing.T) {
 		t.Fatalf("deleted owner must leave OwnerUsername empty, got %q", got)
 	}
 
+	// The ADMIN's personal listing: own rows only — the fix's core
+	// visibility contract for the "My Workspaces" page.
+	rows, err = f.workspace.List(ctx, admin, false)
+	if err != nil {
+		t.Fatalf("admin personal List: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Name != "ws-admin" {
+		t.Fatalf("admin's personal listing must only carry their own workspace, got %+v", rows)
+	}
+
 	// Non-admin: own rows only, no username enrichment (the caller knows
 	// their own name; skipping the lookup is deliberate).
 	alice := Actor{ID: "u1", Username: "alice", Role: "user"}
-	rows, err = f.workspace.List(ctx, alice)
+	rows, err = f.workspace.List(ctx, alice, false)
 	if err != nil {
 		t.Fatalf("user List: %v", err)
 	}
@@ -261,7 +284,81 @@ func TestListResolvesOwnerUsernamesForAdmins(t *testing.T) {
 		t.Fatalf("alice must see only her workspace, got %+v", rows)
 	}
 	if rows[0].OwnerUsername != "" {
-		t.Fatalf("non-admin rows must not carry OwnerUsername, got %q", rows[0].OwnerUsername)
+		t.Fatalf("personal rows must not carry OwnerUsername, got %q", rows[0].OwnerUsername)
+	}
+}
+
+// TestByIDActionsAreStrictlyOwnerOnly pins the security core of the fix:
+// every action routed through fetchByID (Get, pause, delete via the user
+// route — and with them connect, overrides, reload, resize, events,
+// kasmvnc-config) answers 404 to ANY non-owner, admin included. Fleet
+// management goes through the dedicated /admin routes, never through an
+// ownership bypass.
+func TestByIDActionsAreStrictlyOwnerOnly(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{
+		{ID: "admin1", Username: "boss", Role: auth.RoleAdmin},
+		{ID: "u1", Username: "alice"},
+	}, nil)
+	seedOwnedWorkspace(t, f, "mine", "admin1")
+	seedOwnedWorkspace(t, f, "alices", "u1")
+	admin := Actor{ID: "admin1", Username: "boss", Role: string(auth.RoleAdmin)}
+
+	// Another user's workspace: same 404 as for a plain non-owner.
+	if _, err := f.workspace.Get(ctx, admin, "uid-alices"); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Fatalf("admin Get on another user's workspace must be not-found, got %v", err)
+	}
+	if _, err := f.workspace.SetPaused(ctx, admin, "uid-alices", true); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Fatalf("admin pause on another user's workspace must be not-found, got %v", err)
+	}
+	if err := f.workspace.Delete(ctx, admin, "uid-alices", true, false); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Fatalf("admin delete via the USER route must be not-found, got %v", err)
+	}
+
+	// Their own workspace keeps working — the role loses nothing there.
+	if _, err := f.workspace.Get(ctx, admin, "uid-mine"); err != nil {
+		t.Fatalf("admin Get on their own workspace: %v", err)
+	}
+	if _, err := f.workspace.SetPaused(ctx, admin, "uid-mine", true); err != nil {
+		t.Fatalf("admin pause on their own workspace: %v", err)
+	}
+}
+
+// TestAdminDeleteWorksAcrossOwners pins the fleet-delete path: asAdmin
+// skips the ownership check (the route middleware guarantees the role),
+// keepVolume=true never stamps the delete-home opt-in, and the audit
+// line records the real owner with via=admin.
+func TestAdminDeleteWorksAcrossOwners(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{
+		{ID: "admin1", Username: "boss", Role: auth.RoleAdmin},
+		{ID: "u1", Username: "alice"},
+	}, nil)
+	seedOwnedWorkspace(t, f, "alices", "u1")
+	admin := Actor{ID: "admin1", Username: "boss", Role: string(auth.RoleAdmin)}
+
+	if err := f.workspace.Delete(ctx, admin, "uid-alices", true, true); err != nil {
+		t.Fatalf("admin fleet delete: %v", err)
+	}
+	ws := &waasv1alpha1.Workspace{}
+	if err := f.kube.Get(ctx, client.ObjectKey{Namespace: testNS, Name: "alices"}, ws); err == nil {
+		// The fake client has no finalizer machinery: still present means
+		// the volume opt-in must NOT have been stamped.
+		if ws.Annotations[waasv1alpha1.AnnotationDeleteHome] == "true" {
+			t.Fatalf("fleet delete must never stamp the delete-home opt-in")
+		}
+	}
+	logs, _, err := f.auditSvc.List(ctx, repository.AuditFilter{Action: "workspace.deleted"}, 1, 10)
+	if err != nil || len(logs) != 1 {
+		t.Fatalf("expected one workspace.deleted audit line, got %d, %v", len(logs), err)
+	}
+	for _, want := range []string{"keepVolume=true", "owner=u1", "via=admin"} {
+		if !strings.Contains(logs[0].Detail, want) {
+			t.Fatalf("audit detail %q must contain %q", logs[0].Detail, want)
+		}
 	}
 }
 

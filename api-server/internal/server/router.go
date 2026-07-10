@@ -161,6 +161,12 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 					r.Get("/usage", h.Governance.AdminUsage)
 					r.Get("/groups", h.Governance.AdminKnownGroups)
 					r.Get("/remote-workspaces", h.RemoteWorkspaces.AdminList)
+					// Workspaces, fleet-wide: list + delete ONLY. The
+					// live-session actions (connect, pause, overrides,
+					// resize…) stay strictly owner-only — deliberately no
+					// admin route for them.
+					r.Get("/workspaces", h.Workspaces.AdminList)
+					r.Delete("/workspaces/{id}", h.Workspaces.AdminDelete)
 					// Retained volumes, fleet-wide; deletion is audited.
 					r.Get("/volumes", h.Workspaces.AdminListVolumes)
 					r.Delete("/volumes/{namespace}/{name}", h.Workspaces.AdminDeleteVolume)
