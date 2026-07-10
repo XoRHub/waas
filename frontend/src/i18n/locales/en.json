@@ -25,6 +25,11 @@
     "ssoFailed": "SSO login failed",
     "ssoCompleting": "Completing sign-in…"
   },
+  "paramField": {
+    "boolDefault": "Default ({{value}})",
+    "boolOn": "On",
+    "boolOff": "Off"
+  },
   "portal": {
     "title": "My workspaces",
     "empty": "You have no workspace yet. Ask your administrator to create one for you.",

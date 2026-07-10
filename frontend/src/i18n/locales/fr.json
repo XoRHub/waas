@@ -25,6 +25,11 @@
     "ssoFailed": "Échec de la connexion SSO",
     "ssoCompleting": "Connexion en cours…"
   },
+  "paramField": {
+    "boolDefault": "Défaut ({{value}})",
+    "boolOn": "Activé",
+    "boolOff": "Désactivé"
+  },
   "portal": {
     "title": "Mes espaces de travail",
     "empty": "Vous n'avez pas encore d'espace de travail. Demandez à votre administrateur d'en créer un.",
