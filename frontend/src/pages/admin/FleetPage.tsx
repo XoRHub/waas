@@ -7,7 +7,9 @@ import {
   useDeleteWorkspace,
   useWorkspaces,
 } from '@/hooks/useApi';
+import { useAuthStore } from '@/stores/authStore';
 import { StatusBadge } from '@/components/StatusBadge';
+import type { Workspace } from '@/types';
 
 export function FleetPage() {
   const { t } = useTranslation();
@@ -109,6 +111,15 @@ function WorkspacesFleet() {
   const { t } = useTranslation();
   const workspaces = useWorkspaces();
   const remove = useDeleteWorkspace();
+  const user = useAuthStore((s) => s.user);
+  const [view, setView] = useState<'mine' | 'byUser'>('mine');
+
+  const viewClass = (active: boolean) =>
+    `rounded-md px-3 py-1 text-sm ${
+      active
+        ? 'bg-slate-200 font-medium text-slate-800 dark:bg-slate-700 dark:text-slate-100'
+        : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700/50'
+    }`;
 
   if (workspaces.isPending) {
     return <p className="text-slate-500">{t('app.loading')}</p>;
@@ -120,13 +131,79 @@ function WorkspacesFleet() {
     return <p className="text-slate-500 dark:text-slate-400">{t('admin.fleetPage.empty')}</p>;
   }
 
+  const mine = workspaces.data.data.filter((ws) => ws.ownerId === user?.id);
+  const others = workspaces.data.data.filter((ws) => ws.ownerId !== user?.id);
+
+  // One group per owner, labelled by username (id fallback, same rule as
+  // RemoteFleet), sorted alphabetically on that label.
+  const byOwner = new Map<string, { label: string; items: Workspace[] }>();
+  for (const ws of others) {
+    const group = byOwner.get(ws.ownerId) ?? {
+      label: ws.ownerUsername || ws.ownerId,
+      items: [],
+    };
+    group.items.push(ws);
+    byOwner.set(ws.ownerId, group);
+  }
+  const groups = [...byOwner.entries()].sort((a, b) => a[1].label.localeCompare(b[1].label));
+
+  return (
+    <div className="space-y-3">
+      <nav className="flex gap-1">
+        <button className={viewClass(view === 'mine')} onClick={() => setView('mine')}>
+          {t('admin.fleetPage.myWorkspaces')}
+        </button>
+        <button className={viewClass(view === 'byUser')} onClick={() => setView('byUser')}>
+          {t('admin.fleetPage.byUser')}
+        </button>
+      </nav>
+      {view === 'mine' &&
+        (mine.length === 0 ? (
+          <p className="text-slate-500 dark:text-slate-400">{t('admin.fleetPage.myEmpty')}</p>
+        ) : (
+          <WorkspaceTable items={mine} remove={remove} />
+        ))}
+      {view === 'byUser' &&
+        (groups.length === 0 ? (
+          <p className="text-slate-500 dark:text-slate-400">{t('admin.fleetPage.byUserEmpty')}</p>
+        ) : (
+          groups.map(([ownerId, group]) => (
+            <details
+              key={ownerId}
+              open
+              className="rounded-xl bg-white shadow-sm dark:bg-slate-800"
+            >
+              <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-200">
+                {group.label}
+                <span className="ml-2 text-xs font-normal text-slate-400 dark:text-slate-500">
+                  {t('admin.fleetPage.workspaceCount', { count: group.items.length })}
+                </span>
+              </summary>
+              <WorkspaceTable items={group.items} remove={remove} />
+            </details>
+          ))
+        ))}
+    </div>
+  );
+}
+
+// Shared table for both fleet views. No owner column: in "mine" every row
+// belongs to the signed-in admin, in "by user" the group header already
+// names the owner — repeating it per row is pure noise.
+function WorkspaceTable({
+  items,
+  remove,
+}: {
+  items: Workspace[];
+  remove: ReturnType<typeof useDeleteWorkspace>;
+}) {
+  const { t } = useTranslation();
   return (
     <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-slate-800">
       <table className="w-full text-left text-sm">
         <thead className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400">
           <tr>
             <th className="px-4 py-3">{t('admin.fleetPage.workspace')}</th>
-            <th className="px-4 py-3">{t('admin.fleetPage.owner')}</th>
             <th className="px-4 py-3">{t('admin.fleetPage.template')}</th>
             <th className="px-4 py-3">{t('admin.fleetPage.namespace')}</th>
             <th className="px-4 py-3">{t('admin.fleetPage.phase')}</th>
@@ -135,13 +212,12 @@ function WorkspacesFleet() {
           </tr>
         </thead>
         <tbody className="text-slate-800 dark:text-slate-100">
-          {workspaces.data.data.map((ws) => (
+          {items.map((ws) => (
             <tr
               key={ws.id}
               className="border-b border-slate-100 last:border-0 dark:border-slate-700"
             >
               <td className="px-4 py-3 font-medium">{ws.displayName || ws.name}</td>
-              <td className="px-4 py-3 font-mono text-xs">{ws.ownerId}</td>
               <td className="px-4 py-3">{ws.templateRef}</td>
               {/* Resolved (frozen) workload namespace; empty = platform ns (legacy). */}
               <td className="px-4 py-3 font-mono text-xs">{ws.namespace || '—'}</td>

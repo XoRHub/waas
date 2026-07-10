@@ -9,7 +9,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/xorhub/waas/api-server/internal/k8s"
+	"github.com/xorhub/waas/api-server/internal/model"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/shared/auth"
 )
 
 // TestLegacyTemplateAlwaysExposesAConnection is the non-regression test
@@ -194,5 +196,71 @@ func TestResolveWorkloadName(t *testing.T) {
 	}
 	if got == "ws-old" {
 		t.Fatalf("legacy deployment name must not be reused, got %q", got)
+	}
+}
+
+// TestListResolvesOwnerUsernamesForAdmins pins the fleet-grouping
+// contract: admins get OwnerUsername resolved per row (best-effort — a
+// deleted owner leaves it empty without failing the List), non-admins
+// never pay the lookup since they only see their own workspaces.
+func TestListResolvesOwnerUsernamesForAdmins(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{
+		{ID: "admin1", Username: "boss", Role: auth.RoleAdmin},
+		{ID: "u1", Username: "alice"},
+	}, nil)
+
+	seed := func(name, owner string) {
+		ws := &waasv1alpha1.Workspace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: testNS,
+				Labels:    map[string]string{ownerLabel: owner},
+			},
+			Spec: waasv1alpha1.WorkspaceSpec{TemplateRef: "xfce", Owner: owner},
+		}
+		if err := f.kube.Create(ctx, ws); err != nil {
+			t.Fatalf("seeding workspace %s: %v", name, err)
+		}
+	}
+	seed("ws-admin", "admin1")
+	seed("ws-alice", "u1")
+	// Owner deleted from the DB after the CR was created.
+	seed("ws-orphan", "ghost")
+
+	admin := Actor{ID: "admin1", Username: "boss", Role: string(auth.RoleAdmin)}
+	rows, err := f.workspace.List(ctx, admin)
+	if err != nil {
+		t.Fatalf("admin List: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("admin must see all 3 workspaces, got %d", len(rows))
+	}
+	byName := map[string]model.Workspace{}
+	for _, ws := range rows {
+		byName[ws.Name] = ws
+	}
+	if got := byName["ws-alice"].OwnerUsername; got != "alice" {
+		t.Fatalf("ws-alice owner username: want %q, got %q", "alice", got)
+	}
+	if got := byName["ws-admin"].OwnerUsername; got != "boss" {
+		t.Fatalf("ws-admin owner username: want %q, got %q", "boss", got)
+	}
+	if got := byName["ws-orphan"].OwnerUsername; got != "" {
+		t.Fatalf("deleted owner must leave OwnerUsername empty, got %q", got)
+	}
+
+	// Non-admin: own rows only, no username enrichment (the caller knows
+	// their own name; skipping the lookup is deliberate).
+	alice := Actor{ID: "u1", Username: "alice", Role: "user"}
+	rows, err = f.workspace.List(ctx, alice)
+	if err != nil {
+		t.Fatalf("user List: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Name != "ws-alice" {
+		t.Fatalf("alice must see only her workspace, got %+v", rows)
+	}
+	if rows[0].OwnerUsername != "" {
+		t.Fatalf("non-admin rows must not carry OwnerUsername, got %q", rows[0].OwnerUsername)
 	}
 }

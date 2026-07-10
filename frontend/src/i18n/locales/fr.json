@@ -246,7 +246,13 @@
       "connected": "Connecté",
       "idle": "Inactif",
       "never": "Jamais",
-      "namespace": "Namespace"
+      "namespace": "Namespace",
+      "myWorkspaces": "Mes workspaces",
+      "byUser": "Par utilisateur",
+      "myEmpty": "Vous n'avez aucun workspace personnel.",
+      "byUserEmpty": "Aucun workspace appartenant à d'autres utilisateurs.",
+      "workspaceCount_one": "{{count}} workspace",
+      "workspaceCount_other": "{{count}} workspaces"
     },
     "templatesPage": {
       "new": "Nouveau modèle",

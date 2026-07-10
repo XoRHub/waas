@@ -190,6 +190,11 @@ export interface Workspace {
   displayName?: string;
   templateRef: string;
   ownerId: string;
+  /**
+   * OwnerUsername is resolved for admin listings only (the fleet view
+   * groups by owner); best-effort — empty when the owner is gone.
+   */
+  ownerUsername?: string;
   phase: string;
   os?: string;
   protocol?: string;

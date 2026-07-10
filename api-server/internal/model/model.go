@@ -171,17 +171,20 @@ type AuditLog struct {
 
 // Workspace is the API projection of a Workspace CR.
 type Workspace struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	DisplayName string    `json:"displayName,omitempty"`
-	TemplateRef string    `json:"templateRef"`
-	OwnerID     string    `json:"ownerId"`
-	Phase       string    `json:"phase"`
-	OS          string    `json:"os,omitempty"`
-	Protocol    string    `json:"protocol,omitempty"`
-	Paused      bool      `json:"paused"`
-	Message     string    `json:"message,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName,omitempty"`
+	TemplateRef string `json:"templateRef"`
+	OwnerID     string `json:"ownerId"`
+	// OwnerUsername is resolved for admin listings only (the fleet view
+	// groups by owner); best-effort — empty when the owner is gone.
+	OwnerUsername string    `json:"ownerUsername,omitempty"`
+	Phase         string    `json:"phase"`
+	OS            string    `json:"os,omitempty"`
+	Protocol      string    `json:"protocol,omitempty"`
+	Paused        bool      `json:"paused"`
+	Message       string    `json:"message,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
 	// Namespace is where the workloads run (empty = platform namespace)
 	// and WorkloadName the frozen Deployment/Service name — display-only.
 	Namespace    string `json:"namespace,omitempty"`

@@ -125,8 +125,9 @@ type ConnectResult struct {
 
 // List returns the caller's workspaces, or every workspace for admins.
 func (s *WorkspaceService) List(ctx context.Context, actor Actor) ([]model.Workspace, error) {
+	isAdmin := actor.Role == string(auth.RoleAdmin)
 	opts := []client.ListOption{client.InNamespace(s.namespace)}
-	if actor.Role != string(auth.RoleAdmin) {
+	if !isAdmin {
 		opts = append(opts, client.MatchingLabels{ownerLabel: actor.ID})
 	}
 	list := &waasv1alpha1.WorkspaceList{}
@@ -142,9 +143,25 @@ func (s *WorkspaceService) List(ctx context.Context, actor Actor) ([]model.Works
 			templates[tplList.Items[i].Name] = &tplList.Items[i]
 		}
 	}
+	// Owner usernames are resolved for admins only (the fleet view groups
+	// by owner); non-admins only ever see their own rows. Best-effort per
+	// owner, cached per request — a deleted owner just leaves the field
+	// empty, same as RemoteWorkspaceService.AdminList.
+	usernames := map[string]string{}
 	out := make([]model.Workspace, 0, len(list.Items))
 	for i := range list.Items {
-		out = append(out, workspaceToModel(&list.Items[i], templates[list.Items[i].Spec.TemplateRef]))
+		ws := workspaceToModel(&list.Items[i], templates[list.Items[i].Spec.TemplateRef])
+		if isAdmin {
+			name, ok := usernames[ws.OwnerID]
+			if !ok {
+				if u, err := s.users.FindByID(ctx, ws.OwnerID); err == nil {
+					name = u.Username
+				}
+				usernames[ws.OwnerID] = name
+			}
+			ws.OwnerUsername = name
+		}
+		out = append(out, ws)
 	}
 	return out, nil
 }
