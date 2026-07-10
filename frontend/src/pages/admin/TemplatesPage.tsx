@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { stringify as yamlStringify } from 'yaml';
 import {
   useDeleteTemplate,
@@ -29,6 +30,17 @@ function validateWorkload(value: unknown): YamlIssue[] {
     return [
       { line: 0, message: `kind: must be Deployment, StatefulSet or Pod (got "${String(kind)}")` },
     ];
+  }
+  return [];
+}
+
+// Shape-only check for kasmvncConfig: a mapping (or empty). The
+// clipboard-DLP key rejection stays webhook-only — its error message is
+// already explicit, no client-side duplicate.
+function validateKasmVNCConfig(value: unknown): YamlIssue[] {
+  if (value === undefined || value === null) return [];
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return [{ line: 0, message: i18n.t('admin.templatesPage.kasmvncConfigMustBeMapping') }];
   }
   return [];
 }
@@ -603,12 +615,11 @@ export function TemplateDialog({
               {t('admin.templatesPage.kasmvncConfigDocLink')}
             </a>
           </p>
-          <textarea
-            className={`${field} font-mono text-xs`}
+          <YamlEditor
             value={input.kasmvncConfig ?? ''}
-            onChange={(e) => set({ kasmvncConfig: e.target.value })}
+            onChange={(text) => set({ kasmvncConfig: text })}
             rows={8}
-            spellCheck={false}
+            validate={validateKasmVNCConfig}
             placeholder={t('admin.templatesPage.kasmvncConfigPlaceholder')}
           />
         </fieldset>

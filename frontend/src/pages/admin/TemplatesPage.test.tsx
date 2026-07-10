@@ -69,6 +69,16 @@ describe('TemplateDialog kasmvncConfig field', () => {
     const payload = calls[calls.length - 1][1];
     expect(payload.kasmvncConfig).toContain('level: info');
   });
+
+  it('flags a non-mapping config live in the YAML editor', async () => {
+    renderDialog(base('kasmvnc'));
+    const area = await screen.findByPlaceholderText(/resolution/);
+    // A sequence parses fine as YAML but is not a mapping.
+    await userEvent.type(area, '- item');
+    expect(
+      await screen.findByText(en.admin.templatesPage.kasmvncConfigMustBeMapping),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('kasmvncConfig i18n', () => {
@@ -79,6 +89,7 @@ describe('kasmvncConfig i18n', () => {
       expect(p.kasmvncConfigHint).toBeTruthy();
       expect(p.kasmvncConfigDocLink).toBeTruthy();
       expect(p.kasmvncConfigPlaceholder).toBeTruthy();
+      expect(p.kasmvncConfigMustBeMapping).toBeTruthy();
     }
   });
 });

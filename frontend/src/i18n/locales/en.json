@@ -260,6 +260,7 @@
       "kasmvncConfigHint": "Raw ~/.vnc/kasmvnc.yaml. Merged over the image's own defaults (unspecified keys keep the image default) and mounted read-only in the user's workspace. Clipboard copy/paste is derived from the WorkspacePolicy — those DLP keys are rejected here.",
       "kasmvncConfigDocLink": "KasmVNC configuration reference",
       "kasmvncConfigPlaceholder": "desktop:\n  resolution:\n    width: 1280\n    height: 720",
+      "kasmvncConfigMustBeMapping": "must be a YAML mapping (key: value pairs)",
       "empty": "No template yet.",
       "deleteConfirm": "Delete this template?",
       "edit": "Edit {{name}}",

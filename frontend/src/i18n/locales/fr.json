@@ -260,6 +260,7 @@
       "kasmvncConfigHint": "Contenu brut de ~/.vnc/kasmvnc.yaml. Fusionné par-dessus les défauts de l'image (les clés non renseignées gardent le défaut de l'image) et monté en lecture seule dans le workspace de l'utilisateur. Le copier/coller est dérivé de la WorkspacePolicy — ces clés DLP sont refusées ici.",
       "kasmvncConfigDocLink": "Référence de configuration KasmVNC",
       "kasmvncConfigPlaceholder": "desktop:\n  resolution:\n    width: 1280\n    height: 720",
+      "kasmvncConfigMustBeMapping": "doit être un mapping YAML (paires clé: valeur)",
       "empty": "Aucun modèle pour l'instant.",
       "deleteConfirm": "Supprimer ce modèle ?",
       "edit": "Modifier {{name}}",
