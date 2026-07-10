@@ -140,11 +140,14 @@ var registry = []Param{
 
 	// ---------------------------------------------------------------- rdp
 	{
-		// TierUI (was advanced): automatic window resize is one of the
-		// "simple mode" parameters the portal must offer directly.
+		// Kept for remote RDP workspaces, where guacd talks to a real
+		// external RDP server and this parameter drives guacd's native
+		// resize negotiation. In-cluster desktops never use it: WaaS
+		// resizes them by exec'ing waas-resize in the pod, a path that
+		// bypasses guacd entirely (docs/session-resize.md).
 		Name: "resize-method", Protocols: []string{"rdp"}, Kind: KindEnum,
 		Enum: []string{"display-update", "reconnect"}, Default: "display-update", Tier: TierUI,
-		Description: "How guacd propagates browser resizes to the RDP server (display-update = live resize).",
+		Description: "How guacd propagates resizes to a remote RDP server (display-update = live resize). No effect on in-cluster desktops, which WaaS resizes via pod exec.",
 	},
 	{
 		Name: "security", Protocols: []string{"rdp"}, Kind: KindEnum,

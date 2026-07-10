@@ -44,9 +44,38 @@ navigateur (ResizeObserver, débouncé ~500 ms)
   visible en review.
 - Audit : chaque resize effectif écrit `workspace.resized` (nom + mode).
 
-## Ce que ça ne règle pas
+## Pourquoi le PR #469 de guacamole-server n'est pas pertinent ici
 
-`resize-method` (registre RDP, tier ui) reste inerte au sens
-guacd/RDP : le vrai mécanisme le contourne complètement. Le garder, le
-retirer ou le reformuler est un arbitrage produit — voir la note en fin
-d'implémentation (étude protocol-feature-matrix, écart #2).
+Le PR #469 (guacd 1.6) ajoute la négociation native guacd↔serveur VNC
+d'un resize serveur-initié. Notre guacd est déjà en 1.6
+(`helm/waas/values.yaml`), mais ce chemin n'est **ni utilisé ni
+nécessaire** : le resize WaaS passe par pod-exec (schéma ci-dessus),
+qui fonctionne identiquement pour VNC et RDP puisque les deux tournent
+sur le même Xvnc dans les images WaaS (RDP = pont xrdp vers ce Xvnc).
+Il n'y a donc rien à « activer » côté guacd pour amener VNC au niveau
+de RDP — c'est déjà symétrique, indépendamment de la version de guacd.
+Implémenter le natif #469 *en plus* (latence moindre qu'un exec, ou
+scénarios sans exec possible) serait un chantier séparé, non entamé.
+
+## Sort de `resize-method` (arbitrage 2026-07-10 : conservé)
+
+`resize-method` (registre RDP, tier ui) reste inerte pour les bureaux
+in-cluster : le mécanisme pod-exec le contourne complètement. Il est
+**conservé** parce que pour les *remote workspaces* RDP, guacd parle à
+un vrai serveur RDP externe et ce paramètre pilote alors la
+négociation native de guacd. Sa description dans le registre
+(`operator/pkg/params/params.go`) dit désormais explicitement cette
+frontière.
+
+## Versions guacd / guacamole-common-js
+
+guacd est en 1.6.0 ; le frontend reste sur `guacamole-common-js@^1.5.0`
+**volontairement** : Apache ne publie pas cette lib sur npm — le paquet
+`guacamole-common-js` comme `@glokon/guacamole-common-js` (seul miroir
+en 1.6.x) sont des miroirs tiers, et on refuse d'introduire une source
+non-Apache dans la chaîne d'approvisionnement du frontend. L'API
+consommée (`DesktopPane.tsx` : Tunnel/Client/Mouse/Keyboard/Streams)
+est stable entre 1.5 et 1.6 et guacd 1.6 reste compatible avec les
+clients 1.5. Si l'alignement devient nécessaire, la voie acceptable est
+de vendorer le build officiel Apache (Maven Central
+`org.apache.guacamole:guacamole-common-js`).

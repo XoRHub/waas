@@ -59,7 +59,7 @@ parameters at connect time.
 | `disable-copy` | ui | bool |  | false | yes | Block copying FROM the remote desktop to the local clipboard. Enforced by the wwt proxy, live-toggleable. |
 | `disable-paste` | ui | bool |  | false | yes | Block pasting FROM the local clipboard to the remote desktop. Enforced by the wwt proxy, live-toggleable. |
 | `read-only` | ui | bool |  | false |  | View-only session: display without mouse/keyboard input. |
-| `resize-method` | ui | enum | display-update, reconnect | display-update |  | How guacd propagates browser resizes to the RDP server (display-update = live resize). |
+| `resize-method` | ui | enum | display-update, reconnect | display-update |  | How guacd propagates resizes to a remote RDP server (display-update = live resize). No effect on in-cluster desktops, which WaaS resizes via pod exec. |
 | `server-layout` | ui | enum | en-us-qwerty, en-gb-qwerty, cs-cz-qwertz, da-dk-qwerty, de-ch-qwertz, de-de-qwertz, es-es-qwerty, es-latam-qwerty, fr-be-azerty, fr-ca-qwerty, fr-ch-qwertz, fr-fr-azerty, hu-hu-qwertz, it-it-qwerty, ja-jp-qwerty, nl-nl-qwerty, no-no-qwerty, pl-pl-qwertz, pt-br-qwerty, pt-pt-qwerty, ro-ro-qwerty, sv-se-qwerty, tr-tr-qwerty, failsafe | en-us-qwerty |  | Keyboard layout the RDP server expects. Left unset, the platform auto-detects it from the browser locale (failsafe sends Unicode events). |
 | `client-name` | advanced | string |  |  |  | Client hostname announced to the RDP server (some session brokers key on it). |
 | `console` | advanced | bool |  | false |  | Attach to the console (admin) session instead of a new one. |
