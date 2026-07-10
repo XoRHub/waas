@@ -1,8 +1,23 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ParamMeta } from '@/types';
 
 const fieldClass =
   'mt-0.5 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white';
+
+/**
+ * Usual values offered by the hybrid dropdown of non-enum parameters that
+ * document a guacd default (see DefaultingField). Display-side sugar only:
+ * the registry stays the contract, and anything typed under "Custom…" is
+ * still validated server-side against kind/min/max. The parameter's own
+ * default is filtered out — it is already the "(default: X)" option.
+ */
+const SUGGESTED_VALUES: Record<string, string[]> = {
+  'font-size': ['10', '12', '14', '16', '18', '24'],
+  scrollback: ['1000', '5000', '10000', '100000'],
+  backspace: ['127', '8'],
+  'terminal-type': ['linux', 'xterm', 'xterm-256color', 'vt100', 'screen'],
+};
 
 /**
  * Tri-state segmented control for KindBool. A binary toggle cannot say
@@ -51,12 +66,84 @@ function BoolField({
   );
 }
 
+/** Sentinel select value for the free-input branch of DefaultingField —
+ * never sent to the backend, only "" or a real value is. */
+const CUSTOM = '__custom__';
+
+/**
+ * Hybrid dropdown for non-enum params that document a default: the
+ * default is an explicitly selectable "(default: X)" option (same model
+ * as enum/bool), a few usual values (SUGGESTED_VALUES) follow, and
+ * "Custom…" reveals the native text/number input (keeping min/max and
+ * the numeric keyboard). Chosen over <datalist>, whose rendering on
+ * type=number is inconsistent across browsers and which cannot express
+ * "empty = inherit the default" as a pickable option.
+ */
+function DefaultingField({
+  meta,
+  value,
+  onChange,
+  disabled,
+}: {
+  meta: ParamMeta;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation();
+  const suggestions = (SUGGESTED_VALUES[meta.name] ?? []).filter((v) => v !== meta.default);
+  // Sticky: once in custom mode, clearing the input (value "") must not
+  // snap the select back to the default option mid-typing.
+  const [customMode, setCustomMode] = useState(false);
+  const isCustom = customMode || (value !== '' && !suggestions.includes(value));
+  return (
+    <>
+      <select
+        className={fieldClass}
+        value={isCustom ? CUSTOM : value}
+        disabled={disabled}
+        onChange={(e) => {
+          if (e.target.value === CUSTOM) {
+            setCustomMode(true);
+          } else {
+            setCustomMode(false);
+            onChange(e.target.value);
+          }
+        }}
+      >
+        <option value="">{t('paramField.defaultOption', { value: meta.default })}</option>
+        {suggestions.map((v) => (
+          <option key={v} value={v}>
+            {v}
+          </option>
+        ))}
+        <option value={CUSTOM}>{t('paramField.custom')}</option>
+      </select>
+      {isCustom && (
+        <input
+          type={meta.kind === 'int' ? 'number' : 'text'}
+          className={fieldClass}
+          value={value}
+          min={meta.min}
+          max={meta.max}
+          placeholder={meta.default}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          aria-label={t('paramField.customValue', { name: meta.name })}
+        />
+      )}
+    </>
+  );
+}
+
 /**
  * One guacd parameter input, rendered from the platform registry entry
  * (GET /api/v1/meta/protocols). Kind → widget mapping:
  *   enum → select with the default as first, empty-valued option;
  *   bool → tri-state segmented control (BoolField — empty = guacd default);
- *   int → number input, string → text input.
+ *   int/string WITH a default → hybrid dropdown (DefaultingField — the
+ *     default is a real option, "Custom…" opens the free input);
+ *   int/string without one → native number/text input.
  * Every form that touches guacd params goes through this component, so a
  * new registry entry needs zero form code — and a widget change here
  * lands on every screen (connection settings, create dialogs, template
@@ -96,6 +183,11 @@ export function ParamField({
       case 'bool':
         return <BoolField meta={meta} value={value} onChange={onChange} disabled={disabled} />;
       case 'int':
+        if (meta.default) {
+          return (
+            <DefaultingField meta={meta} value={value} onChange={onChange} disabled={disabled} />
+          );
+        }
         return (
           <input
             type="number"
@@ -109,6 +201,11 @@ export function ParamField({
           />
         );
       default:
+        if (meta.default) {
+          return (
+            <DefaultingField meta={meta} value={value} onChange={onChange} disabled={disabled} />
+          );
+        }
         return (
           <input
             className={fieldClass}

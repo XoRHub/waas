@@ -28,7 +28,10 @@
   "paramField": {
     "boolDefault": "Défaut ({{value}})",
     "boolOn": "Activé",
-    "boolOff": "Désactivé"
+    "boolOff": "Désactivé",
+    "defaultOption": "(défaut : {{value}})",
+    "custom": "Personnalisé…",
+    "customValue": "Valeur personnalisée pour {{name}}"
   },
   "portal": {
     "title": "Mes espaces de travail",

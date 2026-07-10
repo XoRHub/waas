@@ -28,7 +28,10 @@
   "paramField": {
     "boolDefault": "Default ({{value}})",
     "boolOn": "On",
-    "boolOff": "Off"
+    "boolOff": "Off",
+    "defaultOption": "(default: {{value}})",
+    "custom": "Custom…",
+    "customValue": "Custom value for {{name}}"
   },
   "portal": {
     "title": "My workspaces",
