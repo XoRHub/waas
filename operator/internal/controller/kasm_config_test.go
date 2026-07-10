@@ -8,9 +8,198 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/yaml"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
+
+// nestedBool reads a nested boolean out of a kasmvnc.yaml document, failing
+// the test when the path is absent or the leaf is not a bool.
+func nestedBool(t *testing.T, content string, keys ...string) bool {
+	t.Helper()
+	root := map[string]any{}
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+		t.Fatalf("parsing effective kasmvnc config: %v\n%s", err, content)
+	}
+	var cur any = root
+	for _, k := range keys {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			t.Fatalf("path %v missing at %q in:\n%s", keys, k, content)
+		}
+		cur, ok = m[k]
+		if !ok {
+			t.Fatalf("path %v missing key %q in:\n%s", keys, k, content)
+		}
+	}
+	b, ok := cur.(bool)
+	if !ok {
+		t.Fatalf("path %v is not a bool (%T) in:\n%s", keys, cur, content)
+	}
+	return b
+}
+
+func clipboardEnabled(t *testing.T, content string) (copyEnabled, pasteEnabled, clientOverride bool) {
+	t.Helper()
+	return nestedBool(t, content, "data_loss_prevention", "clipboard", "server_to_client", "enabled"),
+		nestedBool(t, content, "data_loss_prevention", "clipboard", "client_to_server", "enabled"),
+		nestedBool(t, content, "runtime_configuration", "allow_client_to_override_kasm_server_settings")
+}
+
+// TestKasmClipboardPolicyEnforcement is the unit-level contract of the
+// merge: the policy decision lands on the DLP directives regardless of
+// what the admin's opaque config said, the client override is always
+// forced off, and unrelated admin directives survive.
+func TestKasmClipboardPolicyEnforcement(t *testing.T) {
+	// Admin config that (naively) tries to enable clipboard and let the
+	// client override the server — a denying policy must win over both.
+	admin := "" +
+		"desktop:\n  resolution:\n    width: 1024\n" +
+		"data_loss_prevention:\n  clipboard:\n" +
+		"    server_to_client:\n      enabled: true\n" +
+		"    client_to_server:\n      enabled: true\n" +
+		"runtime_configuration:\n  allow_client_to_override_kasm_server_settings: true\n"
+
+	deny, err := applyClipboardPolicy(admin, false, false)
+	if err != nil {
+		t.Fatalf("applyClipboardPolicy(deny): %v", err)
+	}
+	copyE, pasteE, override := clipboardEnabled(t, deny)
+	if copyE || pasteE {
+		t.Fatalf("denying policy must disable clipboard, got copy=%v paste=%v", copyE, pasteE)
+	}
+	if override {
+		t.Fatal("client override must be forced off so the DLP directives take effect")
+	}
+	// Unrelated admin directive preserved.
+	if got := nestedFloat(t, deny, "desktop", "resolution", "width"); got != 1024 {
+		t.Fatalf("admin directive must survive the merge, got width=%v", got)
+	}
+
+	// Asymmetric grant: copy allowed, paste denied.
+	mixed, err := applyClipboardPolicy(admin, true, false)
+	if err != nil {
+		t.Fatalf("applyClipboardPolicy(mixed): %v", err)
+	}
+	copyE, pasteE, override = clipboardEnabled(t, mixed)
+	if !copyE || pasteE || override {
+		t.Fatalf("expected copy=true paste=false override=false, got %v/%v/%v", copyE, pasteE, override)
+	}
+
+	// Empty admin config still yields a complete enforcement document.
+	empty, err := applyClipboardPolicy("", true, true)
+	if err != nil {
+		t.Fatalf("applyClipboardPolicy(empty): %v", err)
+	}
+	copyE, pasteE, override = clipboardEnabled(t, empty)
+	if !copyE || !pasteE || override {
+		t.Fatalf("allowing policy over empty config: got copy=%v paste=%v override=%v", copyE, pasteE, override)
+	}
+}
+
+func nestedFloat(t *testing.T, content string, keys ...string) float64 {
+	t.Helper()
+	root := map[string]any{}
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	var cur any = root
+	for _, k := range keys {
+		cur = cur.(map[string]any)[k]
+	}
+	f, ok := cur.(float64)
+	if !ok {
+		t.Fatalf("path %v not a number (%T)", keys, cur)
+	}
+	return f
+}
+
+// TestKasmConfigDeniesClipboardWithoutPolicy verifies the fail-closed
+// reconcile path: no matching policy → clipboard off in the materialized
+// ConfigMap, and the pod carries the config hash (rollout trigger).
+func TestKasmConfigDeniesClipboardWithoutPolicy(t *testing.T) {
+	tpl := kasmTemplate()
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+	r, c := newFixture(t, tpl, ws)
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+
+	cm := &corev1.ConfigMap{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, cm); err != nil {
+		t.Fatalf("expected the kasmvnc ConfigMap even without admin config: %v", err)
+	}
+	copyE, pasteE, override := clipboardEnabled(t, cm.Data[kasmConfigKey])
+	if copyE || pasteE || override {
+		t.Fatalf("no policy must fail closed: copy=%v paste=%v override=%v", copyE, pasteE, override)
+	}
+
+	dep := &appsv1.Deployment{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatal(err)
+	}
+	if dep.Spec.Template.Annotations[annotationKasmConfigHash] == "" {
+		t.Fatal("expected the config hash on the pod template")
+	}
+}
+
+// TestKasmConfigHashMatchesConfigMap guards the duplication between the
+// two independent call sites that both compute the effective content:
+// ensureKasmConfig writes it into the ConfigMap, buildPodTemplate hashes
+// it onto the pod. If they ever diverge (different merge order, key
+// sorting, layers), the pod would carry a hash that doesn't match the
+// mounted file and the rollout signal would be wrong. They must agree for
+// the same inputs, with and without an admin override.
+func TestKasmConfigHashMatchesConfigMap(t *testing.T) {
+	for _, admin := range []string{"", "desktop:\n  resolution:\n    width: 1600\n"} {
+		tpl := kasmTemplate()
+		tpl.Spec.KasmVNCConfig = admin
+		ws := workspace()
+		ws.Spec.TemplateRef = "kasm-firefox"
+		r, c := newFixture(t, tpl, ws)
+		ctx := context.Background()
+
+		reconcile(t, r, ws)
+
+		cm := &corev1.ConfigMap{}
+		if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, cm); err != nil {
+			t.Fatalf("admin=%q: %v", admin, err)
+		}
+		dep := &appsv1.Deployment{}
+		if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+			t.Fatalf("admin=%q: %v", admin, err)
+		}
+		want := kasmConfigHash(cm.Data[kasmConfigKey])
+		if got := dep.Spec.Template.Annotations[annotationKasmConfigHash]; got != want {
+			t.Fatalf("admin=%q: pod hash %q != hash of mounted config %q — call sites diverged", admin, got, want)
+		}
+	}
+}
+
+// TestKasmConfigAbsentForNonKasmWorkspace: a guacd template must not get a
+// kasmvnc.yaml ConfigMap or mount.
+func TestKasmConfigAbsentForNonKasmWorkspace(t *testing.T) {
+	ws := workspace() // default template is the guacd xfce one
+	r, c := newFixture(t, linuxTemplate(), ws)
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+
+	cm := &corev1.ConfigMap{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, cm); err == nil {
+		t.Fatal("a non-kasmvnc workspace must not get a kasmvnc ConfigMap")
+	}
+	dep := &appsv1.Deployment{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		if v.Name == kasmConfigVolume {
+			t.Fatal("non-kasmvnc workspace must not mount a kasmvnc config")
+		}
+	}
+}
 
 func TestKasmConfigBoundaryConvergence(t *testing.T) {
 	tpl := kasmTemplate()
@@ -26,9 +215,11 @@ func TestKasmConfigBoundaryConvergence(t *testing.T) {
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, cm); err != nil {
 		t.Fatalf("expected the kasmvnc ConfigMap: %v", err)
 	}
-	if cm.Data[kasmConfigKey] != tpl.Spec.KasmVNCConfig {
-		t.Fatalf("ConfigMap must carry the template content verbatim, got %q", cm.Data[kasmConfigKey])
+	// Effective content = admin directive + policy clipboard enforcement.
+	if got := nestedFloat(t, cm.Data[kasmConfigKey], "desktop", "resolution", "width"); got != 1024 {
+		t.Fatalf("ConfigMap must carry the admin directive, got width=%v", got)
 	}
+	clipboardEnabled(t, cm.Data[kasmConfigKey]) // asserts the DLP block exists
 
 	dep := &appsv1.Deployment{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
@@ -73,8 +264,8 @@ func TestKasmConfigBoundaryConvergence(t *testing.T) {
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, cm); err != nil {
 		t.Fatal(err)
 	}
-	if cm.Data[kasmConfigKey] != tpl.Spec.KasmVNCConfig {
-		t.Fatal("ConfigMap must follow the template content")
+	if got := nestedFloat(t, cm.Data[kasmConfigKey], "desktop", "resolution", "width"); got != 2560 {
+		t.Fatalf("ConfigMap must follow the admin directive, got width=%v", got)
 	}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
 		t.Fatal(err)
@@ -113,21 +304,40 @@ func TestKasmConfigBoundaryConvergence(t *testing.T) {
 		t.Fatalf("expected TemplateDrifted=False after convergence, got %+v", cond)
 	}
 
-	// Field cleared while down: the ConfigMap goes away, the mount drops.
+	// Admin field cleared while down: the ConfigMap STAYS (clipboard
+	// enforcement is policy-driven, not admin-driven) but drops the admin
+	// directive; the mount stays too.
 	tpl.Spec.KasmVNCConfig = ""
 	if err := c.Update(ctx, tpl); err != nil {
 		t.Fatal(err)
 	}
 	reconcile(t, r, ws)
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, cm); err == nil {
-		t.Fatal("cleared field must delete the ConfigMap")
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, cm); err != nil {
+		t.Fatal("clearing the admin field must NOT delete the enforcement ConfigMap")
 	}
+	if _, ok := parseYAML(t, cm.Data[kasmConfigKey])["desktop"]; ok {
+		t.Fatal("cleared admin field must drop the admin directive")
+	}
+	clipboardEnabled(t, cm.Data[kasmConfigKey]) // enforcement still present
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
 		t.Fatal(err)
 	}
+	found := false
 	for _, v := range dep.Spec.Template.Spec.Volumes {
 		if v.Name == kasmConfigVolume {
-			t.Fatal("cleared field must drop the volume")
+			found = true
 		}
 	}
+	if !found {
+		t.Fatal("kasmvnc workspace must keep the config mount for clipboard enforcement")
+	}
+}
+
+func parseYAML(t *testing.T, content string) map[string]any {
+	t.Helper()
+	root := map[string]any{}
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	return root
 }

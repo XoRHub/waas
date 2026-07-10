@@ -252,6 +252,10 @@
       "image": "Image",
       "homeSize": "Taille du home",
       "description": "Description",
+      "kasmvncConfig": "Configuration KasmVNC",
+      "kasmvncConfigHint": "Contenu brut de ~/.vnc/kasmvnc.yaml. Fusionné par-dessus les défauts de l'image (les clés non renseignées gardent le défaut de l'image) et monté en lecture seule dans le workspace de l'utilisateur. Le copier/coller est dérivé de la WorkspacePolicy — ces clés DLP sont refusées ici.",
+      "kasmvncConfigDocLink": "Référence de configuration KasmVNC",
+      "kasmvncConfigPlaceholder": "desktop:\n  resolution:\n    width: 1280\n    height: 720",
       "empty": "Aucun modèle pour l'instant.",
       "deleteConfirm": "Supprimer ce modèle ?",
       "edit": "Modifier {{name}}",
@@ -370,6 +374,7 @@
     "clipboardCopy": "Copier depuis le workspace",
     "clipboardPaste": "Coller vers le workspace",
     "deniedByPolicy": "Refusé par votre policy",
+    "clipboardAllowed": "Autorisé",
     "protocolParams": "Paramètres {{protocol}}",
     "applyReconnect": "Appliquer et reconnecter",
     "reconnectHint": "Ces paramètres sont figés à la connexion par guacd : appliquer reconnecte la session.",
@@ -384,7 +389,7 @@
     "clipboardSendPlaceholder": "Texte à envoyer au presse-papiers du workspace…",
     "clipboardSend": "Envoyer au workspace",
     "clipboardInsecureHint": "Sans HTTPS, le navigateur bloque la synchronisation automatique : utilisez Ctrl+V dans la session pour coller, et cet échange manuel pour récupérer une copie.",
-    "clipboardKasmvnc": "Le presse-papiers de cette session est géré par le client KasmVNC lui-même et n'est pas gouverné par la policy WaaS."
+    "clipboardKasmvnc": "Presse-papiers KasmVNC natif, appliqué dans le conteneur d'après votre policy — non modifiable à chaud pendant la session."
   },
   "schedule": {
     "title": "Planning (uptime / downtime)",

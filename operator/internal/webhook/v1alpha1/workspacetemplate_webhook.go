@@ -3,12 +3,14 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/metakeys"
 	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/params"
@@ -92,6 +94,22 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 	// honest refusal beats a silently ignored field.
 	if tpl.Spec.KasmVNCConfig != "" && !seen[string(waasv1alpha1.ProtocolKasmVNC)] {
 		return nil, v.deny(tpl, "kasmvncConfig requires a kasmvnc protocol entry")
+	}
+	// The operator derives the clipboard DLP directives from
+	// WorkspacePolicy.Clipboard and stamps them over kasmvncConfig at
+	// reconcile (see controller.applyClipboardPolicy). Directives an admin
+	// writes here for those exact keys would be silently overwritten — same
+	// "silently ignored field" trap, so refuse them and point at the policy.
+	// Other clipboard sub-keys (size, allow_mimetypes, delay, primary) are
+	// left to the admin and untouched.
+	if tpl.Spec.KasmVNCConfig != "" {
+		if bad, err := kasmcfg.PolicyManagedClipboardKeys(tpl.Spec.KasmVNCConfig); err != nil {
+			return nil, v.deny(tpl, fmt.Sprintf("kasmvncConfig is %v", err))
+		} else if len(bad) > 0 {
+			return nil, v.deny(tpl, fmt.Sprintf(
+				"kasmvncConfig must not set %s: clipboard enforcement is derived from WorkspacePolicy.Clipboard, not the template",
+				strings.Join(bad, ", ")))
+		}
 	}
 	if s := tpl.Spec.Schedule; s != nil {
 		if err := (schedule.Spec{Timezone: s.Timezone, Uptime: s.Uptime, Downtime: s.Downtime}).Validate(); err != nil {

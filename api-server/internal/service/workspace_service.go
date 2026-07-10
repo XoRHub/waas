@@ -596,8 +596,15 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 		return nil, fmt.Errorf("recording session: %w", err)
 	}
 
-	// Clipboard rights come from the CONNECTING user's policy and travel
-	// inside the token: wwt enforces them without ever calling back.
+	// Clipboard rights come from the CONNECTING user's policy. On guacd
+	// protocols they travel inside the token and wwt enforces them per
+	// tunnel (disable-copy/disable-paste). On kasmvnc there is no guacd
+	// tunnel: the operator bakes the same policy decision into the
+	// container's kasmvnc.yaml (data_loss_prevention), so the grant here is
+	// only reported as capabilities for the overlay — the container is what
+	// actually enforces it. The two agree on personal kasmvnc workspaces
+	// (owner == connecting user); the operator follows the workspace owner
+	// because container-level DLP is one-per-workload.
 	clipboard := s.clipboardGrant(ctx, actor)
 	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, string(ws.UID), clipboard, s.connectionTTL))
 	if err != nil {

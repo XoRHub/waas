@@ -28,12 +28,15 @@ const workspace = (protocol: string): Workspace => ({
   protocols: [{ name: protocol, default: true }],
 });
 
-const renderOverlay = async (protocol: string) => {
+const renderOverlay = async (
+  protocol: string,
+  capabilities = { clipboardCopy: true, clipboardPaste: true },
+) => {
   signIn({ username: 'marc' });
   renderWithProviders(
     <SessionOverlay
       workspace={workspace(protocol)}
-      capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+      capabilities={capabilities}
       pane={createRef<DesktopPaneHandle>()}
     />,
   );
@@ -49,15 +52,22 @@ describe('SessionOverlay clipboard section by protocol', () => {
     expect(screen.getByText('Manual exchange')).toBeInTheDocument();
   });
 
-  it('hides the inoperative controls on kasmvnc and says why', async () => {
-    // The kasm path bypasses the guac tunnel: toggles and manual
-    // exchange would be silent no-ops (its clipboard lives inside the
-    // KasmVNC iframe, outside the WaaS policy).
-    await renderOverlay('kasmvnc');
+  it('shows the enforced clipboard state read-only on kasmvnc', async () => {
+    // The kasm path bypasses the guac tunnel: the clipboard is enforced
+    // in the container from the policy, so the overlay reflects that state
+    // read-only (no live toggle, no manual exchange), reading straight
+    // from capabilities.
+    await renderOverlay('kasmvnc', { clipboardCopy: true, clipboardPaste: false });
 
-    expect(screen.queryByText('Copy from workspace')).toBeNull();
-    expect(screen.queryByText('Paste to workspace')).toBeNull();
+    // Labels shown, but as status — not interactive checkboxes.
+    expect(screen.getByText('Copy from workspace')).toBeInTheDocument();
+    expect(screen.getByText('Paste to workspace')).toBeInTheDocument();
     expect(screen.queryByText('Manual exchange')).toBeNull();
-    expect(screen.getByText(/handled by the KasmVNC client/i)).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+
+    // Truthful per-direction status from capabilities.
+    expect(screen.getByText('Allowed')).toBeInTheDocument();
+    expect(screen.getByText('Denied by your policy')).toBeInTheDocument();
+    expect(screen.getByText(/Native KasmVNC clipboard/i)).toBeInTheDocument();
   });
 });

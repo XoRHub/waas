@@ -324,16 +324,32 @@ type WorkspaceTemplateSpec struct {
 	// +kubebuilder:validation:Pattern=`^/[^\0]+[^/\0]$`
 	HomeMountPath string `json:"homeMountPath,omitempty"`
 
-	// KasmVNCConfig is the raw content of the user-level KasmVNC
-	// configuration, materialized read-only at
-	// <homeMountPath>/.vnc/kasmvnc.yaml (a per-workspace ConfigMap
-	// mounted with subPath — the .vnc directory itself stays writable
-	// for the runtime artifacts KasmVNC generates there). The string is
-	// DELIBERATELY opaque: the operator neither parses nor validates it,
-	// so every upstream option works without schema churn. Templates are
-	// admin-managed CRs — this is admin-only surface; note it can loosen
-	// security-relevant settings (require_ssl, auth file paths), which
-	// is the admin's call. Empty = no mount, the image default applies.
+	// KasmVNCConfig is the admin's user-level KasmVNC configuration,
+	// materialized read-only at <homeMountPath>/.vnc/kasmvnc.yaml (a
+	// per-workspace ConfigMap mounted with subPath — the .vnc directory
+	// itself stays writable for the runtime artifacts KasmVNC generates
+	// there). The string is opaque to the operator EXCEPT for the
+	// clipboard DLP keys, which are derived from WorkspacePolicy.Clipboard
+	// and stamped over it at reconcile (the webhook rejects an admin who
+	// writes those keys directly — see applyClipboardPolicy and
+	// policyManagedClipboardKeys). Every other upstream option passes
+	// through unparsed, so no schema churn.
+	//
+	// This is admin-only surface (templates are admin-managed CRs); note
+	// it can loosen security-relevant settings (require_ssl, auth file
+	// paths), which is the admin's call.
+	//
+	// Unspecified keys are NOT lost: KasmVNC deep-merges this user file
+	// over the image's own defaults (/usr/share/kasmvnc/kasmvnc_defaults.yaml
+	// < /etc/kasmvnc/kasmvnc.yaml < ~/.vnc/kasmvnc.yaml), so a value set
+	// here overrides the image default for that key and everything else
+	// falls back to the image default — WaaS does NOT re-bake those
+	// defaults (that would freeze them against future image versions).
+	// Empty still yields a mount for a kasmvnc template (it carries the
+	// policy clipboard block); the mount is unconditional, not gated on
+	// this field. Reference for valid keys:
+	// https://kasmweb.com/kasmvnc/docs/latest/configuration.html
+	//
 	// Only meaningful with the kasmvnc protocol; the webhook rejects it
 	// elsewhere.
 	// +optional

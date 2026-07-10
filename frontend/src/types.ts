@@ -149,6 +149,7 @@ export interface WorkspaceTemplate {
   image: string;
   port?: number;
   homeSize?: string;
+  kasmvncConfig?: string;
   storageClassName?: string;
   requests?: Record<string, string>;
   limits?: Record<string, string>;

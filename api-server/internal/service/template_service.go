@@ -18,6 +18,7 @@ import (
 	"github.com/xorhub/waas/api-server/internal/apierror"
 	"github.com/xorhub/waas/api-server/internal/model"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/metakeys"
 	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/params"
@@ -278,6 +279,30 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 			if p.Port == waasv1alpha1.PulseAudioPort {
 				return nil, apierror.BadRequest(fmt.Sprintf("protocols[%s].port: %d collides with the exposed PulseAudio port", p.Name, waasv1alpha1.PulseAudioPort))
 			}
+		}
+	}
+
+	// kasmvncConfig gates, same as the admission webhook but with a clean
+	// 400 and the reason — an admission denial would otherwise reach the
+	// admin as a wrapped 500. The clipboard DLP keys are policy-owned; the
+	// managed-key list is shared with the webhook (operator/pkg/kasmcfg).
+	if in.KasmVNCConfig != "" {
+		hasKasm := false
+		for _, p := range spec.Protocols {
+			if p.Name == string(waasv1alpha1.ProtocolKasmVNC) {
+				hasKasm = true
+				break
+			}
+		}
+		if !hasKasm {
+			return nil, apierror.BadRequest("kasmvncConfig requires a kasmvnc protocol entry")
+		}
+		if bad, err := kasmcfg.PolicyManagedClipboardKeys(in.KasmVNCConfig); err != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("kasmvncConfig is %v", err))
+		} else if len(bad) > 0 {
+			return nil, apierror.BadRequest(fmt.Sprintf(
+				"kasmvncConfig must not set %s: clipboard enforcement is derived from WorkspacePolicy.Clipboard, not the template",
+				strings.Join(bad, ", ")))
 		}
 	}
 

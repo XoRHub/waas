@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
@@ -215,6 +216,62 @@ func TestRejectsNonKasmSessions(t *testing.T) {
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("upstream must not be touched for wrong-protocol sessions; got %d hits", hits.Load())
+	}
+}
+
+func TestBlocksDownloadsAPI(t *testing.T) {
+	upstream, hits := newFakeKasmVNC(t)
+	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	token := connectionToken(t, signer, "sess-1")
+	// Prime the session cookie the way the iframe's first hit does.
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	resp, err := client.Get(server.URL + "/kasm/sess-1/vnc.html?token=" + token)
+	if err != nil {
+		t.Fatalf("priming GET: %v", err)
+	}
+	resp.Body.Close()
+	priming := hits.Load()
+
+	// Every shape of the downloads path — listing, subdirectory, and the
+	// normalization tricks (case, trailing slash, dot, double slash) —
+	// must be refused, and the workspace container must never be reached.
+	for _, p := range []string{
+		"/api/downloads",
+		"/api/downloads/",
+		"/api/downloads?path=sub",
+		"/api/downloads/secret.txt",
+		"/API/Downloads",
+		"/api/./downloads",
+		"/api//downloads",
+	} {
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1"+p, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", p, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for %q, got %d", p, resp.StatusCode)
+		}
+	}
+	if hits.Load() != priming {
+		t.Fatalf("downloads API must never reach upstream; %d extra hits", hits.Load()-priming)
+	}
+
+	// A sibling /api endpoint must still proxy: the block is scoped to
+	// downloads, not the whole API surface.
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1/api/get_screenshot", nil)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("GET get_screenshot: %v", err)
+	}
+	body := readAll(t, resp)
+	if resp.StatusCode != http.StatusOK || body != "KASM_PAGE /api/get_screenshot" {
+		t.Fatalf("expected sibling /api endpoint to proxy, got %d %q", resp.StatusCode, body)
 	}
 }
 

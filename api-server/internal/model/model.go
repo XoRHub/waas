@@ -304,7 +304,11 @@ type WorkspaceTemplate struct {
 	// HomeMountPath is where the home volume is mounted (default
 	// /home/user; kasmweb images expect /home/kasm-user).
 	HomeMountPath string `json:"homeMountPath,omitempty"`
-	// KasmVNCConfig is the opaque ~/.vnc/kasmvnc.yaml content.
+	// KasmVNCConfig is the admin's ~/.vnc/kasmvnc.yaml content, merged
+	// key-by-key over the image's own defaults by KasmVNC (unspecified
+	// keys inherit the image default) and mounted read-only in the
+	// workspace. The clipboard DLP keys are policy-owned and rejected
+	// here — see https://kasmweb.com/kasmvnc/docs/latest/configuration.html
 	KasmVNCConfig string            `json:"kasmvncConfig,omitempty"`
 	Requests      map[string]string `json:"requests,omitempty"`
 	Limits        map[string]string `json:"limits,omitempty"`

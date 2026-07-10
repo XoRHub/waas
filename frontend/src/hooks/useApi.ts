@@ -348,6 +348,10 @@ export interface TemplateInput {
   os: string;
   image: string;
   homeSize?: string;
+  // Raw ~/.vnc/kasmvnc.yaml override; only meaningful with a kasmvnc
+  // protocol (the webhook enforces that). Clipboard DLP keys are
+  // policy-owned and rejected server-side.
+  kasmvncConfig?: string;
   storageClassName?: string;
   requests?: Record<string, string>;
   limits?: Record<string, string>;

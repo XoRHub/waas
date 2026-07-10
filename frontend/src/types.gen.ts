@@ -354,7 +354,11 @@ export interface WorkspaceTemplate {
    */
   homeMountPath?: string;
   /**
-   * KasmVNCConfig is the opaque ~/.vnc/kasmvnc.yaml content.
+   * KasmVNCConfig is the admin's ~/.vnc/kasmvnc.yaml content, merged
+   * key-by-key over the image's own defaults by KasmVNC (unspecified
+   * keys inherit the image default) and mounted read-only in the
+   * workspace. The clipboard DLP keys are policy-owned and rejected
+   * here — see https://kasmweb.com/kasmvnc/docs/latest/configuration.html
    */
   kasmvncConfig?: string;
   requests?: { [key: string]: string };

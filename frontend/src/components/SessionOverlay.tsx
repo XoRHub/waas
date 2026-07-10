@@ -250,10 +250,26 @@ export function SessionOverlay({
             </h4>
             {protocol === 'kasmvnc' ? (
               /* KasmVNC sessions bypass the guac tunnel: the clipboard
-                 lives inside the KasmVNC iframe, so the live toggles and
-                 the manual exchange would be silent no-ops. Honest
-                 display over dead controls. */
-              <p className="text-[11px] text-slate-500">{t('overlay.clipboardKasmvnc')}</p>
+                 lives inside the KasmVNC container, enforced there from the
+                 policy (data_loss_prevention in kasmvnc.yaml). wwt cannot
+                 flip it live, so we show the enforced state read-only
+                 instead of dead toggles — read straight from capabilities
+                 so it can never drift from what the container enforces. */
+              <div className="space-y-1.5">
+                <ClipboardStatus
+                  label={t('overlay.clipboardCopy')}
+                  allowed={capabilities?.clipboardCopy ?? false}
+                  allowedText={t('overlay.clipboardAllowed')}
+                  deniedText={t('overlay.deniedByPolicy')}
+                />
+                <ClipboardStatus
+                  label={t('overlay.clipboardPaste')}
+                  allowed={capabilities?.clipboardPaste ?? false}
+                  allowedText={t('overlay.clipboardAllowed')}
+                  deniedText={t('overlay.deniedByPolicy')}
+                />
+                <p className="text-[11px] text-slate-500">{t('overlay.clipboardKasmvnc')}</p>
+              </div>
             ) : (
               <>
                 <OverlayToggle
@@ -360,6 +376,38 @@ export function SessionOverlay({
         </div>
       )}
     </>
+  );
+}
+
+// ClipboardStatus renders a read-only allowed/blocked line — for the
+// kasmvnc path, where the container enforces the clipboard and there is no
+// live toggle to flip. Same visual grammar as OverlayToggle (🔒 + dimming)
+// minus the checkbox.
+function ClipboardStatus({
+  label,
+  allowed,
+  allowedText,
+  deniedText,
+}: {
+  label: string;
+  allowed: boolean;
+  allowedText: string;
+  deniedText: string;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-2 rounded-md bg-slate-800/60 px-3 py-1.5 ${
+        allowed ? '' : 'opacity-50'
+      }`}
+    >
+      <span className="flex items-center gap-1.5">
+        {label}
+        {!allowed && <span className="text-xs">🔒</span>}
+      </span>
+      <span className={`text-[11px] ${allowed ? 'text-emerald-300' : 'text-slate-400'}`}>
+        {allowed ? allowedText : deniedText}
+      </span>
+    </div>
   );
 }
 

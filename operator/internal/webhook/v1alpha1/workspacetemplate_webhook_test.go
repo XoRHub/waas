@@ -123,6 +123,45 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 			"",
 		},
 		{
+			// The operator owns the clipboard enable flags — an admin who
+			// sets them here would be silently overridden, so refuse.
+			"kasmvncConfig setting a policy-managed clipboard key",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
+				tpl.Spec.KasmVNCConfig = "data_loss_prevention:\n  clipboard:\n    server_to_client:\n      enabled: true\n"
+				return tpl
+			}(),
+			"derived from WorkspacePolicy.Clipboard",
+		},
+		{
+			// Non-managed clipboard sub-keys stay the admin's to tune.
+			"kasmvncConfig with only unmanaged clipboard sub-keys",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
+				tpl.Spec.KasmVNCConfig = "data_loss_prevention:\n  clipboard:\n    server_to_client:\n      size: unlimited\n"
+				return tpl
+			}(),
+			"",
+		},
+		{
+			"kasmvncConfig with the client-override flag",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
+				tpl.Spec.KasmVNCConfig = "runtime_configuration:\n  allow_client_to_override_kasm_server_settings: true\n"
+				return tpl
+			}(),
+			"derived from WorkspacePolicy.Clipboard",
+		},
+		{
+			"kasmvncConfig with invalid YAML",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
+				tpl.Spec.KasmVNCConfig = "data_loss_prevention: [unterminated\n"
+				return tpl
+			}(),
+			"not valid YAML",
+		},
+		{
 			"kasmvnc on windows",
 			func() *waasv1alpha1.WorkspaceTemplate {
 				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})

@@ -91,10 +91,19 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 		MountPath: tpl.Spec.EffectiveHomeMountPath(),
 	}}, mergeVolumeMounts(wl.VolumeMounts, ov.VolumeMounts)...)
 
-	// Opaque user-level KasmVNC config: single-file subPath mount ON TOP
-	// of the home volume — the .vnc directory itself stays writable for
-	// the runtime artifacts KasmVNC drops there (self.pem).
-	if tpl.Spec.KasmVNCConfig != "" {
+	// Effective KasmVNC config (admin template + policy clipboard
+	// enforcement), mounted as a single-file subPath ON TOP of the home
+	// volume — the .vnc directory itself stays writable for the runtime
+	// artifacts KasmVNC drops there (self.pem). For a kasmvnc workspace
+	// this is always non-empty (it carries at least the DLP block);
+	// applyClipboardPolicy's only error path is invalid admin YAML, which
+	// ensureKasmConfig already rejected earlier this reconcile.
+	kasmConfig := ""
+	if templateHasKasmVNC(tpl) {
+		copyAllowed, pasteAllowed := r.kasmClipboardGrant(ctx, ws)
+		kasmConfig, _ = applyClipboardPolicy(tpl.Spec.KasmVNCConfig, copyAllowed, pasteAllowed)
+	}
+	if kasmConfig != "" {
 		volumes = append(volumes, corev1.Volume{
 			Name: kasmConfigVolume,
 			VolumeSource: corev1.VolumeSource{
@@ -124,12 +133,13 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	labels, annotations := workloadMeta(ws, tpl)
 	// The kasmvnc config is content OUTSIDE the pod spec (a ConfigMap):
 	// its hash rides the annotations so the generic fingerprint below
-	// covers config edits too.
-	if tpl.Spec.KasmVNCConfig != "" {
+	// covers config edits AND policy-driven clipboard changes (a policy
+	// edit changes the effective content and thus rolls the workload).
+	if kasmConfig != "" {
 		if annotations == nil {
 			annotations = map[string]string{}
 		}
-		annotations[annotationKasmConfigHash] = kasmConfigHash(tpl.Spec.KasmVNCConfig)
+		annotations[annotationKasmConfigHash] = kasmConfigHash(kasmConfig)
 	}
 	built := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
