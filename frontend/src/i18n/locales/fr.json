@@ -379,7 +379,8 @@
     "clipboardCopyLocal": "Copier",
     "clipboardSendPlaceholder": "Texte à envoyer au presse-papiers du workspace…",
     "clipboardSend": "Envoyer au workspace",
-    "clipboardInsecureHint": "Sans HTTPS, le navigateur bloque la synchronisation automatique : utilisez Ctrl+V dans la session pour coller, et cet échange manuel pour récupérer une copie."
+    "clipboardInsecureHint": "Sans HTTPS, le navigateur bloque la synchronisation automatique : utilisez Ctrl+V dans la session pour coller, et cet échange manuel pour récupérer une copie.",
+    "clipboardKasmvnc": "Le presse-papiers de cette session est géré par le client KasmVNC lui-même et n'est pas gouverné par la policy WaaS."
   },
   "schedule": {
     "title": "Planning (uptime / downtime)",

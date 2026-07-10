@@ -379,7 +379,8 @@
     "clipboardCopyLocal": "Copy",
     "clipboardSendPlaceholder": "Text to send to the workspace clipboard…",
     "clipboardSend": "Send to workspace",
-    "clipboardInsecureHint": "Without HTTPS the browser blocks automatic sync: use Ctrl+V inside the session to paste, and this manual exchange to fetch a copy."
+    "clipboardInsecureHint": "Without HTTPS the browser blocks automatic sync: use Ctrl+V inside the session to paste, and this manual exchange to fetch a copy.",
+    "clipboardKasmvnc": "This session's clipboard is handled by the KasmVNC client itself and is not governed by the WaaS policy."
   },
   "schedule": {
     "title": "Schedule (uptime / downtime)",
