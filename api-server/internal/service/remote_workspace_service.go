@@ -158,6 +158,22 @@ func (s *RemoteWorkspaceService) requireFeature(ctx context.Context, actor Actor
 	return nil
 }
 
+// validateRemoteProtocolName gates which protocols a remote workspace may
+// declare or connect with: every registry protocol except kasmvnc.
+// KasmVNC is in-cluster only — the wwt reverse-proxy targets a KasmVNC
+// server co-located in the cluster, and the "external machine" semantics
+// have no kasm equivalent (never exercised, not documented, not tested).
+func validateRemoteProtocolName(name string) error {
+	if name == "kasmvnc" {
+		return apierror.BadRequest("kasmvnc is not supported for remote workspaces")
+	}
+	if !slices.Contains(params.Protocols(), name) {
+		allowed := slices.DeleteFunc(slices.Clone(params.Protocols()), func(p string) bool { return p == "kasmvnc" })
+		return apierror.BadRequest(fmt.Sprintf("protocol must be one of %v", allowed))
+	}
+	return nil
+}
+
 // normalizeRemoteProtocols validates the endpoint list and returns the
 // canonical form: the legacy single-protocol input becomes a one-entry
 // list, exactly one entry is default (the first when none is marked),
@@ -171,8 +187,8 @@ func normalizeRemoteProtocols(in RemoteWorkspaceInput) ([]model.RemoteProtocol, 
 	seen := map[string]bool{}
 	defaults := 0
 	for _, e := range entries {
-		if !slices.Contains(params.Protocols(), e.Name) {
-			return nil, apierror.BadRequest(fmt.Sprintf("protocol must be one of %v", params.Protocols()))
+		if err := validateRemoteProtocolName(e.Name); err != nil {
+			return nil, err
 		}
 		if seen[e.Name] {
 			return nil, apierror.BadRequest(fmt.Sprintf("protocol %q is declared twice", e.Name))
@@ -391,6 +407,10 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 			return nil, apierror.BadRequest(fmt.Sprintf("protocol %q is not declared by this remote workspace", in.Protocol))
 		}
 		entry = *chosen
+	}
+	// Entries stored before the kasmvnc ban stay rejected at connect time.
+	if err := validateRemoteProtocolName(entry.Name); err != nil {
+		return nil, err
 	}
 	// Connect-time tweaks go through the same registry gate as the stored
 	// params; the owner registered the machine, so no template allow-list

@@ -268,48 +268,67 @@ func TestRemoteWorkspaceLifecycleAndConnection(t *testing.T) {
 	}
 }
 
-// kasmvnc remotes: the registry accepts the protocol, rejects every
-// guacd param for it (none is registered — fail-closed), and the
-// resolver defaults the Basic username to the kasmweb images' fixed
-// "kasm_user" while the password still comes from the Secret.
-func TestRemoteKasmvncWorkspace(t *testing.T) {
+// kasmvnc is in-cluster only: registering or connecting a remote
+// workspace with it must fail with an explicit 400. The wwt kasm
+// reverse-proxy targets a KasmVNC server co-located in the cluster;
+// the "external machine" semantics were never verified live and are
+// deliberately unsupported.
+func TestRemoteKasmvncRejected(t *testing.T) {
 	ctx := context.Background()
 	f := newRemoteFixture(t, []model.User{{ID: "u1", Username: "u1"}},
 		[]waasv1alpha1.WorkspacePolicy{remotePolicy(true)})
 	actor := Actor{ID: "u1", Username: "u1", Role: "user"}
 
-	// kasmvnc has no guacd parameters: any param must be rejected.
+	// Legacy single-protocol input.
 	if _, err := f.remote.Create(ctx, actor, RemoteWorkspaceInput{
-		Name: "bad", Hostname: "h", Port: 6901, Protocol: "kasmvnc",
-		Params: map[string]string{"color-scheme": "green-black"},
+		Name: "kasm-box", Hostname: "192.168.1.60", Port: 6901, Protocol: "kasmvnc",
 	}); !apierror.IsBadRequest(err) {
-		t.Fatalf("guacd params must be rejected on kasmvnc, got %v", err)
+		t.Fatalf("kasmvnc remote must be rejected, got %v", err)
 	}
 
+	// Multi-endpoint input: one kasmvnc entry poisons the whole list.
+	if _, err := f.remote.Create(ctx, actor, RemoteWorkspaceInput{
+		Name: "mixed", Hostname: "192.168.1.60",
+		Protocols: []RemoteProtocolInput{
+			{Name: "ssh", Port: 22, Default: true},
+			{Name: "kasmvnc", Port: 6901},
+		},
+	}); !apierror.IsBadRequest(err) {
+		t.Fatalf("kasmvnc endpoint must be rejected, got %v", err)
+	}
+
+	// Update of an existing remote cannot sneak kasmvnc in either.
 	rw, err := f.remote.Create(ctx, actor, RemoteWorkspaceInput{
-		Name: "kasm-box", Hostname: "192.168.1.60", Port: 6901, Protocol: "kasmvnc",
-		Credentials: &RemoteCredentialsInput{Password: strp("vnc-pw-1")},
+		Name: "lab", Hostname: "192.168.1.60", Port: 22, Protocol: "ssh",
 	})
 	if err != nil {
-		t.Fatalf("creating kasmvnc remote: %v", err)
+		t.Fatalf("creating ssh remote: %v", err)
+	}
+	if _, err := f.remote.Update(ctx, actor, rw.ID, RemoteWorkspaceInput{
+		Name: "lab", Hostname: "192.168.1.60", Port: 6901, Protocol: "kasmvnc",
+	}); !apierror.IsBadRequest(err) {
+		t.Fatalf("kasmvnc update must be rejected, got %v", err)
 	}
 
-	res, err := f.remote.Connect(ctx, actor, rw.ID, ConnectInput{})
-	if err != nil {
-		t.Fatalf("connecting: %v", err)
+	// Rows stored before the ban (or written around the service) are
+	// still refused at connect time, both as the default endpoint and
+	// as an explicit protocol choice.
+	now := time.Now().UTC()
+	legacy := &model.RemoteWorkspace{
+		ID: "legacy-kasm", OwnerID: actor.ID, Name: "legacy-kasm",
+		Hostname: "192.168.1.61", SecretName: "waas-remote-legacy-kasm",
+		Protocols: []model.RemoteProtocol{{Name: "kasmvnc", Port: 6901, Default: true}},
+		Protocol:  "kasmvnc", Port: 6901,
+		CreatedAt: now, UpdatedAt: now,
 	}
-	if res.Protocol != "kasmvnc" {
-		t.Fatalf("expected a kasmvnc session, got %+v", res)
+	if err := f.remotes.Create(ctx, legacy); err != nil {
+		t.Fatalf("seeding legacy kasmvnc row: %v", err)
 	}
-	info, err := f.workspace.ConnectionInfo(ctx, res.SessionID)
-	if err != nil {
-		t.Fatalf("resolving connection info: %v", err)
+	if _, err := f.remote.Connect(ctx, actor, legacy.ID, ConnectInput{}); !apierror.IsBadRequest(err) {
+		t.Fatalf("connect to legacy kasmvnc default must be rejected, got %v", err)
 	}
-	if info.Protocol != "kasmvnc" || info.Hostname != "192.168.1.60" || info.Port != 6901 {
-		t.Fatalf("target mismatch: %+v", info)
-	}
-	if info.Username != "kasm_user" || info.Password != "vnc-pw-1" {
-		t.Fatalf("expected the defaulted kasm_user + secret password, got %+v", info)
+	if _, err := f.remote.Connect(ctx, actor, legacy.ID, ConnectInput{Protocol: "kasmvnc"}); !apierror.IsBadRequest(err) {
+		t.Fatalf("explicit kasmvnc connect must be rejected, got %v", err)
 	}
 }
 

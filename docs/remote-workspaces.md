@@ -5,6 +5,12 @@ enregistre des machines **extérieures au cluster** (hôte, port, protocole
 ssh/vnc/rdp, identifiants) et s'y connecte via la même chaîne
 frontend → wwt → guacd que les workspaces provisionnés.
 
+Seuls les protocoles guacd (ssh/vnc/rdp) sont acceptés : **kasmvnc est
+refusé explicitement** (400 à l'enregistrement comme au connect). Le
+reverse-proxy kasm de wwt cible un serveur KasmVNC co-localisé dans le
+cluster ; la sémantique « machine externe » n'a pas d'équivalent kasm et
+n'a jamais été vérifiée en session réelle.
+
 ## Modèle de données (délibérément séparé)
 
 | Aspect | Workspace provisionné | Remote workspace |
