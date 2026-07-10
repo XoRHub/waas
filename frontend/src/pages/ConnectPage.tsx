@@ -214,9 +214,15 @@ function DesktopView({
   return (
     <div className="relative h-screen bg-black">
       {state === 'connected' && (
-        <div className="group absolute inset-x-0 top-0 z-10 flex justify-center">
-          <div className="absolute top-0 h-2 w-40 rounded-b-md bg-white/20 transition group-hover:opacity-0" />
-          <div className="-translate-y-full rounded-b-lg bg-slate-900/90 px-4 py-2 text-sm text-white shadow-lg backdrop-blur transition-transform duration-200 group-hover:translate-y-0">
+        // pointer-events-none on the wrapper: it spans the full viewport
+        // width and its hit-box is NOT shrunk by the label's
+        // translateY(-100%), so without it the whole top band would swallow
+        // clicks meant for the remote desktop (e.g. the XFCE Applications
+        // menu, top-left). Only the pull-tab and the label re-enable
+        // pointer events.
+        <div className="group pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center">
+          <div className="pointer-events-auto absolute top-0 h-2 w-40 rounded-b-md bg-white/20 transition group-hover:opacity-0" />
+          <div className="pointer-events-auto -translate-y-full rounded-b-lg bg-slate-900/90 px-4 py-2 text-sm text-white shadow-lg backdrop-blur transition-transform duration-200 group-hover:translate-y-0">
             <button onClick={leave} className="font-medium text-blue-400 hover:text-blue-300">
               {t('connect.leave')}
             </button>
