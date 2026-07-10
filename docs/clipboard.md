@@ -62,9 +62,12 @@ Réalité par protocole (côté bureau, images `waas-images`) :
 
 - **VNC** : chemin recommandé — Xvnc gère le cut-buffer nativement, les
   deux sens fonctionnent.
-- **RDP** : xrdp sans sesman (backend libvnc) ne monte pas toujours le
-  canal cliprdr — limitation d'image documentée depuis waas-images ; le
-  filtre wwt s'applique de la même façon quand le canal existe.
+- **RDP** : fonctionne, **texte uniquement** — le backend libvnc de
+  xrdp embarque son propre pont cliprdr ↔ cut-text RFB
+  (`vnc/vnc_clip.c`), sans chansrv. Vérifié en session réelle contre
+  guacd 1.5.5 dans les deux sens (2026-07). Les formats non-texte
+  (fichiers, images) ne passent pas ; le filtre wwt s'applique à
+  l'identique.
 - **SSH** : le terminal est rendu par guacd, qui possède son propre
   presse-papiers de terminal — les deux sens passent par les mêmes
   streams guac, mêmes règles.

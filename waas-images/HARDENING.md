@@ -88,9 +88,26 @@ self-signed one.
 
 - `/etc/machine-id` is identical across containers of one image (baked
   for read-only dbus); not used as identity by anything shipped.
-- RDP path has no chansrv → no clipboard/audio over RDP (the VNC path
-  has clipboard via vncconfig and audio via the PulseAudio stream
-  above). VNC is the recommended Linux protocol.
+- RDP clipboard: **works, text-only, without chansrv** — xrdp's libvnc
+  backend embeds its own cliprdr handler (`vnc/vnc_clip.c`) bridging
+  the RDP clipboard to the RFB cut-text that Xvnc/vncconfig already
+  serve. Verified live against guacd 1.5.5, both directions, on this
+  image (2026-07); the wwt policy filter applies unchanged. Non-text
+  formats (files, images) are not bridged.
+- RDP audio: still not shipped — and the blocker is NOT sesman/PAM.
+  Investigated on xrdp 0.9.24 / Ubuntu 24.04: chansrv runs fine
+  without sesman (`chansrvport=DISPLAY(n)` in the xrdp.ini session
+  section), as UID 1000, without PAM, and the xrdp package ships zero
+  setuid/setgid binaries — none of that would regress this checklist.
+  What is missing is the sound-server side: chansrv's audio needs an
+  xrdp sink module inside the audio server, and Ubuntu 24.04 only
+  packages `pipewire-module-xrdp` (PipeWire) — this image runs
+  PulseAudio (see "Enforced at runtime"). Shipping RDP audio therefore
+  means either migrating the image's audio stack to PipeWire
+  (pipewire-pulse could keep serving guacd's VNC stream) or compiling
+  `pulseaudio-module-xrdp` from source (supply-chain + maintenance
+  cost). Deliberately deferred; revisit if the audio stack moves to
+  PipeWire. VNC remains the recommended Linux protocol.
 - Firefox's *internal* process sandbox degrades in the container
   (`CanCreateUserNamespace: EPERM`): unprivileged user namespaces are
   blocked by the seccomp/caps profile. Deliberate: the pod (non-root,

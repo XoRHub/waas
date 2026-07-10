@@ -69,9 +69,14 @@ channel doesn't push browser resizes; wiring wwt → `waas-resize` is the
 clean future fix. Audio ships over VNC: an unprivileged PulseAudio (null
 sink, native protocol on tcp:4713) that guacd streams when the session
 sets `enable-audio` (see HARDENING.md for its network boundary).
-RDP-clipboard and RDP-audio are not shipped (no chansrv on the
-sesman-less RDP path) — VNC is the recommended protocol for Linux, RDP
-is a compatibility option.
+RDP-clipboard works text-only — xrdp's libvnc backend bridges cliprdr to
+RFB cut-text itself, no chansrv involved (verified live against guacd,
+both directions). RDP-audio is not shipped: chansrv would run fine
+without sesman/PAM/root, but its sound path needs an xrdp module inside
+the audio server and Ubuntu only packages the PipeWire variant
+(`pipewire-module-xrdp`) while this image runs PulseAudio — see
+HARDENING.md § Known gaps. VNC is the recommended protocol for Linux,
+RDP is a compatibility option.
 
 ## Build matrix & tagging
 
