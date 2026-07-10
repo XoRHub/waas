@@ -158,6 +158,14 @@ export const DesktopPane = forwardRef<
         const q = new URLSearchParams({
           autoconnect: '1',
           resize: 'remote',
+          // Embedded (iframe) KasmVNC defaults clipboard_up/down/seamless
+          // to OFF when show_control_bar is absent, killing copy-paste in
+          // both directions. Enable them client-side; the kasmvnc.yaml DLP
+          // keys stamped from WorkspacePolicy remain the enforcement that
+          // actually blocks a denied direction in the container.
+          clipboard_up: '1',
+          clipboard_down: '1',
+          clipboard_seamless: '1',
           path: `kasm/${result.sessionId}/websockify`,
           token: result.connectionToken,
         });
