@@ -240,8 +240,13 @@ export const DesktopPane = forwardRef<
       };
       sendClipboardRef.current = sendClipboardText;
 
-      // Ctrl+V in the pane: works in every context (no Clipboard API
-      // needed) — the browser hands us the pasted text directly.
+      // DOM paste event: a safety net only — it does NOT fire on a real
+      // Ctrl+V in the pane, because Guacamole.Keyboard preventDefaults
+      // every keydown it relays, which suppresses the browser's native
+      // paste action (verified live). Letting Ctrl+V's default through
+      // would race the relayed keystroke against the clipboard stream and
+      // paste stale content. Seamless local→remote is the focus sync
+      // below; without it, the overlay's manual exchange is the fallback.
       const onPaste = (e: ClipboardEvent) => {
         const text = e.clipboardData?.getData('text/plain');
         if (text) sendClipboardText(text, true);

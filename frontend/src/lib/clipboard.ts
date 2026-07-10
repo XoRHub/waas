@@ -8,11 +8,13 @@
 //
 // Browser reality the callers must work with:
 //  - navigator.clipboard only exists in secure contexts (HTTPS or
-//    localhost). Plain-HTTP deployments still get clipboard through the
-//    `paste` DOM event (local→remote) and the overlay's manual exchange
-//    (remote→local).
+//    localhost). Plain-HTTP deployments are limited to the overlay's
+//    manual exchange in BOTH directions: the `paste` DOM event is no way
+//    out, since Guacamole.Keyboard preventDefaults the Ctrl+V keydown and
+//    the native paste action never runs (verified live — the dev env
+//    serves HTTPS on :8443 for this reason).
 //  - Firefox exposes writeText but not readText: remote→local is
-//    seamless, local→remote needs the paste event (Ctrl+V in the pane).
+//    seamless, local→remote is the overlay's manual exchange.
 
 /** True when the async Clipboard API is available (secure context). */
 export function hasClipboardApi(): boolean {

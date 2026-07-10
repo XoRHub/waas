@@ -181,7 +181,8 @@ dev-logs:
 	kubectl -n $(DEV_NAMESPACE) logs -f deploy/waas-$(C)
 
 dev-url:
-	@echo "==> http://waas.127.0.0.1.nip.io:8080  (admin / admin123)"
+	@echo "==> https://waas.127.0.0.1.nip.io:8443  (admin / admin123) — self-signed cert, accept the warning once; required for seamless clipboard"
+	@echo "==> http://waas.127.0.0.1.nip.io:8080   (same login) — smoke tests; no seamless clipboard (not a secure context)"
 
 # Per-protocol connection gate (delivery criterion): creates a workspace
 # for each protocol, waits readiness and establishes a REAL guacd session

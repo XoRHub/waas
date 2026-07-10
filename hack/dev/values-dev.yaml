@@ -6,14 +6,21 @@ image:
   pullPolicy: Never
 
 # Traefik ships with k3s/k3d by default; no ingress-nginx install needed.
-# TLS is off here — cert-manager (installed in make dev-up) is only there
-# for the operator's self-signed webhook certificate, which the chart wires
-# up on its own regardless of public ingress TLS.
+# TLS reuses the self-signed Issuer the chart already creates for the
+# operator's admission webhook ({{ .Release.Name }}-selfsigned, gated by
+# operator.webhook.enabled which stays on in dev — the operator needs it).
+# Self-signed on purpose: accept the browser warning once, no trust-store
+# install. HTTPS exists because the seamless clipboard bridge requires a
+# secure context (navigator.clipboard is absent on http://…nip.io); the
+# HTTP router keeps working — smoke tests stay on port 8080.
 ingress:
   className: traefik
   host: waas.127.0.0.1.nip.io
   tls:
-    enabled: false
+    enabled: true
+    issuerRef:
+      kind: Issuer
+      name: waas-selfsigned
 
 apiServer:
   # Fixed for dev convenience instead of grepping the generated one from logs.
