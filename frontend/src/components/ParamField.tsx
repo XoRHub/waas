@@ -150,6 +150,10 @@ function DefaultingField({
  * editor, session overlay) at once, deliberately: a bool means the same
  * thing everywhere. The value contract is untouched everywhere: "" means
  * "inherit the default", anything else is sent verbatim.
+ *
+ * Fields render independently of each other: any cross-field conditional
+ * lives one level up, in ProtocolParamsForm (today only the audio-port
+ * section gated by enable-audio — see audioEnabled in ProtocolTabs.tsx).
  */
 export function ParamField({
   meta,

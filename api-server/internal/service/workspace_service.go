@@ -927,6 +927,7 @@ func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTem
 		for i := range m.Protocols {
 			if entry := tpl.Spec.ProtocolNamed(m.Protocols[i].Name); entry != nil {
 				m.Protocols[i].UserParams = entry.UserParams
+				m.Protocols[i].ExposeAudioPort = entry.ExposeAudioPort
 			}
 		}
 		// Effective schedule: the workspace override wins over the

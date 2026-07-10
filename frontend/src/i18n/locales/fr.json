@@ -398,7 +398,11 @@
     "remove": "Retirer {{protocol}}",
     "removeConfirm": "Retirer le protocole {{protocol}} et ses paramètres ?",
     "lastProtocol": "Impossible de retirer le dernier protocole",
-    "locked": "Protocole imposé par le template"
+    "locked": "Protocole imposé par le template",
+    "exposeAudioPort": "Exposer le port audio (4713)",
+    "exposeAudioPortHint": "Ouvre le port PulseAudio du workspace sur le pod et son Service (interne au cluster uniquement) pour que guacd puisse réellement diffuser l'audio.",
+    "audioPortExposed": "Le template expose le port audio (4713) : l'audio peut être diffusé.",
+    "audioPortMissing": "Le template n'expose pas le port audio (4713) — l'audio ne fonctionnera pas tant qu'un admin ne l'active pas sur le template."
   },
   "volumes": {
     "tab": "Volumes",

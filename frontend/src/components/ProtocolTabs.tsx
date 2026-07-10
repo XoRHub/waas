@@ -153,6 +153,21 @@ export function ProtocolTabs({
 }
 
 /**
+ * True when the form's enable-audio resolves to true: the user/admin
+ * value wins, an unset value ("" = inherit) falls back to the template's
+ * locked value (placeholders). Exported for its unit tests.
+ */
+export function audioEnabled(
+  protocol: string,
+  values: Record<string, string>,
+  placeholders?: Record<string, string>,
+): boolean {
+  if (protocol !== 'vnc') return false;
+  const value = values['enable-audio'] ?? '';
+  return value !== '' ? value === 'true' : placeholders?.['enable-audio'] === 'true';
+}
+
+/**
  * The registry-driven parameter form of ONE protocol: simple tier always,
  * advanced tier behind the shared toggle, values re-validated server-side.
  * Shared between the connection-settings dialog (instance context: the
@@ -169,6 +184,8 @@ export function ProtocolParamsForm({
   placeholders,
   columns = 2,
   renderParamExtra,
+  audioPortExposed,
+  onAudioPortChange,
 }: {
   meta: ProtocolMeta[] | undefined;
   protocol: string;
@@ -180,11 +197,27 @@ export function ProtocolParamsForm({
   placeholders?: Record<string, string>;
   columns?: 1 | 2;
   renderParamExtra?: (param: ParamMeta) => ReactNode;
+  /** Whether the template exposes the PulseAudio port (4713). */
+  audioPortExposed?: boolean;
+  /**
+   * Template editor only: makes the audio-port section an editable
+   * checkbox driving the CR's exposeAudioPort. Absent (user dialogs),
+   * the section is a read-only status — users cannot mutate the
+   * template, they get told whether audio can actually stream.
+   */
+  onAudioPortChange?: (exposed: boolean) => void;
 }) {
   const { t } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const { simple, advanced } = tieredParams(meta, protocol, allowList);
   const fields = showAdvanced ? [...simple, ...advanced] : simple;
+  // First cross-field conditional rendering in the param forms: the
+  // audio-port section only exists while enable-audio resolves to true.
+  // Deliberately a hardcoded `enable-audio && <section>` — one registry
+  // param gating one CR field — NOT a generic inter-field dependency
+  // mechanism; revisit if the param grouping work (Feature 7) surfaces
+  // more of these.
+  const showAudioPort = audioEnabled(protocol, values, placeholders);
 
   return (
     <div className="space-y-3">
@@ -204,6 +237,31 @@ export function ProtocolParamsForm({
       ) : (
         <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.noTunableParams')}</p>
       )}
+      {showAudioPort &&
+        (onAudioPortChange ? (
+          <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={audioPortExposed ?? false}
+              onChange={(e) => onAudioPortChange(e.target.checked)}
+            />
+            <span>
+              {t('protocolTabs.exposeAudioPort')}
+              <span className="block text-xs text-slate-400 dark:text-slate-500">
+                {t('protocolTabs.exposeAudioPortHint')}
+              </span>
+            </span>
+          </label>
+        ) : audioPortExposed ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {t('protocolTabs.audioPortExposed')}
+          </p>
+        ) : (
+          <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+            {t('protocolTabs.audioPortMissing')}
+          </p>
+        ))}
       {advanced.length > 0 && (
         <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           <input

@@ -318,6 +318,12 @@ export interface WorkspaceProtocol {
    * never its content).
    */
   credentialsSecretRef?: string;
+  /**
+   * ExposeAudioPort: the template opens the workspace's PulseAudio
+   * port (4713) on the pod and Service, so guacd's enable-audio
+   * parameter actually reaches an audio server (vnc only).
+   */
+  exposeAudioPort?: boolean;
 }
 /**
  * WorkspaceTemplate is the API projection of a WorkspaceTemplate CR.

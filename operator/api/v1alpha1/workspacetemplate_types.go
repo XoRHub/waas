@@ -195,6 +195,12 @@ type WorkspaceWorkload struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
+// PulseAudioPort is the fixed TCP port the waas-images PulseAudio daemon
+// serves the native protocol on (module-native-protocol-tcp in
+// default.pa.tpl — baked into the image, not configurable). guacd dials
+// it when the enable-audio parameter is set.
+const PulseAudioPort int32 = 4713
+
 // WorkspaceProtocol declares one way to reach the desktop, described in
 // guacd terms: a protocol name, the port the workspace serves it on, and
 // the guacd connection parameters to use.
@@ -230,6 +236,15 @@ type WorkspaceProtocol struct {
 	// override when connecting. Anything not listed is locked to Params.
 	// +optional
 	UserParams []string `json:"userParams,omitempty"`
+
+	// ExposeAudioPort additionally opens the workspace's PulseAudio port
+	// (4713, fixed by the image) on the desktop container and the
+	// workspace Service, so guacd can reach the audio server when the
+	// enable-audio parameter is set — without it enable-audio dials a
+	// port nothing routes. VNC only (webhook-enforced); like the session
+	// ports it stays cluster-internal (ClusterIP), never on the Ingress.
+	// +optional
+	ExposeAudioPort bool `json:"exposeAudioPort,omitempty"`
 
 	// CredentialsSecretRef names a Secret (in the workspace namespace)
 	// holding the desktop credentials for this protocol, under the keys
@@ -412,6 +427,17 @@ func (s *WorkspaceTemplateSpec) EffectiveProtocols() []WorkspaceProtocol {
 		}
 	}
 	return []WorkspaceProtocol{{Name: name, Port: port, Default: true}}
+}
+
+// AudioPortExposed reports whether any declared protocol asks for the
+// PulseAudio port (4713) to be opened on the pod and the Service.
+func (s *WorkspaceTemplateSpec) AudioPortExposed() bool {
+	for _, p := range s.EffectiveProtocols() {
+		if p.ExposeAudioPort {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultProtocol returns the protocol used when the user picks none:

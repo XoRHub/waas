@@ -437,6 +437,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
               }
               allowList={isAdmin ? undefined : (tabProto.userParams ?? [])}
               placeholders={tabProto.params}
+              audioPortExposed={tabProto.exposeAudioPort ?? false}
             />
           )}
         </fieldset>

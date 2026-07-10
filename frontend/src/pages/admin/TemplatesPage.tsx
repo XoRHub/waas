@@ -173,6 +173,7 @@ function toInput(tpl: WorkspaceTemplate): TemplateInput {
       params: p.params,
       userParams: p.userParams,
       credentialsSecretRef: p.credentialsSecretRef,
+      exposeAudioPort: p.exposeAudioPort,
     })),
     overrides:
       tpl.allowedOverrides || tpl.overridesOwner
@@ -477,6 +478,8 @@ function TemplateDialog({
                 else params[name] = value;
                 patchActive({ params });
               }}
+              audioPortExposed={currentProto.exposeAudioPort ?? false}
+              onAudioPortChange={(exposed) => patchActive({ exposeAudioPort: exposed })}
               renderParamExtra={(pm) => (
                 <label className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                   <input

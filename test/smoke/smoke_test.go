@@ -20,12 +20,14 @@ package smoke
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -73,16 +75,85 @@ func TestProtocolConnections(t *testing.T) {
 			sub.connectOnce(t, tpl, protocol)
 		})
 	}
+
+	// Audio port path (exposeAudioPort): "the session is up" proves
+	// nothing about the PulseAudio port — guacd dials it separately, and
+	// a Service missing the port fails silently (no audio, session fine).
+	// So once the VNC session is live, dial <service>:4713 from the
+	// platform namespace: exactly guacd's path, NetworkPolicy included.
+	t.Run("vnc-audio", func(t *testing.T) {
+		tpl := c.audioTemplate()
+		if tpl == "" {
+			t.Skip("no template exposes the audio port — seed ubuntu-firefox (hack/dev/templates-dev.yaml) to cover it")
+		}
+		if _, err := exec.LookPath("kubectl"); err != nil {
+			t.Skip("kubectl not in PATH — the audio port is ClusterIP-only and needs an in-cluster probe")
+		}
+		sub := *c
+		sub.t = t
+		sub.connectOnce(t, tpl, "vnc", verifyAudioPort)
+	})
+}
+
+// verifyAudioPort proves the PulseAudio port end-to-end with a one-shot
+// probe pod in the platform namespace (where guacd runs — the workspace
+// namespace's default-deny ingress policy only admits platform peers).
+func verifyAudioPort(t *testing.T, ws workspaceInfo) {
+	platformNS := env("WAAS_SMOKE_PLATFORM_NAMESPACE", "waas")
+	namespace := ws.Namespace
+	if namespace == "" {
+		namespace = platformNS
+	}
+	host := fmt.Sprintf("%s.%s.svc.cluster.local", ws.WorkloadName, namespace)
+	probe := fmt.Sprintf("waas-smoke-audio-%d", time.Now().UnixNano()%100000)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "kubectl", "run", probe,
+		"-n", platformNS,
+		"--rm", "-i", "--restart=Never", "--image=busybox:1.36", "--",
+		"nc", "-z", "-w", "5", host, "4713").CombinedOutput()
+	if err != nil {
+		t.Fatalf("audio port %s:4713 not reachable from the platform namespace: %v\n%s", host, err, out)
+	}
+	t.Logf("audio port %s:4713 reachable from the platform namespace", host)
+}
+
+// audioTemplate returns the first template whose vnc protocol exposes the
+// PulseAudio port, or "".
+func (c *client) audioTemplate() string {
+	var templates []struct {
+		Name      string `json:"name"`
+		Protocols []struct {
+			Name            string `json:"name"`
+			ExposeAudioPort bool   `json:"exposeAudioPort"`
+		} `json:"protocols"`
+	}
+	c.do("GET", "/api/v1/workspace-templates", nil, &templates)
+	for _, tpl := range templates {
+		for _, p := range tpl.Protocols {
+			if p.Name == "vnc" && p.ExposeAudioPort {
+				return tpl.Name
+			}
+		}
+	}
+	return ""
+}
+
+// workspaceInfo is the slice of the workspace projection the smoke flow
+// needs: identity, lifecycle, and where the workloads landed (the
+// audio-port probe dials the Service by its in-cluster DNS name).
+type workspaceInfo struct {
+	ID           string `json:"id"`
+	Phase        string `json:"phase"`
+	Namespace    string `json:"namespace"`
+	WorkloadName string `json:"workloadName"`
 }
 
 // connectOnce runs the full lifecycle for one protocol: create → ready →
-// connect → real guacd session → delete.
-func (c *client) connectOnce(t *testing.T, template, protocol string) {
+// connect → real guacd session → extra checks (session still up) → delete.
+func (c *client) connectOnce(t *testing.T, template, protocol string, checks ...func(*testing.T, workspaceInfo)) {
 	name := fmt.Sprintf("smoke %s %d", protocol, time.Now().UnixNano()%100000)
-	var ws struct {
-		ID    string `json:"id"`
-		Phase string `json:"phase"`
-	}
+	var ws workspaceInfo
 	c.do("POST", "/api/v1/workspaces", map[string]any{
 		"templateRef": template,
 		"displayName": name,
@@ -126,12 +197,15 @@ func (c *client) connectOnce(t *testing.T, template, protocol string) {
 			t.Fatalf("kasmvnc session via wwt failed: %v", err)
 		}
 		t.Logf("kasmvnc session established through wwt (template %s)", template)
-		return
+	} else {
+		if err := establishSession(c.base, conn.ConnectionToken); err != nil {
+			t.Fatalf("%s session via guacd failed: %v", protocol, err)
+		}
+		t.Logf("%s session established through guacd (template %s)", protocol, template)
 	}
-	if err := establishSession(c.base, conn.ConnectionToken); err != nil {
-		t.Fatalf("%s session via guacd failed: %v", protocol, err)
+	for _, check := range checks {
+		check(t, ws)
 	}
-	t.Logf("%s session established through guacd (template %s)", protocol, template)
 }
 
 // establishSession opens the wwt WebSocket and reads the guacd stream

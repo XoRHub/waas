@@ -120,10 +120,9 @@ metadata:
   name: ubuntu-firefox
 spec:
   displayName: "Firefox (navigation isolée)"
-  description: "Firefox durci, session jetable."
+  description: "Firefox durci, session jetable — avec audio (PulseAudio streamé par guacd)."
   os: linux
   image: waas-local/ubuntu-firefox:dev
-  port: 5901
   homeSize: 5Gi
   resources:
     requests: { cpu: 500m, memory: 1536Mi }
@@ -133,11 +132,24 @@ spec:
       value: "devpassword"
   # Throwaway sessions get a namespace PER WORKSPACE, deleted once
   # nothing waas-managed remains in it (the home PVC holds it back until
-  # the policy TTL reclaims it). Also exercises placement on a legacy
-  # template (no protocols block: the vnc entry is synthesized).
+  # the policy TTL reclaims it).
   placement:
     namespace: waas-{user}-{workspace}
     cleanup: DeleteWhenEmpty
+  # Audio target of the platform: a browser is the natural manual test
+  # (play any video) and the smoke vnc-audio subtest picks this template
+  # up via exposeAudioPort — enable-audio is locked on, 4713 opens on the
+  # pod + Service so guacd actually reaches PulseAudio. This used to be
+  # the legacy-template coverage (no protocols block, synthesized vnc
+  # entry); dev now has no legacy-shaped template.
+  protocols:
+    - name: vnc
+      port: 5901
+      default: true
+      exposeAudioPort: true
+      params:
+        enable-audio: "true"
+      userParams: [enable-audio, color-depth]
 ---
 # Kasm workspace: web-native KasmVNC endpoint, reverse-proxied by wwt —
 # guacd is not involved. No VNC_PW env on purpose: the operator generates

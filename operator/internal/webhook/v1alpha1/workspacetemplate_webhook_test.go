@@ -118,6 +118,26 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 			}(),
 			"not available on windows",
 		},
+		{
+			"audio port on vnc",
+			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901, ExposeAudioPort: true, Params: map[string]string{"enable-audio": "true"}}),
+			"",
+		},
+		{
+			// The PulseAudio port only serves guacd's VNC audio path.
+			"audio port on ssh",
+			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "ssh", Port: 22, ExposeAudioPort: true}),
+			"only the vnc protocol",
+		},
+		{
+			// A protocol squatting 4713 would duplicate the pod/Service port.
+			"audio port colliding with a protocol port",
+			tplWith(
+				waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901, ExposeAudioPort: true},
+				waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 4713},
+			),
+			"collides with the exposed PulseAudio port",
+		},
 	}
 	for _, tc := range cases {
 		_, err := v.ValidateCreate(ctx, tc.tpl)

@@ -186,6 +186,7 @@ export function ConnectionSettingsDialog({
                 allowList={isAdmin ? undefined : (selected.userParams ?? [])}
                 placeholders={selected.params}
                 columns={1}
+                audioPortExposed={selected.exposeAudioPort ?? false}
               />
             </div>
           )}

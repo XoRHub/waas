@@ -71,6 +71,19 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 		if entry.Name == string(waasv1alpha1.ProtocolKasmVNC) && tpl.Spec.OS == waasv1alpha1.OSWindows {
 			return nil, v.deny(tpl, "protocol kasmvnc is not available on windows templates")
 		}
+		// The PulseAudio sidecar port only exists for guacd's VNC audio
+		// path (enable-audio); accepting it elsewhere would silently open
+		// a port nothing uses.
+		if entry.ExposeAudioPort && entry.Name != string(waasv1alpha1.ProtocolVNC) {
+			return nil, v.deny(tpl, fmt.Sprintf("protocols[%s].exposeAudioPort: only the vnc protocol can expose the PulseAudio port", entry.Name))
+		}
+	}
+	if tpl.Spec.AudioPortExposed() {
+		for i := range tpl.Spec.Protocols {
+			if tpl.Spec.Protocols[i].Port == waasv1alpha1.PulseAudioPort {
+				return nil, v.deny(tpl, fmt.Sprintf("protocols[%s].port: %d collides with the exposed PulseAudio port", tpl.Spec.Protocols[i].Name, waasv1alpha1.PulseAudioPort))
+			}
+		}
 	}
 	if defaults > 1 {
 		return nil, v.deny(tpl, "at most one protocol may be marked default")

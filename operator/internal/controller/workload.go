@@ -24,6 +24,10 @@ import (
 // diff. It hashes the template BEFORE this annotation is added.
 const annotationPodTemplateHash = "waas.xorhub.io/pod-template-hash"
 
+// audioPortName names the PulseAudio port on the container and the
+// Service — distinct from the protocol names so both can coexist.
+const audioPortName = "audio"
+
 func podTemplateFingerprint(tpl corev1.PodTemplateSpec) string {
 	raw, _ := json.Marshal(tpl)
 	sum := sha256.Sum256(raw)
@@ -67,9 +71,12 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	}
 
 	protocols := tpl.Spec.EffectiveProtocols()
-	ports := make([]corev1.ContainerPort, 0, len(protocols))
+	ports := make([]corev1.ContainerPort, 0, len(protocols)+1)
 	for _, p := range protocols {
 		ports = append(ports, corev1.ContainerPort{Name: p.Name, ContainerPort: p.Port})
+	}
+	if tpl.Spec.AudioPortExposed() {
+		ports = append(ports, corev1.ContainerPort{Name: audioPortName, ContainerPort: waasv1alpha1.PulseAudioPort})
 	}
 	probePort := effectiveProtocol(ws, tpl).Port
 

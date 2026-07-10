@@ -286,6 +286,82 @@ func TestReconcileMultiProtocolServiceAndStatus(t *testing.T) {
 
 func ptrInt64(v int64) *int64 { return &v }
 
+// The audio port rides along the protocol ports (pod + Service) when a
+// vnc entry exposes it, and an EXISTING Service converges to the new port
+// list — the create-only Service would otherwise strand every workspace
+// provisioned before the template enabled audio.
+func TestReconcileAudioPortOnPodAndService(t *testing.T) {
+	tpl := linuxTemplate()
+	tpl.Spec.Protocols = []waasv1alpha1.WorkspaceProtocol{
+		{Name: "vnc", Port: 5901, Default: true, Params: map[string]string{"enable-audio": "true"}},
+	}
+	ws := workspace()
+	r, c := newFixture(t, tpl, ws)
+	ctx := context.Background()
+
+	// First reconcile: no audio exposure — one port, like before.
+	reconcile(t, r, ws)
+	svc := &corev1.Service{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, svc); err != nil {
+		t.Fatal(err)
+	}
+	if len(svc.Spec.Ports) != 1 {
+		t.Fatalf("expected the single vnc port, got %+v", svc.Spec.Ports)
+	}
+
+	// The template turns audio exposure on AFTER the Service exists.
+	got := &waasv1alpha1.WorkspaceTemplate{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "xfce"}, got); err != nil {
+		t.Fatal(err)
+	}
+	got.Spec.Protocols[0].ExposeAudioPort = true
+	if err := c.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	reconcile(t, r, ws)
+
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, svc); err != nil {
+		t.Fatal(err)
+	}
+	if len(svc.Spec.Ports) != 2 {
+		t.Fatalf("existing service must converge to the audio port, got %+v", svc.Spec.Ports)
+	}
+	audio := svc.Spec.Ports[1]
+	if audio.Name != audioPortName || audio.Port != waasv1alpha1.PulseAudioPort || audio.TargetPort.IntValue() != int(waasv1alpha1.PulseAudioPort) {
+		t.Fatalf("unexpected audio service port: %+v", audio)
+	}
+
+	// The pod template gains the container port too — at the next
+	// scale-up boundary (docs/adr/0001: template edits never land
+	// mid-session), so pause then resume.
+	fresh := &waasv1alpha1.Workspace{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	fresh.Spec.Paused = true
+	if err := c.Update(ctx, fresh); err != nil {
+		t.Fatal(err)
+	}
+	reconcile(t, r, fresh)
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	fresh.Spec.Paused = false
+	if err := c.Update(ctx, fresh); err != nil {
+		t.Fatal(err)
+	}
+	reconcile(t, r, fresh)
+
+	dep := &appsv1.Deployment{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatal(err)
+	}
+	ports := dep.Spec.Template.Spec.Containers[0].Ports
+	if len(ports) != 2 || ports[1].Name != audioPortName || ports[1].ContainerPort != waasv1alpha1.PulseAudioPort {
+		t.Fatalf("expected vnc + audio container ports, got %+v", ports)
+	}
+}
+
 func TestReconcileWindowsWithoutKubeVirtFailsLoudly(t *testing.T) {
 	tpl := linuxTemplate()
 	tpl.Spec.OS = waasv1alpha1.OSWindows

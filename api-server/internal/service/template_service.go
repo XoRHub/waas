@@ -83,6 +83,7 @@ type TemplateProtocolInput struct {
 	Params               map[string]string `json:"params,omitempty"`
 	UserParams           []string          `json:"userParams,omitempty"`
 	CredentialsSecretRef string            `json:"credentialsSecretRef,omitempty"`
+	ExposeAudioPort      bool              `json:"exposeAudioPort,omitempty"`
 }
 
 // TemplateOverridesInput mirrors TemplateOverrides.
@@ -251,6 +252,11 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 		if v := params.ValidateUserParamNames(p.Name, p.UserParams); v != nil {
 			return nil, apierror.BadRequest(fmt.Sprintf("protocols[%s].userParams: %v", p.Name, v))
 		}
+		// Same gate as the admission webhook: the PulseAudio port only
+		// serves guacd's VNC audio path.
+		if p.ExposeAudioPort && p.Name != string(waasv1alpha1.ProtocolVNC) {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocols[%s].exposeAudioPort: only the vnc protocol can expose the PulseAudio port", p.Name))
+		}
 		spec.Protocols = append(spec.Protocols, waasv1alpha1.WorkspaceProtocol{
 			Name:                 p.Name,
 			Port:                 p.Port,
@@ -258,10 +264,18 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 			Params:               p.Params,
 			UserParams:           p.UserParams,
 			CredentialsSecretRef: p.CredentialsSecretRef,
+			ExposeAudioPort:      p.ExposeAudioPort,
 		})
 	}
 	if defaults > 1 {
 		return nil, apierror.BadRequest("at most one protocol may be marked default")
+	}
+	if spec.AudioPortExposed() {
+		for _, p := range spec.Protocols {
+			if p.Port == waasv1alpha1.PulseAudioPort {
+				return nil, apierror.BadRequest(fmt.Sprintf("protocols[%s].port: %d collides with the exposed PulseAudio port", p.Name, waasv1alpha1.PulseAudioPort))
+			}
+		}
 	}
 
 	if in.Overrides != nil {
@@ -372,6 +386,7 @@ func templateToModel(tpl *waasv1alpha1.WorkspaceTemplate) model.WorkspaceTemplat
 			Params:               p.Params,
 			UserParams:           p.UserParams,
 			CredentialsSecretRef: p.CredentialsSecretRef,
+			ExposeAudioPort:      p.ExposeAudioPort,
 		})
 	}
 	if tpl.Spec.Overrides != nil {

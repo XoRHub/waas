@@ -335,6 +335,8 @@ export interface TemplateProtocolInput {
   params?: Record<string, string>;
   userParams?: string[];
   credentialsSecretRef?: string;
+  /** vnc only: expose the workspace's PulseAudio port (4713). */
+  exposeAudioPort?: boolean;
 }
 
 export interface TemplateInput {

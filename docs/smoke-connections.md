@@ -41,7 +41,22 @@ go test -count=1 -v ./test/smoke/
 Variables : `WAAS_SMOKE_URL` (sans elle le test se **skip** — `go test
 ./...` reste utilisable hors ligne), `WAAS_SMOKE_USER`/`WAAS_SMOKE_PASSWORD`
 (défaut admin/admin123 du dev), `WAAS_SMOKE_PROTOCOLS` (défaut
-`vnc,rdp,ssh`), `WAAS_SMOKE_READY_TIMEOUT` (défaut 5m).
+`vnc,rdp,ssh`), `WAAS_SMOKE_READY_TIMEOUT` (défaut 5m),
+`WAAS_SMOKE_PLATFORM_NAMESPACE` (défaut `waas` — voir ci-dessous).
+
+## Sous-test `vnc-audio` : le port PulseAudio (4713)
+
+Une session VNC vivante ne prouve rien sur le port audio : guacd le
+compose séparément, et un Service auquel il manque le port échoue en
+silence (session OK, pas de son). Quand un template expose le port audio
+(`protocols[].exposeAudioPort`, seedé en dev par `ubuntu-firefox` — un
+navigateur est aussi le test manuel naturel : lancer une vidéo), le
+sous-test `vnc-audio` établit la session puis vérifie que
+`<service>:4713` répond en TCP **depuis le namespace plateforme** — le
+chemin exact de guacd, NetworkPolicy default-deny comprise. La sonde est
+un pod éphémère `kubectl run` (busybox `nc -z`) : contrairement au reste
+du smoke, ce sous-test a besoin de `kubectl` dans le PATH (skip sinon,
+comme quand aucun template n'expose le port).
 
 ## Critère de livraison
 

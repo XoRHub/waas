@@ -276,6 +276,10 @@ type WorkspaceProtocol struct {
 	// CredentialsSecretRef names the credentials Secret (reference only,
 	// never its content).
 	CredentialsSecretRef string `json:"credentialsSecretRef,omitempty"`
+	// ExposeAudioPort: the template opens the workspace's PulseAudio
+	// port (4713) on the pod and Service, so guacd's enable-audio
+	// parameter actually reaches an audio server (vnc only).
+	ExposeAudioPort bool `json:"exposeAudioPort,omitempty"`
 }
 
 // WorkspaceTemplate is the API projection of a WorkspaceTemplate CR.

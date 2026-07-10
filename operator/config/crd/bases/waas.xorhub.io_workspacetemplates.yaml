@@ -374,6 +374,15 @@ spec:
                         Default marks the protocol used when the user does not choose one.
                         The first entry wins when no entry is marked.
                       type: boolean
+                    exposeAudioPort:
+                      description: |-
+                        ExposeAudioPort additionally opens the workspace's PulseAudio port
+                        (4713, fixed by the image) on the desktop container and the
+                        workspace Service, so guacd can reach the audio server when the
+                        enable-audio parameter is set — without it enable-audio dials a
+                        port nothing routes. VNC only (webhook-enforced); like the session
+                        ports it stays cluster-internal (ClusterIP), never on the Ingress.
+                      type: boolean
                     name:
                       description: |-
                         Name is the protocol identifier: a guacamole protocol (vnc, rdp,

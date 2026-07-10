@@ -801,24 +801,29 @@ func (r *WorkspaceReconciler) ensureVirtualMachine(ctx context.Context, ws *waas
 // same selector matches both cases.
 func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) error {
 	name := computeName(ws)
+	ports := desiredServicePorts(tpl)
 	existing := &corev1.Service{}
 	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
+		// Ports converge on every reconcile: a template gaining a
+		// protocol or the audio port after the Service was created must
+		// reach existing workspaces without recreating them. Deliberately
+		// scoped to Spec.Ports — the rest of the Service (and the wider
+		// create-only podTemplate gap, see docs/studies/audit-2026-07.md)
+		// stays as-is.
+		if servicePortsEqual(existing.Spec.Ports, ports) {
+			return nil
+		}
+		existing.Spec.Ports = ports
+		if err := r.Update(ctx, existing); err != nil {
+			return fmt.Errorf("updating ports of service %s: %w", name, err)
+		}
 		return nil
 	}
 	if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("fetching service %s: %w", name, err)
 	}
 
-	protocols := tpl.Spec.EffectiveProtocols()
-	ports := make([]corev1.ServicePort, 0, len(protocols))
-	for _, p := range protocols {
-		ports = append(ports, corev1.ServicePort{
-			Name:       p.Name,
-			Port:       p.Port,
-			TargetPort: intstr.FromInt32(p.Port),
-		})
-	}
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -838,6 +843,47 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 		return fmt.Errorf("creating service %s: %w", name, err)
 	}
 	return nil
+}
+
+// desiredServicePorts is one ServicePort per declared protocol, plus the
+// PulseAudio port when a protocol exposes it — the Service mirrors the
+// container ports 1:1.
+func desiredServicePorts(tpl *waasv1alpha1.WorkspaceTemplate) []corev1.ServicePort {
+	protocols := tpl.Spec.EffectiveProtocols()
+	ports := make([]corev1.ServicePort, 0, len(protocols)+1)
+	for _, p := range protocols {
+		ports = append(ports, corev1.ServicePort{
+			Name:       p.Name,
+			Port:       p.Port,
+			TargetPort: intstr.FromInt32(p.Port),
+		})
+	}
+	if tpl.Spec.AudioPortExposed() {
+		ports = append(ports, corev1.ServicePort{
+			Name:       audioPortName,
+			Port:       waasv1alpha1.PulseAudioPort,
+			TargetPort: intstr.FromInt32(waasv1alpha1.PulseAudioPort),
+		})
+	}
+	return ports
+}
+
+// servicePortsEqual compares the facets desiredServicePorts sets, mindful
+// that the API server defaults Protocol to TCP on live objects — a naive
+// DeepEqual against our TCP-implicit desired list would update forever.
+func servicePortsEqual(live, desired []corev1.ServicePort) bool {
+	if len(live) != len(desired) {
+		return false
+	}
+	for i := range desired {
+		if live[i].Name != desired[i].Name ||
+			live[i].Port != desired[i].Port ||
+			live[i].TargetPort != desired[i].TargetPort ||
+			(live[i].Protocol != "" && live[i].Protocol != corev1.ProtocolTCP) {
+			return false
+		}
+	}
+	return true
 }
 
 // patchStatus re-fetches the workspace fresh before writing status, avoiding
