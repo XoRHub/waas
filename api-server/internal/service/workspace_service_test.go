@@ -264,3 +264,66 @@ func TestListResolvesOwnerUsernamesForAdmins(t *testing.T) {
 		t.Fatalf("non-admin rows must not carry OwnerUsername, got %q", rows[0].OwnerUsername)
 	}
 }
+
+// TestListRetainedVolumesResolvesOwnerUsernamesForAdmins mirrors the
+// workspace-list contract on the volumes side of the fleet: the admin
+// listing (all=true) carries OwnerUsername best-effort, the personal
+// listing never pays the lookup.
+func TestListRetainedVolumesResolvesOwnerUsernamesForAdmins(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{
+		{ID: "admin1", Username: "boss", Role: auth.RoleAdmin},
+		{ID: "u1", Username: "alice"},
+	}, nil)
+
+	seed := func(name, owner string) {
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: testNS,
+				Labels: map[string]string{
+					waasv1alpha1.LabelRetained: "true",
+					waasv1alpha1.LabelOwner:    owner,
+				},
+			},
+		}
+		if err := f.kube.Create(ctx, pvc); err != nil {
+			t.Fatalf("seeding pvc %s: %v", name, err)
+		}
+	}
+	seed("home-alice", "u1")
+	// Owner deleted from the DB after the volume was retained.
+	seed("home-orphan", "ghost")
+
+	admin := Actor{ID: "admin1", Username: "boss", Role: string(auth.RoleAdmin)}
+	rows, err := f.workspace.ListRetainedVolumes(ctx, admin, true)
+	if err != nil {
+		t.Fatalf("admin ListRetainedVolumes: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("admin must see both volumes, got %d", len(rows))
+	}
+	byName := map[string]model.RetainedVolume{}
+	for _, v := range rows {
+		byName[v.Name] = v
+	}
+	if got := byName["home-alice"].OwnerUsername; got != "alice" {
+		t.Fatalf("home-alice owner username: want %q, got %q", "alice", got)
+	}
+	if got := byName["home-orphan"].OwnerUsername; got != "" {
+		t.Fatalf("deleted owner must leave OwnerUsername empty, got %q", got)
+	}
+
+	// Personal listing: own volumes only, no username enrichment.
+	alice := Actor{ID: "u1", Username: "alice", Role: "user"}
+	rows, err = f.workspace.ListRetainedVolumes(ctx, alice, false)
+	if err != nil {
+		t.Fatalf("user ListRetainedVolumes: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Name != "home-alice" {
+		t.Fatalf("alice must see only her volume, got %+v", rows)
+	}
+	if rows[0].OwnerUsername != "" {
+		t.Fatalf("personal rows must not carry OwnerUsername, got %q", rows[0].OwnerUsername)
+	}
+}

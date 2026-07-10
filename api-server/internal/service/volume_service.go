@@ -30,13 +30,29 @@ func (s *WorkspaceService) ListRetainedVolumes(ctx context.Context, actor Actor,
 	if err := s.kube.List(ctx, pvcs, selector); err != nil {
 		return nil, fmt.Errorf("listing retained volumes: %w", err)
 	}
+	// Owner usernames are resolved for the admin listing only (the fleet
+	// view groups by owner); a user's own listing doesn't need them.
+	// Best-effort per owner, cached per request — a deleted owner just
+	// leaves the field empty, same as WorkspaceService.List.
+	usernames := map[string]string{}
 	out := make([]model.RetainedVolume, 0, len(pvcs.Items))
 	for i := range pvcs.Items {
 		pvc := &pvcs.Items[i]
 		if !pvc.DeletionTimestamp.IsZero() {
 			continue
 		}
-		out = append(out, retainedVolumeToModel(pvc))
+		v := retainedVolumeToModel(pvc)
+		if all {
+			name, ok := usernames[v.OwnerID]
+			if !ok {
+				if u, err := s.users.FindByID(ctx, v.OwnerID); err == nil {
+					name = u.Username
+				}
+				usernames[v.OwnerID] = name
+			}
+			v.OwnerUsername = name
+		}
+		out = append(out, v)
 	}
 	return out, nil
 }

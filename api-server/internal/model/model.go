@@ -234,10 +234,13 @@ type HomeVolumeInfo struct {
 // the user's property, still counted against their storage quota, until
 // deleted or reattached to a new workspace.
 type RetainedVolume struct {
-	Name            string     `json:"name"`
-	Namespace       string     `json:"namespace"`
-	Size            string     `json:"size"`
-	OwnerID         string     `json:"ownerId"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Size      string `json:"size"`
+	OwnerID   string `json:"ownerId"`
+	// OwnerUsername is resolved for admin listings only (the fleet view
+	// groups by owner); best-effort — empty when the owner is gone.
+	OwnerUsername   string     `json:"ownerUsername,omitempty"`
 	OriginWorkspace string     `json:"originWorkspace,omitempty"`
 	RetainedAt      *time.Time `json:"retainedAt,omitempty"`
 }

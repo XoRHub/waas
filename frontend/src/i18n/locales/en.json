@@ -229,7 +229,6 @@
     "backToPortal": "Back to portal",
     "fleetPage": {
       "workspace": "Workspace",
-      "owner": "Owner",
       "template": "Template",
       "phase": "Status",
       "created": "Created",
@@ -247,12 +246,10 @@
       "idle": "Idle",
       "never": "Never",
       "namespace": "Namespace",
-      "myWorkspaces": "My workspaces",
-      "byUser": "By user",
-      "myEmpty": "You have no workspace of your own.",
-      "byUserEmpty": "No workspace owned by other users.",
       "workspaceCount_one": "{{count}} workspace",
-      "workspaceCount_other": "{{count}} workspaces"
+      "workspaceCount_other": "{{count}} workspaces",
+      "volumeCount_one": "{{count}} volume",
+      "volumeCount_other": "{{count}} volumes"
     },
     "templatesPage": {
       "new": "New template",
@@ -438,7 +435,6 @@
     "name": "Volume",
     "size": "Size",
     "origin": "Origin workspace",
-    "owner": "Owner",
     "retainedAt": "Retained on",
     "empty": "No retained volume. When deleting a workspace you may keep its volume: it will show up here.",
     "quotaNote": "Retained volumes count against your storage quota for as long as they exist.",

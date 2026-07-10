@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { vi } from 'vitest';
 import { renderWithProviders, signIn } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
-import type { Workspace } from '@/types';
+import type { RemoteWorkspaceAdmin, RetainedVolume, Workspace } from '@/types';
 import { FleetPage } from './FleetPage';
 
 const ws = (over: Partial<Workspace> & { id: string; name: string; ownerId: string }): Workspace =>
@@ -26,7 +25,48 @@ const fleet = [
   ws({ id: 'w-ghost', name: 'orphan', ownerId: 'ghost-uuid' }),
 ];
 
-const apiMock = createApiMock({ '/api/v1/workspaces': fleet });
+const remotes: RemoteWorkspaceAdmin[] = [
+  {
+    id: 'r1',
+    ownerId: 'u-alice',
+    ownerUsername: 'alice',
+    name: 'alice-lab',
+    hostname: '10.0.0.5',
+    port: 22,
+    protocol: 'ssh',
+    hasCredentials: false,
+    activeNow: false,
+    createdAt: '2026-07-10T00:00:00Z',
+  },
+  {
+    id: 'r2',
+    ownerId: 'ghost-uuid',
+    name: 'orphan-remote',
+    hostname: '10.0.0.6',
+    port: 3389,
+    protocol: 'rdp',
+    hasCredentials: true,
+    activeNow: false,
+    createdAt: '2026-07-10T00:00:00Z',
+  },
+];
+
+const volumes: RetainedVolume[] = [
+  {
+    name: 'home-alice',
+    namespace: 'waas-alice',
+    size: '10Gi',
+    ownerId: 'u-alice',
+    ownerUsername: 'alice',
+  },
+  { name: 'home-orphan', namespace: 'waas-ghost', size: '5Gi', ownerId: 'ghost-uuid' },
+];
+
+const apiMock = createApiMock({
+  '/api/v1/workspaces': fleet,
+  '/api/v1/admin/remote-workspaces': remotes,
+  '/api/v1/admin/volumes': volumes,
+});
 vi.mock('@/lib/api', () => ({
   get api() {
     return apiMock.api;
@@ -35,24 +75,15 @@ vi.mock('@/lib/api', () => ({
 
 const signInAdmin = () => signIn({ id: 'admin1', username: 'boss', role: 'admin' });
 
-describe('admin fleet workspaces grouping', () => {
-  it('shows only the admin’s own workspaces, flat, in the default view', async () => {
+describe('admin fleet grouped by owner', () => {
+  it('groups every workspace by username (admin included), id as fallback', async () => {
     signInAdmin();
     renderWithProviders(<FleetPage />);
 
-    expect(await screen.findByText('admin-desk')).toBeInTheDocument();
-    expect(screen.queryByText('alice-one')).not.toBeInTheDocument();
-    expect(screen.queryByText('orphan')).not.toBeInTheDocument();
-  });
+    // The admin's own workspaces form an ordinary group like any other.
+    const bossGroup = (await screen.findByText('boss')).closest('details')!;
+    expect(within(bossGroup).getByText('admin-desk')).toBeInTheDocument();
 
-  it('groups other users’ workspaces by username, id as fallback', async () => {
-    signInAdmin();
-    renderWithProviders(<FleetPage />);
-
-    await screen.findByText('admin-desk');
-    await userEvent.click(screen.getByRole('button', { name: 'By user' }));
-
-    // Alice's group header and both of her rows.
     const aliceGroup = screen.getByText('alice').closest('details')!;
     expect(within(aliceGroup).getByText('alice-one')).toBeInTheDocument();
     expect(within(aliceGroup).getByText('alice-two')).toBeInTheDocument();
@@ -60,31 +91,45 @@ describe('admin fleet workspaces grouping', () => {
     // Deleted owner: raw id as the group label.
     const ghostGroup = screen.getByText('ghost-uuid').closest('details')!;
     expect(within(ghostGroup).getByText('orphan')).toBeInTheDocument();
-
-    // The admin's own workspaces never leak into the per-user view.
-    expect(screen.queryByText('admin-desk')).not.toBeInTheDocument();
   });
 
-  it('deletes (volume retained) from the flat view', async () => {
+  it('deletes (volume retained) from inside a group', async () => {
     signInAdmin();
     renderWithProviders(<FleetPage />);
 
-    const row = (await screen.findByText('admin-desk')).closest('tr')!;
-    await userEvent.click(within(row).getByRole('button', { name: 'Delete' }));
-
-    expect(apiMock.api.delete).toHaveBeenCalledWith('/api/v1/workspaces/w-mine?keepVolume=true');
-  });
-
-  it('deletes (volume retained) from inside a user group', async () => {
-    signInAdmin();
-    renderWithProviders(<FleetPage />);
-
-    await screen.findByText('admin-desk');
-    await userEvent.click(screen.getByRole('button', { name: 'By user' }));
-
-    const row = screen.getByText('alice-two').closest('tr')!;
+    const row = (await screen.findByText('alice-two')).closest('tr')!;
     await userEvent.click(within(row).getByRole('button', { name: 'Delete' }));
 
     expect(apiMock.api.delete).toHaveBeenCalledWith('/api/v1/workspaces/w-a2?keepVolume=true');
+  });
+
+  it('groups remote workspaces by owner too', async () => {
+    signInAdmin();
+    renderWithProviders(<FleetPage />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remote workspaces' }));
+
+    const aliceGroup = (await screen.findByText('alice')).closest('details')!;
+    expect(within(aliceGroup).getByText('alice-lab')).toBeInTheDocument();
+
+    const ghostGroup = screen.getByText('ghost-uuid').closest('details')!;
+    expect(within(ghostGroup).getByText('orphan-remote')).toBeInTheDocument();
+  });
+
+  it('groups volumes by owner and deletes after confirmation', async () => {
+    signInAdmin();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderWithProviders(<FleetPage />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Volumes' }));
+
+    const aliceGroup = (await screen.findByText('alice')).closest('details')!;
+    const row = within(aliceGroup).getByText('home-alice').closest('tr')!;
+    await userEvent.click(within(row).getByRole('button', { name: 'Delete' }));
+
+    expect(apiMock.api.delete).toHaveBeenCalledWith('/api/v1/admin/volumes/waas-alice/home-alice');
+
+    expect(screen.getByText('ghost-uuid').closest('details')).not.toBeNull();
+    expect(screen.getByText('home-orphan')).toBeInTheDocument();
   });
 });

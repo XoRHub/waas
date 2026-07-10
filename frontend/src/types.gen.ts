@@ -273,6 +273,11 @@ export interface RetainedVolume {
   namespace: string;
   size: string;
   ownerId: string;
+  /**
+   * OwnerUsername is resolved for admin listings only (the fleet view
+   * groups by owner); best-effort — empty when the owner is gone.
+   */
+  ownerUsername?: string;
   originWorkspace?: string;
   retainedAt?: string /* RFC3339 */;
 }

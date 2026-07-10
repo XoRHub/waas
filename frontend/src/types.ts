@@ -125,6 +125,8 @@ export interface RetainedVolume {
   namespace: string;
   size: string;
   ownerId: string;
+  /** Resolved on admin listings only; empty when the owner is gone. */
+  ownerUsername?: string;
   originWorkspace?: string;
   retainedAt?: string;
 }

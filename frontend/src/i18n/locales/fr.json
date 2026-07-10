@@ -229,7 +229,6 @@
     "backToPortal": "Retour au portail",
     "fleetPage": {
       "workspace": "Espace de travail",
-      "owner": "Propriétaire",
       "template": "Modèle",
       "phase": "État",
       "created": "Créé",
@@ -247,12 +246,10 @@
       "idle": "Inactif",
       "never": "Jamais",
       "namespace": "Namespace",
-      "myWorkspaces": "Mes workspaces",
-      "byUser": "Par utilisateur",
-      "myEmpty": "Vous n'avez aucun workspace personnel.",
-      "byUserEmpty": "Aucun workspace appartenant à d'autres utilisateurs.",
       "workspaceCount_one": "{{count}} workspace",
-      "workspaceCount_other": "{{count}} workspaces"
+      "workspaceCount_other": "{{count}} workspaces",
+      "volumeCount_one": "{{count}} volume",
+      "volumeCount_other": "{{count}} volumes"
     },
     "templatesPage": {
       "new": "Nouveau modèle",
@@ -438,7 +435,6 @@
     "name": "Volume",
     "size": "Taille",
     "origin": "Workspace d’origine",
-    "owner": "Propriétaire",
     "retainedAt": "Conservé le",
     "empty": "Aucun volume conservé. À la suppression d’un workspace, vous pouvez choisir de conserver son volume : il apparaîtra ici.",
     "quotaNote": "Les volumes conservés comptent dans votre quota de stockage tant qu’ils existent.",
