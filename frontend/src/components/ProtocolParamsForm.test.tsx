@@ -175,7 +175,10 @@ describe('ProtocolParamsForm — kasmvnc admin-managed config (read-only)', () =
         protocol="kasmvnc"
         values={{}}
         onChange={() => {}}
-        kasmvncConfig={{ content: 'desktop:\n  resolution:\n    width: 1280\n', variant: 'template' }}
+        kasmvncConfig={{
+          content: 'desktop:\n  resolution:\n    width: 1280\n',
+          variant: 'template',
+        }}
       />,
     );
     expect(
@@ -185,8 +188,9 @@ describe('ProtocolParamsForm — kasmvnc admin-managed config (read-only)', () =
     expect(
       screen.queryByText('This protocol has no user-tunable parameters on this template.'),
     ).not.toBeInTheDocument();
-    // Read-only: nothing editable rendered for it.
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    // Read-only: the YamlEditor textbox blocks typing, and no other
+    // editable control is rendered for it.
+    expect(screen.getByRole('textbox')).toHaveAttribute('readonly');
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 

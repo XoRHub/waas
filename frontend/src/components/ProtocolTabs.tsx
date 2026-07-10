@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ParamField, sectionedParams } from '@/components/ParamField';
+import { YamlEditor } from '@/components/YamlEditor';
 import { useEscape } from '@/hooks/useEscape';
 import type { ParamMeta, ProtocolMeta } from '@/types';
 
@@ -176,8 +177,9 @@ export function audioEnabled(
  * variants for the two read paths: 'template' = the admin's raw text
  * (creation dialog, workspace not born yet), 'effective' = the merged
  * content the operator materialized for the workspace (template + policy
- * clipboard layer). Never editable here: opacity-based colors so the same
- * block works in the light dialogs and the dark session overlay.
+ * clipboard layer). Never editable here: the shared YamlEditor renders
+ * it read-only — same highlighting and gutter as the admin editor,
+ * typing blocked.
  */
 export function KasmVNCConfigView({
   config,
@@ -198,9 +200,15 @@ export function KasmVNCConfigView({
           : t('portal.kasmvncManagedConfigHintTemplate')}
       </p>
       {config.trim() !== '' ? (
-        <pre className="max-h-48 overflow-auto rounded-md bg-slate-500/10 p-2 font-mono text-xs">
-          {config}
-        </pre>
+        // Same YAML rendering as the admin editor, typing blocked. Frame
+        // sized to the content, capped at 7 lines (≈ the old max-h-48)
+        // with the textarea's native scroll past that.
+        <YamlEditor
+          value={config}
+          onChange={() => {}}
+          readOnly
+          rows={Math.min(7, config.trimEnd().split('\n').length)}
+        />
       ) : (
         <p className="text-xs italic opacity-60">{t('portal.kasmvncManagedConfigEmpty')}</p>
       )}
