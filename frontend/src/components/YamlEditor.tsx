@@ -88,11 +88,16 @@ export function YamlEditor({
   onChange,
   rows = 16,
   validate,
+  readOnly = false,
+  placeholder,
 }: {
   value: string;
   onChange: (text: string) => void;
   rows?: number;
   validate?: (value: unknown) => YamlIssue[];
+  /** Keeps native selection/scroll/copy; only blocks typing. */
+  readOnly?: boolean;
+  placeholder?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
@@ -138,15 +143,19 @@ export function YamlEditor({
           onChange={(e) => onChange(e.target.value)}
           onScroll={syncScroll}
           rows={rows}
+          readOnly={readOnly}
+          placeholder={placeholder}
           spellCheck={false}
           autoCapitalize="off"
           autoComplete="off"
           // Transparent text over the mirror: the caret stays native.
-          className="absolute inset-0 resize-none overflow-auto whitespace-pre bg-transparent py-2 pl-10 pr-3 text-transparent caret-slate-800 outline-none dark:caret-slate-100"
+          // The placeholder needs its own color — it would inherit the
+          // transparent text color in Firefox otherwise.
+          className="absolute inset-0 resize-none overflow-auto whitespace-pre bg-transparent py-2 pl-10 pr-3 text-transparent caret-slate-800 outline-none placeholder:text-slate-400 dark:caret-slate-100 dark:placeholder:text-slate-500"
           style={{ lineHeight: '1.25rem' }}
         />
       </div>
-      {issues.length > 0 && (
+      {!readOnly && issues.length > 0 && (
         <ul className="mt-2 space-y-0.5 text-xs text-red-600 dark:text-red-400">
           {issues.slice(0, 5).map((issue, i) => (
             <li key={i}>
