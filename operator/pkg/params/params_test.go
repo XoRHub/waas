@@ -6,10 +6,20 @@ import (
 )
 
 func TestRegistryIsCoherent(t *testing.T) {
+	knownCategories := map[Category]bool{}
+	for _, c := range AllCategories() {
+		knownCategories[c] = true
+	}
 	seen := map[string]map[string]bool{}
 	for _, p := range registry {
 		if p.Name == "" || p.Tier == "" || p.Kind == "" || p.Description == "" {
 			t.Fatalf("incomplete registry entry: %+v", p)
+		}
+		if p.Category == "" {
+			t.Fatalf("parameter %q has no category: every param must belong to a form section", p.Name)
+		}
+		if !knownCategories[p.Category] {
+			t.Fatalf("parameter %q: category %q is not in AllCategories()", p.Name, p.Category)
 		}
 		if len(p.Protocols) == 0 {
 			t.Fatalf("parameter %q declares no protocol", p.Name)
@@ -100,15 +110,25 @@ func TestValidateUserOverrides(t *testing.T) {
 	}
 }
 
-func TestForProtocolOrdersUIFirst(t *testing.T) {
-	list := ForProtocol("ssh")
-	if len(list) == 0 {
-		t.Fatal("ssh must have registered parameters")
+func TestForProtocolOrdersByCategoryThenTier(t *testing.T) {
+	catRank := map[Category]int{}
+	for i, c := range AllCategories() {
+		catRank[c] = i
 	}
-	rank := map[Tier]int{TierUI: 0, TierAdvanced: 1, TierPlatform: 2}
-	for i := 1; i < len(list); i++ {
-		if rank[list[i].Tier] < rank[list[i-1].Tier] {
-			t.Fatalf("tier ordering broken at %s (%s after %s)", list[i].Name, list[i].Tier, list[i-1].Tier)
+	tierRank := map[Tier]int{TierUI: 0, TierAdvanced: 1, TierPlatform: 2}
+	for _, proto := range []string{"vnc", "rdp", "ssh"} {
+		list := ForProtocol(proto)
+		if len(list) == 0 {
+			t.Fatalf("%s must have registered parameters", proto)
+		}
+		for i := 1; i < len(list); i++ {
+			prev, cur := list[i-1], list[i]
+			if catRank[cur.Category] < catRank[prev.Category] {
+				t.Fatalf("%s: category ordering broken at %s (%s after %s)", proto, cur.Name, cur.Category, prev.Category)
+			}
+			if cur.Category == prev.Category && tierRank[cur.Tier] < tierRank[prev.Tier] {
+				t.Fatalf("%s: tier ordering broken inside category %s at %s (%s after %s)", proto, cur.Category, cur.Name, cur.Tier, prev.Tier)
+			}
 		}
 	}
 }

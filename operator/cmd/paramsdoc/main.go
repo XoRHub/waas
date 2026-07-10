@@ -29,8 +29,13 @@ forms all consume.
 | Tier | Meaning |
 |---|---|
 | ` + "`ui`" + ` | Exposed in portal forms (template editor, workspace creation, connection settings, in-session overlay). |
-| ` + "`advanced`" + ` | Settable in the CR/template only (kubectl/GitOps or the template editor's advanced section). |
+| ` + "`advanced`" + ` | Same validation policy as ` + "`ui`" + `, but rendered behind the advanced disclosure of its section in every form. |
 | ` + "`platform`" + ` | Owned by the platform: injected automatically (hostname, port, credentials) or banned as a security/topology hazard. Rejected by the webhook in any CR, for every caller. |
+
+Each parameter also carries a **category** (display, audio, input,
+clipboard, session, security, connection): the thematic section it
+renders under in the forms. Purely presentational — categories never
+affect validation.
 
 "Live" parameters can be toggled mid-session (enforced client-side or by
 the wwt proxy); everything else requires a reconnect — guacd fixes its
@@ -39,8 +44,8 @@ parameters at connect time.
 `)
 	for _, proto := range params.Protocols() {
 		fmt.Fprintf(&b, "## %s\n\n", proto)
-		b.WriteString("| Parameter | Tier | Type | Constraints | Default | Live | Description |\n")
-		b.WriteString("|---|---|---|---|---|---|---|\n")
+		b.WriteString("| Parameter | Category | Tier | Type | Constraints | Default | Live | Description |\n")
+		b.WriteString("|---|---|---|---|---|---|---|---|\n")
 		for _, p := range params.ForProtocol(proto) {
 			constraints := ""
 			switch {
@@ -57,8 +62,8 @@ parameters at connect time.
 			if p.Live {
 				live = "yes"
 			}
-			fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %s | %s |\n",
-				p.Name, p.Tier, p.Kind, constraints, p.Default, live, p.Description)
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %s | %s | %s |\n",
+				p.Name, p.Category, p.Tier, p.Kind, constraints, p.Default, live, p.Description)
 		}
 		b.WriteString("\n")
 	}
@@ -66,8 +71,9 @@ parameters at connect time.
 
 1. Add one entry to the registry in ` + "`operator/pkg/params/params.go`" + `:
    name (the guacd wire name), protocols, kind (+ enum/bounds), tier,
-   live flag, description. Pick the tier deliberately:
-   security/topology-sensitive parameters are ` + "`platform`" + `.
+   category (the form section it renders under), live flag, description.
+   Pick the tier deliberately: security/topology-sensitive parameters
+   are ` + "`platform`" + `.
 2. Run ` + "`make docs-params`" + ` (this file) and ` + "`make test`" + `
    (the registry has coherence tests).
 3. Nothing else. The webhook validates it, the api-server serves it on
