@@ -9,7 +9,12 @@ import type { DesktopPaneHandle } from '@/components/DesktopPane';
 import type { Workspace } from '@/types';
 import { SessionOverlay } from './SessionOverlay';
 
-const apiMock = createApiMock({ '/api/v1/meta/protocols': [] });
+const apiMock = createApiMock({
+  '/api/v1/meta/protocols': [],
+  '/api/v1/workspaces/w1/kasmvnc-config': {
+    config: 'desktop:\n  resolution:\n    width: 1280\n',
+  },
+});
 vi.mock('@/lib/api', () => ({
   get api() {
     return apiMock.api;
@@ -69,5 +74,32 @@ describe('SessionOverlay clipboard section by protocol', () => {
     expect(screen.getByText('Allowed')).toBeInTheDocument();
     expect(screen.getByText('Denied by your policy')).toBeInTheDocument();
     expect(screen.getByText(/Native KasmVNC clipboard/i)).toBeInTheDocument();
+  });
+});
+
+describe('SessionOverlay kasmvnc effective config', () => {
+  it('shows the operator-materialized config read-only on kasmvnc', async () => {
+    // The effective kasmvnc.yaml (template + policy layer) fetched from
+    // the workspace's kasmvnc-config endpoint — informational display,
+    // nothing editable.
+    await renderOverlay('kasmvnc');
+
+    expect(
+      screen.getByText('KasmVNC configuration (managed by the administrator)'),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/width: 1280/)).toBeInTheDocument();
+    expect(screen.getByText(/actually applied to this workspace/)).toBeInTheDocument();
+  });
+
+  it('never fetches nor renders the config section on guacd protocols', async () => {
+    // Call history accumulates across tests (module-scope mock): reset it
+    // so the negative assertion only sees this render's requests.
+    apiMock.api.get.mockClear();
+    await renderOverlay('vnc');
+
+    expect(
+      screen.queryByText('KasmVNC configuration (managed by the administrator)'),
+    ).toBeNull();
+    expect(apiMock.api.get).not.toHaveBeenCalledWith('/api/v1/workspaces/w1/kasmvnc-config');
   });
 });

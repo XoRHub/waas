@@ -219,6 +219,20 @@ func (h *WorkspaceHandler) Resize(w http.ResponseWriter, r *http.Request) {
 	noContent(w)
 }
 
+// KasmVNCConfig handles GET /api/v1/workspaces/{id}/kasmvnc-config: the
+// effective kasmvnc.yaml the operator materialized for this workspace
+// (admin template config + policy clipboard layer), read-only — there is
+// deliberately no write counterpart, editing stays admin-only on the
+// template.
+func (h *WorkspaceHandler) KasmVNCConfig(w http.ResponseWriter, r *http.Request) {
+	config, err := h.svc.EffectiveKasmVNCConfig(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, map[string]string{"config": config})
+}
+
 // Connect handles POST /api/v1/workspaces/{id}/connect: records a session
 // and returns the short-lived connection token for the WebSocket proxy.
 // The body is optional: {protocol, params} picks a non-default protocol

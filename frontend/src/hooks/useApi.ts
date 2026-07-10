@@ -272,6 +272,19 @@ export function useConnectWorkspace() {
   });
 }
 
+// The effective kasmvnc.yaml the operator materialized for a workspace
+// (admin template config + policy clipboard layer) — read-only display
+// data; editing stays admin-only on the template. 404 (non-kasmvnc, or
+// not reconciled yet) is a normal answer, not a retryable failure.
+export function useWorkspaceKasmVNCConfig(workspaceId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['workspace-kasmvnc-config', workspaceId],
+    queryFn: () => api.get<{ config: string }>(`/api/v1/workspaces/${workspaceId}/kasmvnc-config`),
+    enabled,
+    retry: false,
+  });
+}
+
 export interface NamespacePlaceholder {
   token: string;
   source: string;

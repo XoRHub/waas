@@ -623,6 +623,37 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 	}, nil
 }
 
+// EffectiveKasmVNCConfig returns the kasmvnc.yaml the operator actually
+// materialized for this workspace: the per-workspace ConfigMap built by
+// ensureKasmConfig (admin template config + policy clipboard enforcement)
+// and mounted read-only in the pod. This is what a "show me the applied
+// KasmVNC config" view must display — the template's raw field alone
+// misses the policy layer. Same authorization scope as Get: the owner
+// sees their own workspace's config, admins see any. The ConfigMap is
+// addressed with the SAME CRD naming helpers the operator uses
+// (EffectiveWorkloadName/EffectiveTargetNamespace), never a re-derived
+// convention. 404 when no config exists (non-kasmvnc template, or not
+// reconciled yet).
+func (s *WorkspaceService) EffectiveKasmVNCConfig(ctx context.Context, actor Actor, id string) (string, error) {
+	ws, err := s.fetchByID(ctx, actor, id)
+	if err != nil {
+		return "", err
+	}
+	cm := &corev1.ConfigMap{}
+	key := client.ObjectKey{Namespace: ws.EffectiveTargetNamespace(), Name: ws.EffectiveWorkloadName()}
+	if err := s.kube.Get(ctx, key, cm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", apierror.NotFound("this workspace has no KasmVNC configuration")
+		}
+		return "", fmt.Errorf("fetching kasmvnc config %s/%s: %w", key.Namespace, key.Name, err)
+	}
+	content, ok := cm.Data["kasmvnc.yaml"]
+	if !ok {
+		return "", apierror.NotFound("this workspace has no KasmVNC configuration")
+	}
+	return content, nil
+}
+
 // clipboardGrant resolves the connecting user's clipboard rights from
 // their WorkspacePolicy. Resolution failure (no user record, no matching
 // policy) fails closed: session yes, clipboard no.

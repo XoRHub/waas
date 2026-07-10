@@ -440,6 +440,15 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
               allowList={isAdmin ? undefined : (tabProto.resolvedUserParams ?? [])}
               placeholders={tabProto.params}
               audioPortExposed={tabProto.exposeAudioPort ?? false}
+              // kasmvnc: no userParams by design, but the admin's config
+              // exists and will apply — surface it read-only (the raw
+              // template text: the workspace is not born yet, the
+              // policy-merged effective content does not exist).
+              kasmvncConfig={
+                tabProto.name === 'kasmvnc'
+                  ? { content: template?.kasmvncConfig ?? '', variant: 'template' }
+                  : undefined
+              }
             />
           )}
         </fieldset>

@@ -168,6 +168,47 @@ export function audioEnabled(
 }
 
 /**
+ * Read-only viewer of the admin-managed KasmVNC configuration. KasmVNC
+ * deliberately has no userParams registry entry — its config does not
+ * travel through guacd — but a config still exists and applies (that is
+ * where a read-only session or a resolution lives), so users get to SEE
+ * it instead of the misleading "no tunable parameters" message. Two
+ * variants for the two read paths: 'template' = the admin's raw text
+ * (creation dialog, workspace not born yet), 'effective' = the merged
+ * content the operator materialized for the workspace (template + policy
+ * clipboard layer). Never editable here: opacity-based colors so the same
+ * block works in the light dialogs and the dark session overlay.
+ */
+export function KasmVNCConfigView({
+  config,
+  variant,
+}: {
+  config: string;
+  variant: 'template' | 'effective';
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="space-y-1">
+      <h4 className="text-xs font-semibold uppercase tracking-wide opacity-60">
+        {t('portal.kasmvncManagedConfig')}
+      </h4>
+      <p className="text-xs opacity-60">
+        {variant === 'effective'
+          ? t('portal.kasmvncManagedConfigHintEffective')
+          : t('portal.kasmvncManagedConfigHintTemplate')}
+      </p>
+      {config.trim() !== '' ? (
+        <pre className="max-h-48 overflow-auto rounded-md bg-slate-500/10 p-2 font-mono text-xs">
+          {config}
+        </pre>
+      ) : (
+        <p className="text-xs italic opacity-60">{t('portal.kasmvncManagedConfigEmpty')}</p>
+      )}
+    </div>
+  );
+}
+
+/**
  * The registry-driven parameter form of ONE protocol, grouped into the
  * registry's thematic sections (display, audio, …): within a section the
  * simple params are always visible and the advanced ones sit behind a
@@ -189,6 +230,7 @@ export function ProtocolParamsForm({
   renderSectionExtra,
   audioPortExposed,
   onAudioPortChange,
+  kasmvncConfig,
 }: {
   meta: ProtocolMeta[] | undefined;
   protocol: string;
@@ -214,6 +256,13 @@ export function ProtocolParamsForm({
    * template, they get told whether audio can actually stream.
    */
   onAudioPortChange?: (exposed: boolean) => void;
+  /**
+   * kasmvnc only: the admin-managed configuration shown read-only —
+   * {content, variant} per KasmVNCConfigView. When absent (remote
+   * machines, other protocols) the form keeps its usual behavior,
+   * including the no-tunable-params message.
+   */
+  kasmvncConfig?: { content: string; variant: 'template' | 'effective' };
 }) {
   const { t } = useTranslation();
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -239,7 +288,11 @@ export function ProtocolParamsForm({
 
   return (
     <div className="space-y-4">
-      {sections.length > 0 ? (
+      {protocol === 'kasmvnc' && kasmvncConfig !== undefined ? (
+        // Not "no parameters": the kasmvnc config exists and applies, it
+        // just does not travel through userParams/guacd — show it.
+        <KasmVNCConfigView config={kasmvncConfig.content} variant={kasmvncConfig.variant} />
+      ) : sections.length > 0 ? (
         sections.map((section) => {
           const open = openSections[section.category] ?? false;
           return (

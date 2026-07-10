@@ -73,6 +73,14 @@ rules:
   - apiGroups: [""]
     resources: [events, pods, services]
     verbs: [get, list]
+  # Effective KasmVNC config: read-only display of the per-workspace
+  # kasmvnc.yaml ConfigMap the operator materialized (GET
+  # /workspaces/{id}/kasmvnc-config). Addressed by its exact name in the
+  # workload namespace — get only, never list/watch and never any write:
+  # editing stays admin-only through the template CR.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get]
   # Session resize: the ONLY write into workspace pods — exec of the
   # image's fixed waas-resize helper (docs/session-resize.md). Kept as
   # its OWN rule on purpose: pods/exec is a significant grant and must

@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog } from '@/components/Dialog';
 import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
-import { useProtocolMeta, useUpdateProfile, useUpdateWorkspaceOverrides } from '@/hooks/useApi';
+import {
+  useProtocolMeta,
+  useUpdateProfile,
+  useUpdateWorkspaceOverrides,
+  useWorkspaceKasmVNCConfig,
+} from '@/hooks/useApi';
 import { WorkspaceRuntimeForm } from '@/dialogs/WorkspaceRuntimeForm';
 import { useAuthStore } from '@/stores/authStore';
 import type { Workspace } from '@/types';
@@ -45,6 +50,14 @@ export function ConnectionSettingsDialog({
 
   const selected = protocols.find((p) => p.name === tab);
   const isAdmin = user?.role === 'admin';
+  // Existing workspace: the value that matters is the EFFECTIVE config
+  // the operator materialized (template + policy clipboard layer), read
+  // from its per-workspace ConfigMap through the API — not the template's
+  // raw text.
+  const kasmCfg = useWorkspaceKasmVNCConfig(
+    workspace.id,
+    protocols.some((p) => p.name === 'kasmvnc'),
+  );
 
   const onSave = () => {
     const cleanedByProto: Record<string, Record<string, string>> = {};
@@ -188,6 +201,11 @@ export function ConnectionSettingsDialog({
                 placeholders={selected.params}
                 columns={1}
                 audioPortExposed={selected.exposeAudioPort ?? false}
+                kasmvncConfig={
+                  tab === 'kasmvnc'
+                    ? { content: kasmCfg.data?.data.config ?? '', variant: 'effective' }
+                    : undefined
+                }
               />
             </div>
           )}

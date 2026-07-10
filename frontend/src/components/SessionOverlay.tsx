@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { useProtocolMeta, useSaveRemoteWorkspace, useUpdateProfile } from '@/hooks/useApi';
+import {
+  useProtocolMeta,
+  useSaveRemoteWorkspace,
+  useUpdateProfile,
+  useWorkspaceKasmVNCConfig,
+} from '@/hooks/useApi';
+import { KasmVNCConfigView } from '@/components/ProtocolTabs';
 import { hasClipboardApi } from '@/lib/clipboard';
 import { useAuthStore } from '@/stores/authStore';
 import { useEscape } from '@/hooks/useEscape';
@@ -96,6 +102,14 @@ export function SessionOverlay({
       ? targetFromRemote(remote)
       : null;
   const protoSwitch = useProtocolSwitch(maybeTarget ?? EMPTY_TARGET, { confirm: true });
+  // In-cluster kasmvnc sessions: the EFFECTIVE config the operator
+  // materialized for this workspace (template + policy clipboard layer),
+  // shown read-only below. Only fetched while the panel is open on a
+  // kasmvnc workspace; remote machines manage their own config.
+  const kasmCfg = useWorkspaceKasmVNCConfig(
+    workspace?.id ?? '',
+    open && !!workspace && protoSwitch.active === 'kasmvnc',
+  );
 
   if (!maybeTarget) return null;
   const target = maybeTarget;
@@ -348,6 +362,13 @@ export function SessionOverlay({
               </>
             )}
           </section>
+
+          {/* -------- kasmvnc: effective admin-managed config -------- */}
+          {!isRemote && protocol === 'kasmvnc' && (
+            <section className="space-y-2">
+              <KasmVNCConfigView config={kasmCfg.data?.data.config ?? ''} variant="effective" />
+            </section>
+          )}
 
           {/* -------- protocol params (reconnect scope) -------- */}
           {reconnectParams.length > 0 && (

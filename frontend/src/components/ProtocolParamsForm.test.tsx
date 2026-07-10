@@ -164,6 +164,70 @@ describe('ProtocolParamsForm — sectioned rendering (Feature 7)', () => {
   });
 });
 
+describe('ProtocolParamsForm — kasmvnc admin-managed config (read-only)', () => {
+  // kasmvnc has no registry entry on purpose (its config does not travel
+  // through guacd), but a config exists and applies: the form must show
+  // it read-only instead of the misleading "no tunable parameters".
+  it('shows the config content instead of the no-tunable-params message', () => {
+    renderWithProviders(
+      <ProtocolParamsForm
+        meta={[]}
+        protocol="kasmvnc"
+        values={{}}
+        onChange={() => {}}
+        kasmvncConfig={{ content: 'desktop:\n  resolution:\n    width: 1280\n', variant: 'template' }}
+      />,
+    );
+    expect(
+      screen.getByText('KasmVNC configuration (managed by the administrator)'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/width: 1280/)).toBeInTheDocument();
+    expect(
+      screen.queryByText('This protocol has no user-tunable parameters on this template.'),
+    ).not.toBeInTheDocument();
+    // Read-only: nothing editable rendered for it.
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('labels the effective variant differently from the template one', () => {
+    renderWithProviders(
+      <ProtocolParamsForm
+        meta={[]}
+        protocol="kasmvnc"
+        values={{}}
+        onChange={() => {}}
+        kasmvncConfig={{ content: 'x: 1\n', variant: 'effective' }}
+      />,
+    );
+    expect(screen.getByText(/actually applied to this workspace/)).toBeInTheDocument();
+  });
+
+  it('tells that image defaults apply when the admin config is empty', () => {
+    renderWithProviders(
+      <ProtocolParamsForm
+        meta={[]}
+        protocol="kasmvnc"
+        values={{}}
+        onChange={() => {}}
+        kasmvncConfig={{ content: '', variant: 'template' }}
+      />,
+    );
+    expect(
+      screen.getByText('No custom configuration — the image defaults apply.'),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the no-tunable-params message when no config is provided (remote machines)', () => {
+    renderWithProviders(
+      <ProtocolParamsForm meta={[]} protocol="kasmvnc" values={{}} onChange={() => {}} />,
+    );
+    expect(
+      screen.getByText('This protocol has no user-tunable parameters on this template.'),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('ProtocolParamsForm — conditional audio-port section', () => {
   it('shows nothing audio-related while enable-audio is off', () => {
     renderWithProviders(

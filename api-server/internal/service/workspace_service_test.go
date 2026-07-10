@@ -75,6 +75,71 @@ func TestOverridesSummaryIsAuditSafe(t *testing.T) {
 	}
 }
 
+// TestEffectiveKasmVNCConfig pins the read path of the operator-
+// materialized kasmvnc.yaml: the ConfigMap is addressed via the CRD's own
+// EffectiveWorkloadName/EffectiveTargetNamespace (never a re-derived
+// naming convention), the owner and admins may read it, any other user
+// gets the same 404 as Get (no existence leak), and a workspace without
+// the ConfigMap (non-kasmvnc, or not reconciled yet) is a clean 404.
+func TestEffectiveKasmVNCConfig(t *testing.T) {
+	kube, err := k8s.NewClient(true)
+	if err != nil {
+		t.Fatalf("building fake kube client: %v", err)
+	}
+	svc := &WorkspaceService{kube: kube, namespace: "waas"}
+	ctx := context.Background()
+
+	ws := &waasv1alpha1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "cad", Namespace: "waas", UID: "uid-cad"},
+		Spec: waasv1alpha1.WorkspaceSpec{
+			TemplateRef: "kasm", Owner: "u1",
+			TargetNamespace: "waas-alice", WorkloadName: "cad-station",
+		},
+	}
+	if err := kube.Create(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+	// The ConfigMap the operator would materialize: workload name, target
+	// namespace, kasmvnc.yaml key.
+	effective := "data_loss_prevention:\n  clipboard:\n    server_to_client:\n      enabled: false\n"
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "cad-station", Namespace: "waas-alice"},
+		Data:       map[string]string{"kasmvnc.yaml": effective},
+	}
+	if err := kube.Create(ctx, cm); err != nil {
+		t.Fatal(err)
+	}
+
+	owner := Actor{ID: "u1", Role: "user"}
+	got, err := svc.EffectiveKasmVNCConfig(ctx, owner, "uid-cad")
+	if err != nil || got != effective {
+		t.Fatalf("owner must read the effective config, got %q, %v", got, err)
+	}
+	admin := Actor{ID: "root", Role: "admin"}
+	if got, err = svc.EffectiveKasmVNCConfig(ctx, admin, "uid-cad"); err != nil || got != effective {
+		t.Fatalf("admin must read the effective config, got %q, %v", got, err)
+	}
+	// Another user: same 404 as Get — never a 403 leaking existence.
+	if _, err = svc.EffectiveKasmVNCConfig(ctx, Actor{ID: "u2", Role: "user"}, "uid-cad"); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Fatalf("non-owner must get not-found, got %v", err)
+	}
+
+	// Workspace without a materialized ConfigMap (guacd template, or the
+	// operator has not reconciled yet): clean 404, not a 500.
+	plain := &waasv1alpha1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "xfce", Namespace: "waas", UID: "uid-xfce"},
+		Spec:       waasv1alpha1.WorkspaceSpec{TemplateRef: "xfce", Owner: "u1"},
+	}
+	if err := kube.Create(ctx, plain); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.EffectiveKasmVNCConfig(ctx, owner, "uid-xfce"); err == nil ||
+		!strings.Contains(err.Error(), "no KasmVNC configuration") {
+		t.Fatalf("workspace without config must get a clean 404, got %v", err)
+	}
+}
+
 // TestResolveWorkloadName pins the naming contract of point "Deployment =
 // workspace name": sanitized display name, deterministic suffix only on
 // collision, and collisions scoped to the target namespace.
