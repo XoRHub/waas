@@ -1,8 +1,10 @@
 # Dev catalog — mirrors gitops/governance/images.yaml but points at the
 # waas-local:dev tags produced by `make dev-build-images`, imported straight
 # into the k3d node's containerd by `make dev-load-images` (no registry
-# involved). Only images that actually exist in waas-images/ are seeded here
-# (ubuntu-devtools in the real catalog has no local manifest yet).
+# involved). Only images that actually exist in the waas-images repo (its
+# own repo since 2026-07-10, sibling checkout — see WAAS_IMAGES_DIR in the
+# Makefile) are seeded here (ubuntu-devtools in the real catalog has no
+# manifest there yet).
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceImage
 metadata:

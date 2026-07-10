@@ -48,7 +48,9 @@ cd api-server && WAAS_DEV=true go run ./cmd/api-server
 ```
 
 Local cluster (k3d): `make dev-bootstrap` — creates the `waas-dev` cluster with
-cert-manager, builds and imports every image (services + `waas-images/` desktops),
+cert-manager, builds and imports every image (services + the desktops from the
+[waas-images repo](https://gitlab.com/drummyjohn/waas-images), expected as a
+sibling checkout — `WAAS_IMAGES_DIR` overrides the path),
 deploys the chart and seeds the dev catalog; the URL and credentials are printed
 at the end. After code changes: `make dev-reload` (services/frontend) or
 `make dev-reload-all` (also rebuilds the desktop images). `make dev-down` tears

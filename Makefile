@@ -8,9 +8,12 @@ DEV_NAMESPACE    := waas
 IMAGE_TAG        := dev
 DEV_IMAGES       := operator api-server wwt frontend
 
-# Workspace desktop images (waas-images/). Base images are build-time-only
-# (FROM layers); only the leaf images are ever scheduled as pods, so only
-# those get imported into k3d.
+# Workspace desktop images. They live in their own repo since 2026-07-10
+# (git@gitlab.com:drummyjohn/waas-images.git); dev-build-images resolves
+# the checkout via WAAS_IMAGES_DIR (default: sibling of this repo). Base
+# images are build-time-only (FROM layers); only the leaf images are ever
+# scheduled as pods, so only those get imported into k3d.
+WAAS_IMAGES_DIR       ?= ../waas-images
 WORKSPACE_BASE_IMAGES := ubuntu-base-vnc ubuntu-base-rdp
 WORKSPACE_IMAGES      := ubuntu-xfce ubuntu-firefox dev-ssh
 
@@ -71,7 +74,7 @@ docker-build:
 #   make dev-build dev-load dev-deploy
 #   make dev-load-images        # workspace desktop images (after dev-deploy: needs the ns)
 #   make dev-reload             # after service/frontend code changes: rebuild, reimport, restart
-#   make dev-reload-all         # same, plus the waas-images/ desktop images
+#   make dev-reload-all         # same, plus the desktop images (waas-images repo)
 #   make dev-down               # tear down
 
 # The whole flow above in one shot, from a blank machine. Safe to re-run on
@@ -129,20 +132,30 @@ dev-reload: dev-build dev-load dev-deploy
 	kubectl -n $(DEV_NAMESPACE) rollout restart \
 		deploy/waas-operator deploy/waas-api-server deploy/waas-wwt deploy/waas-frontend
 
-# dev-reload, plus a rebuild/reimport of the waas-images/ desktop images and
-# a re-apply of the dev catalog. Use after touching waas-images/; noticeably
-# slower (full docker builds of the desktop stacks), so plain dev-reload
-# stays the inner loop for service/frontend code. Pure composition — the
-# restart lives in dev-reload only, and running it before the image import
-# is fine: workspace images never run in the four service deployments.
+# dev-reload, plus a rebuild/reimport of the desktop images (waas-images
+# repo) and a re-apply of the dev catalog. Use after touching the images
+# repo; noticeably slower (full docker builds of the desktop stacks), so
+# plain dev-reload stays the inner loop for service/frontend code. Pure
+# composition — the restart lives in dev-reload only, and running it before
+# the image import is fine: workspace images never run in the four service
+# deployments.
 dev-reload-all: dev-reload dev-load-images
 
-# Build waas-images/ locally (docker build via its own Makefile).
+# Build the workspace desktop images locally (docker build via the
+# waas-images repo's own Makefile). The existence check is a make-time
+# conditional so `make -n` graph checks still resolve without the clone.
 dev-build-images:
+ifeq ($(wildcard $(WAAS_IMAGES_DIR)/Makefile),)
+	@echo "error: waas-images repo not found at '$(WAAS_IMAGES_DIR)' (split out of this monorepo 2026-07-10)." >&2
+	@echo "  clone it first:  git clone git@gitlab.com:drummyjohn/waas-images.git $(WAAS_IMAGES_DIR)" >&2
+	@echo "  or point WAAS_IMAGES_DIR at an existing checkout:  make dev-build-images WAAS_IMAGES_DIR=/path/to/waas-images" >&2
+	@exit 1
+else
 	@for img in $(WORKSPACE_BASE_IMAGES) $(WORKSPACE_IMAGES); do \
 		echo "==> build $$img"; \
-		$(MAKE) -C waas-images build IMAGE=$$img || exit 1; \
+		$(MAKE) -C $(WAAS_IMAGES_DIR) build IMAGE=$$img || exit 1; \
 	done
+endif
 
 # Import the leaf workspace images into k3d and seed the dev catalog
 # (WorkspaceImage/WorkspaceTemplate pointed at waas-local:dev tags) plus the

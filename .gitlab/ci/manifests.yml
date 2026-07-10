@@ -57,7 +57,8 @@ hadolint:
   image: hadolint/hadolint:2.12.0-alpine
   needs: []
   script:
-    # waas-images/ Dockerfiles are linted by their own child pipeline.
+    # The desktop images' Dockerfiles are linted by the waas-images
+    # repo's own pipeline (separate repo since 2026-07-10).
     - hadolint --failure-threshold warning
       operator/Dockerfile api-server/Dockerfile wwt/Dockerfile frontend/Dockerfile
 

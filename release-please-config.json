@@ -4,7 +4,8 @@
     "Single root package ON PURPOSE: the platform releases as one vX.Y.Z",
     "tag (ArgoCD targetRevision, whole image set promoted together).",
     "Per-component packages would break the one-tag-one-deployable-state",
-    "contract. waas-images/ is out of scope (own per-image versioning).",
+    "contract. The desktop images are out of scope: waas-images is its",
+    "own repo since 2026-07-10 (own per-image versioning).",
     "Chart.yaml is bumped via the x-release-please-start-version/end",
     "block markers (generic updater; the 'v' in appVersion survives",
     "because the version regex only matches the numeric part)."

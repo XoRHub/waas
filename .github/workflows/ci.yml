@@ -363,8 +363,8 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
       - name: hadolint
-        # waas-images/ Dockerfiles are out of scope here (their pipeline
-        # is not ported to GitHub yet — docs/ci-github.md).
+        # The desktop images' Dockerfiles are out of scope here: the
+        # waas-images repo (separate since 2026-07-10) lints its own.
         run: |
           docker run --rm -v "$PWD:/work" -w /work hadolint/hadolint:2.12.0-alpine \
             hadolint --failure-threshold warning \
@@ -377,8 +377,9 @@ jobs:
         # The dev-env targets are prerequisite chains over docker/k3d/helm
         # commands nothing else in CI exercises; -n proves the graph still
         # resolves (no missing target, no typo'd prerequisite) without a
-        # cluster. Recursive $(MAKE) lines run with -n propagated, so the
-        # waas-images/ Makefile is covered too.
+        # cluster. The waas-images repo (separate since 2026-07-10) is not
+        # cloned here: dev-build-images degrades to a printed error under
+        # -n when the sibling checkout is absent.
         run: make -n dev-bootstrap dev-reload-all >/dev/null
 
   # ------------------------------------------------------------------

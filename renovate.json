@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Monorepo config (supersedes the former waas-images/renovate.json): Dockerfiles, CI job images across .gitlab-ci.yml + .gitlab/ci/, tool pins in scripts and Makefiles.",
+  "description": "Monorepo config: Dockerfiles, CI job images across .gitlab-ci.yml + .gitlab/ci/, tool pins in scripts and Makefiles. The waas-images repo (split out 2026-07-10) carries its own config again.",
   "extends": [
     "config:recommended",
     "docker:pinDigests",
@@ -12,24 +12,11 @@
       "/^\\.gitlab/ci/.+\\.ya?ml$/"
     ]
   },
-  "packageRules": [
-    {
-      "description": "Ubuntu LTS bumps are a deliberate decision: group and label, never automerge.",
-      "matchPackageNames": [
-        "ubuntu"
-      ],
-      "groupName": "ubuntu base image",
-      "labels": [
-        "os-bump"
-      ]
-    }
-  ],
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Container tool images pinned inside shell scripts and CI job scripts (binfmt, trivy, cosign, buildkit).",
+      "description": "Container tool images pinned inside CI job scripts (binfmt, trivy, cosign, buildkit).",
       "managerFilePatterns": [
-        "/^waas-images/ci/.+\\.sh$/",
         "/^\\.gitlab/ci/.+\\.(sh|ya?ml)$/"
       ],
       "matchStrings": [
@@ -106,18 +93,6 @@
       ],
       "depNameTemplate": "git-cliff",
       "datasourceTemplate": "npm"
-    },
-    {
-      "customType": "regex",
-      "description": "UBUNTU_VERSION default in the workspace base Dockerfile.",
-      "managerFilePatterns": [
-        "/^waas-images/base/ubuntu/Dockerfile$/"
-      ],
-      "matchStrings": [
-        "ARG UBUNTU_VERSION=(?<currentValue>[0-9.]+)"
-      ],
-      "depNameTemplate": "ubuntu",
-      "datasourceTemplate": "docker"
     },
     {
       "customType": "regex",

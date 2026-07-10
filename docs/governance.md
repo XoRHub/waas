@@ -196,7 +196,8 @@ data), compute freed, home kept.
 
 ## Procedures
 
-**Add an image to the catalog**: build/push via `waas-images` → add a
+**Add an image to the catalog**: build/push via the `waas-images` repo
+(separate from this one since 2026-07-10) → add a
 `WorkspaceImage` in `gitops/governance/images.yaml` (or admin console)
 with the exact ref → create a `WorkspaceTemplate` using that ref →
 reference it from policies (or leave `images: []`). Adding the template

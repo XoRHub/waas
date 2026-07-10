@@ -20,7 +20,6 @@ MR (merge_request_event) — builds sélectifs par rules:changes
 │            + build-<c>-arm64 (runner `arm`) → merge-<c> (manifest list)
 │            tags poussés : mr-<iid>-<short-sha>
 ├─ scan      scan-<c> : trivy image sur le manifest mergé — BLOQUANT
-├─ build     waas-images → child pipeline (seulement si waas-images/** change)
 └─ validate  smoke-connections (k3d + session guacd réelle par protocole)
              manuel en MR mais allow_failure:false → gate de merge
 
@@ -54,13 +53,13 @@ Prérequis runners : executor Docker avec dind (privileged), tags `amd` et
 `arm` posés. Les jobs sans besoin d'arch spécifique vont sur `amd` (flotte
 la plus puissante) via `default:tags`.
 
-Le pipeline `waas-images/` (desktops) suit la même stratégie : un job de
-build natif par arch (smoke + scan Trivy sur **chaque** arch, avant push)
-puis un job de merge qui assemble la manifest list, publie le tag
-`<version>` immuable (main) et signe. Fallback opérationnel : la variable
-CI `WAAS_IMAGES_BUILD_STRATEGY=qemu` route tous les builds sur la flotte
-`amd` sous émulation (utile flotte arm indisponible) — mêmes jobs, mêmes
-gates, juste plus lent.
+Les images desktop (repo `waas-images`, **séparé du monorepo depuis le
+2026-07-10**) suivent la même stratégie dans leur propre pipeline : un
+job de build natif par arch (smoke + scan Trivy sur **chaque** arch,
+avant push) puis un job de merge qui assemble la manifest list, publie
+le tag `<version>` immuable (main) et signe. Le job trigger
+`waas-images:` du pipeline racine a été supprimé avec le split — aucun
+changement de ce repo ne peut plus affecter ces images.
 
 ## Couper une release
 
@@ -96,7 +95,7 @@ gates, juste plus lent.
 
 | Variable | Type | Usage |
 |---|---|---|
-| `COSIGN_PRIVATE_KEY` | masked | clé de signature (la même que waas-images) — la release **échoue** sans elle |
+| `COSIGN_PRIVATE_KEY` | masked | clé de signature (la même que le repo waas-images) — la release **échoue** sans elle |
 | `COSIGN_PASSWORD` | masked | passphrase de la clé |
 
 Tout le reste (registry, tokens) passe par les variables prédéfinies
@@ -140,10 +139,11 @@ continu et ne grossit pas indéfiniment.
 
 ## Renovate
 
-`renovate.json` (racine — remplace l'ancien `waas-images/renovate.json`)
-couvre : `FROM` des Dockerfiles, images de jobs dans `.gitlab-ci.yml` +
-`.gitlab/ci/*.yml` + le pipeline waas-images, pins d'outils dans les
+`renovate.json` (racine) couvre : `FROM` des Dockerfiles, images de jobs
+dans `.gitlab-ci.yml` + `.gitlab/ci/*.yml`, pins d'outils dans les
 scripts (`buildkit`, `trivy`, `cosign`, `binfmt`), `go run tool@vX`,
-`CONTROLLER_GEN_VERSION`, `git-cliff`. Règle d'hygiène : **aucun
-`latest`** — toute nouvelle image de job doit être pinnée (tag exact,
-digest ajouté par Renovate via `docker:pinDigests`).
+`CONTROLLER_GEN_VERSION`, `git-cliff`. Depuis le split du 2026-07-10, le
+repo `waas-images` porte à nouveau son propre `renovate.json` (le config
+racine l'avait absorbé à l'époque du monorepo). Règle d'hygiène :
+**aucun `latest`** — toute nouvelle image de job doit être pinnée (tag
+exact, digest ajouté par Renovate via `docker:pinDigests`).

@@ -33,7 +33,9 @@ push main — TOUT est construit (invariant : chaque SHA de main porte le jeu
 
 - Mode manifest : `release-please-config.json` + `.release-please-manifest.json`,
   **un seul package racine** — la plateforme sort en un tag `vX.Y.Z` unique
-  (targetRevision ArgoCD, promotion en bloc). `waas-images/` hors scope.
+  (targetRevision ArgoCD, promotion en bloc). Les images desktop sont
+  hors scope (repo `waas-images` séparé depuis le 2026-07-10, versionné
+  par image).
 - La release-PR bump `version.txt`, `CHANGELOG.md` et `helm/waas/Chart.yaml`
   (marqueurs `x-release-please-start-version`/`end` ; le `v` d'`appVersion`
   survit car l'updater ne matche que la partie numérique).
@@ -87,7 +89,9 @@ manuel) : `version:` de golangci-lint-action et setup-helm, `node-version`.
 
 ## Écarts assumés / non porté (encore)
 
-- **waas-images/** : pipeline enfant GitLab généré, pas d'équivalent GitHub.
+- **waas-images** : GitLab seulement, pas d'équivalent GitHub. Depuis le
+  split du 2026-07-10 le sujet appartient au repo `waas-images` (voir son
+  `docs/RECIPE-STUDY.md`, § CI GitHub Actions).
 - **smoke-connections** (k3d + sessions guacd réelles) : trop lourd pour un
   runner hébergé 7 Go ; à porter sur runner self-hosted ou à garder GitLab.
 - Images PR **non poussées** (le token des PR de forks ne peut pas écrire

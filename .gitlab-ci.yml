@@ -44,21 +44,11 @@ include:
   - local: .gitlab/ci/docker.yml
   - local: .gitlab/ci/release.yml
 
-# Workspace desktop images: their pipeline (lint -> generate -> generated
-# grandchild with one job per image) lives in waas-images/ and only runs
-# when that tree changes.
-waas-images:
-  stage: build
-  rules:
-    - if: $CI_COMMIT_TAG
-      when: never
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: [waas-images/**/*]
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: [waas-images/**/*]
-  trigger:
-    include: waas-images/.gitlab-ci.yml
-    strategy: depend
+# Workspace desktop images live in their own repo since 2026-07-10
+# (drummyjohn/waas-images, split with history). The former child-pipeline
+# trigger job was removed rather than converted to a cross-project
+# trigger: no change in THIS repo can affect those images anymore, and
+# the images repo runs its own pipeline on its own changes.
 
 # Ephemeral k3d cluster + full deploy + real guacd session per protocol
 # (docs/smoke-connections.md). The delivery gate: an iteration that
@@ -85,6 +75,9 @@ smoke-connections:
   before_script:
     - apk add --no-cache bash curl git go helm kubectl make openssh-keygen
     - curl -sL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+    # Desktop images are built from the (now separate) waas-images repo;
+    # dev-build-images resolves it at ../waas-images (WAAS_IMAGES_DIR).
+    - git clone --depth 1 "${WAAS_IMAGES_REPO_URL:-${CI_SERVER_URL}/drummyjohn/waas-images.git}" ../waas-images
   script:
     - make dev-up dev-build dev-load dev-deploy dev-load-images
     - kubectl -n waas rollout status deploy/waas-api-server --timeout=300s
