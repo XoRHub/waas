@@ -373,6 +373,13 @@ jobs:
         # Globs kept in sync with .gitlab/ci/manifests.yml; drop the
         # .gitlab/ glob when the GitLab pipeline is retired.
         run: shellcheck -S warning .gitlab/ci/*.sh hack/dev/*.sh hack/*.sh
+      - name: make dev-target resolution
+        # The dev-env targets are prerequisite chains over docker/k3d/helm
+        # commands nothing else in CI exercises; -n proves the graph still
+        # resolves (no missing target, no typo'd prerequisite) without a
+        # cluster. Recursive $(MAKE) lines run with -n propagated, so the
+        # waas-images/ Makefile is covered too.
+        run: make -n dev-bootstrap dev-reload-all >/dev/null
 
   # ------------------------------------------------------------------
   # Image builds: one native amd64 leg + one arm64 leg (native runner or

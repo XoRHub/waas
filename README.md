@@ -47,8 +47,12 @@ make frontend-build
 cd api-server && WAAS_DEV=true go run ./cmd/api-server
 ```
 
-Local cluster: `k3d cluster create waas`, install cert-manager, then
-`helm install waas helm/waas`.
+Local cluster (k3d): `make dev-bootstrap` — creates the `waas-dev` cluster with
+cert-manager, builds and imports every image (services + `waas-images/` desktops),
+deploys the chart and seeds the dev catalog; the URL and credentials are printed
+at the end. After code changes: `make dev-reload` (services/frontend) or
+`make dev-reload-all` (also rebuilds the desktop images). `make dev-down` tears
+it down, `make smoke` validates real per-protocol sessions.
 
 ## CI/CD
 

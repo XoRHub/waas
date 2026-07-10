@@ -47,8 +47,8 @@ Variables : `WAAS_SMOKE_URL` (sans elle le test se **skip** — `go test
 
 Une itération n'est pas livrable si `make smoke` ne passe pas sur
 l'environnement de validation. Intégration CI (GitLab) : un job de stage
-`validate` qui monte le k3d éphémère (`make dev-up dev-build dev-load
-dev-deploy dev-load-images`) puis lance `make smoke`. C'est le montage le
+`validate` qui monte le k3d éphémère (`make dev-bootstrap`) puis lance
+`make smoke`. C'est le montage le
 plus léger qui reste fiable : il utilise exactement le chemin du
 navigateur (même ingress, même WebSocket), sans navigateur ni Selenium.
 

@@ -15,8 +15,8 @@ WORKSPACE_BASE_IMAGES := ubuntu-base-vnc ubuntu-base-rdp
 WORKSPACE_IMAGES      := ubuntu-xfce ubuntu-firefox dev-ssh
 
 .PHONY: all build test lint generate manifests docs-params frontend-build docker-build \
-	dev-up dev-down dev-reset dev-build dev-load dev-deploy dev-reload \
-	dev-build-images dev-load-images \
+	dev-up dev-down dev-reset dev-bootstrap dev-build dev-load dev-deploy \
+	dev-reload dev-reload-all dev-build-images dev-load-images \
 	dev-status dev-logs dev-url tidy
 
 all: build
@@ -66,11 +66,22 @@ docker-build:
 
 # --- local k3d dev environment --------------------------------------------
 # Typical flow:
+#   make dev-bootstrap          # blank machine -> full env (all the steps below, in order)
 #   make dev-up                 # create cluster + cert-manager (once)
 #   make dev-build dev-load dev-deploy
 #   make dev-load-images        # workspace desktop images (after dev-deploy: needs the ns)
-#   make dev-reload             # after code changes: rebuild, reimport, restart
-#   make dev-down                # tear down
+#   make dev-reload             # after service/frontend code changes: rebuild, reimport, restart
+#   make dev-reload-all         # same, plus the waas-images/ desktop images
+#   make dev-down               # tear down
+
+# The whole flow above in one shot, from a blank machine. Safe to re-run on
+# a partially built env: every step is idempotent (dev-up checks for the
+# cluster, dev-deploy is `helm upgrade --install`, the ssh-secret seed
+# re-applies). smoke stays a separate manual step — it takes several
+# minutes and needs the pods to be Ready, which helm here does not wait for.
+dev-bootstrap: dev-up dev-build dev-load dev-deploy dev-load-images
+	@echo "==> dev environment ready. Validate real sessions with: make smoke"
+	@$(MAKE) dev-url
 
 dev-up:
 	@command -v k3d >/dev/null 2>&1 || { echo "k3d not found: https://k3d.io/#installation"; exit 1; }
@@ -117,6 +128,14 @@ dev-deploy:
 dev-reload: dev-build dev-load dev-deploy
 	kubectl -n $(DEV_NAMESPACE) rollout restart \
 		deploy/waas-operator deploy/waas-api-server deploy/waas-wwt deploy/waas-frontend
+
+# dev-reload, plus a rebuild/reimport of the waas-images/ desktop images and
+# a re-apply of the dev catalog. Use after touching waas-images/; noticeably
+# slower (full docker builds of the desktop stacks), so plain dev-reload
+# stays the inner loop for service/frontend code. Pure composition — the
+# restart lives in dev-reload only, and running it before the image import
+# is fine: workspace images never run in the four service deployments.
+dev-reload-all: dev-reload dev-load-images
 
 # Build waas-images/ locally (docker build via its own Makefile).
 dev-build-images:
