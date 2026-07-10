@@ -202,6 +202,23 @@ func (h *WorkspaceHandler) Reload(w http.ResponseWriter, r *http.Request) {
 	ok(w, ws)
 }
 
+// Resize handles POST /api/v1/workspaces/{id}/resize: change the RUNNING
+// desktop's resolution by executing the image's waas-resize helper in
+// the pod. WaaS-specific mechanism, not guacd's native resize — see
+// docs/session-resize.md.
+func (h *WorkspaceHandler) Resize(w http.ResponseWriter, r *http.Request) {
+	var in service.ResizeInput
+	if err := decode(r, &in); err != nil {
+		fail(w, r, err)
+		return
+	}
+	if err := h.svc.Resize(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), in); err != nil {
+		fail(w, r, err)
+		return
+	}
+	noContent(w)
+}
+
 // Connect handles POST /api/v1/workspaces/{id}/connect: records a session
 // and returns the short-lived connection token for the WebSocket proxy.
 // The body is optional: {protocol, params} picks a non-default protocol

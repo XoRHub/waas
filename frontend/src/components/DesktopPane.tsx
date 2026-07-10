@@ -4,6 +4,7 @@ import Guacamole from 'guacamole-common-js';
 import { api } from '@/lib/api';
 import { canReadSystemClipboard, ClipboardSync, hasClipboardApi } from '@/lib/clipboard';
 import { detectServerLayout } from '@/lib/keyboard';
+import { createSessionResizer } from '@/lib/sessionResize';
 import { useAuthStore } from '@/stores/authStore';
 import type { ConnectResult, SessionCapabilities, WorkspaceConnectionPrefs } from '@/types';
 
@@ -106,6 +107,7 @@ export const DesktopPane = forwardRef<
     let client: InstanceType<typeof Guacamole.Client> | null = null;
     let keyboard: InstanceType<typeof Guacamole.Keyboard> | null = null;
     let observer: ResizeObserver | null = null;
+    let resizer: ReturnType<typeof createSessionResizer> | null = null;
     let cancelled = false;
     let cleanupClipboard: (() => void) | null = null;
 
@@ -289,7 +291,14 @@ export const DesktopPane = forwardRef<
       keyboard.onkeydown = (keysym) => client?.sendKeyEvent(1, keysym);
       keyboard.onkeyup = (keysym) => client?.sendKeyEvent(0, keysym);
 
-      observer = new ResizeObserver(rescale);
+      // CSS rescale on every event; the SERVER-side resize (exec of
+      // waas-resize in the pod) is debounced and self-gated to
+      // in-cluster vnc/rdp — kasmvnc/ssh/remote never call the endpoint.
+      resizer = createSessionResizer({ workspaceId, kind, protocol: result.protocol });
+      observer = new ResizeObserver(() => {
+        rescale();
+        resizer?.report(container.clientWidth, container.clientHeight);
+      });
       observer.observe(container);
       if (autoFocus) container.focus();
     };
@@ -299,6 +308,7 @@ export const DesktopPane = forwardRef<
     return () => {
       cancelled = true;
       observer?.disconnect();
+      resizer?.cancel();
       cleanupClipboard?.();
       if (keyboard) {
         keyboard.onkeydown = null;

@@ -91,6 +91,15 @@ func run() error {
 		cfg.JWTIssuer, cfg.ConnectionTokenTTL).
 		WithRemoteWorkspaces(remotes).
 		WithDefaultNamespacePattern(cfg.DefaultNamespacePattern)
+	if !cfg.DevMode {
+		// pods/exec needs a plain client-go clientset (SPDY streaming);
+		// dev mode has no cluster and the resize endpoint answers 503.
+		podExec, err := k8s.NewPodExec()
+		if err != nil {
+			return fmt.Errorf("building pod exec client: %w", err)
+		}
+		workspaceSvc = workspaceSvc.WithPodExecutor(podExec)
+	}
 	remoteSvc := service.NewRemoteWorkspaceService(kube, cfg.WorkspaceNamespace, users, remotes, sessions,
 		audit, signer, cfg.JWTIssuer, cfg.ConnectionTokenTTL)
 	if relay := service.NewHTTPWoLRelay(cfg.WoL.RelayURL, cfg.WoL.AuthToken); relay != nil {

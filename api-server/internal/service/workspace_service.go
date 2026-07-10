@@ -44,6 +44,10 @@ type WorkspaceService struct {
 	// in deployments without the feature (older tests, minimal wiring).
 	remotes repository.RemoteWorkspaceRepository
 
+	// exec runs the fixed waas-resize command in workspace pods
+	// (pods/exec); nil in dev mode — the resize endpoint answers 503.
+	exec PodExecutor
+
 	// defaultNamespacePattern is the operator-wide placement pattern
 	// (WAAS_DEFAULT_NAMESPACE_PATTERN); empty = built-in. Must match the
 	// operator/webhook value (one Helm values key feeds both).

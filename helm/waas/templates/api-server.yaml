@@ -73,6 +73,13 @@ rules:
   - apiGroups: [""]
     resources: [events, pods, services]
     verbs: [get, list]
+  # Session resize: the ONLY write into workspace pods — exec of the
+  # image's fixed waas-resize helper (docs/session-resize.md). Kept as
+  # its OWN rule on purpose: pods/exec is a significant grant and must
+  # stay visible in review, never folded into the read-only pods entry.
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
   - apiGroups: [apps]
     resources: [deployments, statefulsets, replicasets]
     verbs: [get, list]
