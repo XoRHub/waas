@@ -10,6 +10,7 @@ import { ParamField } from './ParamField';
 const meta = (over: Partial<ParamMeta> & { name: string; kind: ParamMeta['kind'] }): ParamMeta => ({
   protocols: ['ssh'],
   tier: 'ui',
+  category: 'display',
   live: false,
   description: over.name,
   ...over,

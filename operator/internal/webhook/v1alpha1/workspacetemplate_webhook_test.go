@@ -60,6 +60,19 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 			"cannot be delegated",
 		},
 		{
+			// cat: selectors are valid userParams entries, not unknown
+			// param names — including next to a name of the same category
+			// (additive, redundant but never contradictory).
+			"category selector in userParams",
+			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901, UserParams: []string{"cat:audio", "audio-servername", "color-depth"}}),
+			"",
+		},
+		{
+			"unknown category selector",
+			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901, UserParams: []string{"cat:bogus"}}),
+			"unknown category",
+		},
+		{
 			"duplicate protocol",
 			tplWith(
 				waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901},

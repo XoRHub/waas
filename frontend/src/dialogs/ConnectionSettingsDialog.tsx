@@ -174,6 +174,7 @@ export function ConnectionSettingsDialog({
                 )}
               </label>
               <ProtocolParamsForm
+                key={tab}
                 meta={meta.data?.data}
                 protocol={tab}
                 values={paramsByProto[tab] ?? {}}
@@ -183,7 +184,7 @@ export function ConnectionSettingsDialog({
                     [tab]: { ...prev[tab], [name]: value },
                   }))
                 }
-                allowList={isAdmin ? undefined : (selected.userParams ?? [])}
+                allowList={isAdmin ? undefined : (selected.resolvedUserParams ?? [])}
                 placeholders={selected.params}
                 columns={1}
                 audioPortExposed={selected.exposeAudioPort ?? false}

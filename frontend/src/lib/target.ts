@@ -17,8 +17,10 @@ export interface TargetProtocol {
   default?: boolean;
   /** Locked params (template/registered values) — placeholders in forms. */
   params?: Record<string, string>;
-  /** Tunable names for non-admins; undefined = every non-platform param. */
-  userParams?: string[];
+  /** Flat connect-time allow-list for non-admins, resolved server-side
+   * (the template's userParams with cat: selectors already expanded);
+   * undefined = every non-platform param (remote machines). */
+  resolvedUserParams?: string[];
 }
 
 export interface TargetCapabilities {
@@ -61,7 +63,7 @@ export function targetFromWorkspace(ws: Workspace): SessionTarget {
     port: p.port,
     default: p.default,
     params: p.params,
-    userParams: p.userParams,
+    resolvedUserParams: p.resolvedUserParams,
   }));
   return {
     id: ws.id,

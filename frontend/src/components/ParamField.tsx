@@ -262,22 +262,47 @@ export function paramsFor(
   );
 }
 
+/** One thematic section of a protocol's param form. */
+export interface ParamSection {
+  category: ParamMeta['category'];
+  /** Always visible. */
+  simple: ParamMeta[];
+  /** Behind the section's advanced disclosure. */
+  advanced: ParamMeta[];
+}
+
 /**
- * Splits a protocol's tunable params into the simple ("ui") tier and the
- * advanced tier, honoring the same allow-list. Callers show `simple`
- * always, `advanced` behind the toggle, and only render the toggle when
- * `advanced` is non-empty — otherwise the toggle would look inert (that
- * is the "show advanced parameters does nothing" bug: templates rarely
- * delegate advanced-tier params, so with an allow-list there was nothing
- * to reveal, and admins were wrongly kept inside the allow-list too).
+ * Groups a protocol's tunable params into thematic sections, in payload
+ * order (the backend sorts by category, so the section order is the
+ * registry's canonical one). Within a section, `simple` is always shown
+ * and `advanced` sits behind the section's disclosure; callers only
+ * render the disclosure when `advanced` is non-empty — otherwise it
+ * would look inert (the old "show advanced parameters does nothing"
+ * bug: templates rarely delegate advanced-tier params, so with an
+ * allow-list there was nothing to reveal, and admins were wrongly kept
+ * inside the allow-list too).
+ *
+ * Placement is purely tier-driven; the allow-list only filters. It is
+ * matched literally against parameter NAMES — a raw `cat:X` entry never
+ * belongs here (the api-server resolves selectors into
+ * resolvedUserParams before the list reaches a form). Empty sections
+ * are dropped.
  */
-export function tieredParams(
-  meta: { name: string; params: ParamMeta[] }[] | undefined,
+export function sectionedParams(
+  meta: { name: string; params: ParamMeta[] | null }[] | undefined,
   protocol: string,
   allowList?: string[],
-): { simple: ParamMeta[]; advanced: ParamMeta[] } {
-  return {
-    simple: paramsFor(meta, protocol, ['ui'], allowList),
-    advanced: paramsFor(meta, protocol, ['advanced'], allowList),
-  };
+): ParamSection[] {
+  const sections: ParamSection[] = [];
+  const byCategory = new Map<ParamMeta['category'], ParamSection>();
+  for (const p of paramsFor(meta, protocol, ['ui', 'advanced'], allowList)) {
+    let section = byCategory.get(p.category);
+    if (!section) {
+      section = { category: p.category, simple: [], advanced: [] };
+      byCategory.set(p.category, section);
+      sections.push(section);
+    }
+    (p.tier === 'advanced' ? section.advanced : section.simple).push(p);
+  }
+  return sections;
 }

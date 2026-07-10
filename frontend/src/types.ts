@@ -88,6 +88,14 @@ export type WorkspacePhase =
 
 export type ParamTier = 'ui' | 'advanced' | 'platform';
 export type ParamKind = 'string' | 'bool' | 'int' | 'enum';
+export type ParamCategory =
+  | 'display'
+  | 'audio'
+  | 'input'
+  | 'clipboard'
+  | 'session'
+  | 'security'
+  | 'connection';
 
 export interface ParamMeta {
   name: string;
@@ -98,6 +106,8 @@ export interface ParamMeta {
   max?: number;
   default?: string;
   tier: ParamTier;
+  /** Thematic form section; the payload arrives already sorted by it. */
+  category: ParamCategory;
   /** Toggleable mid-session; everything else needs a reconnect. */
   live: boolean;
   description: string;

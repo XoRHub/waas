@@ -57,7 +57,15 @@ spec:
       default: true
       params:
         color-depth: "24"
-      userParams: [color-depth, cursor, swap-red-blue]
+      # An entry is an exact name or a cat: category selector. cat:audio
+      # delegates the WHOLE audio category (enable-audio,
+      # audio-servername, and any audio param added to the registry
+      # later) without touching this template — that dynamic expansion
+      # is the manual test for the cat: syntax. The rest are plain
+      # names; placement in the forms is tier-driven (encodings and
+      # autoretry are advanced-tier, they render behind their section's
+      # disclosure).
+      userParams: [cat:audio, color-depth, cursor, swap-red-blue, encodings, autoretry]
     - name: rdp
       port: 3389
       params:
@@ -106,7 +114,10 @@ spec:
       credentialsSecretRef: dev-ssh-credentials
       params:
         color-scheme: green-black
-      userParams: [font-size, color-scheme, read-only]
+      # Plain names only (the default shape): scrollback and
+      # server-alive-interval are advanced-tier, the registry drives
+      # their placement.
+      userParams: [font-size, color-scheme, read-only, scrollback, server-alive-interval]
     - name: vnc
       port: 5901
       credentialsSecretRef: dev-ssh-credentials
@@ -142,6 +153,11 @@ spec:
   # pod + Service so guacd actually reaches PulseAudio. This used to be
   # the legacy-template coverage (no protocols block, synthesized vnc
   # entry); dev now has no legacy-shaped template.
+  # Deliberately NO overrides block: this throwaway template never
+  # grants protocolParams, so its userParams below must have zero
+  # connect-time effect for plain users — the manual test of the
+  # template-side gate on /connect (only admins and template owners get
+  # through). Do not add allowedFields here while fixing something else.
   protocols:
     - name: vnc
       port: 5901

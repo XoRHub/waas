@@ -15,10 +15,38 @@ const meta: ProtocolMeta[] = [
         protocols: ['vnc'],
         kind: 'bool',
         tier: 'ui',
+        category: 'audio',
         live: false,
         default: 'false',
         description: 'audio',
       },
+    ],
+  },
+];
+
+const param = (
+  name: string,
+  tier: 'ui' | 'advanced',
+  category: 'display' | 'audio',
+): ProtocolMeta['params'][number] => ({
+  name,
+  protocols: ['vnc'],
+  kind: 'string',
+  tier,
+  category,
+  live: false,
+  description: `${name} hint`,
+});
+
+// Two sections; only "display" carries an advanced param, so only it may
+// render a disclosure.
+const sectionedMeta: ProtocolMeta[] = [
+  {
+    name: 'vnc',
+    params: [
+      param('color-depth', 'ui', 'display'),
+      param('encodings', 'advanced', 'display'),
+      param('audio-servername', 'ui', 'audio'),
     ],
   },
 ];
@@ -38,6 +66,101 @@ describe('audioEnabled — the enable-audio ⇄ audio-port condition', () => {
     expect(audioEnabled('vnc', { 'enable-audio': 'false' }, { 'enable-audio': 'true' })).toBe(
       false,
     );
+  });
+});
+
+describe('ProtocolParamsForm — sectioned rendering (Feature 7)', () => {
+  it('renders one titled section per category, in payload order', () => {
+    renderWithProviders(
+      <ProtocolParamsForm meta={sectionedMeta} protocol="vnc" values={{}} onChange={() => {}} />,
+    );
+    const headings = screen.getAllByRole('heading', { level: 4 });
+    expect(headings.map((h) => h.textContent)).toEqual(['Display', 'Audio']);
+  });
+
+  it('shows simple params immediately and advanced ones only behind their section disclosure', async () => {
+    renderWithProviders(
+      <ProtocolParamsForm meta={sectionedMeta} protocol="vnc" values={{}} onChange={() => {}} />,
+    );
+    expect(screen.getByText('color-depth')).toBeInTheDocument();
+    expect(screen.getByText('audio-servername')).toBeInTheDocument();
+    expect(screen.queryByText('encodings')).not.toBeInTheDocument();
+    // Only the display section carries advanced params → single disclosure.
+    const disclosures = screen.getAllByRole('checkbox', { name: 'Show advanced parameters' });
+    expect(disclosures).toHaveLength(1);
+    await userEvent.click(disclosures[0]);
+    expect(screen.getByText('encodings')).toBeInTheDocument();
+  });
+
+  it('keeps other sections closed when one disclosure opens', async () => {
+    const twoAdvanced: ProtocolMeta[] = [
+      {
+        name: 'vnc',
+        params: [
+          param('color-depth', 'ui', 'display'),
+          param('encodings', 'advanced', 'display'),
+          param('audio-servername', 'advanced', 'audio'),
+        ],
+      },
+    ];
+    renderWithProviders(
+      <ProtocolParamsForm meta={twoAdvanced} protocol="vnc" values={{}} onChange={() => {}} />,
+    );
+    const disclosures = screen.getAllByRole('checkbox', { name: 'Show advanced parameters' });
+    expect(disclosures).toHaveLength(2);
+    await userEvent.click(disclosures[0]); // display's disclosure
+    expect(screen.getByText('encodings')).toBeInTheDocument();
+    expect(screen.queryByText('audio-servername')).not.toBeInTheDocument();
+  });
+
+  // Placement is purely tier-driven: the resolved allow-list only
+  // filters, it never moves a ui-tier name behind the disclosure.
+  it('keeps allow-listed ui-tier params visible without a disclosure', () => {
+    renderWithProviders(
+      <ProtocolParamsForm
+        meta={sectionedMeta}
+        protocol="vnc"
+        values={{}}
+        onChange={() => {}}
+        allowList={['color-depth', 'audio-servername']}
+      />,
+    );
+    expect(screen.getByText('color-depth')).toBeInTheDocument();
+    expect(screen.getByText('audio-servername')).toBeInTheDocument();
+    // encodings (advanced tier) is outside the allow-list: no section
+    // has advanced content left, so no disclosure renders at all.
+    expect(
+      screen.queryByRole('checkbox', { name: 'Show advanced parameters' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders the per-section extra control in template-editor mode', () => {
+    renderWithProviders(
+      <ProtocolParamsForm
+        meta={sectionedMeta}
+        protocol="vnc"
+        values={{}}
+        onChange={() => {}}
+        renderSectionExtra={(category) => <span>extra-{category}</span>}
+      />,
+    );
+    expect(screen.getByText('extra-display')).toBeInTheDocument();
+    expect(screen.getByText('extra-audio')).toBeInTheDocument();
+  });
+
+  it('falls back to the no-tunable-params message when every section is empty', () => {
+    renderWithProviders(
+      <ProtocolParamsForm
+        meta={sectionedMeta}
+        protocol="vnc"
+        values={{}}
+        onChange={() => {}}
+        allowList={[]}
+      />,
+    );
+    expect(
+      screen.getByText('This protocol has no user-tunable parameters on this template.'),
+    ).toBeInTheDocument();
   });
 });
 

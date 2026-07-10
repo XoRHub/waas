@@ -105,8 +105,10 @@ export function SessionOverlay({
   const protocol = protoSwitch.active;
   const isAdmin = user?.role === 'admin';
   // Remote machines belong to the user: every non-platform parameter is
-  // tunable. Workspaces follow the template allow-list (admins bypass).
-  const allowList = isRemote || isAdmin ? undefined : (entry?.userParams ?? []);
+  // tunable. Workspaces follow the template allow-list — the flat
+  // server-resolved list (cat: already expanded; admins bypass). An
+  // absent list means nothing delegated, never "everything".
+  const allowList = isRemote || isAdmin ? undefined : (entry?.resolvedUserParams ?? []);
   // In-cluster tuning lives in the profile; remote tuning lives on the
   // chosen endpoint server-side.
   const savedParams = isRemote ? (entry?.params ?? {}) : (saved?.params ?? {});

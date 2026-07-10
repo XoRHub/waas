@@ -77,13 +77,16 @@ type TemplateInput struct {
 
 // TemplateProtocolInput mirrors WorkspaceProtocol.
 type TemplateProtocolInput struct {
-	Name                 string            `json:"name"`
-	Port                 int32             `json:"port"`
-	Default              bool              `json:"default"`
-	Params               map[string]string `json:"params,omitempty"`
-	UserParams           []string          `json:"userParams,omitempty"`
-	CredentialsSecretRef string            `json:"credentialsSecretRef,omitempty"`
-	ExposeAudioPort      bool              `json:"exposeAudioPort,omitempty"`
+	Name    string            `json:"name"`
+	Port    int32             `json:"port"`
+	Default bool              `json:"default"`
+	Params  map[string]string `json:"params,omitempty"`
+	// UserParams entries are exact parameter names or cat: category
+	// selectors — stored on the CR verbatim (the raw list is the
+	// configuration being edited).
+	UserParams           []string `json:"userParams,omitempty"`
+	CredentialsSecretRef string   `json:"credentialsSecretRef,omitempty"`
+	ExposeAudioPort      bool     `json:"exposeAudioPort,omitempty"`
 }
 
 // TemplateOverridesInput mirrors TemplateOverrides.
@@ -380,11 +383,14 @@ func templateToModel(tpl *waasv1alpha1.WorkspaceTemplate) model.WorkspaceTemplat
 	def := tpl.Spec.DefaultProtocol()
 	for _, p := range tpl.Spec.EffectiveProtocols() {
 		m.Protocols = append(m.Protocols, model.WorkspaceProtocol{
-			Name:                 p.Name,
-			Port:                 p.Port,
-			Default:              p.Name == def.Name,
-			Params:               p.Params,
+			Name:    p.Name,
+			Port:    p.Port,
+			Default: p.Name == def.Name,
+			Params:  p.Params,
+			// Raw list for the editor, resolved list for the connect
+			// forms (CreateWorkspaceDialog reads the template model).
 			UserParams:           p.UserParams,
+			ResolvedUserParams:   params.ResolveUserParamNames(p.Name, p.UserParams),
 			CredentialsSecretRef: p.CredentialsSecretRef,
 			ExposeAudioPort:      p.ExposeAudioPort,
 		})

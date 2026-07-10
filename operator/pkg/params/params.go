@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // Tier classifies who may see and set a parameter.
@@ -31,8 +32,9 @@ const (
 	// section in every param form — template editor and end-user
 	// connect-time forms alike. The tier only drives placement:
 	// validation policy is identical to TierUI (only TierPlatform is
-	// banned), and a template still delegates each name explicitly via
-	// userParams/expertUserParams before users may override it.
+	// banned), and a template still delegates each parameter explicitly
+	// via userParams (by name or cat: selector) before users may
+	// override it.
 	TierAdvanced Tier = "advanced"
 	// TierPlatform: owned by the platform. Never accepted in a CR,
 	// template or connect override, whoever asks: either the platform
@@ -42,10 +44,13 @@ const (
 )
 
 // Category groups parameters into the thematic sections of the param
-// forms (display, audio, clipboard, …). Purely presentational: it drives
-// section headings and ordering, never validation. Platform-owned
+// forms (display, audio, clipboard, …) and is the unit a template can
+// delegate wholesale: a userParams entry "cat:audio" allow-lists every
+// non-platform parameter of the category (see ResolveUserParamNames).
+// Values themselves are never validated per category. Platform-owned
 // parameters carry one too so the registry coherence test stays trivial,
-// even though they are never rendered in a form.
+// even though they are never rendered in a form nor delegated by a
+// cat: selector.
 type Category string
 
 const (
@@ -506,6 +511,65 @@ func Lookup(protocol, name string) *Param {
 	return nil
 }
 
+// CategorySelectorPrefix marks a userParams entry delegating a whole
+// category ("cat:audio") instead of one parameter name.
+const CategorySelectorPrefix = "cat:"
+
+// selectedCategory returns the category a userParams entry selects, or
+// false when the entry is a plain parameter name.
+func selectedCategory(entry string) (Category, bool) {
+	if !strings.HasPrefix(entry, CategorySelectorPrefix) {
+		return "", false
+	}
+	return Category(strings.TrimPrefix(entry, CategorySelectorPrefix)), true
+}
+
+func knownCategory(c Category) bool {
+	for _, k := range AllCategories() {
+		if k == c {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveUserParamNames expands a template's userParams list into the
+// flat, deduplicated set of parameter names it delegates for one
+// protocol (first-appearance order). Plain names pass through verbatim;
+// a "cat:X" selector expands to every parameter of that category
+// registered for the protocol, TierPlatform excluded — resolved against
+// the registry at call time, so a parameter later added to a delegated
+// category is covered without touching the CRD or the template (the
+// point of the selector). Entries are purely additive: "cat:audio" next
+// to "audio-servername" is a redundant duplicate, not a conflict — the
+// dedup absorbs it. A category with nothing to offer for the protocol
+// (only platform-tier entries, or none at all — every category on
+// kasmvnc) contributes nothing rather than erroring: an empty grant is
+// still fail-closed, and entry validity is ValidateUserParamNames's job.
+func ResolveUserParamNames(protocol string, entries []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	for _, entry := range entries {
+		cat, isSelector := selectedCategory(entry)
+		if !isSelector {
+			add(entry)
+			continue
+		}
+		for _, p := range ForProtocol(protocol) {
+			if p.Category == cat && p.Tier != TierPlatform {
+				add(p.Name)
+			}
+		}
+	}
+	return out
+}
+
 // Violation explains one rejected parameter.
 type Violation struct {
 	Name    string
@@ -563,10 +627,20 @@ func ValidateTemplateParams(protocol string, params map[string]string) *Violatio
 	return nil
 }
 
-// ValidateUserParamNames validates a template's userParams allow-list:
-// only registered, non-platform parameters may be delegated to users.
+// ValidateUserParamNames validates a template's userParams allow-list.
+// An entry is either a registered, non-platform parameter name, or a
+// "cat:X" selector naming a known category — accepted even when the
+// category currently has no delegable parameter for the protocol, since
+// the selector resolves dynamically against the registry at connect
+// time (that future-proofing is its point).
 func ValidateUserParamNames(protocol string, names []string) *Violation {
 	for _, name := range names {
+		if cat, isSelector := selectedCategory(name); isSelector {
+			if !knownCategory(cat) {
+				return &Violation{name, fmt.Sprintf("unknown category %q (known categories: %v)", cat, AllCategories())}
+			}
+			continue
+		}
 		p := Lookup(protocol, name)
 		if p == nil {
 			return &Violation{name, fmt.Sprintf("not a registered %s parameter", protocol)}
@@ -580,8 +654,11 @@ func ValidateUserParamNames(protocol string, names []string) *Violation {
 
 // ValidateUserOverrides validates connect-time (or CR override) user
 // values: names must be inside the template's allow-list AND registered
-// non-platform, values must be well-formed. adminBypass skips the
-// allow-list (platform admins may tune anything non-platform).
+// non-platform, values must be well-formed. The allow-list is the
+// template's userParams already expanded to flat names by
+// ResolveUserParamNames (cat: selectors never reach this gate).
+// adminBypass skips the allow-list (platform admins may tune anything
+// non-platform).
 func ValidateUserOverrides(protocol string, overrides map[string]string, allowList []string, adminBypass bool) *Violation {
 	allowed := map[string]bool{}
 	for _, name := range allowList {
@@ -596,7 +673,7 @@ func ValidateUserOverrides(protocol string, overrides map[string]string, allowLi
 			return &Violation{name, "platform-owned: " + p.Description}
 		}
 		if !adminBypass && !allowed[name] {
-			return &Violation{name, fmt.Sprintf("not user-configurable for protocol %s (template userParams: %v)", protocol, allowList)}
+			return &Violation{name, fmt.Sprintf("not user-configurable for protocol %s (user-overridable params: %v)", protocol, allowList)}
 		}
 		if v := ValidateValue(p, value); v != nil {
 			return v

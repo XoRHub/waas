@@ -270,9 +270,18 @@ type WorkspaceProtocol struct {
 	// Params are the template's locked guacd parameters (template views
 	// only; workspace listings omit them).
 	Params map[string]string `json:"params,omitempty"`
-	// UserParams are the guacd parameter names the user may set at
-	// connect time (from the template's allow-list).
+	// UserParams is the template's connect-time delegation list AS
+	// CONFIGURED: exact parameter names and/or cat: category selectors
+	// (cat:audio). The template editor edits this raw list — cat: intact,
+	// so it can tell a category delegated wholesale from names picked
+	// one by one.
 	UserParams []string `json:"userParams,omitempty"`
+	// ResolvedUserParams is UserParams expanded server-side against the
+	// parameter registry into the flat set of names actually overridable
+	// at connect time (cat: selectors resolved, platform tier excluded).
+	// Connect-time forms consume THIS list — the frontend never parses
+	// cat: syntax itself.
+	ResolvedUserParams []string `json:"resolvedUserParams,omitempty"`
 	// CredentialsSecretRef names the credentials Secret (reference only,
 	// never its content).
 	CredentialsSecretRef string `json:"credentialsSecretRef,omitempty"`

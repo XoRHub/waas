@@ -15,6 +15,9 @@ func TestRegistryIsCoherent(t *testing.T) {
 		if p.Name == "" || p.Tier == "" || p.Kind == "" || p.Description == "" {
 			t.Fatalf("incomplete registry entry: %+v", p)
 		}
+		if strings.HasPrefix(p.Name, CategorySelectorPrefix) {
+			t.Fatalf("parameter %q collides with the userParams cat: selector syntax", p.Name)
+		}
 		if p.Category == "" {
 			t.Fatalf("parameter %q has no category: every param must belong to a form section", p.Name)
 		}
@@ -89,6 +92,15 @@ func TestValidateUserParamNames(t *testing.T) {
 	if err := ValidateUserParamNames("vnc", []string{"nope"}); err == nil {
 		t.Fatal("delegating an unknown param must fail")
 	}
+	// cat: selectors: a known category is a valid entry (NOT an unknown
+	// param name), an unknown category is rejected with a clear message.
+	if err := ValidateUserParamNames("vnc", []string{"cat:audio", "color-depth"}); err != nil {
+		t.Fatalf("cat: selector of a known category rejected: %v", err)
+	}
+	err := ValidateUserParamNames("vnc", []string{"cat:bogus"})
+	if err == nil || !strings.Contains(err.Error(), "unknown category") {
+		t.Fatalf("cat:bogus must be rejected as an unknown category, got %v", err)
+	}
 }
 
 func TestValidateUserOverrides(t *testing.T) {
@@ -107,6 +119,83 @@ func TestValidateUserOverrides(t *testing.T) {
 	}
 	if err := ValidateUserOverrides("vnc", map[string]string{"color-depth": "batman"}, allow, false); err == nil {
 		t.Fatal("bad values must be rejected even when the name is allowed")
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// ResolveUserParamNames expands the userParams entries (names and cat:
+// selectors) into the flat allow-list feeding ValidateUserOverrides.
+func TestResolveUserParamNames(t *testing.T) {
+	// Nominal: a selector expands to every non-platform name of the
+	// category for the protocol, in registry order.
+	if got := ResolveUserParamNames("vnc", []string{"cat:audio"}); !equalStrings(got, []string{"enable-audio", "audio-servername"}) {
+		t.Fatalf("cat:audio on vnc = %v", got)
+	}
+	// Plain names pass through verbatim, order preserved and deduped.
+	if got := ResolveUserParamNames("vnc", []string{"color-depth", "cursor", "color-depth"}); !equalStrings(got, []string{"color-depth", "cursor"}) {
+		t.Fatalf("plain names = %v", got)
+	}
+	// cat:X + individual name of the same category: purely additive —
+	// strictly the same result as cat:X alone, no error, no priority.
+	withDup := ResolveUserParamNames("vnc", []string{"cat:audio", "audio-servername"})
+	alone := ResolveUserParamNames("vnc", []string{"cat:audio"})
+	if !equalStrings(withDup, alone) {
+		t.Fatalf("cat:audio + audio-servername = %v, want the same as cat:audio alone (%v)", withDup, alone)
+	}
+	// Unknown category: contributes nothing (validation rejects it
+	// upstream; resolution stays total).
+	if got := ResolveUserParamNames("vnc", []string{"cat:bogus"}); len(got) != 0 {
+		t.Fatalf("cat:bogus must resolve to nothing, got %v", got)
+	}
+	// A category holding only TierPlatform entries for the protocol
+	// (session on vnc: recording-* are platform-owned) resolves to an
+	// empty grant, not an error — fail-closed and forward-compatible.
+	if got := ResolveUserParamNames("vnc", []string{"cat:session"}); len(got) != 0 {
+		t.Fatalf("cat:session on vnc must resolve to nothing (platform-only), got %v", got)
+	}
+	// The selector never leaks platform names of a mixed category.
+	for _, name := range ResolveUserParamNames("vnc", []string{"cat:connection"}) {
+		if p := Lookup("vnc", name); p == nil || p.Tier == TierPlatform {
+			t.Fatalf("cat:connection leaked %q", name)
+		}
+	}
+	if out := ResolveUserParamNames("vnc", nil); len(out) != 0 {
+		t.Fatalf("nil entries = %v, want empty", out)
+	}
+}
+
+// The connect gate consumes the resolved list: names delegated through a
+// cat: selector pass, everything else stays locked.
+func TestValidateUserOverridesWithCategorySelector(t *testing.T) {
+	allow := ResolveUserParamNames("vnc", []string{"cat:audio", "color-depth"})
+
+	if err := ValidateUserOverrides("vnc", map[string]string{"enable-audio": "true"}, allow, false); err != nil {
+		t.Fatalf("name delegated via cat:audio rejected: %v", err)
+	}
+	if err := ValidateUserOverrides("vnc", map[string]string{"color-depth": "16"}, allow, false); err != nil {
+		t.Fatalf("plain name next to a selector rejected: %v", err)
+	}
+	if err := ValidateUserOverrides("vnc", map[string]string{"read-only": "true"}, allow, false); err == nil {
+		t.Fatal("name outside the resolved list must fail for non-admins")
+	}
+	// A platform name smuggled as a raw entry still dies on the registry
+	// gate, even for admins (the tier ban is unconditional).
+	if err := ValidateUserOverrides("vnc", map[string]string{"dest-host": "evil"}, ResolveUserParamNames("vnc", []string{"dest-host"}), true); err == nil {
+		t.Fatal("a platform param smuggled through userParams must be rejected even for admins")
+	}
+	if err := ValidateUserOverrides("vnc", map[string]string{"enable-audio": "yes"}, allow, false); err == nil {
+		t.Fatal("bad values must be rejected even when the name is delegated")
 	}
 }
 

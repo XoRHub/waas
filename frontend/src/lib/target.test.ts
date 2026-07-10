@@ -11,7 +11,13 @@ const ws = {
   paused: false,
   protocol: 'vnc',
   protocols: [
-    { name: 'vnc', port: 5901, default: true, userParams: ['color-depth'] },
+    {
+      name: 'vnc',
+      port: 5901,
+      default: true,
+      userParams: ['cat:display', 'enable-audio'],
+      resolvedUserParams: ['color-depth', 'encodings', 'enable-audio'],
+    },
     { name: 'rdp', port: 3389 },
   ],
 } as unknown as Workspace;
@@ -44,6 +50,11 @@ describe('targetFromWorkspace', () => {
     expect(t.kind).toBe('workspace');
     expect(t.displayName).toBe('CAD Station');
     expect(t.protocols.map((p) => p.name)).toEqual(['vnc', 'rdp']);
+    // Only the server-RESOLVED allow-list rides on the target: connect
+    // forms consume flat names, never raw cat: selectors (those stay a
+    // template-editor concern).
+    expect(t.protocols[0].resolvedUserParams).toEqual(['color-depth', 'encodings', 'enable-audio']);
+    expect(t.protocols[0]).not.toHaveProperty('userParams');
     expect(t.defaultProtocol).toBe('vnc');
     expect(t.capabilities).toMatchObject({
       pause: true,

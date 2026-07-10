@@ -546,17 +546,33 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 			return nil, apierror.BadRequest(fmt.Sprintf("protocol %q is not offered by this workspace", protocol))
 		}
 		// The registry gates names AND values: locked parameters stay
-		// locked (template userParams allow-list, admins bypass it) and
-		// platform-owned parameters are rejected for everyone.
+		// locked (the template's userParams expanded to flat names —
+		// cat: selectors resolved — admins bypass it) and platform-owned
+		// parameters are rejected for everyone.
 		isAdmin := actor.Role == string(auth.RoleAdmin)
-		if violation := params.ValidateUserOverrides(protocol, in.Params, entry.UserParams, isAdmin); violation != nil {
+		allowList := params.ResolveUserParamNames(protocol, entry.UserParams)
+		if violation := params.ValidateUserOverrides(protocol, in.Params, allowList, isAdmin); violation != nil {
 			return nil, apierror.Forbidden(violation.Error())
 		}
-		// Policy-level right: connect-time parameter tweaks consume
-		// "protocolParams" — same template ∩ policy contract as the
-		// creation-time overrides (CheckOverrides), enforced here because
-		// the input arrives at session time, not on the CR.
+		// Rights check, mirroring policy.CheckOverrides at creation time:
+		// the field must be granted by BOTH the template's
+		// overrides.allowedFields AND the policy's — userParams alone
+		// delegates nothing while the template never opened
+		// protocolParams. The template owner bypasses the template gate
+		// ("may override any field ... like an admin") but stays subject
+		// to the policy one; enforced here because the input arrives at
+		// session time, not on the CR.
 		if len(in.Params) > 0 && !isAdmin {
+			if !s.actorIsTemplateOwner(ctx, actor, tpl) &&
+				!tpl.Spec.FieldOverridable(waasv1alpha1.FieldProtocolParams) {
+				var allowed []waasv1alpha1.OverridableField
+				if tpl.Spec.Overrides != nil {
+					allowed = tpl.Spec.Overrides.AllowedFields
+				}
+				return nil, apierror.Forbidden(fmt.Sprintf(
+					"template %q does not allow overriding %q (allowed: %v)",
+					tpl.Name, waasv1alpha1.FieldProtocolParams, allowed))
+			}
 			if pol := s.actorPolicy(ctx, actor); pol != nil && pol.Spec.Overrides != nil &&
 				!slices.Contains(pol.Spec.Overrides.AllowedFields, waasv1alpha1.FieldProtocolParams) {
 				return nil, apierror.Forbidden(fmt.Sprintf(
@@ -605,6 +621,22 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 // policy) fails closed: session yes, clipboard no.
 func (s *WorkspaceService) clipboardGrant(ctx context.Context, actor Actor) auth.ClipboardGrant {
 	return resolveClipboardGrant(ctx, s.kube, s.namespace, s.users, actor)
+}
+
+// actorIsTemplateOwner reports whether the caller is the template's
+// declared owner — the identity that may override any field on
+// workspaces stamped from it, like an admin (CheckOverrides applies the
+// same bypass at creation time). Resolution failure = not owner, fail
+// closed; same identity chain as actorPolicy (FindByID → Username).
+func (s *WorkspaceService) actorIsTemplateOwner(ctx context.Context, actor Actor, tpl *waasv1alpha1.WorkspaceTemplate) bool {
+	if tpl.Spec.Overrides == nil || tpl.Spec.Overrides.Owner == "" {
+		return false
+	}
+	user, err := s.users.FindByID(ctx, actor.ID)
+	if err != nil {
+		return false
+	}
+	return user.Username == tpl.Spec.Overrides.Owner
 }
 
 // actorPolicy resolves the caller's WorkspacePolicy; nil when the user or
@@ -926,7 +958,11 @@ func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTem
 		}
 		for i := range m.Protocols {
 			if entry := tpl.Spec.ProtocolNamed(m.Protocols[i].Name); entry != nil {
+				// Connect-time forms get the RESOLVED allow-list (flat
+				// names, cat: expanded server-side); the raw list rides
+				// along for symmetry with the template projection.
 				m.Protocols[i].UserParams = entry.UserParams
+				m.Protocols[i].ResolvedUserParams = params.ResolveUserParamNames(entry.Name, entry.UserParams)
 				m.Protocols[i].ExposeAudioPort = entry.ExposeAudioPort
 			}
 		}

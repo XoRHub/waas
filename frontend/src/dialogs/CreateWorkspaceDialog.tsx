@@ -423,9 +423,11 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
           )}
           {/* The SAME shared per-protocol form as connection settings
                 and the admin template editor: template-locked values as
-                placeholders, userParams allow-list (admins bypass). */}
+                placeholders, the server-resolved userParams allow-list
+                (cat: expanded; admins bypass). */}
           {tabProto && (
             <ProtocolParamsForm
+              key={tabProto.name}
               meta={meta.data?.data}
               protocol={tabProto.name}
               values={protoParamsByProto[tabProto.name] ?? {}}
@@ -435,7 +437,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                   [tabProto.name]: { ...prev[tabProto.name], [name]: value },
                 }))
               }
-              allowList={isAdmin ? undefined : (tabProto.userParams ?? [])}
+              allowList={isAdmin ? undefined : (tabProto.resolvedUserParams ?? [])}
               placeholders={tabProto.params}
               audioPortExposed={tabProto.exposeAudioPort ?? false}
             />

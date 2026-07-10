@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ParamField, tieredParams } from '@/components/ParamField';
+import { ParamField, sectionedParams } from '@/components/ParamField';
 import { useEscape } from '@/hooks/useEscape';
 import type { ParamMeta, ProtocolMeta } from '@/types';
 
@@ -168,12 +168,14 @@ export function audioEnabled(
 }
 
 /**
- * The registry-driven parameter form of ONE protocol: simple tier always,
- * advanced tier behind the shared toggle, values re-validated server-side.
- * Shared between the connection-settings dialog (instance context: the
- * template's userParams allow-list applies, admins bypass) and the
- * template editor (admin context: no allow-list, plus a per-param extra
- * slot for the "user-overridable" checkbox).
+ * The registry-driven parameter form of ONE protocol, grouped into the
+ * registry's thematic sections (display, audio, …): within a section the
+ * simple params are always visible and the advanced ones sit behind a
+ * per-section disclosure. Values are re-validated server-side. Shared
+ * between the connection-settings dialog (instance context: the
+ * template's resolved allow-list applies, admins bypass) and the
+ * template editor (admin context: no allow-list, plus per-param and
+ * per-section extra slots for the delegation controls).
  */
 export function ProtocolParamsForm({
   meta,
@@ -184,6 +186,7 @@ export function ProtocolParamsForm({
   placeholders,
   columns = 2,
   renderParamExtra,
+  renderSectionExtra,
   audioPortExposed,
   onAudioPortChange,
 }: {
@@ -191,12 +194,17 @@ export function ProtocolParamsForm({
   protocol: string;
   values: Record<string, string>;
   onChange: (name: string, value: string) => void;
-  /** Tunable names; undefined = every non-platform parameter (admin/owner). */
+  /** Tunable names — pass the server-resolved flat list
+   * (resolvedUserParams: cat: selectors already expanded); undefined =
+   * every non-platform parameter (admin/owner). */
   allowList?: string[];
   /** Defaults shown as placeholders (e.g. the template's locked params). */
   placeholders?: Record<string, string>;
   columns?: 1 | 2;
   renderParamExtra?: (param: ParamMeta) => ReactNode;
+  /** Template editor only: extra control in a section's heading row
+   * (the "allow the whole category" toggle). */
+  renderSectionExtra?: (category: ParamMeta['category']) => ReactNode;
   /** Whether the template exposes the PulseAudio port (4713). */
   audioPortExposed?: boolean;
   /**
@@ -208,32 +216,61 @@ export function ProtocolParamsForm({
   onAudioPortChange?: (exposed: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const { simple, advanced } = tieredParams(meta, protocol, allowList);
-  const fields = showAdvanced ? [...simple, ...advanced] : simple;
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const sections = sectionedParams(meta, protocol, allowList);
   // First cross-field conditional rendering in the param forms: the
   // audio-port section only exists while enable-audio resolves to true.
   // Deliberately a hardcoded `enable-audio && <section>` — one registry
   // param gating one CR field — NOT a generic inter-field dependency
-  // mechanism; revisit if the param grouping work (Feature 7) surfaces
-  // more of these.
+  // mechanism; revisit if more of these appear.
   const showAudioPort = audioEnabled(protocol, values, placeholders);
 
+  const renderField = (pm: ParamMeta) => (
+    <div key={pm.name} className="space-y-1">
+      <ParamField
+        meta={placeholders?.[pm.name] ? { ...pm, default: placeholders[pm.name] } : pm}
+        value={values[pm.name] ?? ''}
+        onChange={(value) => onChange(pm.name, value)}
+      />
+      {renderParamExtra?.(pm)}
+    </div>
+  );
+  const gridClass = columns === 2 ? 'grid grid-cols-2 gap-3' : 'space-y-3';
+
   return (
-    <div className="space-y-3">
-      {fields.length > 0 ? (
-        <div className={columns === 2 ? 'grid grid-cols-2 gap-3' : 'space-y-3'}>
-          {fields.map((pm) => (
-            <div key={pm.name} className="space-y-1">
-              <ParamField
-                meta={placeholders?.[pm.name] ? { ...pm, default: placeholders[pm.name] } : pm}
-                value={values[pm.name] ?? ''}
-                onChange={(value) => onChange(pm.name, value)}
-              />
-              {renderParamExtra?.(pm)}
-            </div>
-          ))}
-        </div>
+    <div className="space-y-4">
+      {sections.length > 0 ? (
+        sections.map((section) => {
+          const open = openSections[section.category] ?? false;
+          return (
+            <section key={section.category} className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  {t(`protocolTabs.paramCategory.${section.category}`, section.category)}
+                </h4>
+                {renderSectionExtra?.(section.category)}
+              </div>
+              {section.simple.length > 0 && (
+                <div className={gridClass}>{section.simple.map(renderField)}</div>
+              )}
+              {open && section.advanced.length > 0 && (
+                <div className={gridClass}>{section.advanced.map(renderField)}</div>
+              )}
+              {section.advanced.length > 0 && (
+                <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={open}
+                    onChange={(e) =>
+                      setOpenSections((s) => ({ ...s, [section.category]: e.target.checked }))
+                    }
+                  />
+                  {t('portal.showAdvancedParams')}
+                </label>
+              )}
+            </section>
+          );
+        })
       ) : (
         <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.noTunableParams')}</p>
       )}
@@ -262,16 +299,6 @@ export function ProtocolParamsForm({
             {t('protocolTabs.audioPortMissing')}
           </p>
         ))}
-      {advanced.length > 0 && (
-        <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <input
-            type="checkbox"
-            checked={showAdvanced}
-            onChange={(e) => setShowAdvanced(e.target.checked)}
-          />
-          {t('portal.showAdvancedParams')}
-        </label>
-      )}
     </div>
   );
 }

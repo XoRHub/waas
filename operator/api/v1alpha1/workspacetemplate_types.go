@@ -76,7 +76,7 @@ func OverridableFieldDescriptions() map[OverridableField]string {
 		FieldTolerations:        "append tolerations to the template's",
 		FieldResources:          "choose the workspace sizing (spec.resources present = override, bounded by the policy limits either way)",
 		FieldProtocol:           "pick the default protocol among the template's declared ones",
-		FieldProtocolParams:     "tune guacd parameters at connect time (within the template's per-protocol userParams)",
+		FieldProtocolParams:     "tune guacd parameters at connect time (within the template's per-protocol userParams allow-list — exact names or cat: category selectors)",
 		FieldSchedule:           "replace the template's uptime/downtime cron schedule",
 		FieldPlacement:          "target a namespace deviating from the resolved default pattern (ownership still enforced)",
 		FieldMetadata:           "add labels/annotations on the workload (reserved keys always rejected)",
@@ -232,8 +232,15 @@ type WorkspaceProtocol struct {
 	// +optional
 	Params map[string]string `json:"params,omitempty"`
 
-	// UserParams lists the guacd parameter names users may set or
-	// override when connecting. Anything not listed is locked to Params.
+	// UserParams lists the guacd parameters users may set or override
+	// when connecting. Each entry is either an exact parameter name
+	// (color-depth) or a category selector (cat:audio) delegating every
+	// parameter of that registry category for this protocol — including
+	// parameters added to the category later, resolved dynamically at
+	// validation time. Entries are additive; anything not covered is
+	// locked to Params. Delegation only takes effect when the template's
+	// overrides.allowedFields grants protocolParams (or for admins and
+	// the template owner).
 	// +optional
 	UserParams []string `json:"userParams,omitempty"`
 

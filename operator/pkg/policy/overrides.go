@@ -58,7 +58,7 @@ var specExempt = map[string]string{
 // connectTimeRights are rights consumed outside the Workspace spec, at
 // session time; the api-server enforces them where the input arrives.
 var connectTimeRights = map[waasv1alpha1.OverridableField]string{
-	waasv1alpha1.FieldProtocolParams: "connect-time guacd parameter tweaks, enforced by the api-server on /connect (template userParams stays the fine-grained filter)",
+	waasv1alpha1.FieldProtocolParams: "connect-time guacd parameter tweaks, enforced by the api-server on /connect (the template's userParams — names or cat: selectors, resolved against the registry — stays the fine-grained filter)",
 }
 
 // overridesUsage derives, by reflection over the claims table, which

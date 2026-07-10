@@ -256,11 +256,15 @@
       "deleteConfirm": "Supprimer ce modèle ?",
       "edit": "Modifier {{name}}",
       "protocols": "Protocoles",
-      "protocolsHint": "Chaque protocole correspond à guacd ; les paramètres viennent du registre de la plateforme. Cochez « modifiable par l’utilisateur » pour déléguer un paramètre.",
+      "protocolsHint": "Chaque protocole correspond à guacd ; les paramètres viennent du registre de la plateforme. Utilisez la bascule verrouillé / utilisateur pour déléguer un paramètre aux utilisateurs, ou autorisez une catégorie entière d'un coup (sélecteur cat: — les futurs paramètres de la catégorie sont délégués automatiquement).",
       "port": "Port",
       "credentialsSecret": "Secret d’identifiants",
       "credentialsSecretHint": "Secret avec username/password/private-key (résolu côté serveur)",
-      "userOverridable": "modifiable par l’utilisateur",
+      "overrideLocked": "verrouillé",
+      "overrideUser": "utilisateur",
+      "allowCategory": "autoriser toute la catégorie",
+      "categoryAllowed": "catégorie entière autorisée",
+      "allowCategoryHint": "Délègue tous les paramètres de cette catégorie — y compris ceux ajoutés plus tard au registre de la plateforme, sans modifier le template.",
       "advanced": "avancé",
       "addProtocol": "Ajouter un protocole",
       "env": "Environnement",
@@ -402,7 +406,16 @@
     "exposeAudioPort": "Exposer le port audio (4713)",
     "exposeAudioPortHint": "Ouvre le port PulseAudio du workspace sur le pod et son Service (interne au cluster uniquement) pour que guacd puisse réellement diffuser l'audio.",
     "audioPortExposed": "Le template expose le port audio (4713) : l'audio peut être diffusé.",
-    "audioPortMissing": "Le template n'expose pas le port audio (4713) — l'audio ne fonctionnera pas tant qu'un admin ne l'active pas sur le template."
+    "audioPortMissing": "Le template n'expose pas le port audio (4713) — l'audio ne fonctionnera pas tant qu'un admin ne l'active pas sur le template.",
+    "paramCategory": {
+      "display": "Affichage",
+      "audio": "Audio",
+      "input": "Saisie",
+      "clipboard": "Presse-papiers",
+      "session": "Session",
+      "security": "Sécurité",
+      "connection": "Connexion"
+    }
   },
   "volumes": {
     "tab": "Volumes",

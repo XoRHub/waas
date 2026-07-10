@@ -14,6 +14,7 @@ import {
 import { Dialog } from '@/components/Dialog';
 import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
 import { ScheduleEditor } from '@/components/ScheduleEditor';
+import { categoryDelegated, toggleCategory, toggleName } from '@/lib/userParams';
 import { YamlEditor, parseYaml, type YamlIssue } from '@/components/YamlEditor';
 import type { TemplateEnvVar, WorkspaceTemplate } from '@/types';
 
@@ -171,6 +172,8 @@ function toInput(tpl: WorkspaceTemplate): TemplateInput {
       port: p.port ?? DEFAULT_PORTS[p.name] ?? 0,
       default: p.default,
       params: p.params,
+      // The RAW list (cat: selectors intact) — the editor edits the
+      // configuration itself, not the resolved expansion.
       userParams: p.userParams,
       credentialsSecretRef: p.credentialsSecretRef,
       exposeAudioPort: p.exposeAudioPort,
@@ -467,8 +470,15 @@ function TemplateDialog({
             </label>
 
             {/* Same registry-driven form as the user connection settings,
-                  with the admin extra: the per-param overridable flag. */}
+                  with the admin extras: a per-param delegation toggle
+                  (locked / user) plus a per-section "allow the whole
+                  category" toggle that writes a cat:X selector into
+                  userParams (individual names of the category are then
+                  absorbed). Editor placement stays tier-driven; the raw
+                  list (cat: intact) is what gets edited — the api-server
+                  resolves it for the connect-time forms. */}
             <ProtocolParamsForm
+              key={currentProto.name}
               meta={meta.data?.data}
               protocol={currentProto.name}
               values={currentProto.params ?? {}}
@@ -480,26 +490,89 @@ function TemplateDialog({
               }}
               audioPortExposed={currentProto.exposeAudioPort ?? false}
               onAudioPortChange={(exposed) => patchActive({ exposeAudioPort: exposed })}
-              renderParamExtra={(pm) => (
-                <label className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                  <input
-                    type="checkbox"
-                    checked={currentProto.userParams?.includes(pm.name) ?? false}
-                    onChange={(e) => {
-                      const setNames = new Set(currentProto.userParams ?? []);
-                      if (e.target.checked) setNames.add(pm.name);
-                      else setNames.delete(pm.name);
-                      patchActive({ userParams: [...setNames] });
-                    }}
-                  />
-                  {t('admin.templatesPage.userOverridable')}
-                  {pm.tier === 'advanced' && (
-                    <span className="rounded bg-amber-100 px-1 text-[10px] uppercase text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
-                      {t('admin.templatesPage.advanced')}
+              renderSectionExtra={(category) => {
+                const full = categoryDelegated(currentProto.userParams, category);
+                return (
+                  <label
+                    className={`flex items-center gap-1 text-[11px] ${
+                      full
+                        ? 'font-medium text-blue-600 dark:text-blue-400'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                    title={t('admin.templatesPage.allowCategoryHint')}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={full}
+                      onChange={(e) => {
+                        const categoryNames = (meta.data?.data ?? [])
+                          .find((m) => m.name === currentProto.name)
+                          ?.params?.filter((p) => p.category === category)
+                          .map((p) => p.name);
+                        patchActive({
+                          userParams: toggleCategory(
+                            currentProto.userParams,
+                            category,
+                            categoryNames ?? [],
+                            e.target.checked,
+                          ),
+                        });
+                      }}
+                    />
+                    {full
+                      ? t('admin.templatesPage.categoryAllowed')
+                      : t('admin.templatesPage.allowCategory')}
+                  </label>
+                );
+              }}
+              renderParamExtra={(pm) => {
+                // A cat:X selector delegates the whole section: the
+                // per-param toggle goes inert (visibly delegated, not
+                // hidden) until the category toggle is released.
+                const viaCategory = categoryDelegated(currentProto.userParams, pm.category);
+                const level: 'locked' | 'user' =
+                  viaCategory || currentProto.userParams?.includes(pm.name) ? 'user' : 'locked';
+                return (
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    <span
+                      className={`inline-flex divide-x divide-slate-300 overflow-hidden rounded border border-slate-300 dark:divide-slate-600 dark:border-slate-600 ${
+                        viaCategory ? 'opacity-50' : ''
+                      }`}
+                      title={viaCategory ? t('admin.templatesPage.categoryAllowed') : undefined}
+                    >
+                      {(['locked', 'user'] as const).map((lvl) => (
+                        <button
+                          key={lvl}
+                          type="button"
+                          aria-pressed={level === lvl}
+                          disabled={viaCategory}
+                          onClick={() =>
+                            patchActive({
+                              userParams: toggleName(
+                                currentProto.userParams,
+                                pm.name,
+                                lvl === 'user',
+                              ),
+                            })
+                          }
+                          className={`px-1.5 py-0.5 text-[10px] ${
+                            level === lvl
+                              ? 'bg-blue-600 font-medium text-white'
+                              : 'bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
+                          } ${viaCategory ? 'cursor-not-allowed' : ''}`}
+                        >
+                          {t(`admin.templatesPage.override${lvl[0].toUpperCase()}${lvl.slice(1)}`)}
+                        </button>
+                      ))}
                     </span>
-                  )}
-                </label>
-              )}
+                    {pm.tier === 'advanced' && (
+                      <span className="rounded bg-amber-100 px-1 text-[10px] uppercase text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                        {t('admin.templatesPage.advanced')}
+                      </span>
+                    )}
+                  </div>
+                );
+              }}
             />
           </div>
         ) : null}

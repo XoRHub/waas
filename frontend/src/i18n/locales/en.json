@@ -256,11 +256,15 @@
       "deleteConfirm": "Delete this template?",
       "edit": "Edit {{name}}",
       "protocols": "Protocols",
-      "protocolsHint": "Each protocol maps to guacd; parameters come from the platform registry. Check \"user-adjustable\" to let workspace users override a parameter.",
+      "protocolsHint": "Each protocol maps to guacd; parameters come from the platform registry. Use the locked / user toggle to delegate a parameter to workspace users, or allow a whole category at once (cat: selector — future parameters of the category are delegated automatically).",
       "port": "Port",
       "credentialsSecret": "Credentials Secret",
       "credentialsSecretHint": "Secret with username/password/private-key (resolved server-side)",
-      "userOverridable": "user-adjustable",
+      "overrideLocked": "locked",
+      "overrideUser": "user",
+      "allowCategory": "allow whole category",
+      "categoryAllowed": "whole category allowed",
+      "allowCategoryHint": "Delegates every parameter of this category — including parameters added to the platform registry later, without editing the template.",
       "advanced": "advanced",
       "addProtocol": "Add protocol",
       "env": "Environment",
@@ -402,7 +406,16 @@
     "exposeAudioPort": "Expose the audio port (4713)",
     "exposeAudioPortHint": "Opens the workspace's PulseAudio port on the pod and its Service (cluster-internal only) so guacd can actually stream audio.",
     "audioPortExposed": "The template exposes the audio port (4713): audio can stream.",
-    "audioPortMissing": "The template does not expose the audio port (4713) — audio will not work until an admin enables it on the template."
+    "audioPortMissing": "The template does not expose the audio port (4713) — audio will not work until an admin enables it on the template.",
+    "paramCategory": {
+      "display": "Display",
+      "audio": "Audio",
+      "input": "Input",
+      "clipboard": "Clipboard",
+      "session": "Session",
+      "security": "Security",
+      "connection": "Connection"
+    }
   },
   "volumes": {
     "tab": "Volumes",

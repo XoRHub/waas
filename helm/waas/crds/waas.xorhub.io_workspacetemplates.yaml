@@ -415,8 +415,15 @@ spec:
                       type: integer
                     userParams:
                       description: |-
-                        UserParams lists the guacd parameter names users may set or
-                        override when connecting. Anything not listed is locked to Params.
+                        UserParams lists the guacd parameters users may set or override
+                        when connecting. Each entry is either an exact parameter name
+                        (color-depth) or a category selector (cat:audio) delegating every
+                        parameter of that registry category for this protocol — including
+                        parameters added to the category later, resolved dynamically at
+                        validation time. Entries are additive; anything not covered is
+                        locked to Params. Delegation only takes effect when the template's
+                        overrides.allowedFields grants protocolParams (or for admins and
+                        the template owner).
                       items:
                         type: string
                       type: array

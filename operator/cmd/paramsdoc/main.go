@@ -34,8 +34,12 @@ forms all consume.
 
 Each parameter also carries a **category** (display, audio, input,
 clipboard, session, security, connection): the thematic section it
-renders under in the forms. Purely presentational — categories never
-affect validation.
+renders under in the forms, and the unit a template can delegate
+wholesale — a ` + "`userParams`" + ` entry ` + "`cat:audio`" + ` allow-lists every
+non-platform parameter of the category for that protocol, including
+parameters added to it later (resolved against this registry at
+validation time, never hardcoded in the template). Values themselves
+are never validated per category.
 
 "Live" parameters can be toggled mid-session (enforced client-side or by
 the wwt proxy); everything else requires a reconnect — guacd fixes its

@@ -333,6 +333,8 @@ export interface TemplateProtocolInput {
   port: number;
   default?: boolean;
   params?: Record<string, string>;
+  /** Raw delegation list as stored on the CR: exact names and/or cat:
+   * category selectors (resolved server-side, never in the browser). */
   userParams?: string[];
   credentialsSecretRef?: string;
   /** vnc only: expose the workspace's PulseAudio port (4713). */
