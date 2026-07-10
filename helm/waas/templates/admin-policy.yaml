@@ -7,7 +7,7 @@ apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspacePolicy
 metadata:
   name: {{ .Values.adminPolicy.name }}
-  namespace: {{ .Values.workspaces.namespace }}
+  namespace: {{ include "waas.workspacesNamespace" . }}
   labels:
     {{- include "waas.labels" . | nindent 4 }}
 spec:

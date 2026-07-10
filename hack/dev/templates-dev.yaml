@@ -33,7 +33,8 @@ spec:
   # Placement: workloads land in a per-user namespace (bootstrapped by
   # the operator: PSA labels, ResourceQuota from the policy aggregate,
   # default-deny ingress except the platform namespaces). The CR itself
-  # stays in waas-workspaces. cleanup absent = Retain (never deletes
+  # stays in the CR namespace (workspaces.namespace — the release
+  # namespace by default). cleanup absent = Retain (never deletes
   # user data). NOTE: env here must stay literal — a secretKeyRef would
   # resolve in the TARGET namespace, where dev Secrets are not seeded.
   placement:
@@ -94,7 +95,7 @@ spec:
         secretKeyRef: { name: dev-ssh-credentials, key: password }
   # NO template placement: this template follows the PRECEDENCE CHAIN
   # (global WAAS_DEFAULT_NAMESPACE_PATTERN, else the built-in
-  # "waas-workspace" shared namespace). The env above references the
+  # "waas-workspaces" shared namespace). The env above references the
   # dev-ssh-credentials Secret and pods resolve secretKeyRef in THEIR OWN
   # namespace — hack/dev/seed-ssh-secret.sh clones the Secret into the
   # default workloads namespace for exactly this reason.

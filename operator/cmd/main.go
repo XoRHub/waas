@@ -83,7 +83,7 @@ func main() {
 	ctrlmetrics.Registry.MustRegister(waasmetrics.NewWorkspaceCollector(mgr.GetClient()))
 
 	// Operator-wide placement pattern (precedence: template pattern >
-	// this > built-in "waas-workspace"). An invalid pattern is a refusal
+	// this > built-in "waas-workspaces"). An invalid pattern is a refusal
 	// to start, NOT a silent fallback: an operator placing workloads
 	// differently from what GitOps declares would be an invisible drift.
 	// Changing it only affects NEW workspaces (spec.targetNamespace is

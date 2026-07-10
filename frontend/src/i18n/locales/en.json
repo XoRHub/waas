@@ -278,7 +278,7 @@
       "storageClassDefault": "(cluster default)",
       "placement": "Workload placement",
       "placementPattern": "Namespace pattern",
-      "placementHint": "Empty = the platform-wide pattern (operator env), then the built-in \"waas-workspace\". Only NEW workspaces follow a change.",
+      "placementHint": "Empty = the platform-wide pattern (operator env), then the built-in \"waas-workspaces\". Only NEW workspaces follow a change.",
       "placementCleanup": "Namespace cleanup",
       "placeholdersTitle": "Available placeholders (each value is sanitized to DNS-1123):",
       "noProtocolsYet": "No protocol configured yet: add the ones this template must serve (without a protocols block, the legacy OS-derived entry applies)."

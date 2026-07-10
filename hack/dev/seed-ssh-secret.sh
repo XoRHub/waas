@@ -4,17 +4,18 @@
 # this Secret comes from External Secrets/Vault instead.
 #
 # The SAME Secret must exist in two namespaces:
-#   - the platform namespace (CR namespace): connect-time resolution of
-#     credentialsSecretRef always reads it there;
-#   - the default workloads namespace ("waas-workspace", the built-in
+#   - the platform namespace (CR namespace, the release namespace by
+#     default): connect-time resolution of credentialsSecretRef always
+#     reads it there;
+#   - the default workloads namespace ("waas-workspaces", the built-in
 #     placement fallback): the pods' env secretKeyRef resolves in the
 #     POD's namespace, and new dev-ssh workspaces land there by default.
 # The workloads copy is cloned from the platform one — two different
 # keypairs would break auth (resolver offers key A, pod authorizes key B).
 set -eu
 
-PLATFORM_NS="${1:-waas-workspaces}"
-WORKLOADS_NS="${2:-waas-workspace}"
+PLATFORM_NS="${1:-waas}"
+WORKLOADS_NS="${2:-waas-workspaces}"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "${TMP}"' EXIT

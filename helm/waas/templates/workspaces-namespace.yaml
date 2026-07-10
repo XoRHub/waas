@@ -1,8 +1,12 @@
-{{- if .Values.workspaces.create }}
+{{- /* Skip when the CR namespace resolves to the release namespace:
+that namespace already exists (created by `helm install
+--create-namespace` or beforehand) — templating a second Namespace
+object for it would conflict with Helm's ownership metadata. */}}
+{{- if and .Values.workspaces.create (ne (include "waas.workspacesNamespace" .) .Release.Namespace) }}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Values.workspaces.namespace }}
+  name: {{ include "waas.workspacesNamespace" . }}
   labels:
     {{- include "waas.labels" . | nindent 4 }}
   annotations:

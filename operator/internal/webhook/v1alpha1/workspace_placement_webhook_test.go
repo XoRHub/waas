@@ -154,7 +154,7 @@ func TestReservedMetadataKeysDenied(t *testing.T) {
 
 // The precedence chain's resolved default is the PLATFORM's decision:
 // it must be admitted for everyone — even a shared namespace (the
-// built-in "waas-workspace" or a global env pattern), even without the
+// built-in "waas-workspaces" or a global env pattern), even without the
 // "placement" override right. Deviations stay gated.
 func TestPlacementResolvedDefaultIsAlwaysAdmitted(t *testing.T) {
 	// No placement on the template, no override right, global pattern set.
@@ -171,7 +171,7 @@ func TestPlacementResolvedDefaultIsAlwaysAdmitted(t *testing.T) {
 	// Built-in fallback (no template pattern, no global pattern).
 	v.DefaultNamespacePattern = ""
 	builtin := workspace("w2", func(w *waasv1alpha1.Workspace) {
-		w.Spec.TargetNamespace = "waas-workspace"
+		w.Spec.TargetNamespace = "waas-workspaces"
 	})
 	if _, err := v.ValidateCreate(asCaller(apiSA), builtin); err != nil {
 		t.Fatalf("the built-in shared default must be admitted, got %v", err)

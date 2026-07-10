@@ -238,7 +238,7 @@ func TestOIDCCallbackMirrorsGroupsAndSyncsAdminRole(t *testing.T) {
 	}
 	cfg := &config.Config{
 		JWTIssuer: "waas-test", AccessTokenTTL: time.Hour, ConnectionTokenTTL: time.Minute,
-		WorkspaceNamespace: "waas-workspaces", InternalToken: "x", AdminUsername: "admin",
+		WorkspaceNamespace: "test-ns", InternalToken: "x", AdminUsername: "admin",
 		OIDC: config.OIDCConfig{
 			IssuerURL: idp.server.URL, ClientID: "waas-client", ClientSecret: "s",
 			RedirectURL: "http://waas.test/api/v1/auth/oidc/callback", FrontendURL: "/",

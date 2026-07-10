@@ -44,7 +44,7 @@ func newTestServer(t *testing.T) (http.Handler, *auth.Signer) {
 		JWTIssuer:          "waas-test",
 		AccessTokenTTL:     time.Hour,
 		ConnectionTokenTTL: time.Minute,
-		WorkspaceNamespace: "waas-workspaces",
+		WorkspaceNamespace: "test-ns",
 		InternalToken:      "internal-secret",
 		AdminUsername:      "admin",
 	}

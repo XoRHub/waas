@@ -12,6 +12,12 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{ .Values.image.tag | default .Chart.AppVersion }}
 {{- end }}
 
+{{/* CR namespace: defaults to the release namespace (same place the
+platform pods run) unless workspaces.namespace is set explicitly. */}}
+{{- define "waas.workspacesNamespace" -}}
+{{ .Values.workspaces.namespace | default .Release.Namespace }}
+{{- end }}
+
 {{/*
 Scrape annotations for annotation-based Prometheus discovery. Usage:
   {{ include "waas.scrapeAnnotations" (dict "root" $ "port" 8080) }}

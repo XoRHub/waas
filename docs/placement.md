@@ -5,6 +5,12 @@ templates, policies, catalog, webhooks) restent dans le namespace
 plateforme** ; seuls les workloads (Deployment/StatefulSet/Pod, Service,
 PVC home, VM) partent dans un namespace cible.
 
+Le namespace des CR (`workspaces.namespace`, Helm) est **vide par
+défaut** : il résout alors sur le namespace de release, c'est-à-dire le
+même namespace que celui où tournent l'operator/api-server/wwt/frontend.
+Un admin qui veut isoler les CR dans leur propre namespace fixe
+`workspaces.namespace` explicitement.
+
 ## Chaîne de précédence du pattern
 
 Du plus prioritaire au moins prioritaire — **enforcée côté serveur**
@@ -20,7 +26,7 @@ qu'afficher le résultat) :
    **refuser le démarrage** des deux composants — jamais de fallback
    silencieux, un placement différent de ce que Git déclare serait une
    dérive invisible ;
-3. **built-in `waas-workspace`** : un namespace partagé unique.
+3. **built-in `waas-workspaces`** : un namespace partagé unique.
 
 ⚠️ **Changer le pattern (variable ou template) ne concerne que les
 NOUVEAUX workspaces** : la valeur résolue est gelée dans
@@ -64,7 +70,7 @@ Règles transverses :
   gated par le champ overridable **`placement`** (template ∩ policy,
   admins exempts).
 - **Namespaces partagés** : le défaut résolu peut être partagé (built-in
-  `waas-workspace`, patterns `{os}`/`{templateName}`). Le webhook admet
+  `waas-workspaces`, patterns `{os}`/`{templateName}`). Le webhook admet
   toujours le défaut résolu côté serveur ; la règle de préfixe
   `waas-<user>` ne s'applique qu'aux déviations. Un namespace partagé ne
   reçoit **ni** label d'ownership **ni** ResourceQuota auto (elle

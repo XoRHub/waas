@@ -11,7 +11,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ .Release.Name }}-api-server
-  namespace: {{ .Values.workspaces.namespace }}
+  namespace: {{ include "waas.workspacesNamespace" . }}
   labels:
     {{- include "waas.labels" . | nindent 4 }}
 rules:
@@ -37,7 +37,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ .Release.Name }}-api-server
-  namespace: {{ .Values.workspaces.namespace }}
+  namespace: {{ include "waas.workspacesNamespace" . }}
   labels:
     {{- include "waas.labels" . | nindent 4 }}
 roleRef:
@@ -130,7 +130,7 @@ spec:
             - name: WAAS_LISTEN_ADDR
               value: ":8080"
             - name: WAAS_WORKSPACE_NAMESPACE
-              value: {{ .Values.workspaces.namespace | quote }}
+              value: {{ include "waas.workspacesNamespace" . | quote }}
             # Same placement pattern as the operator (one values key):
             # the api-server resolves it at creation, the webhook
             # re-verifies — they must agree.

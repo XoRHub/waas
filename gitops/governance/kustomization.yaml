@@ -4,7 +4,7 @@
 # edits WorkspaceImage/WorkspacePolicy live, Git only seeds them.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: waas-workspaces
+namespace: waas
 resources:
   - images.yaml
   - policies.yaml

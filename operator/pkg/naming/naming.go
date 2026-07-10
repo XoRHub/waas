@@ -91,7 +91,7 @@ func Suffix(raw string) string {
 // (template pattern > operator env pattern > this): a single shared
 // workloads namespace. Deliberately a plain literal — predictable, and
 // admins opt into per-user/template isolation with an explicit pattern.
-const BuiltinNamespacePattern = "waas-workspace"
+const BuiltinNamespacePattern = "waas-workspaces"
 
 // Placeholder documents one pattern token: THE source the UI contextual
 // help and the docs render — never a hand-maintained copy.

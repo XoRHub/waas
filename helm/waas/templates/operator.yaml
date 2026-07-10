@@ -168,7 +168,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             # Operator-wide placement pattern (template > this > built-in
-            # "waas-workspace"). Same values key as the api-server.
+            # "waas-workspaces"). Same values key as the api-server.
             - name: WAAS_DEFAULT_NAMESPACE_PATTERN
               value: {{ .Values.workspaces.defaultNamespacePattern | quote }}
             # Trusted-writer identity model: only the api-server SA may

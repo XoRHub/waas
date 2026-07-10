@@ -72,7 +72,7 @@ func (r *WorkspaceReconciler) ensureNamespace(ctx context.Context, ws *waasv1alp
 		"pod-security.kubernetes.io/warn":    "restricted",
 	}
 	// The ownership label only belongs on PERSONAL namespaces: shared
-	// ones (the built-in "waas-workspace", {os}/{templateName} patterns)
+	// ones (the built-in "waas-workspaces", {os}/{templateName} patterns)
 	// host several owners — labeling them with the first creator would
 	// wrongly open them to that user's future overrides.
 	if isPersonalNamespace(ws) {

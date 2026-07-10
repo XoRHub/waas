@@ -21,7 +21,7 @@ type Config struct {
 	// WorkspaceNamespace is where Workspace/WorkspaceTemplate CRs live.
 	WorkspaceNamespace string
 	// DefaultNamespacePattern is the operator-wide workload placement
-	// pattern (template pattern > this > built-in "waas-workspace").
+	// pattern (template pattern > this > built-in "waas-workspaces").
 	// MUST carry the same value as the operator deployment — one Helm
 	// values key feeds both. Only affects NEW workspaces.
 	DefaultNamespacePattern string
@@ -128,7 +128,7 @@ func Load() (*Config, error) {
 		ListenAddr:              envOr("WAAS_LISTEN_ADDR", ":8080"),
 		DatabaseURL:             os.Getenv("WAAS_DATABASE_URL"),
 		DevMode:                 os.Getenv("WAAS_DEV") == "true",
-		WorkspaceNamespace:      envOr("WAAS_WORKSPACE_NAMESPACE", "waas-workspaces"),
+		WorkspaceNamespace:      envOr("WAAS_WORKSPACE_NAMESPACE", "waas"),
 		DefaultNamespacePattern: os.Getenv("WAAS_DEFAULT_NAMESPACE_PATTERN"),
 		JWTIssuer:               envOr("WAAS_JWT_ISSUER", "waas"),
 		JWTPrivateKeyPath:       os.Getenv("WAAS_JWT_PRIVATE_KEY_FILE"),

@@ -19,7 +19,7 @@ import (
 	"github.com/xorhub/waas/shared/auth"
 )
 
-const testNS = "waas-workspaces"
+const testNS = "test-ns"
 
 // newGovernanceFixture wires a GovernanceService against SQLite + the fake
 // cluster, seeded with the given users and policies. This is the

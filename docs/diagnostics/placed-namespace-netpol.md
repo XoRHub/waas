@@ -1,5 +1,13 @@
 # Diagnostic — VNC/RDP « connection closed » : netpol des namespaces placés
 
+> Depuis le passage du défaut `workspaces.namespace` au namespace de
+> release, CR namespace et platform namespace sont **identiques par
+> défaut** — cette classe précise de bug (les deux namespaces divergent
+> silencieusement) devient beaucoup moins probable en configuration par
+> défaut. Elle reste possible pour toute installation qui fixe
+> `workspaces.namespace` explicitement à autre chose que le namespace de
+> release ; le diagnostic ci-dessous reste donc valide dans ce cas.
+
 **Symptôme.** Toute session vers un workspace in-cluster **placé** (namespace
 dédié) tombe immédiatement en « connection closed ». guacd logge
 `Unable to connect to VNC server` (VNC) ou `RDP server closed/refused

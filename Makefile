@@ -5,7 +5,6 @@ GO_MODULES := shared operator api-server wwt
 # --- local k3d dev environment -------------------------------------------
 CLUSTER_NAME     := waas-dev
 DEV_NAMESPACE    := waas
-WORKSPACE_NS     := waas-workspaces
 IMAGE_TAG        := dev
 DEV_IMAGES       := operator api-server wwt frontend
 
@@ -107,7 +106,7 @@ dev-deploy:
 	# Idempotent: the dev-ssh Secret must exist in BOTH the platform ns
 	# and the default workloads ns (pods resolve secretKeyRef in their
 	# own namespace) — re-run here so redeploys never leave them apart.
-	sh hack/dev/seed-ssh-secret.sh $(WORKSPACE_NS)
+	sh hack/dev/seed-ssh-secret.sh $(DEV_NAMESPACE)
 	@$(MAKE) dev-url
 
 # Rebuild, reimport, re-render the chart and restart — the inner loop
@@ -129,18 +128,18 @@ dev-build-images:
 # Import the leaf workspace images into k3d and seed the dev catalog
 # (WorkspaceImage/WorkspaceTemplate pointed at waas-local:dev tags) plus the
 # real WorkspacePolicy seeds (image names match, no dev variant needed).
-# Requires the $(WORKSPACE_NS) namespace, i.e. run after dev-deploy.
+# Requires the $(DEV_NAMESPACE) namespace, i.e. run after dev-deploy.
 dev-load-images: dev-build-images
 	@for img in $(WORKSPACE_IMAGES); do \
 		echo "==> import waas-local/$$img:dev"; \
 		k3d image import waas-local/$$img:dev -c $(CLUSTER_NAME) || exit 1; \
 	done
-	sh hack/dev/seed-ssh-secret.sh $(WORKSPACE_NS)
-	kubectl -n $(WORKSPACE_NS) apply \
+	sh hack/dev/seed-ssh-secret.sh $(DEV_NAMESPACE)
+	kubectl -n $(DEV_NAMESPACE) apply \
 		-f hack/dev/images-dev.yaml \
 		-f hack/dev/templates-dev.yaml \
 		-f gitops/governance/policies.yaml
-	@echo "==> workspace images + templates loaded into $(WORKSPACE_NS)."
+	@echo "==> workspace images + templates loaded into $(DEV_NAMESPACE)."
 
 dev-status:
 	kubectl -n $(DEV_NAMESPACE) get pods,svc,ingress

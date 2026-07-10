@@ -12,7 +12,7 @@ WaaS {{ .Chart.AppVersion }} installed.
 
 3. Create a WorkspaceTemplate (admin console → Templates), or GitOps-style:
 
-     kubectl apply -n {{ .Values.workspaces.namespace }} -f - <<EOF
+     kubectl apply -n {{ include "waas.workspacesNamespace" . }} -f - <<EOF
      apiVersion: waas.xorhub.io/v1alpha1
      kind: WorkspaceTemplate
      metadata:
