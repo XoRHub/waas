@@ -95,6 +95,32 @@ stdout_logfile_maxbytes=0
 redirect_stderr=true
 EOF
 
+# ------------------------------------------------------------------ audio
+# PulseAudio in plain user mode: no root, no setuid, no rtkit — the same
+# privilege profile as everything else here. Apps play into a null sink
+# (rendered policy below), guacd streams its monitor by connecting to the
+# native protocol on TCP 4713 (guacd params enable-audio /
+# audio-servername). Module loading is frozen after startup so neither an
+# in-session client nor a network peer can extend the daemon.
+PULSE_ENV=""
+if [[ "${WAAS_AUDIO_ENABLED:-1}" == "1" ]]; then
+    command -v pulseaudio >/dev/null || fail "WAAS_AUDIO_ENABLED=1 but pulseaudio is not in this image"
+    mkdir -p "${RUNDIR}/pulse"
+    sed "s|@RUNDIR@|${RUNDIR}|g" /etc/waas/pulse/default.pa.tpl > "${RUNDIR}/pulse/default.pa"
+    # Session apps reach the daemon through the unix socket, never TCP.
+    PULSE_ENV=",PULSE_SERVER=\"unix:${RUNDIR}/pulse/native\""
+    cat > "${RUNDIR}/supervisor.d/15-pulseaudio.conf" <<EOF
+[program:pulseaudio]
+command=/usr/bin/pulseaudio --daemonize=no --exit-idle-time=-1 --disallow-exit=yes --disallow-module-loading=yes --log-target=stderr -nF ${RUNDIR}/pulse/default.pa
+priority=15
+autorestart=true
+environment=HOME="${HOME}",PULSE_RUNTIME_PATH="${RUNDIR}/pulse/runtime",PULSE_STATE_PATH="${RUNDIR}/pulse/state"
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+redirect_stderr=true
+EOF
+fi
+
 # ---------------------------------------------------------------- session
 cat > "${RUNDIR}/supervisor.d/20-session.conf" <<EOF
 [program:session]
@@ -102,7 +128,7 @@ command=/usr/local/bin/waas-session
 priority=20
 autorestart=true
 startretries=10
-environment=DISPLAY="${DISPLAY:-:1}",XAUTHORITY="${XAUTHORITY}",HOME="${HOME}"
+environment=DISPLAY="${DISPLAY:-:1}",XAUTHORITY="${XAUTHORITY}",HOME="${HOME}"${PULSE_ENV}
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 redirect_stderr=true
@@ -176,5 +202,5 @@ if [[ -d /etc/waas/entrypoint.d ]]; then
     done
 fi
 
-log "starting services (vnc external: ${WAAS_VNC_ENABLED:-1}, rdp: ${WAAS_RDP_ENABLED:-0}, resolution: ${RESOLUTION})"
+log "starting services (vnc external: ${WAAS_VNC_ENABLED:-1}, rdp: ${WAAS_RDP_ENABLED:-0}, audio: ${WAAS_AUDIO_ENABLED:-1}, resolution: ${RESOLUTION})"
 exec supervisord -n -c /etc/waas/supervisord.conf

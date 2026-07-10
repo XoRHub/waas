@@ -13,7 +13,9 @@ spec:
       app.kubernetes.io/managed-by: waas-operator
   policyTypes: [Ingress, Egress]
   ingress:
-    # Only guacd may open VNC/RDP to a workspace.
+    # Only guacd may open VNC/RDP — or pull the PulseAudio stream
+    # (4713, anonymous auth by design: this policy IS its boundary) —
+    # to a workspace.
     - from:
         - podSelector:
             matchLabels:
@@ -21,6 +23,7 @@ spec:
       ports:
         - port: 5901
         - port: 3389
+        - port: 4713
   egress:
     # DNS...
     - to: []

@@ -18,6 +18,12 @@
 # clipboard/audio are unavailable — VNC is the recommended protocol for
 # Linux workspaces; RDP is a compatibility option.
 #
+# Audio: PulseAudio in plain user mode (no root, no setuid, no rtkit).
+# Apps play into a null sink (no sound hardware in a pod) and guacd
+# streams that sink's monitor by connecting to PulseAudio's native
+# protocol on TCP 4713 (guacd VNC params enable-audio/audio-servername).
+# The RDP path stays audio-less: xrdp audio needs chansrv (see below).
+#
 # Supervisor: tini (PID 1, zombie reaping) + supervisord. supervisord runs
 # entirely unprivileged, restarts crashed services, and reads config
 # fragments the entrypoint renders at runtime (s6-overlay wants to own
@@ -53,6 +59,8 @@ RUN apt-get update && \
         xauth \
         x11-xserver-utils \
         dbus-x11 \
+        pulseaudio \
+        pulseaudio-utils \
         fonts-dejavu-core \
         xfonts-base \
         ca-certificates \
@@ -95,7 +103,9 @@ RUN chmod 0755 /usr/local/bin/waas-entrypoint /usr/local/bin/waas-session /usr/l
 # ---- Runtime contract (consumed by the Workspace operator) ----
 # Port 5901: RFB/VNC (guacd protocol "vnc"). TCP-open == session ready.
 # Port 3389: RDP via xrdp, only when INSTALL_RDP=1 and WAAS_RDP_ENABLED=1.
-EXPOSE 5901 3389
+# Port 4713: PulseAudio native protocol for guacd's VNC audio stream,
+#            unless WAAS_AUDIO_ENABLED=0.
+EXPOSE 5901 3389 4713
 
 ENV WAAS_USER=${WAAS_USER} \
     HOME=/home/user \
@@ -107,6 +117,7 @@ ENV WAAS_USER=${WAAS_USER} \
     # password. Only an explicit RDP_AUTH_ENABLED=false at runtime — never
     # a build — turns it off (see waas-entrypoint / README).
     RDP_AUTH_ENABLED=true \
+    WAAS_AUDIO_ENABLED=1 \
     VNC_RESOLUTION=1920x1080 \
     VNC_COL_DEPTH=24 \
     WAAS_STARTUP=

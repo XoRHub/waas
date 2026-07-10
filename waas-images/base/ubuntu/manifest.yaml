@@ -5,8 +5,9 @@ name: ubuntu-base
 layer: base
 description: >
   Headless Ubuntu graphical session (TigerVNC Xvnc + openbox fallback),
-  VNC and optional xrdp bridge, non-root, read-only-rootfs friendly.
-version: "1.2.0"
+  VNC and optional xrdp bridge, PulseAudio for guacd's VNC audio stream,
+  non-root, read-only-rootfs friendly.
+version: "1.3.0"
 
 variants:
   # VNC-only: smallest image, the recommended default for Linux templates.
@@ -16,6 +17,7 @@ variants:
     smoke:
       vnc: true
       rdp: false
+      audio: true
 
   # xrdp baked in; runtime env decides which protocols are reachable.
   # Smoke-tested in RDP-only mode to prove that path independently.
@@ -25,6 +27,7 @@ variants:
     smoke:
       vnc: false
       rdp: true
+      audio: true
       env:
         WAAS_VNC_ENABLED: "0"
         WAAS_RDP_ENABLED: "1"

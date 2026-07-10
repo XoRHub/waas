@@ -66,9 +66,12 @@ follow-up.
 (vncconfig bridge). Dynamic resolution is server-side only
 (`waas-resize 2560x1440` inside the session) because Guacamole's VNC
 channel doesn't push browser resizes; wiring wwt → `waas-resize` is the
-clean future fix. Audio and RDP-clipboard are not shipped (no chansrv on
-the sesman-less RDP path; guac-VNC has no audio channel) — VNC is the
-recommended protocol for Linux, RDP is a compatibility option.
+clean future fix. Audio ships over VNC: an unprivileged PulseAudio (null
+sink, native protocol on tcp:4713) that guacd streams when the session
+sets `enable-audio` (see HARDENING.md for its network boundary).
+RDP-clipboard and RDP-audio are not shipped (no chansrv on the
+sesman-less RDP path) — VNC is the recommended protocol for Linux, RDP
+is a compatibility option.
 
 ## Build matrix & tagging
 

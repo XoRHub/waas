@@ -43,6 +43,18 @@ is enforced, so the list is verifiable, not aspirational.
       password (`password=ask` bridge). Credential-less RDP requires an
       explicit `RDP_AUTH_ENABLED=false` at runtime and logs a warning —
       no image can leave the build with an open RDP.
+- [x] **Audio via an unprivileged PulseAudio** (plain user mode: no
+      root, no setuid, no rtkit — same privilege profile as everything
+      else): a null sink plus the native protocol on TCP 4713, which
+      guacd's VNC client consumes (`enable-audio`/`audio-servername`).
+      Module loading is frozen after startup
+      (`--disallow-module-loading`), so neither an in-session client nor
+      a network peer can extend the daemon. TCP auth is anonymous BY
+      DESIGN: the guacd-only NetworkPolicy is the boundary for 4713
+      exactly as it is for the cleartext VNC/RDP ports (see § Threat
+      model). `WAAS_AUDIO_ENABLED=0` disables the daemon entirely.
+      → `waas-entrypoint`, `etc/waas/pulse/default.pa.tpl`; verify: CI
+      smoke test runs `pactl info` against tcp:4713.
 
 ## To apply on the platform side (documented contract)
 
@@ -53,7 +65,8 @@ is enforced, so the list is verifiable, not aspirational.
       emptyDir on `/tmp` and `/run`. Meets PodSecurity **restricted**.
       AppArmor: `runtime/default` is sufficient; no custom profile needed.
 - [ ] `examples/networkpolicy-workspaces.yaml`: only guacd reaches
-      5901/3389; no east-west between workspaces.
+      5901/3389/4713; no east-west between workspaces. Mandatory if
+      audio stays enabled: 4713 accepts anonymous clients by design.
 - [ ] Template credentials from Vault/ESO (see README § Secrets).
 
 ## Threat model for desktop traffic
@@ -75,11 +88,9 @@ self-signed one.
 
 - `/etc/machine-id` is identical across containers of one image (baked
   for read-only dbus); not used as identity by anything shipped.
-- RDP path has no chansrv → no clipboard/audio over RDP (VNC path has
-  clipboard via vncconfig). VNC is the recommended Linux protocol.
-- Audio is not shipped: `pulseaudio-module-xrdp` is not packaged in
-  Ubuntu and the guacd VNC path has no audio channel. Revisit if/when a
-  KasmVNC-compatible gateway lands.
+- RDP path has no chansrv → no clipboard/audio over RDP (the VNC path
+  has clipboard via vncconfig and audio via the PulseAudio stream
+  above). VNC is the recommended Linux protocol.
 - Firefox's *internal* process sandbox degrades in the container
   (`CanCreateUserNamespace: EPERM`): unprivileged user namespaces are
   blocked by the seccomp/caps profile. Deliberate: the pod (non-root,

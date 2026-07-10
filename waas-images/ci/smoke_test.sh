@@ -11,6 +11,8 @@
 #   VNC: read the RFB banner ("RFB 003.008") from port 5901.
 #   RDP: send an X.224 Connection Request, expect a TPKT (0x03) reply.
 #   SSH: read the protocol banner ("SSH-2.0-...") from port 2222.
+#   AUDIO: pactl (in-container) against the PulseAudio TCP module — the
+#          native protocol has no server-first banner to read from outside.
 set -eu
 
 : "${SMOKE_IMAGE:?}"
@@ -85,6 +87,17 @@ probe_ssh() {
 if [ "${SMOKE_SSH:-0}" = "1" ]; then
     retry "SSH" probe_ssh
     echo "OK: SSH answered with '${SSH_BANNER}'"
+fi
+
+probe_audio() {
+    # A real native-protocol handshake against the TCP module, exercising
+    # the same path guacd uses (out of scope: guacd itself / audio data).
+    docker exec "${NAME}" pactl --server tcp:127.0.0.1:4713 info >/dev/null 2>&1
+}
+
+if [ "${SMOKE_AUDIO:-0}" = "1" ]; then
+    retry "AUDIO" probe_audio
+    echo "OK: PulseAudio answered on tcp:4713"
 fi
 
 echo "smoke test passed for ${SMOKE_IMAGE}"

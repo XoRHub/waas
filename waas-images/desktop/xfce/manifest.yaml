@@ -1,7 +1,7 @@
 name: ubuntu-xfce
 layer: desktop
 description: XFCE desktop, VNC + RDP, derived from ubuntu-base-rdp.
-version: "1.0.2"
+version: "1.0.3"
 from: ubuntu-base-rdp
 
 variants:
@@ -9,5 +9,6 @@ variants:
     smoke:
       vnc: true
       rdp: true
+      audio: true
       env:
         WAAS_RDP_ENABLED: "1"

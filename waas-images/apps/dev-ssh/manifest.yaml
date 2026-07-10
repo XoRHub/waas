@@ -4,7 +4,7 @@ description: >
   Terminal-first development environment: git/tmux/build tooling plus a
   hardened non-root OpenSSH server (publickey only, port 2222) for
   guacd's native ssh protocol. VNC stays available for graphical needs.
-version: "1.0.1"
+version: "1.0.2"
 from: ubuntu-base-vnc
 
 variants:

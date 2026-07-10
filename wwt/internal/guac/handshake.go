@@ -121,6 +121,12 @@ func paramValue(name string, params ConnectionParams) string {
 		// Client-detected keyboard layout as the auto default (only when
 		// the template/user did not set server-layout via Extra above).
 		return params.ClientLayout
+	case name == "audio-servername" && params.Protocol == "vnc":
+		// Default the PulseAudio server to the workspace itself (the waas
+		// images run one on tcp:4713). guacd's own default is its LOCAL
+		// PulseAudio — never what a session wants here. Only read when
+		// enable-audio is on; Extra still overrides above.
+		return params.Hostname
 	default:
 		return ""
 	}

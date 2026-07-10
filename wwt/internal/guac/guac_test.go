@@ -136,6 +136,19 @@ func TestParamValueExtraPrecedence(t *testing.T) {
 	if got := paramValue("unknown", params); got != "" {
 		t.Fatalf("unknown params stay empty, got %q", got)
 	}
+	// VNC audio: the PulseAudio server defaults to the workspace (guacd
+	// would otherwise look for a PulseAudio local to ITSELF), and an
+	// explicit template/user value still wins.
+	if got := paramValue("audio-servername", params); got != "ws.svc" {
+		t.Fatalf("audio-servername must default to the workspace host, got %q", got)
+	}
+	params.Extra["audio-servername"] = "sound.svc"
+	if got := paramValue("audio-servername", params); got != "sound.svc" {
+		t.Fatalf("extra must win over the audio-servername default, got %q", got)
+	}
+	if got := paramValue("audio-servername", ConnectionParams{Protocol: "rdp", Hostname: "ws.svc"}); got != "" {
+		t.Fatalf("audio-servername default is vnc-only, got %q", got)
+	}
 }
 
 func TestHandshakeGuacdError(t *testing.T) {
