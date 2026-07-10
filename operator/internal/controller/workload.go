@@ -92,10 +92,9 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	}}, mergeVolumeMounts(wl.VolumeMounts, ov.VolumeMounts)...)
 
 	// Effective KasmVNC config (admin template + policy clipboard
-	// enforcement), mounted as a single-file subPath ON TOP of the home
-	// volume — the .vnc directory itself stays writable for the runtime
-	// artifacts KasmVNC drops there (self.pem). For a kasmvnc workspace
-	// this is always non-empty (it carries at least the DLP block);
+	// enforcement), mounted as a single-file subPath at
+	// <home>/.vnc/kasmvnc.yaml. For a kasmvnc workspace this is always
+	// non-empty (it carries at least the DLP block);
 	// applyClipboardPolicy's only error path is invalid admin YAML, which
 	// ensureKasmConfig already rejected earlier this reconcile.
 	kasmConfig := ""
@@ -104,21 +103,42 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 		kasmConfig, _ = applyClipboardPolicy(tpl.Spec.KasmVNCConfig, copyAllowed, pasteAllowed)
 	}
 	if kasmConfig != "" {
-		volumes = append(volumes, corev1.Volume{
-			Name: kasmConfigVolume,
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: computeName(ws)},
-					Items:                []corev1.KeyToPath{{Key: kasmConfigKey, Path: kasmConfigKey}},
+		volumes = append(volumes,
+			corev1.Volume{
+				Name: kasmConfigVolume,
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: computeName(ws)},
+						Items:                []corev1.KeyToPath{{Key: kasmConfigKey, Path: kasmConfigKey}},
+					},
 				},
 			},
-		})
-		mounts = append(mounts, corev1.VolumeMount{
-			Name:      kasmConfigVolume,
-			MountPath: tpl.Spec.EffectiveHomeMountPath() + "/.vnc/" + kasmConfigKey,
-			SubPath:   kasmConfigKey,
-			ReadOnly:  true,
-		})
+			// .vnc is a dedicated emptyDir, NOT a directory on the home
+			// volume: if the kubelet had to auto-create the subPath parent
+			// on the PVC it would leave it root:root 0755 and the non-root
+			// desktop user could no longer write the runtime artifacts
+			// KasmVNC drops there (self.pem → boot loop; fsGroup does not
+			// cover kubelet-created subPath parents, nor hostPath-backed
+			// PVs at all). emptyDirs are world-writable by design, so any
+			// image uid works, and everything in .vnc is regenerated at
+			// startup — nothing there needs the home's persistence.
+			corev1.Volume{
+				Name:         kasmVncDirVolume,
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			})
+		mounts = append(mounts,
+			// Nested mounts: the .vnc directory, then the read-only config
+			// file bind-mounted on top of it.
+			corev1.VolumeMount{
+				Name:      kasmVncDirVolume,
+				MountPath: tpl.Spec.EffectiveHomeMountPath() + "/.vnc",
+			},
+			corev1.VolumeMount{
+				Name:      kasmConfigVolume,
+				MountPath: tpl.Spec.EffectiveHomeMountPath() + "/.vnc/" + kasmConfigKey,
+				SubPath:   kasmConfigKey,
+				ReadOnly:  true,
+			})
 	}
 
 	securityContext := wl.SecurityContext

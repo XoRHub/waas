@@ -40,17 +40,20 @@ import (
 // https://kasmweb.com/kasmvnc/docs/latest/configuration.html
 //
 // The result is materialized as a per-workspace ConfigMap in the pod's
-// namespace (mounted with subPath at <home>/.vnc/kasmvnc.yaml so the .vnc
-// directory stays writable for KasmVNC's runtime artifacts — self.pem
-// lives there). The ConfigMap shares the workload's name: the teardown
-// finalizer's name-based sweep and the janitor's content check cover it
-// with zero extra code. subPath mounts never refresh in place, so the
-// content hash is stamped on the pod template (annotationKasmConfigHash)
-// — a policy or template change rolls the workload.
+// namespace (mounted with subPath at <home>/.vnc/kasmvnc.yaml; the .vnc
+// directory itself is an operator-managed emptyDir so it is writable for
+// KasmVNC's runtime artifacts — self.pem lives there — whatever uid the
+// image runs as; see buildPodTemplate). The ConfigMap shares the
+// workload's name: the teardown finalizer's name-based sweep and the
+// janitor's content check cover it with zero extra code. subPath mounts
+// never refresh in place, so the content hash is stamped on the pod
+// template (annotationKasmConfigHash) — a policy or template change rolls
+// the workload.
 
 const (
 	kasmConfigKey            = "kasmvnc.yaml"
 	kasmConfigVolume         = "kasmvnc-config"
+	kasmVncDirVolume         = "kasmvnc-dir"
 	annotationKasmConfigHash = "waas.xorhub.io/kasmvnc-config-hash"
 )
 

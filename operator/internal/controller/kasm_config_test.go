@@ -195,9 +195,65 @@ func TestKasmConfigAbsentForNonKasmWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, v := range dep.Spec.Template.Spec.Volumes {
-		if v.Name == kasmConfigVolume {
-			t.Fatal("non-kasmvnc workspace must not mount a kasmvnc config")
+		if v.Name == kasmConfigVolume || v.Name == kasmVncDirVolume {
+			t.Fatalf("non-kasmvnc workspace must not mount kasmvnc volumes, found %q", v.Name)
 		}
+	}
+}
+
+// TestKasmVncDirNeverAutoCreatedOnHome is the non-regression test for the
+// self.pem boot loop: the subPath parent <home>/.vnc must be an
+// operator-managed emptyDir, never a directory the kubelet auto-creates on
+// the home PVC (that auto-creation lands root:root 0755, and the non-root
+// desktop user can no longer write self.pem there — reproduced live on
+// local-path, where fsGroup would not have applied either).
+func TestKasmVncDirNeverAutoCreatedOnHome(t *testing.T) {
+	tpl := kasmTemplate()
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+	r, c := newFixture(t, tpl, ws)
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+
+	dep := &appsv1.Deployment{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatal(err)
+	}
+	var dir *corev1.Volume
+	for i := range dep.Spec.Template.Spec.Volumes {
+		if dep.Spec.Template.Spec.Volumes[i].Name == kasmVncDirVolume {
+			dir = &dep.Spec.Template.Spec.Volumes[i]
+		}
+	}
+	if dir == nil || dir.EmptyDir == nil {
+		t.Fatalf("expected an emptyDir volume %q for .vnc, got %+v", kasmVncDirVolume, dir)
+	}
+
+	mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+	dirIdx, fileIdx := -1, -1
+	for i, m := range mounts {
+		switch m.Name {
+		case kasmVncDirVolume:
+			dirIdx = i
+			if m.MountPath != "/home/kasm-user/.vnc" {
+				t.Fatalf(".vnc dir must mount at <home>/.vnc, got %q", m.MountPath)
+			}
+			if m.ReadOnly {
+				t.Fatal(".vnc dir must stay writable for KasmVNC runtime artifacts (self.pem)")
+			}
+		case kasmConfigVolume:
+			fileIdx = i
+		}
+	}
+	if dirIdx < 0 || fileIdx < 0 {
+		t.Fatalf("expected both the .vnc dir and the config file mounts, got %+v", mounts)
+	}
+	// Nested mounts: the directory must precede the file bind-mounted
+	// inside it, so the subPath parent is always the emptyDir — the
+	// kubelet never creates .vnc on the home volume.
+	if dirIdx > fileIdx {
+		t.Fatalf(".vnc dir mount (idx %d) must precede the config file mount (idx %d)", dirIdx, fileIdx)
 	}
 }
 
