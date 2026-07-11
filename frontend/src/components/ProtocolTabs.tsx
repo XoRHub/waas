@@ -9,16 +9,20 @@ import type { ParamMeta, ProtocolMeta } from '@/types';
 /**
  * Why a protocol tab cannot be removed right now, or null when it can.
  * Pure on purpose (tested): every tabs consumer shares the exact same
- * edge-case behavior — the LAST protocol of a set is never removable
- * (a template/remote machine must keep at least one way in), and a
- * locked protocol (imposed by the template) is never removable either.
+ * edge-case behavior — a locked protocol (imposed by the template) is
+ * never removable, and the LAST protocol of a set is only removable
+ * when the consumer declares an empty set valid (`allowEmpty`): the
+ * template editor does (no protocols block = the legacy OS-derived
+ * entry applies), a remote machine does not (zero endpoints is not a
+ * reachable machine, and the API rejects it).
  */
 export function protocolRemovalBlock(opts: {
   count: number;
   locked?: boolean;
+  allowEmpty?: boolean;
 }): 'last' | 'locked' | null {
   if (opts.locked) return 'locked';
-  if (opts.count <= 1) return 'last';
+  if (!opts.allowEmpty && opts.count <= 1) return 'last';
   return null;
 }
 
@@ -45,6 +49,7 @@ export function ProtocolTabs({
   onAdd,
   onRemove,
   locked,
+  allowEmpty,
 }: {
   protocols: string[];
   active: string;
@@ -60,6 +65,10 @@ export function ProtocolTabs({
   onRemove?: (protocol: string) => void;
   /** Template-imposed protocols: shown with a lock, never removable. */
   locked?: (protocol: string) => boolean;
+  /** The consumer has a valid zero-protocol state: the last tab stays
+   * removable (template editor); leave unset where at least one
+   * protocol must remain (remote machines). */
+  allowEmpty?: boolean;
 }) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -67,7 +76,11 @@ export function ProtocolTabs({
 
   const removeButton = (p: string) => {
     if (!onRemove) return null;
-    const block = protocolRemovalBlock({ count: protocols.length, locked: locked?.(p) });
+    const block = protocolRemovalBlock({
+      count: protocols.length,
+      locked: locked?.(p),
+      allowEmpty,
+    });
     if (block === 'locked') {
       return (
         <span className="text-[11px]" title={t('protocolTabs.locked')}>

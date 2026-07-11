@@ -261,7 +261,10 @@ export function TemplateDialog({
     const next = protocols.filter((p) => p.name !== name);
     // Keep exactly one default among the survivors.
     if (next.length > 0 && !next.some((p) => p.default)) next[0] = { ...next[0], default: true };
-    set({ protocols: next });
+    // kasmvncConfig only means something to a kasmvnc endpoint (the
+    // server rejects the leftover) and its editor is hidden without
+    // one: a stale value would block the save invisibly.
+    set({ protocols: next, ...(name === 'kasmvnc' ? { kasmvncConfig: '' } : {}) });
     setActiveProto(next[0]?.name ?? '');
   };
 
@@ -442,6 +445,10 @@ export function TemplateDialog({
           addable={unusedProtocols}
           onAdd={addProtocol}
           onRemove={removeProtocol}
+          // Zero protocols is a valid template (legacy OS-derived
+          // fallback) — also the only way out of a kasmvnc-only
+          // template, whose exclusivity blocks any addition.
+          allowEmpty
         />
         {protocols.length === 0 && (
           <p className="text-xs text-slate-400 dark:text-slate-500">

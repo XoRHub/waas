@@ -112,9 +112,7 @@ describe('TemplateDialog protocol picker kasmvnc exclusivity', () => {
 
   it('offers rdp/ssh but not kasmvnc once vnc is configured', async () => {
     renderDialog(withProtocols('vnc'));
-    await userEvent.click(
-      await screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }),
-    );
+    await userEvent.click(await screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }));
     expect(screen.getByRole('button', { name: 'rdp' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'ssh' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'kasmvnc' })).toBeNull();
@@ -128,6 +126,37 @@ describe('TemplateDialog protocol picker kasmvnc exclusivity', () => {
     await expect(
       screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }, { timeout: 250 }),
     ).rejects.toThrow();
+  });
+
+  it('removes the last protocol back to the empty (legacy fallback) state', async () => {
+    // kasmvnc-only is the worst case: exclusivity blocks any addition,
+    // so removing the last protocol is the ONLY way to change course.
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderDialog({ ...withProtocols('kasmvnc'), kasmvncConfig: 'logging:\n  level: info' });
+
+    await userEvent.click(
+      await screen.findByTitle(en.protocolTabs.remove.replace('{{protocol}}', 'KASMVNC')),
+    );
+    expect(confirm).toHaveBeenCalled();
+    expect(screen.getByText(en.admin.templatesPage.noProtocolsYet)).toBeInTheDocument();
+
+    // The empty template is fully editable again: every registry
+    // protocol is addable, kasmvnc included.
+    await userEvent.click(await screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }));
+    for (const p of ['vnc', 'rdp', 'ssh', 'kasmvnc']) {
+      expect(screen.getByRole('button', { name: p })).toBeInTheDocument();
+    }
+    await userEvent.keyboard('{Escape}');
+
+    // Saving the empty state must not smuggle the dead kasmvncConfig
+    // along (the server would reject it, its editor is hidden).
+    await userEvent.click(screen.getByRole('button', { name: en.app.save }));
+    await waitFor(() => expect(apiMock.api.post).toHaveBeenCalled());
+    const calls = apiMock.api.post.mock.calls as unknown as Array<[string, TemplateInput]>;
+    const payload = calls[calls.length - 1][1];
+    expect(payload.protocols).toEqual([]);
+    expect(payload.kasmvncConfig).toBe('');
+    confirm.mockRestore();
   });
 });
 

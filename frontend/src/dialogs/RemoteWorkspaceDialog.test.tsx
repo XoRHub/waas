@@ -79,6 +79,17 @@ describe('RemoteWorkspaceDialog', () => {
     expect(input.protocols?.find((p) => p.name === 'ssh')?.default).toBe(true);
   });
 
+  it('keeps the last endpoint unremovable (a machine without any is unreachable)', () => {
+    signIn({ username: 'marc' });
+    renderWithProviders(<RemoteWorkspaceDialog remote={null} onClose={() => {}} />);
+
+    // Unlike the template editor (where zero protocols falls back to
+    // the legacy OS-derived entry), a remote machine needs at least
+    // one endpoint: the ✕ of the only tab stays disabled.
+    const remove = screen.getByTitle('The last protocol cannot be removed');
+    expect(remove).toBeDisabled();
+  });
+
   it('typed credentials are sent, blank ones filtered (edit = keep stored)', async () => {
     signIn({ username: 'marc' });
     renderWithProviders(<RemoteWorkspaceDialog remote={null} onClose={() => {}} />);

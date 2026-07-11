@@ -15,12 +15,20 @@ describe('protocolRemovalBlock', () => {
     expect(protocolRemovalBlock({ count: 1 })).toBe('last');
   });
 
+  it('lets the last protocol go where an empty set is valid (template editor)', () => {
+    expect(protocolRemovalBlock({ count: 1, allowEmpty: true })).toBeNull();
+  });
+
   it('blocks removing a template-locked protocol even among several', () => {
     expect(protocolRemovalBlock({ count: 3, locked: true })).toBe('locked');
   });
 
   it('locked wins over last (the message must say why)', () => {
     expect(protocolRemovalBlock({ count: 1, locked: true })).toBe('locked');
+  });
+
+  it('locked wins even where an empty set is valid', () => {
+    expect(protocolRemovalBlock({ count: 1, locked: true, allowEmpty: true })).toBe('locked');
   });
 });
 
