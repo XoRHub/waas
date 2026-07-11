@@ -13,6 +13,7 @@ coverage.txt
 node_modules/
 frontend/dist/
 *.tsbuildinfo
+frontend/coverage
 
 # Local dev
 *.db
