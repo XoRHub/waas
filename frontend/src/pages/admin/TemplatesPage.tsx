@@ -55,7 +55,7 @@ const EMPTY: TemplateInput = {
   protocols: [],
 };
 
-const DEFAULT_PORTS: Record<string, number> = { vnc: 5901, rdp: 3389, ssh: 2222 };
+const DEFAULT_PORTS: Record<string, number> = { vnc: 5901, rdp: 3389, ssh: 2222, kasmvnc: 6901 };
 
 const field =
   'mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white';
