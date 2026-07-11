@@ -240,13 +240,19 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 	}
 	spec.Resources = corev1.ResourceRequirements{Requests: requests, Limits: limits}
 
-	// Protocols: same registry gate as the admission webhook, but with
-	// 400s and field-level messages instead of a denied kubectl apply.
+	// Protocols: same registry and structural gates as the admission
+	// webhook, but with 400s and field-level messages instead of a
+	// denied kubectl apply.
+	seen := map[string]bool{}
 	defaults := 0
 	for _, p := range in.Protocols {
 		if p.Name == "" || p.Port <= 0 {
 			return nil, apierror.BadRequest("each protocol needs a name and a port")
 		}
+		if seen[p.Name] {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocol %q is declared twice", p.Name))
+		}
+		seen[p.Name] = true
 		if p.Default {
 			defaults++
 		}
@@ -273,6 +279,12 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 	}
 	if defaults > 1 {
 		return nil, apierror.BadRequest("at most one protocol may be marked default")
+	}
+	// kasmvnc is exclusive: it bypasses guacd, and its generated-password
+	// mechanism clashes with the vnc/rdp one (same pod-copy Secret name).
+	// Same message as the webhook so the admin sees one vocabulary.
+	if seen[string(waasv1alpha1.ProtocolKasmVNC)] && len(seen) > 1 {
+		return nil, apierror.BadRequest("protocol kasmvnc cannot be combined with vnc/rdp/ssh: it bypasses guacd and must be the template's only protocol")
 	}
 	if spec.AudioPortExposed() {
 		for _, p := range spec.Protocols {

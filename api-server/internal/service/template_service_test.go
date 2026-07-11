@@ -55,6 +55,48 @@ func TestTemplateInputValidatesExposeAudioPort(t *testing.T) {
 	}
 }
 
+// specFromInput mirrors the admission webhook's structural protocol
+// gates with 400s: no duplicate declaration, and kasmvnc is exclusive
+// (it bypasses guacd and must be the template's only protocol).
+func TestTemplateInputValidatesProtocolCombinations(t *testing.T) {
+	base := func(protocols ...TemplateProtocolInput) TemplateInput {
+		return TemplateInput{
+			Name: "t", DisplayName: "T", OS: "linux", Image: "img:1",
+			Protocols: protocols,
+		}
+	}
+	kasm := TemplateProtocolInput{Name: "kasmvnc", Port: 6901}
+	vnc := TemplateProtocolInput{Name: "vnc", Port: 5901}
+	rdp := TemplateProtocolInput{Name: "rdp", Port: 3389}
+	ssh := TemplateProtocolInput{Name: "ssh", Port: 22}
+
+	cases := []struct {
+		name    string
+		in      TemplateInput
+		wantErr string
+	}{
+		{"kasmvnc alone", base(kasm), ""},
+		{"vnc+rdp+ssh without kasmvnc", base(vnc, rdp, ssh), ""},
+		{"kasmvnc with vnc", base(kasm, vnc), "cannot be combined"},
+		{"kasmvnc with rdp", base(kasm, rdp), "cannot be combined"},
+		{"kasmvnc with ssh", base(kasm, ssh), "cannot be combined"},
+		{"kasmvnc with vnc+rdp+ssh", base(kasm, vnc, rdp, ssh), "cannot be combined"},
+		{"protocol declared twice", base(vnc, vnc), "declared twice"},
+	}
+	for _, tc := range cases {
+		_, err := specFromInput(tc.in)
+		if tc.wantErr == "" {
+			if err != nil {
+				t.Errorf("%s: unexpected error: %v", tc.name, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: expected error containing %q, got %v", tc.name, tc.wantErr, err)
+		}
+	}
+}
+
 // specFromInput mirrors the admission webhook's kasmvncConfig gates with
 // 400s (the api-server validates before submitting to k8s so the admin
 // sees the reason, not a wrapped admission 500).
