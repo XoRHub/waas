@@ -1,5 +1,5 @@
-# Frontend gates: TypeScript project build check + vitest with coverage.
-# There is no eslint config in the repo (yet): tsc -b is the lint gate.
+# Frontend gates: eslint + TypeScript project build check + vitest with
+# coverage.
 
 .frontend-base:
   image: node:22.17.0-alpine
@@ -12,6 +12,13 @@
   before_script:
     - cd frontend
     - npm ci
+
+frontend-lint:
+  stage: lint
+  extends: [.frontend-base, .rules-frontend]
+  needs: []
+  script:
+    - npm run lint
 
 frontend-typecheck:
   stage: lint
@@ -29,8 +36,14 @@ frontend-test:
     # locked vitest, so the lockfile stays untouched. Move it to
     # devDependencies if coverage becomes a ratchet.
     - npm install --no-save "@vitest/coverage-v8@$(node -p "require('vitest/package.json').version")"
+    # --coverage.all + include counts every src/ file, not just the ones
+    # already imported by a test — without it the number is inflated
+    # (62% vs ~41% real, audit-2 C14).
     - npx vitest run --coverage.enabled --coverage.provider=v8
       --coverage.reporter=text-summary --coverage.reporter=cobertura
+      --coverage.all --coverage.include='src/**/*.{ts,tsx}'
+      --coverage.exclude='src/**/*.test.{ts,tsx}'
+      --coverage.exclude='src/types*.ts' --coverage.exclude='**/*.d.ts'
   coverage: '/Statements\s*:\s*([\d.]+)%/'
   artifacts:
     reports:

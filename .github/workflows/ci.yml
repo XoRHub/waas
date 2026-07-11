@@ -278,7 +278,7 @@ jobs:
       - run: git diff --exit-code -- operator helm/waas/crds docs frontend/src/types.gen.ts
 
   # ------------------------------------------------------------------
-  # Frontend gates (tsc -b is the lint gate — no eslint config yet).
+  # Frontend gates: eslint + format check + tsc -b + vitest coverage.
   # ------------------------------------------------------------------
   frontend:
     needs: changes
@@ -301,9 +301,14 @@ jobs:
       - name: Test with coverage
         # Coverage provider installed --no-save at the locked vitest
         # version so the lockfile stays untouched (see .gitlab/ci/frontend.yml).
+        # --coverage.all + include counts every src/ file, not just the
+        # ones already imported by a test (audit-2 C14).
         run: |
           npm install --no-save "@vitest/coverage-v8@$(node -p "require('vitest/package.json').version")"
-          npx vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=text-summary
+          npx vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=text-summary \
+            --coverage.all --coverage.include='src/**/*.{ts,tsx}' \
+            --coverage.exclude='src/**/*.test.{ts,tsx}' \
+            --coverage.exclude='src/types*.ts' --coverage.exclude='**/*.d.ts'
 
   # ------------------------------------------------------------------
   # Kubernetes manifest gates: chart lints and renders, every rendered

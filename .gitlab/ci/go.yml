@@ -32,6 +32,14 @@ go-test:
   extends: [.go-cache, .rules-go]
   image: golang:1.26.4
   needs: []
+  # Postgres backs the api-server dual-backend repository suites (see
+  # internal/repository/backends_test.go); the other matrix legs simply
+  # never connect to it.
+  services:
+    - name: postgres:17-alpine
+      alias: postgres
+  variables:
+    POSTGRES_PASSWORD: pg
   parallel:
     matrix:
       # test/smoke is excluded: it needs a live cluster (smoke-connections
@@ -39,8 +47,32 @@ go-test:
       - MODULE: [shared, operator, api-server, wwt]
   script:
     - cd "$MODULE"
-    - go test -race -covermode=atomic -coverprofile=coverage.out ./...
+    # The operator's test/envtest suite needs a real apiserver+etcd;
+    # exporting KUBEBUILDER_ASSETS makes the plain `go test ./...` run
+    # it (the suite skips itself when unset).
+    - |
+      if [ "$MODULE" = "operator" ]; then
+        export KUBEBUILDER_ASSETS="$(make -s envtest-assets)"
+      fi
+    # api-server: -coverpkg attributes cross-package coverage (the
+    # router-level integration tests exercise handler/repository code),
+    # which is what the ratchet below measures — the floors are
+    # calibrated on cross-package numbers, not per-package ones.
+    - |
+      if [ "$MODULE" = "api-server" ]; then
+        export WAAS_TEST_PG_URL="postgres://postgres:pg@postgres:5432/postgres"
+        for i in $(seq 1 30); do (echo > /dev/tcp/postgres/5432) 2>/dev/null && break; sleep 1; done
+        go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+      else
+        go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      fi
     - go tool cover -func=coverage.out | tail -n 1
+    # Floors catch regressions only — raise them as coverage grows,
+    # never lower them (mirrors .github/workflows/ci.yml).
+    - |
+      if [ "$MODULE" = "api-server" ]; then
+        "$CI_PROJECT_DIR/hack/ci/coverage-ratchet.sh" coverage.out internal/handler:40 internal/repository:50
+      fi
     - go run github.com/boumenot/gocover-cobertura@v1.2.0 < coverage.out > coverage.xml
   coverage: '/total:\s+\(statements\)\s+(\d+(?:\.\d+)?)%/'
   artifacts:
