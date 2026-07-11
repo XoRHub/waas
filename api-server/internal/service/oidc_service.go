@@ -22,10 +22,13 @@ import (
 )
 
 // OIDCService implements SSO login against any OIDC IdP (Authentik,
-// Keycloak, Okta, Zitadel…). It exists NEXT TO local auth, never instead
-// of it: local login
-// stays available for the bootstrap admin and as break-glass when the IdP
-// is down.
+// Keycloak, Okta, Zitadel…). It exists NEXT TO local auth by default:
+// local login stays available for the bootstrap admin and as break-glass
+// when the IdP is down. The one documented, opt-in exception is
+// WAAS_LOGIN_OIDC_ONLY (config.OIDCConfig.OIDCOnly), which disables local
+// login for everyone — bootstrap admin included; the break-glass then is
+// redeploying without the flag (see
+// docs/studies/18-prompt-feature14-oidc-only-login.md).
 //
 // The one non-negotiable job of this service is the group mirror: at every
 // SSO login, the IdP's groups claim overwrites users.user_groups, which is

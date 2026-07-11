@@ -67,8 +67,8 @@ type Config struct {
 
 	// OIDC configures the optional SSO login (any OIDC
 	// provider). Enabled when IssuerURL and ClientID are both set; local
-	// username/password login always remains available (bootstrap admin,
-	// break-glass when the IdP is down).
+	// username/password login remains available (bootstrap admin,
+	// break-glass when the IdP is down) unless OIDCOnly opts out of it.
 	OIDC OIDCConfig
 
 	// WoL configures the Wake-on-LAN relay used to power on remote
@@ -117,6 +117,14 @@ type OIDCConfig struct {
 	// FrontendURL is where the browser lands after the callback (the SPA
 	// origin). Default "/" works when the frontend shares the origin.
 	FrontendURL string
+	// OIDCOnly disables local username/password login entirely once OIDC
+	// is configured — every account must authenticate through the IdP.
+	// Requires Enabled() == true (validated at startup); the bootstrap
+	// admin account still EXISTS (EnsureBootstrapAdmin is unconditional)
+	// but cannot log in locally while this is set — see
+	// docs/studies/18-prompt-feature14-oidc-only-login.md for the
+	// break-glass procedure.
+	OIDCOnly bool
 }
 
 // Enabled reports whether SSO login is configured.
@@ -159,6 +167,9 @@ func Load() (*Config, error) {
 		AdminGroups:   splitList(os.Getenv("WAAS_OIDC_ADMIN_GROUPS")),
 		ProviderName:  envOr("WAAS_OIDC_PROVIDER_NAME", "OIDC"),
 		FrontendURL:   envOr("WAAS_OIDC_FRONTEND_URL", "/"),
+		// Deliberately outside the WAAS_OIDC_* prefix: this is a global
+		// login policy, not a provider parameter.
+		OIDCOnly: os.Getenv("WAAS_LOGIN_OIDC_ONLY") == "true",
 	}
 	cfg.WoL = WoLConfig{
 		RelayURL:  os.Getenv("WAAS_WOL_RELAY_URL"),
@@ -172,6 +183,11 @@ func Load() (*Config, error) {
 		if cfg.OIDC.RedirectURL == "" {
 			return nil, fmt.Errorf("WAAS_OIDC_REDIRECT_URL is required when OIDC is enabled")
 		}
+	}
+	// Fail closed: a mistyped flag with no IdP configured would otherwise
+	// lock every account out silently.
+	if cfg.OIDC.OIDCOnly && !cfg.OIDC.Enabled() {
+		return nil, fmt.Errorf("WAAS_LOGIN_OIDC_ONLY requires OIDC to be configured (WAAS_OIDC_ISSUER/WAAS_OIDC_CLIENT_ID)")
 	}
 
 	if cfg.DatabaseURL == "" {

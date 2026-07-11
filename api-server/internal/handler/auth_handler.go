@@ -35,6 +35,10 @@ type loginRequest struct {
 
 // Login handles POST /api/v1/auth/login.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	if h.oidcCfg.OIDCOnly {
+		fail(w, r, apierror.NotFound("local login is disabled — sign in via SSO"))
+		return
+	}
 	var req loginRequest
 	if err := decode(r, &req); err != nil {
 		fail(w, r, err)
@@ -69,7 +73,7 @@ func (h *AuthHandler) Providers(w http.ResponseWriter, _ *http.Request) {
 	payload := struct {
 		Local bool     `json:"local"`
 		OIDC  oidcInfo `json:"oidc"`
-	}{Local: true}
+	}{Local: !h.oidcCfg.OIDCOnly}
 	if h.oidc != nil {
 		payload.OIDC = oidcInfo{Enabled: true, Name: h.oidcCfg.ProviderName, StartURL: "/api/v1/auth/oidc/start"}
 	}

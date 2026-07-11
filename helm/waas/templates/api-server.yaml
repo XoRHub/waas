@@ -187,9 +187,17 @@ spec:
                   key: admin-password
             {{- end }}
             {{- with .Values.apiServer.oidc }}
+            {{- if .disableLocalLogin }}
+            # Deliberately emitted even without issuerURL: the api-server
+            # must refuse to start on that misconfiguration rather than
+            # have Helm silently hide the flag.
+            - name: WAAS_LOGIN_OIDC_ONLY
+              value: "true"
+            {{- end }}
             {{- if .issuerURL }}
-            # SSO (any OIDC provider). Local login stays
-            # available as break-glass; groups sync at every SSO login.
+            # SSO (any OIDC provider). Local login stays available as
+            # break-glass unless disableLocalLogin cuts it off; groups
+            # sync at every SSO login.
             - name: WAAS_OIDC_ISSUER
               value: {{ .issuerURL | quote }}
             - name: WAAS_OIDC_CLIENT_ID

@@ -85,6 +85,17 @@ func run() error {
 		oidcSvc = service.NewOIDCService(cfg.OIDC, users, audit, signer, cfg.JWTIssuer, cfg.AccessTokenTTL)
 		slog.Info("OIDC login enabled", "issuer", cfg.OIDC.IssuerURL, "provider", cfg.OIDC.ProviderName)
 	}
+	if cfg.OIDC.OIDCOnly {
+		slog.Info("local login disabled (WAAS_LOGIN_OIDC_ONLY): every account signs in through the IdP")
+		// Not fatal — the deployment stays recoverable by redeploying
+		// without the flag and using the bootstrap admin — but without an
+		// admin-group mapping no SSO account can ever reach the admin role.
+		if len(cfg.OIDC.AdminGroups) == 0 {
+			slog.Warn("WAAS_LOGIN_OIDC_ONLY is set but WAAS_OIDC_ADMIN_GROUPS is empty — " +
+				"no account can become admin via SSO; only the bootstrap admin " +
+				"(unreachable while this flag is set) has the admin role")
+		}
+	}
 	userSvc := service.NewUserService(users, audit)
 	templateSvc := service.NewTemplateService(kube, cfg.WorkspaceNamespace, audit)
 	workspaceSvc := service.NewWorkspaceService(kube, cfg.WorkspaceNamespace, users, sessions, audit, signer,

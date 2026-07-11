@@ -91,9 +91,10 @@ apiServer:
   adminUsername: admin
   adminPassword: ""
   # SSO login (any OIDC provider). Optional: local login
-  # always stays available (bootstrap admin, break-glass when the IdP is
-  # down). When enabled, the IdP's groups claim is mirrored into the user
-  # record at every login and drives WorkspacePolicy matching.
+  # stays available (bootstrap admin, break-glass when the IdP is down)
+  # unless disableLocalLogin below opts out of it. When enabled, the IdP's
+  # groups claim is mirrored into the user record at every login and
+  # drives WorkspacePolicy matching.
   oidc:
     # e.g. https://idp.example.com/application/o/waas/
     issuerURL: ""
@@ -113,6 +114,20 @@ apiServer:
     # IdP groups granting the platform admin role (synced each login).
     adminGroups: []
     providerName: OIDC
+    # Disables local username/password login entirely once set —
+    # every account must go through the IdP above. Requires
+    # issuerURL/clientID to be set (the api-server refuses to start
+    # otherwise). The bootstrap admin account is still CREATED but
+    # cannot log in locally while this is true — the break-glass is
+    # redeploying with this back to false, signing in as the bootstrap
+    # admin, then re-enabling; see
+    # docs/studies/18-prompt-feature14-oidc-only-login.md.
+    #
+    # Set adminGroups (above) at the same time, or no account will
+    # ever be able to reach the admin role through SSO — only the
+    # bootstrap admin has it, and it becomes unreachable once this
+    # flag is true.
+    disableLocalLogin: false
   # Wake-on-LAN relay for remote workspaces. A magic packet must be
   # emitted on the target machine's L2 network, which a pod cannot reach —
   # so it is delegated to an external relay (device or agent on that LAN)
