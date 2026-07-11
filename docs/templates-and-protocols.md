@@ -51,6 +51,11 @@ spec:
       credentialsSecretRef: my-creds      # username/password/private-key/passphrase
 ```
 
+`vnc`, `rdp` and `ssh` are freely combinable on one template. `kasmvnc`
+is exclusive: it bypasses guacd entirely, so a template declaring it may
+declare no other protocol — the admission webhook rejects any
+combination with `vnc`/`rdp`/`ssh`.
+
 When `protocols` is empty, one protocol is synthesized from `os`/`port`
 (linux → vnc:5901, windows → rdp:3389) so older templates keep working.
 

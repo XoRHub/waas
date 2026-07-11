@@ -20,6 +20,10 @@ import (
 // their own sibling mechanism (desktop_credentials.go, Secret prefix
 // waas-desktop-); the tenant-isolation rationale below — no two
 // workspaces share a password, no secret in a CR — applies to both.
+// The two mechanisms never generate together: the template webhook
+// rejects kasmvnc combined with vnc/rdp/ssh at admission, and for
+// templates grandfathered from before that rule the desktop mechanism
+// yields to this one (see desktopPasswordGenerated).
 //
 // kasmweb/* images authenticate their web endpoint with HTTP Basic
 // (fixed user kasm_user, password from the VNC_PW env). When a template

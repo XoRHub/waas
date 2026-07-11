@@ -209,7 +209,9 @@ type WorkspaceProtocol struct {
 	// ssh) brokered by guacd, or kasmvnc — the web-native KasmVNC
 	// endpoint of kasmweb/* images, reverse-proxied by wwt (guacd is not
 	// involved; Params/UserParams are rejected for it, the registry has
-	// no kasmvnc entries).
+	// no kasmvnc entries). kasmvnc is exclusive: a template declaring it
+	// may declare no other protocol (admission-enforced); vnc/rdp/ssh
+	// remain freely combinable with each other.
 	// +kubebuilder:validation:Enum=vnc;rdp;ssh;kasmvnc
 	Name string `json:"name"`
 

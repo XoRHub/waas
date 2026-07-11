@@ -35,6 +35,12 @@ import (
 //     desktopPasswordGenerated), and required so the teardown
 //     finalizer's name-based sweep deletes it and the namespace janitor
 //     counts it as content.
+//
+// The template admission webhook is the primary guard against the
+// collision: kasmvnc is an exclusive protocol, so a template mixing it
+// with vnc/rdp is rejected at create/update. The runtime yield below
+// stays as defense-in-depth for grandfathered templates admitted before
+// that rule (admission never re-checks objects already stored).
 
 // desktopSecretName is the resolver-side copy, next to the Workspace CR.
 // Must stay aligned with the api-server's fallback in ConnectionInfo
@@ -51,7 +57,10 @@ func desktopPasswordGenerated(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.Work
 		return false
 	}
 	// Mutually exclusive with the kasm mechanism: both inject VNC_PW and
-	// share the pod-copy Secret name, so only one may generate.
+	// share the pod-copy Secret name, so only one may generate. The
+	// webhook now rejects kasmvnc+vnc/rdp templates at admission, but a
+	// template stored before that rule can still combine them — kasm
+	// keeps winning here for those.
 	if kasmPasswordGenerated(ws, tpl) {
 		return false
 	}

@@ -94,6 +94,53 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 			"",
 		},
 		{
+			// The guacd protocols combine freely between themselves.
+			"vnc + rdp + ssh without kasmvnc",
+			tplWith(
+				waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901, Default: true},
+				waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 3389},
+				waasv1alpha1.WorkspaceProtocol{Name: "ssh", Port: 22},
+			),
+			"",
+		},
+		{
+			// kasmvnc is exclusive: it bypasses guacd and its generated
+			// password would collide with the desktop one (VNC_PW, shared
+			// pod-copy Secret name).
+			"kasmvnc combined with vnc",
+			tplWith(
+				waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901},
+				waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901},
+			),
+			"kasmvnc cannot be combined",
+		},
+		{
+			"kasmvnc combined with rdp",
+			tplWith(
+				waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901},
+				waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 3389},
+			),
+			"kasmvnc cannot be combined",
+		},
+		{
+			"kasmvnc combined with ssh",
+			tplWith(
+				waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901},
+				waasv1alpha1.WorkspaceProtocol{Name: "ssh", Port: 22},
+			),
+			"kasmvnc cannot be combined",
+		},
+		{
+			"kasmvnc combined with all three guacd protocols",
+			tplWith(
+				waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901},
+				waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901},
+				waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 3389},
+				waasv1alpha1.WorkspaceProtocol{Name: "ssh", Port: 22},
+			),
+			"kasmvnc cannot be combined",
+		},
+		{
 			// kasmvnc bypasses guacd: no guacd param may be attached.
 			"kasmvnc with guacd params",
 			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901, Params: map[string]string{"color-depth": "16"}}),

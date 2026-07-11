@@ -70,13 +70,21 @@ func TestTemplateWebhookThroughAPIServer(t *testing.T) {
 			DisplayName: "Broken", OS: waasv1alpha1.OSLinux,
 			Image: "ghcr.io/xorhub/waas/desktop-xfce:1.0.0",
 			Protocols: []waasv1alpha1.WorkspaceProtocol{
-				{Name: "kasmvnc", Port: 6901, Default: true},
+				{Name: "vnc", Port: 5901, Default: true},
 				{Name: "ssh", Port: 22, Default: true},
 			},
 		},
 	}
 	if err := adminCli.Create(ctx, twoDefaults); err == nil || !strings.Contains(err.Error(), "at most one protocol may be marked default") {
 		t.Fatalf("two default protocols must be denied by the webhook, got %v", err)
+	}
+
+	mixedKasm := twoDefaults.DeepCopy()
+	mixedKasm.Name, mixedKasm.ResourceVersion = "mixed-kasm", ""
+	mixedKasm.Spec.Protocols[0] = waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901, Default: true}
+	mixedKasm.Spec.Protocols[1].Default = false
+	if err := adminCli.Create(ctx, mixedKasm); err == nil || !strings.Contains(err.Error(), "kasmvnc cannot be combined") {
+		t.Fatalf("kasmvnc combined with a guacd protocol must be denied by the webhook, got %v", err)
 	}
 
 	valid := twoDefaults.DeepCopy()
