@@ -250,7 +250,8 @@ model is deliberately simple: the api-server **writes the CR directly**
 `GET/PUT/DELETE /admin/policies[/{name}]`, `GET /admin/usage`,
 `GET /admin/groups`, `GET /admin/remote-workspaces`,
 `GET /api/v1/meta/scaffold/{kind}`.
-Full schema: `docs/openapi-governance.yaml`.
+Request/response shapes are the Go models (`api-server/internal/model`),
+mirrored to the frontend via tygo (`frontend/src/types.gen.ts`).
 
 ## Audit
 
