@@ -3,9 +3,11 @@ package server
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/httprate"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/xorhub/waas/api-server/internal/config"
@@ -55,7 +57,12 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 	}
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Post("/auth/login", h.Auth.Login)
+		// Local login is the only credential-guessing surface: throttle
+		// it per IP (RealIP above makes RemoteAddr trustworthy behind
+		// the ingress). Per-IP only — keying on the username too would
+		// require buffering the body before the handler reads it, and
+		// argon2id (~50ms/try) already bounds per-account throughput.
+		r.With(httprate.LimitByIP(10, time.Minute)).Post("/auth/login", h.Auth.Login)
 		r.Get("/auth/providers", h.Auth.Providers)
 		r.Get("/auth/oidc/start", h.Auth.OIDCStart)
 		r.Get("/auth/oidc/callback", h.Auth.OIDCCallback)

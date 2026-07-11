@@ -1,4 +1,11 @@
+# Pinned on the exact versions the CI runs (.gitlab/ci/go.yml,
+# .gitlab/ci/frontend.yml): a floating local toolchain already produced
+# one "passes here, fails in CI" incident (audit 2026-07, C6). Bump these
+# together with the CI image pins, never independently.
 [tools]
-go = "1.26"
-node = "lts"
-k3d = "latest"
+go = "1.26.4"
+node = "22.17.0"
+golangci-lint = "2.12.2"
+# k3d pin = the version installed in dev at pin time; the k3s image it
+# boots is pinned in hack/dev/k3d-config.yaml (keep both in sync).
+k3d = "5.9.0"

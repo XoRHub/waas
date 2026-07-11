@@ -34,11 +34,28 @@ type LoginResult struct {
 	User        *model.User `json:"user"`
 }
 
+// dummyHash equalizes the unknown-username path with the real
+// verification cost: without it, a caller can enumerate accounts by
+// timing (not-found returned instantly vs ~50ms of argon2id). Computed
+// once at startup with the live parameters; it never matches anything.
+var dummyHash = func() string {
+	h, err := HashPassword("waas-timing-equalizer")
+	if err != nil {
+		panic(fmt.Sprintf("computing timing-equalizer hash: %v", err))
+	}
+	return h
+}()
+
 // Login verifies credentials and issues an access token.
 func (s *AuthService) Login(ctx context.Context, username, password, clientIP string) (*LoginResult, error) {
 	user, err := s.users.FindByUsername(ctx, username)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
+			// Burn the same argon2id cost as an existing account and
+			// leave the same audit trail as the other failure paths
+			// (no user ID to record for a nonexistent account).
+			_, _ = VerifyPassword(password, dummyHash)
+			s.audit.Record(ctx, Actor{Username: username, ClientIP: clientIP}, "user.login_failed", "user", "", "unknown username")
 			return nil, apierror.Unauthorized("invalid credentials")
 		}
 		return nil, fmt.Errorf("looking up user %s: %w", username, err)

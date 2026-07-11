@@ -67,6 +67,59 @@ func TestLoginRejectsBadCredentialsAndIssuesWorkingTokens(t *testing.T) {
 	}
 }
 
+// An unknown username must leave the same audit trail as the other
+// login failures (it used to be the only silent path — and the only
+// instant one, a remotely measurable account-enumeration oracle).
+func TestLoginUnknownUserIsAudited(t *testing.T) {
+	h, _ := newTestServer(t)
+
+	if rec := doJSON(t, h, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"username": "ghost", "password": "whatever",
+	}); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unknown user must 401, got %d", rec.Code)
+	}
+
+	token := login(t, h)
+	rec := doJSON(t, h, http.MethodGet, "/api/v1/audit-logs", token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("listing audit logs: %d %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Data []struct {
+			Action        string `json:"action"`
+			ActorUsername string `json:"actorUsername"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decoding audit logs: %v", err)
+	}
+	for _, e := range payload.Data {
+		if e.Action == "user.login_failed" && e.ActorUsername == "ghost" {
+			return
+		}
+	}
+	t.Fatalf("no user.login_failed audit event for the unknown username: %s", rec.Body.String())
+}
+
+// The login route is rate-limited per IP (10/min): the 11th attempt in
+// the window must be rejected before reaching the credential check.
+func TestLoginRateLimitedPerIP(t *testing.T) {
+	h, _ := newTestServer(t)
+
+	for i := 0; i < 10; i++ {
+		if rec := doJSON(t, h, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+			"username": "admin", "password": "wrong",
+		}); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: want 401, got %d", i+1, rec.Code)
+		}
+	}
+	if rec := doJSON(t, h, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "wrong",
+	}); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("11th attempt must 429, got %d", rec.Code)
+	}
+}
+
 // ---- users PATCH: RBAC + groups contract --------------------------------
 
 func TestUsersPatchIsAdminOnlyAndReplacesGroupsWholesale(t *testing.T) {

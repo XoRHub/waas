@@ -13,6 +13,10 @@ apiVersion: k3d.io/v1alpha5
 kind: Simple
 metadata:
   name: waas-dev
+# Pinned k3s image: the default of the k3d pinned in .mise.toml (5.9.0),
+# frozen so a k3d upgrade cannot silently change the cluster's k8s
+# version underneath existing dev clusters.
+image: rancher/k3s:v1.35.5-k3s1
 servers: 1
 agents: 0
 ports:
