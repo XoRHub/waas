@@ -25,19 +25,43 @@ MR (merge_request_event) — builds sélectifs par rules:changes
 
 main — mêmes gates, build de TOUS les composants (tags <short-sha> + main)
        smoke-connections automatique. Chaque SHA de main est releasable.
+       chart-oci-main : push OCI du chart, version `X.Y.Z-main.<short-sha>`
+       (SemVer prerelease, ne collisionne jamais avec un tag vX.Y.Z).
 
 tag vX.Y.Z — PROMOTION, zéro rebuild
 ├─ release-verify   Chart.yaml bumpé (version=X.Y.Z, appVersion="vX.Y.Z"),
 │                   images <short-sha> présentes, tags vX.Y.Z encore libres
 ├─ release-images   imagetools create <short-sha> → vX.Y.Z (digests identiques
 │                   à ce qui a été testé/scanné) + signature cosign obligatoire
+├─ release-chart    helm package + push OCI du chart (Chart.yaml du SHA taggé,
+│                   déjà vérifié == vX.Y.Z par release-verify)
 ├─ release-notes    git-cliff (cliff.toml) + table des digests
-└─ release-create   GitLab Release sur le tag
+└─ release-create   GitLab Release sur le tag (needs: release-notes, release-chart)
 ```
 
 `workflow:rules` : pipeline MR prioritaire (jamais de doublon branche+MR),
 branche par défaut, tags `v*` uniquement. Tous les jobs sont en DAG
 (`needs`), les stages ne servent qu'à la lisibilité.
+
+## Chart Helm en OCI
+
+Pas de registre Helm dédié (pas de ChartMuseum/Harbor) : le chart est
+poussé comme artefact OCI dans **le même Container Registry que les
+images**, sous-chemin `charts/` (`$CI_REGISTRY_IMAGE/charts/waas:<version>`).
+Deux jobs, `alpine/helm:3.17.3`, `helm registry login` avec les
+`CI_REGISTRY_*` prédéfinies :
+
+- `chart-oci-main` (stage `build`, main uniquement) : `helm package
+  --version X.Y.Z-main.<short-sha>` — SemVer prerelease, ne collisionne
+  jamais avec un tag release, mirroir du tag mobile `main` des images.
+- `release-chart` (stage `release`, tag `vX.Y.Z`) : `helm package` **sans
+  override** — le `Chart.yaml` du commit taggé porte déjà `version: X.Y.Z`
+  (vérifié par `release-verify`), donc packager ce fichier tel quel EST
+  la release, pas un rebuild.
+
+ArgoCD continue de déployer depuis le tag Git (`path: helm/waas`) ; ce
+chart OCI est pour les consommateurs `helm pull`/`helm install --version`
+externes.
 
 ## Multi-arch (amd64/arm64)
 

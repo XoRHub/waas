@@ -91,11 +91,32 @@ release-notes:
     paths: [release-notes.md]
     expire_in: 1 year
 
+# Chart as an OCI artifact, tagged with the version release-verify just
+# checked matches Chart.yaml (no repackage-with-override: the committed
+# Chart.yaml at the tagged SHA IS the release). No dedicated Helm chart
+# registry planned — same Container Registry as the images, `charts/`
+# sub-path (ArgoCD keeps deploying from the git tag; this OCI artifact is
+# for `helm pull`/`helm install --version` consumers).
+release-chart:
+  extends: .rules-release
+  stage: release
+  image:
+    name: alpine/helm:3.17.3
+    entrypoint: [""]
+  needs: [release-verify]
+  script:
+    - helm registry login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
+    - helm package helm/waas -d dist
+    - helm push dist/waas-*.tgz "oci://$CI_REGISTRY_IMAGE/charts"
+  artifacts:
+    paths: [dist/*.tgz]
+    expire_in: 1 year
+
 release-create:
   extends: .rules-release
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:v0.18.0
-  needs: [release-notes]
+  needs: [release-notes, release-chart]
   script:
     - echo "creating GitLab Release $CI_COMMIT_TAG"
   release:

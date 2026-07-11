@@ -51,6 +51,29 @@ kubeconform:
       rendered-default.yaml rendered-dev.yaml
       gitops/governance/images.yaml gitops/governance/policies.yaml
 
+# OCI chart push — dev build off every main commit. No dedicated Helm
+# chart registry is planned: the chart is pushed as an OCI artifact to
+# the same GitLab Container Registry the component images use, under a
+# `charts/` sub-path (`$CI_REGISTRY_IMAGE/charts/waas:<version>`).
+# `-main.<short-sha>` is a valid SemVer prerelease so it never collides
+# with a released `vX.Y.Z` tag (see release-chart in release.yml).
+chart-oci-main:
+  stage: build
+  extends: .rules-chart-main
+  image:
+    name: alpine/helm:3.17.3
+    entrypoint: [""]
+  needs: []
+  script:
+    - helm registry login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
+    - CHART_VERSION="$(helm show chart helm/waas | awk '/^version:/{print $2}')"
+    - DEV_VERSION="${CHART_VERSION}-main.${CI_COMMIT_SHORT_SHA}"
+    - helm package helm/waas --version "$DEV_VERSION" -d dist
+    - helm push "dist/waas-${DEV_VERSION}.tgz" "oci://$CI_REGISTRY_IMAGE/charts"
+  artifacts:
+    paths: [dist/*.tgz]
+    expire_in: 1 week
+
 hadolint:
   stage: lint
   extends: .rules-security

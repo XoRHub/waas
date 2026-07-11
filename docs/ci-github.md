@@ -22,12 +22,33 @@ push main — TOUT est construit (invariant : chaque SHA de main porte le jeu
 ├─ mêmes gates + build-images → push <short-sha>-<arch>
 ├─ merge-manifests           manifest list <short-sha> + tag mobile `main`
 ├─ scan-images               trivy bloquant sur la manifest list
+├─ chart-oci                 push OCI du chart, version `X.Y.Z-main.<short-sha>`
+│                            (SemVer prerelease, ne collisionne jamais avec vX.Y.Z)
 └─ release-please            EN FIN de pipeline (needs sur tout le reste)
    └─ promote  (si release_created)   ZÉRO rebuild :
       verify (Chart.yaml = version, sources présentes, tags libres)
       → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → table des digests
         ajoutée aux notes de Release
+      → chart : helm package (Chart.yaml du SHA taggé, sans override) + push OCI
 ```
+
+## Chart Helm en OCI
+
+Pas de registre Helm dédié : le chart est poussé comme artefact OCI dans
+**ghcr.io**, même registry que les images, sous-chemin `charts/`
+(`ghcr.io/<owner>/<repo>/charts/waas:<version>`). `azure/setup-helm`
+(v3.17.3) + `helm registry login` avec `GITHUB_TOKEN` :
+
+- job `chart-oci` (push main) : `helm package --version
+  X.Y.Z-main.<short-sha>`, mirroir du tag mobile `main` des images.
+- step dans `promote` (tag `vX.Y.Z`) : `helm package` **sans override** —
+  le `Chart.yaml` du commit taggé porte déjà `version: X.Y.Z` (vérifié par
+  le step "Verify promotion preconditions"), donc packager ce fichier tel
+  quel EST la release, pas un rebuild.
+
+ArgoCD continue de déployer depuis le tag Git (`path: helm/waas`) ; ce
+chart OCI est pour les consommateurs `helm pull`/`helm install --version`
+externes.
 
 ## Release (release-please, SemVer, conventional commits)
 

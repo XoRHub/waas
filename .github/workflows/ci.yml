@@ -344,6 +344,38 @@ jobs:
             gitops/governance/images.yaml gitops/governance/policies.yaml
 
   # ------------------------------------------------------------------
+  # OCI chart push — dev build off every main commit. No dedicated Helm
+  # chart registry is planned: the chart is pushed as an OCI artifact to
+  # ghcr.io (same registry as the component images), under a `charts/`
+  # sub-path. `-main.<short-sha>` is a valid SemVer prerelease so it
+  # never collides with a released `vX.Y.Z` tag (see the `promote` job).
+  # ------------------------------------------------------------------
+  chart-oci:
+    needs: changes
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: vars
+        run: |
+          echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.17.3
+      - name: Package and push dev chart
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+          CHART_VERSION="$(helm show chart helm/waas | awk '/^version:/{print $2}')"
+          DEV_VERSION="${CHART_VERSION}-main.${{ steps.vars.outputs.sha }}"
+          helm package helm/waas --version "$DEV_VERSION" -d dist
+          helm push "dist/waas-${DEV_VERSION}.tgz" "oci://$REGISTRY/${{ steps.vars.outputs.repo }}/charts"
+
+  # ------------------------------------------------------------------
   # Blocking security gates — unconditional on every PR and main push:
   # a gate that can be skipped by touching the "right" files is not a gate.
   # ------------------------------------------------------------------
@@ -547,6 +579,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.17.3
       - name: Verify promotion preconditions
         run: |
           set -euo pipefail
@@ -588,6 +623,16 @@ jobs:
               "$IMAGE@$DIGEST"
             printf '| %s | `%s@%s` |\n' "$c" "$IMAGE" "$DIGEST" >> release-images.md
           done
+      - name: Package and push release chart
+        # No repackage-with-override: the committed Chart.yaml at the
+        # tagged SHA IS the release (already verified above to match
+        # $TAG). No dedicated Helm chart registry planned — same ghcr.io
+        # registry as the images, `charts/` sub-path.
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+          helm package helm/waas -d dist
+          helm push dist/waas-*.tgz "oci://$REGISTRY/${GITHUB_REPOSITORY,,}/charts"
       - name: Append digest table to the Release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
