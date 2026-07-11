@@ -120,6 +120,59 @@ func TestLoginRateLimitedPerIP(t *testing.T) {
 	}
 }
 
+// PATCH /me must round-trip the FULL preferences blob — including
+// workspaceSettings.paramsByProtocol, which the Go model used to lack:
+// the unmarshal silently dropped it, so per-protocol connection params
+// never survived a page reload.
+func TestProfilePreferencesRoundTripParamsByProtocol(t *testing.T) {
+	h, _ := newTestServer(t)
+	token := login(t, h)
+
+	prefs := map[string]any{
+		"openWorkspaceInNewTab": true,
+		"workspaceSettings": map[string]any{
+			"ws-1": map[string]any{
+				"protocol": "rdp",
+				"params":   map[string]string{"enable-audio": "true"},
+				"paramsByProtocol": map[string]any{
+					"rdp": map[string]string{"enable-audio": "true"},
+					"vnc": map[string]string{"color-depth": "16"},
+				},
+			},
+		},
+	}
+	if rec := doJSON(t, h, http.MethodPatch, "/api/v1/me", token, map[string]any{
+		"preferences": prefs,
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("PATCH /me: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec := doJSON(t, h, http.MethodGet, "/api/v1/auth/me", token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /auth/me: %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Data struct {
+			Preferences struct {
+				WorkspaceSettings map[string]struct {
+					Protocol         string                       `json:"protocol"`
+					ParamsByProtocol map[string]map[string]string `json:"paramsByProtocol"`
+				} `json:"workspaceSettings"`
+			} `json:"preferences"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decoding /auth/me: %v", err)
+	}
+	ws, ok := out.Data.Preferences.WorkspaceSettings["ws-1"]
+	if !ok {
+		t.Fatalf("workspaceSettings lost: %s", rec.Body.String())
+	}
+	if ws.ParamsByProtocol["vnc"]["color-depth"] != "16" || ws.ParamsByProtocol["rdp"]["enable-audio"] != "true" {
+		t.Fatalf("paramsByProtocol dropped on the round trip: %+v", ws.ParamsByProtocol)
+	}
+}
+
 // ---- users PATCH: RBAC + groups contract --------------------------------
 
 func TestUsersPatchIsAdminOnlyAndReplacesGroupsWholesale(t *testing.T) {

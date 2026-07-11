@@ -27,8 +27,11 @@ import type {
   ScheduledTransition,
   Session,
   SessionCapabilities,
+  User,
+  UserPreferences,
   UserUsage,
   Workspace,
+  WorkspaceConnectionPrefs,
   WorkspaceEvent,
   WorkspaceProtocol,
   WorkspaceRuntime,
@@ -55,8 +58,11 @@ export type {
   ScheduledTransition,
   Session,
   SessionCapabilities,
+  User,
+  UserPreferences,
   UserUsage,
   Workspace,
+  WorkspaceConnectionPrefs,
   WorkspaceEvent,
   WorkspaceProtocol,
   WorkspaceRuntime,
@@ -64,46 +70,6 @@ export type {
 };
 
 export type Theme = 'light' | 'dark' | 'system';
-
-/** Saved connection tuning for one workspace (validated server-side). */
-export interface WorkspaceConnectionPrefs {
-  protocol?: string;
-  /** Params of the CHOSEN protocol — what the connect call sends. */
-  params?: Record<string, string>;
-  /**
-   * Params kept per protocol, so the settings tabs round-trip values for
-   * protocols other than the chosen one (quick-switching restores them).
-   */
-  paramsByProtocol?: Record<string, Record<string, string>>;
-}
-
-export interface UserPreferences {
-  /** null/undefined = never asked: the portal shows the choice dialog. */
-  openWorkspaceInNewTab?: boolean | null;
-  language?: string;
-  /** 'light' | 'dark'; empty/undefined follows the system. */
-  theme?: string;
-  /** workspace ID → folder name (the portal's user-defined grouping). */
-  workspaceFolders?: Record<string, string>;
-  /** workspace ID → saved protocol/params choices. */
-  workspaceSettings?: Record<string, WorkspaceConnectionPrefs>;
-}
-
-export interface User {
-  id: string;
-  username: string;
-  displayName?: string;
-  email?: string;
-  role: Role;
-  active: boolean;
-  maxWorkspaces: number;
-  createdAt: string;
-  updatedAt: string;
-  lastLoginAt?: string;
-  /** IdP (OIDC) group mirror: synced at every SSO login, admin-editable. */
-  groups?: string[];
-  preferences?: UserPreferences;
-}
 
 export type WorkspacePhase =
   'Pending' | 'Provisioning' | 'Running' | 'Paused' | 'Stopped' | 'Failed' | 'Terminating';

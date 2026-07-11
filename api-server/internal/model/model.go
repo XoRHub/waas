@@ -30,8 +30,15 @@ type UserPreferences struct {
 // WorkspaceConnectionPrefs is the user's saved connection tuning for one
 // workspace: preferred protocol and guacd parameter overrides.
 type WorkspaceConnectionPrefs struct {
-	Protocol string            `json:"protocol,omitempty"`
-	Params   map[string]string `json:"params,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	// Params are the overrides of the CHOSEN protocol — what the
+	// connect call sends.
+	Params map[string]string `json:"params,omitempty"`
+	// ParamsByProtocol keeps the overrides per protocol, so the settings
+	// tabs round-trip values for protocols other than the chosen one
+	// (quick-switching restores them). Without this field here, the
+	// PATCH /me unmarshal silently dropped what the frontend saved.
+	ParamsByProtocol map[string]map[string]string `json:"paramsByProtocol,omitempty"`
 }
 
 // User is a platform account (local auth).

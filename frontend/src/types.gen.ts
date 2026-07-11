@@ -51,7 +51,18 @@ export interface UserPreferences {
  */
 export interface WorkspaceConnectionPrefs {
   protocol?: string;
+  /**
+   * Params are the overrides of the CHOSEN protocol — what the
+   * connect call sends.
+   */
   params?: { [key: string]: string };
+  /**
+   * ParamsByProtocol keeps the overrides per protocol, so the settings
+   * tabs round-trip values for protocols other than the chosen one
+   * (quick-switching restores them). Without this field here, the
+   * PATCH /me unmarshal silently dropped what the frontend saved.
+   */
+  paramsByProtocol?: { [key: string]: { [key: string]: string } };
 }
 /**
  * User is a platform account (local auth).
@@ -360,7 +371,7 @@ export interface WorkspaceTemplate {
   homeSize?: string;
   /**
    * HomeMountPath is where the home volume is mounted (default
-   * /home/user; kasmweb images expect /home/kasm-user).
+   * /home/waas_user; kasmweb images expect /home/kasm-user).
    */
   homeMountPath?: string;
   /**
