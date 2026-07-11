@@ -62,19 +62,40 @@ every caller, kubectl included. The full mapping with exposure tiers
 lives in [guacd-parameters.md](guacd-parameters.md) (generated —
 `make docs-params`).
 
-### Credentials (`credentialsSecretRef`)
+### Credentials
 
-Desktop credentials never live in a CR. Each protocol entry may name a
-Secret (workspace namespace) with the keys `username`, `password`,
-`private-key`, `passphrase` (all optional). The api-server resolves it
-server-side when a session starts and hands the values to guacd via the
-proxy — the browser never sees them. Ship the Secret with External
-Secrets/Vault. The same Secret typically also feeds the pod via env
-`valueFrom` (e.g. `VNC_PW`, `WAAS_SSH_AUTHORIZED_KEYS`) so both sides of
-the connection agree; see
-`waas-images/examples/workspacetemplate-dev-ssh.yaml` for the complete
-pattern. Literal `VNC_PW`/`RDP_PASSWORD` env values remain supported as
-a legacy fallback only.
+Desktop credentials never live in a CR. Three levels, in precedence
+order:
+
+1. **`credentialsSecretRef`** — explicit, always wins. Each protocol
+   entry may name a Secret (workspace namespace) with the keys
+   `username`, `password`, `private-key`, `passphrase` (all optional).
+   The api-server resolves it server-side when a session starts and
+   hands the values to guacd via the proxy — the browser never sees
+   them. Ship the Secret with External Secrets/Vault. The same Secret
+   typically also feeds the pod via env `valueFrom` (e.g. `VNC_PW`,
+   `WAAS_SSH_AUTHORIZED_KEYS`) so both sides of the connection agree;
+   see `waas-images/examples/workspacetemplate-dev-ssh.yaml` for the
+   complete pattern.
+2. **Generated per-workspace password** — the default for `vnc`, `rdp`
+   and `kasmvnc` when nothing explicit is provided: the operator
+   generates a random password per workspace (never shared between
+   tenants), stores it in a Secret (`waas-desktop-<name>` for vnc/rdp,
+   `waas-kasm-<name>` for kasmvnc), injects it into the pod as `VNC_PW`
+   via `secretKeyRef`, and the api-server resolves the same Secret at
+   connect time. Zero template configuration. vnc and rdp on one
+   workspace share one password (the container has a single session
+   secret); at most one Secret is generated per workspace.
+3. **Literal `VNC_PW` with `docker run`** — the standalone path for
+   running a waas-images build outside the platform, unrelated to the
+   CRs. Literal env passwords in a `WorkspaceTemplate` are **not** read
+   by the platform.
+
+Usernames are defaulted per protocol family when no credentials Secret
+sets one: `waas_user` for `vnc`/`rdp` (the fixed system account of
+waas-images builds, also presented to guacd by their `xrdp.ini`) and
+`kasm_user` for `kasmvnc` (the fixed HTTP Basic identity of kasmweb/*
+images).
 
 ### SSH
 

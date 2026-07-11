@@ -24,8 +24,9 @@ rules:
   - apiGroups: [""]
     resources: [pods, services]
     verbs: [create, delete, get, list, watch]
-  # Generated KasmVNC credentials: one Secret next to the CR (resolver
-  # copy, owner-ref'd) + one in the pod namespace (VNC_PW secretKeyRef);
+  # Generated desktop credentials (KasmVNC and vnc/rdp): one Secret next
+  # to the CR (resolver copy, owner-ref'd) + one in the pod namespace
+  # (VNC_PW secretKeyRef);
   # update keeps the pod copy converged on the resolver copy. Also the
   # per-namespace copies of registry pull secrets (imagePullSecretRef).
   # Secret reads bypass the cache (see cmd/main.go) — no watch.

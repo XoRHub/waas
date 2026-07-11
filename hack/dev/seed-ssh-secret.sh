@@ -23,7 +23,7 @@ trap 'rm -rf "${TMP}"' EXIT
 if ! kubectl -n "${PLATFORM_NS}" get secret dev-ssh-credentials >/dev/null 2>&1; then
     ssh-keygen -q -t ed25519 -N '' -C waas-dev -f "${TMP}/id"
     kubectl -n "${PLATFORM_NS}" create secret generic dev-ssh-credentials \
-        --from-literal=username=user \
+        --from-literal=username=waas_user \
         --from-file=private-key="${TMP}/id" \
         --from-file=authorized-keys="${TMP}/id.pub" \
         --from-literal=password=devpassword

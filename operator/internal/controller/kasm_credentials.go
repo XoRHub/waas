@@ -16,6 +16,11 @@ import (
 
 // Generated KasmVNC credentials.
 //
+// The vnc/rdp protocols get the same per-workspace generation through
+// their own sibling mechanism (desktop_credentials.go, Secret prefix
+// waas-desktop-); the tenant-isolation rationale below — no two
+// workspaces share a password, no secret in a CR — applies to both.
+//
 // kasmweb/* images authenticate their web endpoint with HTTP Basic
 // (fixed user kasm_user, password from the VNC_PW env). When a template
 // serves the kasmvnc protocol WITHOUT an explicit password source
@@ -60,7 +65,7 @@ func kasmPasswordGenerated(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.Workspa
 		overrides = ws.Spec.Overrides.Env
 	}
 	for _, env := range mergeEnv(tpl.Spec.Env, overrides) {
-		if env.Name == "VNC_PW" || env.Name == "VNC_PASSWORD" {
+		if env.Name == "VNC_PW" {
 			return false
 		}
 	}

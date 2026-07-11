@@ -316,7 +316,7 @@ type WorkspaceTemplateSpec struct {
 	HomeSize *resource.Quantity `json:"homeSize,omitempty"`
 
 	// HomeMountPath is where the home volume is mounted in the pod.
-	// Defaults to /home/user (the waas-images convention); kasmweb/*
+	// Defaults to /home/waas_user (the waas-images convention); kasmweb/*
 	// images expect /home/kasm-user. Changing it on a template only
 	// affects pods rolled out afterwards — the volume itself is
 	// path-agnostic.
@@ -395,7 +395,7 @@ type WorkspaceTemplateSpec struct {
 // PlacementNamespacePattern returns the placement pattern, or "".
 // DefaultHomeMountPath is where the home volume lands when the template
 // does not say otherwise (the waas-images convention).
-const DefaultHomeMountPath = "/home/user"
+const DefaultHomeMountPath = "/home/waas_user"
 
 // EffectiveHomeMountPath returns the template's home mount path, or the
 // platform default.

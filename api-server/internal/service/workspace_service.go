@@ -799,22 +799,12 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 			}
 		}
 	}
-	// Desktop credentials stay server-side: resolved from the template and
-	// handed to guacd by the proxy, never exposed to the browser.
+	// Desktop credentials stay server-side: resolved from Secrets only
+	// (credentialsSecretRef or the operator-generated fallback) and handed
+	// to guacd by the proxy, never exposed to the browser. Literal env
+	// passwords in the template/overrides are deliberately NOT read.
 	tpl := &waasv1alpha1.WorkspaceTemplate{}
 	if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: ws.Spec.TemplateRef}, tpl); err == nil {
-		// Legacy path: literal credentials in template env. Prefer
-		// credentialsSecretRef, which keeps secrets out of the CR.
-		for _, env := range tpl.Spec.Env {
-			switch env.Name {
-			case "VNC_PW", "VNC_PASSWORD":
-				info.Password = env.Value
-			case "RDP_USERNAME":
-				info.Username = env.Value
-			case "RDP_PASSWORD":
-				info.Password = env.Value
-			}
-		}
 		// Template params first (locked), then the session's vetted user
 		// overrides.
 		entry := tpl.Spec.ProtocolNamed(info.Protocol)
@@ -837,18 +827,6 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 				return nil, err
 			}
 		}
-		// Workspace env overrides win last: they change the password the
-		// pod actually runs with, so the connection must follow.
-		if ws.Spec.Overrides != nil {
-			for _, env := range ws.Spec.Overrides.Env {
-				switch env.Name {
-				case "VNC_PW", "VNC_PASSWORD", "RDP_PASSWORD":
-					info.Password = env.Value
-				case "RDP_USERNAME":
-					info.Username = env.Value
-				}
-			}
-		}
 	}
 	// Generated KasmVNC credentials: when no explicit source provided a
 	// password (template/override env, credentialsSecretRef), the
@@ -860,7 +838,16 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 			return nil, err
 		}
 	}
+	// Generated desktop credentials (vnc/rdp): the sibling mechanism, own
+	// Secret prefix. The name must stay aligned with the operator's
+	// desktopSecretName (desktop_credentials.go), byte-for-byte.
+	if (info.Protocol == "vnc" || info.Protocol == "rdp") && info.Password == "" {
+		if err := s.applyCredentialsSecret(ctx, "waas-desktop-"+ws.Name, info); err != nil {
+			return nil, err
+		}
+	}
 	kasmDefaults(info)
+	desktopDefaults(info)
 	return info, nil
 }
 
@@ -871,6 +858,18 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 func kasmDefaults(info *model.ConnectionInfo) {
 	if info.Protocol == "kasmvnc" && info.Username == "" {
 		info.Username = "kasm_user"
+	}
+}
+
+// desktopDefaults is kasmDefaults' vnc/rdp sibling: waas-images run the
+// fixed system account "waas_user" (xrdp.ini presents the same identity
+// to guacd) — only the password is per-workspace. A credentials Secret
+// with an explicit username still wins. Cluster workspaces only — never
+// applied to remoteConnectionInfo, whose machines are outside the
+// waas-images contract.
+func desktopDefaults(info *model.ConnectionInfo) {
+	if (info.Protocol == "vnc" || info.Protocol == "rdp") && info.Username == "" {
+		info.Username = "waas_user"
 	}
 }
 

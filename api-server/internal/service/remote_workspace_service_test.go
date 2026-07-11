@@ -384,6 +384,11 @@ func TestRemoteWorkspaceMultiProtocol(t *testing.T) {
 	if info.Params["color-depth"] != "16" {
 		t.Fatalf("resolver must use the chosen endpoint's params, got %v", info.Params)
 	}
+	// Remote machines are outside the waas-images contract: the resolver
+	// must never default their username to the cluster's waas_user.
+	if info.Username == "waas_user" {
+		t.Fatal("remote vnc must not inherit the cluster desktop username default")
+	}
 
 	// Unknown protocol is refused.
 	if _, err := f.remote.Connect(ctx, actor, rw.ID, ConnectInput{Protocol: "rdp"}); err == nil {

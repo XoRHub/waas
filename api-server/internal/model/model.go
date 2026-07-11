@@ -308,7 +308,7 @@ type WorkspaceTemplate struct {
 	Port        int32  `json:"port,omitempty"`
 	HomeSize    string `json:"homeSize,omitempty"`
 	// HomeMountPath is where the home volume is mounted (default
-	// /home/user; kasmweb images expect /home/kasm-user).
+	// /home/waas_user; kasmweb images expect /home/kasm-user).
 	HomeMountPath string `json:"homeMountPath,omitempty"`
 	// KasmVNCConfig is the admin's ~/.vnc/kasmvnc.yaml content, merged
 	// key-by-key over the image's own defaults by KasmVNC (unspecified

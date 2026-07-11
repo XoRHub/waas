@@ -409,13 +409,17 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 }
 
 // desktopEnv is the container environment: template env with the
-// workspace's admitted overrides on top, plus the generated KasmVNC
-// password (VNC_PW from the pod-namespace Secret) when no explicit
-// source provides one.
+// workspace's admitted overrides on top, plus the generated password
+// (VNC_PW from the pod-namespace Secret) when no explicit source
+// provides one — the kasmvnc and vnc/rdp mechanisms are mutually
+// exclusive, so at most one injection fires.
 func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides) []corev1.EnvVar {
 	env := mergeEnv(tpl.Spec.Env, ov.Env)
 	if kasmPasswordGenerated(ws, tpl) {
 		env = append(env, kasmEnv(ws))
+	}
+	if desktopPasswordGenerated(ws, tpl) {
+		env = append(env, desktopCredentialsEnv(ws))
 	}
 	return env
 }
