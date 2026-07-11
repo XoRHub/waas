@@ -11,6 +11,7 @@ Les paramètres de connexion guacd (VNC/RDP/SSH) viennent d'un registre unique c
 **Le registre `Param`** (`params.go:51-70`) : `Name`, `Protocols []string`, `Kind`, `Enum`, `Min/Max *int`, `Default`, `Tier`, `Live bool`, `Description`.
 
 **`Tier` a trois valeurs** (`params.go:23-38`, doc-comment) :
+
 - `TierUI = "ui"` — rendu dans les formulaires portail.
 - `TierAdvanced = "advanced"` — d'après le commentaire du code, "settable in the CR/template only... or the template editor's advanced section — never in end-user forms". **Vérifie ce point en codant** : `ParamField.tsx:270-279` (`tieredParams`) range `tier:['ui']` → `simple`, `tier:['advanced']` → `advanced`, et `ProtocolTabs.tsx:163-219` (`ProtocolParamsForm`) affiche `simple` toujours, `advanced` derrière un toggle "afficher les params avancés" (lignes 185, 207-216) — **dans le formulaire utilisateur du portail, pas seulement dans l'éditeur de template**. Il y a donc une tension entre le commentaire du registre (advanced = jamais en formulaire utilisateur) et le comportement réel du code (advanced = accessible en formulaire utilisateur derrière un toggle) — clarifie et aligne les deux avant de construire dessus, ou documente explicitement que c'est le comportement voulu.
 - `TierPlatform = "platform"` — jamais settable par le template ni l'utilisateur, banni par `ValidateTemplateParams` (ligne 505), `ValidateUserParamNames` (ligne 523), `ValidateUserOverrides` (ligne 540). `TierAdvanced` est traité **identiquement à `TierUI`** dans ces trois fonctions de validation — la distinction ui/advanced n'existe aujourd'hui que dans le **rendu**, pas dans la politique de validation.
@@ -18,6 +19,7 @@ Les paramètres de connexion guacd (VNC/RDP/SSH) viennent d'un registre unique c
 **`GET /api/v1/meta/protocols`** (`api-server/internal/handler/meta_handler.go:23-39`) sert `params.ForProtocol(proto)` (params.go:416-434, trié ui d'abord puis advanced puis platform) tel quel, `Tier` inclus.
 
 **`userParams` côté CRD** — `WorkspaceProtocol` (`operator/api/v1alpha1/workspacetemplate_types.go`) :
+
 - `Params map[string]string` (ligne 227, json `params,omitempty`) : valeurs verrouillées/par défaut du template.
 - `UserParams []string` (ligne 232, json `userParams,omitempty`) : **une liste de NOMS de paramètres** que l'utilisateur peut surcharger au connect-time — pas des valeurs. Tout nom absent de cette liste reste verrouillé à `Params`.
 - Ce filtre fin s'exerce **sous** un droit plus large : `TemplateOverrides.AllowedFields []OverridableField` (ligne 249), avec `FieldProtocolParams = "protocolParams"` (ligne 42) qui autorise ou non toute tweak connect-time de params — cf. `connectTimeRights` (`operator/pkg/policy/overrides.go:60-62`), commentaire : "connect-time guacd parameter tweaks, enforced by the api-server on /connect (template userParams stays the fine-grained filter)".
@@ -29,6 +31,7 @@ Les paramètres de connexion guacd (VNC/RDP/SSH) viennent d'un registre unique c
 **Frontend — aucun regroupement thématique aujourd'hui** : `ProtocolTabs.tsx` = un onglet par protocole, `ProtocolParamsForm` = une grille plate (`simple` toujours visible, `advanced` derrière toggle), aucune section "Affichage"/"Audio"/"Presse-papier"/"Sécurité".
 
 **Regroupements confirmés (noms exacts du registre, ne les invente pas)** :
+
 - **Audio (VNC)** : `enable-audio` (ligne 116, ui), `audio-servername` (ligne 121, advanced).
 - **Affichage/qualité (VNC/RDP)** : `color-depth` (ligne 96, ui, enum 8/16/24/32), `swap-red-blue` (ligne 101, ui), `cursor` (ligne 106, ui, enum local/remote), `force-lossless` (ligne 111, ui), `resize-method` (ligne 145, ui, RDP). **Pas de param `dpi`** dans le registre (géré côté plateforme via un commentaire de doc `workspacetemplate_types.go:225`, pas une entrée `Param` — ne l'ajoute pas à ce groupe).
 - **Presse-papier** : `disable-copy`/`disable-paste` (lignes 84-92, partagés, ui, live), `clipboard-encoding` (ligne 136, VNC, advanced), `normalize-clipboard` (ligne 235, RDP, advanced).
@@ -60,3 +63,4 @@ Câble ce nouveau champ dans la même chaîne que `UserParams` aujourd'hui : `te
 - Nom exact du nouveau champ CRD (`expertUserParams` proposé par la demande initiale) — vérifie qu'il n'entre pas en collision avec un terme déjà utilisé ailleurs dans le registre d'overrides avant de le fixer définitivement.
 - Sémantique précise de "prioritaire" en cas de chevauchement (§B) — plusieurs interprétations valables, tranche et documente-la clairement dans le commentaire du champ CRD et dans `overrides.go`.
 - Le toggle "advanced" reste-t-il global au protocole ou devient-il par section (§A) — les deux sont défendables, la seconde option est plus cohérente avec le regroupement mais plus de travail visuel.
+  ARBITRAGE: oranigsé par section cela semble plus coherent en effet

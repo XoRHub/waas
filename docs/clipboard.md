@@ -30,18 +30,28 @@ capabilities du /connect            wwt ClipboardFilter (ENFORCEMENT :
   aucun protocole ») : `DesktopPane` relaie désormais les deux sens :
   - bureau → local : `client.onclipboard` → `navigator.clipboard.writeText`
     (best-effort) + tampon exposé à l'overlay (échange manuel) ;
-  - local → bureau : événement DOM `paste` (Ctrl+V dans le pane —
-    fonctionne partout, HTTP compris) + relecture du presse-papiers
-    système au focus de la fenêtre (Chromium + HTTPS), avec garde
-    anti-écho (`lib/clipboard.ts`, testé).
+  - local → bureau : relecture du presse-papiers système au focus de la
+    fenêtre (Chromium + HTTPS), avec garde anti-écho (`lib/clipboard.ts`,
+    testé). L'événement DOM `paste` reste câblé mais n'est qu'un filet
+    théorique : un vrai Ctrl+V dans le pane ne le déclenche jamais —
+    `Guacamole.Keyboard` fait `preventDefault()` sur le keydown relayé,
+    ce qui supprime l'action de collage native (vérifié en live,
+    2026-07). Sans focus-sync, le chemin réel est l'échange manuel de
+    l'overlay.
 
 ## Contexte sécurisé : ce que le navigateur autorise
 
 | Contexte | copier (bureau→local) | coller (local→bureau) |
 |---|---|---|
-| HTTPS + Chromium | automatique (`writeText`) | automatique au focus (`readText`, permission demandée) + Ctrl+V |
-| HTTPS + Firefox | automatique (`writeText`) | Ctrl+V dans le pane (pas de `readText`) |
-| HTTP (dev k3d) | **échange manuel de l'overlay uniquement** | Ctrl+V dans le pane |
+| HTTPS + Chromium | automatique (`writeText`) | automatique au focus (`readText`, permission demandée) |
+| HTTPS + Firefox | automatique (`writeText`) | échange manuel de l'overlay (pas de `readText`, et Ctrl+V ne déclenche pas l'event `paste` dans le pane) |
+| HTTP | **échange manuel de l'overlay uniquement** | **échange manuel de l'overlay uniquement** |
+
+L'env de dev sert les deux : `https://waas.127.0.0.1.nip.io:8443`
+(cert auto-signé, seamless OK) et `http://…:8080` (smoke tests ; pas de
+contexte sécurisé, donc seamless off). Vérifié bout en bout en Chromium
+réel sur le dev k3d le 2026-07-10 — protocole et résultats dans
+`docs/studies/16-report-clipboard-https-dev-verification.md`.
 
 L'overlay (Ctrl+Alt+M → Presse-papiers → Échange manuel) montre le dernier
 texte reçu du bureau et permet d'en envoyer un — c'est le chemin de
@@ -55,7 +65,7 @@ pour VNC, RDP et SSH.
 | Direction | Policy ✔ | Policy ✘ |
 |---|---|---|
 | Copier depuis le workspace | le texte copié dans le bureau arrive (auto ou overlay) | stream droppé par wwt ; toggle grisé 🔒 |
-| Coller vers le workspace | Ctrl+V / focus-sync colle dans le bureau | stream refusé (ack 771) ; toggle grisé 🔒 |
+| Coller vers le workspace | focus-sync pousse le texte, l'appli du bureau colle | stream refusé (ack 771) ; toggle grisé 🔒 |
 | Toggle overlay OFF puis ON | coupe puis rétablit en live (≤ grant) | reste OFF : la réponse wwt reflète l'état effectif |
 
 Réalité par protocole (côté bureau, images `waas-images`) :

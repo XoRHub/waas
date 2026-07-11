@@ -27,6 +27,7 @@ Cette feature est un **nettoyage de dette + une mise à jour de dépendance**, p
 ### A. Trancher le sort de `resize-method`
 
 Deux options défendables, choisis-en une et documente :
+
 1. **Le supprimer** du registre (`operator/pkg/params/params.go:145-148`) puisqu'il n'a plus aucun effet réel sur le mécanisme de resize actuel (pod-exec le rend inutile), avec migration : vérifier qu'aucun template/CR en prod/dev ne le référence dans `Params`/`UserParams` avant suppression (grep `resize-method` dans `hack/dev/templates-dev.yaml`, `gitops/`).
 2. **Le garder** mais reformuler sa `Description` pour dire explicitement qu'il ne pilote plus le resize (WaaS gère le resize par exec, ce paramètre ne fait qu'influencer le comportement natif de guacd si jamais un client s'y appuyait hors WaaS) — seulement si tu identifies une raison de le garder (ex. compatibilité avec un client guacd tiers).
 
@@ -47,4 +48,5 @@ Si `docs/session-resize.md` existe déjà (le doc-comment de `Resize()` y renvoi
 ## Points ouverts (ton arbitrage)
 
 - Suppression vs reformulation de `resize-method` (§A) — vérifie d'abord s'il existe un usage réel avant de trancher pour la suppression.
+  ARBITRAGE: reformulation car cela peut etre toujours utilisé pour du remote workspace.. donc ne pas supprimé
 - Si, après cette investigation, tu identifies un vrai bénéfice produit à implémenter le resize natif guacd↔VNC (PR #469) **en plus** du mécanisme pod-exec actuel (par exemple : réduire la latence par rapport à un exec, ou supporter un scénario où l'exec n'est pas possible) — ce serait un chantier **séparé et nettement plus lourd** (négociation côté guacd + support côté serveur VNC/TigerVNC), hors du périmètre "nettoyage" de cette feature. Ne l'entreprends pas ici ; note-le comme piste future si tu le juges pertinent.
