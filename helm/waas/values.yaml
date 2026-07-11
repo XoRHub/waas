@@ -7,6 +7,16 @@ image:
   tag: "" # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 
+# Pre-install/pre-upgrade hook Job that generates and persists the
+# release secrets IN the cluster (templates/secrets-job.yaml) —
+# template-time generation via `lookup` is a no-op under ArgoCD's
+# repo-server, which renders without cluster access.
+secretsJob:
+  # Needs kubectl + openssl + bash. Digest-pinned (kubectl v1.36.2):
+  # bitnami/ only publishes a moving `latest` tag since the 2025 catalog
+  # change; kubectl does not have to match the cluster version exactly.
+  image: bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978
+
 # Namespace where Workspace/WorkspaceTemplate CRs live. Empty (default)
 # = the release namespace, i.e. the same place the operator/api-server
 # pods themselves run. Set explicitly to isolate CRs in their own

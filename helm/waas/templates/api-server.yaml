@@ -172,18 +172,18 @@ spec:
             - name: WAAS_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
+                  name: {{ .Release.Name }}-app-secrets
                   key: database-url
             - name: WAAS_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
+                  name: {{ .Release.Name }}-app-secrets
                   key: internal-token
             {{- if .Values.apiServer.adminPassword }}
             - name: WAAS_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
+                  name: {{ .Release.Name }}-app-secrets
                   key: admin-password
             {{- end }}
             {{- with .Values.apiServer.oidc }}
@@ -205,7 +205,7 @@ spec:
             - name: WAAS_OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .existingSecret | default (printf "%s-secrets" $.Release.Name) }}
+                  name: {{ .existingSecret | default (printf "%s-app-secrets" $.Release.Name) }}
                   key: {{ .existingSecretKey | default "oidc-client-secret" }}
             - name: WAAS_OIDC_REDIRECT_URL
               value: {{ .redirectURL | quote }}
@@ -266,7 +266,7 @@ spec:
       volumes:
         - name: keys
           secret:
-            secretName: {{ .Release.Name }}-secrets
+            secretName: {{ .Release.Name }}-app-secrets
             items:
               - key: jwt-private-key
                 path: jwt-private-key

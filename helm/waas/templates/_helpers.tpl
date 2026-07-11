@@ -32,8 +32,3 @@ prometheus.io/port: {{ .port | quote }}
 prometheus.io/path: /metrics
 {{- end }}
 {{- end }}
-
-{{/* Secrets are generated once and reused across upgrades via lookup. */}}
-{{- define "waas.existingSecret" -}}
-{{ (lookup "v1" "Secret" .Release.Namespace (printf "%s-secrets" .Release.Name)).data | default dict | toJson }}
-{{- end }}

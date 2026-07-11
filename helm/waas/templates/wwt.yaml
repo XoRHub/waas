@@ -40,7 +40,7 @@ spec:
             - name: WWT_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
+                  name: {{ .Release.Name }}-app-secrets
                   key: internal-token
             {{- if .Values.metrics.enabled }}
             # Serves Prometheus /metrics on the app port (cluster-internal
