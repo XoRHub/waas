@@ -268,7 +268,7 @@
       "deleteConfirm": "Supprimer ce modèle ?",
       "edit": "Modifier {{name}}",
       "protocols": "Protocoles",
-      "protocolsHint": "Chaque protocole correspond à guacd ; les paramètres viennent du registre de la plateforme. Utilisez la bascule verrouillé / utilisateur pour déléguer un paramètre aux utilisateurs, ou autorisez une catégorie entière d'un coup (sélecteur cat: — les futurs paramètres de la catégorie sont délégués automatiquement).",
+      "protocolsHint": "Chaque protocole correspond à guacd ; les paramètres viennent du registre de la plateforme. Utilisez la bascule verrouillé / utilisateur pour déléguer un paramètre aux utilisateurs, ou autorisez une catégorie entière d'un coup (sélecteur cat: — les futurs paramètres de la catégorie sont délégués automatiquement). kasmvnc est exclusif : il court-circuite entièrement guacd et ne peut être combiné avec vnc/rdp/ssh (rejeté à l'admission).",
       "port": "Port",
       "credentialsSecret": "Secret d’identifiants",
       "credentialsSecretHint": "Secret avec username/password/private-key (résolu côté serveur)",

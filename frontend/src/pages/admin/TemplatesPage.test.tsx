@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, signIn } from '@/test/render';
@@ -78,6 +78,56 @@ describe('TemplateDialog kasmvncConfig field', () => {
     expect(
       await screen.findByText(en.admin.templatesPage.kasmvncConfigMustBeMapping),
     ).toBeInTheDocument();
+  });
+});
+
+describe('TemplateDialog protocol picker kasmvnc exclusivity', () => {
+  // These tests need a populated registry; the route is restored to the
+  // file-wide empty default afterwards so the other describes keep
+  // their behavior.
+  beforeEach(() => {
+    apiMock.route('/api/v1/meta/protocols', [
+      { name: 'vnc', params: [] },
+      { name: 'rdp', params: [] },
+      { name: 'ssh', params: [] },
+      { name: 'kasmvnc', params: [] },
+    ]);
+  });
+  afterEach(() => {
+    apiMock.route('/api/v1/meta/protocols', []);
+  });
+
+  const withProtocols = (...names: string[]): TemplateInput => ({
+    name: 'tpl1',
+    displayName: 'Tpl 1',
+    os: 'linux',
+    image: 'img:1',
+    homeSize: '10Gi',
+    protocols: names.map((name, i) => ({
+      name,
+      port: name === 'kasmvnc' ? 6901 : 5901 + i,
+      default: i === 0,
+    })),
+  });
+
+  it('offers rdp/ssh but not kasmvnc once vnc is configured', async () => {
+    renderDialog(withProtocols('vnc'));
+    await userEvent.click(
+      await screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }),
+    );
+    expect(screen.getByRole('button', { name: 'rdp' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ssh' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'kasmvnc' })).toBeNull();
+  });
+
+  it('offers no other protocol once kasmvnc is configured', async () => {
+    renderDialog(withProtocols('kasmvnc'));
+    // The registry query resolves async: the "+" menu must stay absent
+    // even after it settles, so wait out a findBy instead of asserting
+    // on the initial render only.
+    await expect(
+      screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }, { timeout: 250 }),
+    ).rejects.toThrow();
   });
 });
 

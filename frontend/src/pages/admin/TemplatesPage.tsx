@@ -239,7 +239,15 @@ export function TemplateDialog({
   // A template declares each protocol at most once (webhook-enforced):
   // the shared "+" menu offers only the registry protocols not
   // configured yet — the admin picks explicitly which one to add.
-  const unusedProtocols = availableProtocols.filter((p) => !protocols.some((x) => x.name === p));
+  // kasmvnc is exclusive (it bypasses guacd; the webhook rejects any
+  // combination with vnc/rdp/ssh): once present nothing else is
+  // addable, and it is only offered while the protocol list is empty.
+  const unusedProtocols = availableProtocols.filter((p) => {
+    if (protocols.some((x) => x.name === p)) return false;
+    if (protocols.some((x) => x.name === 'kasmvnc')) return false;
+    if (p === 'kasmvnc' && protocols.length > 0) return false;
+    return true;
+  });
   const addProtocol = (name: string) => {
     set({
       protocols: [

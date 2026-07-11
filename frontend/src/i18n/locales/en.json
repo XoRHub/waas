@@ -268,7 +268,7 @@
       "deleteConfirm": "Delete this template?",
       "edit": "Edit {{name}}",
       "protocols": "Protocols",
-      "protocolsHint": "Each protocol maps to guacd; parameters come from the platform registry. Use the locked / user toggle to delegate a parameter to workspace users, or allow a whole category at once (cat: selector — future parameters of the category are delegated automatically).",
+      "protocolsHint": "Each protocol maps to guacd; parameters come from the platform registry. Use the locked / user toggle to delegate a parameter to workspace users, or allow a whole category at once (cat: selector — future parameters of the category are delegated automatically). kasmvnc is exclusive: it bypasses guacd entirely and cannot be combined with vnc/rdp/ssh (rejected at admission).",
       "port": "Port",
       "credentialsSecret": "Credentials Secret",
       "credentialsSecretHint": "Secret with username/password/private-key (resolved server-side)",
