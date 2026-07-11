@@ -68,10 +68,14 @@ go-test:
       fi
     - go tool cover -func=coverage.out | tail -n 1
     # Floors catch regressions only — raise them as coverage grows,
-    # never lower them (mirrors .github/workflows/ci.yml).
+    # never lower them (mirrors .github/workflows/ci.yml). pkg/policy is
+    # ratcheted because portal and webhook must decide identically: its
+    # coverage was the repo's only regression (84% → 78.7%, audit-2 C20).
     - |
       if [ "$MODULE" = "api-server" ]; then
         "$CI_PROJECT_DIR/hack/ci/coverage-ratchet.sh" coverage.out internal/handler:40 internal/repository:50
+      elif [ "$MODULE" = "operator" ]; then
+        "$CI_PROJECT_DIR/hack/ci/coverage-ratchet.sh" coverage.out pkg/policy:84
       fi
     - go run github.com/boumenot/gocover-cobertura@v1.2.0 < coverage.out > coverage.xml
   coverage: '/total:\s+\(statements\)\s+(\d+(?:\.\d+)?)%/'

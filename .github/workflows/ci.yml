@@ -261,6 +261,12 @@ jobs:
       - name: Coverage ratchet
         if: matrix.module == 'api-server'
         run: hack/ci/coverage-ratchet.sh api-server/coverage.out internal/handler:40 internal/repository:50
+      # pkg/policy is ratcheted because portal and webhook must decide
+      # identically: its coverage was the repo's only regression
+      # (84% → 78.7%, audit-2 C20).
+      - name: Coverage ratchet (operator)
+        if: matrix.module == 'operator'
+        run: hack/ci/coverage-ratchet.sh operator/coverage.out pkg/policy:84
 
   # zz_generated.deepcopy.go, CRDs and docs/guacd-parameters.md are
   # generated and committed; regenerating must be a no-op.
