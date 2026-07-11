@@ -26,6 +26,7 @@ import type {
   UserUsage,
   Workspace,
   WorkspaceTemplate,
+  WorkspaceWorkload,
 } from '@/types';
 
 // Poll fast while any workspace is converging (provisioning, terminating,
@@ -398,7 +399,9 @@ export interface TemplateInput {
   requests?: Record<string, string>;
   limits?: Record<string, string>;
   env?: TemplateEnvVar[];
-  workload?: Record<string, unknown>;
+  /** Parsed YAML mapping from the editor, or the CR block round-tripped
+   * verbatim when the admin left it untouched. */
+  workload?: WorkspaceWorkload | Record<string, unknown>;
   protocols?: TemplateProtocolInput[];
   overrides?: { allowedFields?: string[]; owner?: string };
   schedule?: { timezone?: string; uptime?: string[]; downtime?: string[] };

@@ -13,13 +13,26 @@ import type {
   WorkspaceWorkload,
 } from './types.manual';
 import type {
+  AuditLog,
+  CatalogImage,
+  EffectivePolicy,
+  EvaluatedPolicy,
+  PolicyModel,
+  PolicySubject,
   QuotaStatus,
+  RemoteProtocol,
+  RemoteWorkspace,
+  RemoteWorkspaceAdmin,
+  RetainedVolume,
   ScheduledTransition,
+  Session,
   SessionCapabilities,
+  UserUsage,
   Workspace,
   WorkspaceEvent,
   WorkspaceProtocol,
   WorkspaceRuntime,
+  WorkspaceTemplate,
 } from './types.gen';
 export type {
   EnvVar,
@@ -28,13 +41,26 @@ export type {
   WorkspacePlacement,
   WorkspaceSchedule,
   WorkspaceWorkload,
+  AuditLog,
+  CatalogImage,
+  EffectivePolicy,
+  EvaluatedPolicy,
+  PolicyModel,
+  PolicySubject,
   QuotaStatus,
+  RemoteProtocol,
+  RemoteWorkspace,
+  RemoteWorkspaceAdmin,
+  RetainedVolume,
   ScheduledTransition,
+  Session,
   SessionCapabilities,
+  UserUsage,
   Workspace,
   WorkspaceEvent,
   WorkspaceProtocol,
   WorkspaceRuntime,
+  WorkspaceTemplate,
 };
 
 export type Theme = 'light' | 'dark' | 'system';
@@ -118,76 +144,9 @@ export interface ProtocolMeta {
   params: ParamMeta[];
 }
 
-/** A home volume kept from a deleted workspace: still owned by the user
- * and still counted against their storage quota. */
-export interface RetainedVolume {
-  name: string;
-  namespace: string;
-  size: string;
-  ownerId: string;
-  /** Resolved on admin listings only; empty when the owner is gone. */
-  ownerUsername?: string;
-  originWorkspace?: string;
-  retainedAt?: string;
-}
-
-/** One env var of a template — the CR type verbatim (references only,
- * never secret values). */
-export interface TemplateEnvVar {
-  name: string;
-  value?: string;
-  valueFrom?: {
-    secretKeyRef?: { name: string; key: string };
-    configMapKeyRef?: { name: string; key: string };
-  };
-}
-
-export interface WorkspaceTemplate {
-  id: string;
-  name: string;
-  displayName: string;
-  description?: string;
-  os: string;
-  image: string;
-  port?: number;
-  homeSize?: string;
-  kasmvncConfig?: string;
-  storageClassName?: string;
-  requests?: Record<string, string>;
-  limits?: Record<string, string>;
-  createdAt: string;
-  workload?: string;
-  workloadSpec?: Record<string, unknown>;
-  env?: TemplateEnvVar[];
-  protocols?: WorkspaceProtocol[];
-  allowedOverrides?: string[];
-  overridesOwner?: string;
-  schedule?: WorkspaceSchedule;
-  placement?: WorkspacePlacement;
-}
-
-export interface AuditLog {
-  id: string;
-  occurredAt: string;
-  actorId?: string;
-  actorUsername?: string;
-  action: string;
-  resourceType: string;
-  resourceId?: string;
-  detail?: string;
-  clientIp?: string;
-}
-
-export interface Session {
-  id: string;
-  userId: string;
-  workspaceId: string;
-  workspaceName: string;
-  protocol: string;
-  clientIp?: string;
-  startedAt: string;
-  endedAt?: string;
-}
+/** One env var of a template — alias of the k8s EnvVar passthrough
+ * (references only, never secret values). */
+export type TemplateEnvVar = EnvVar;
 
 export interface LoginResult {
   accessToken: string;
@@ -214,68 +173,7 @@ export interface ListMeta {
   page_size: number;
 }
 
-// ---- Governance (catalog / quotas / policies) ----
-
-export interface CatalogImage {
-  name: string;
-  displayName: string;
-  description?: string;
-  image: string;
-  protocols: string[];
-  architectures?: string[];
-  enabled: boolean;
-  allowedGroups?: string[];
-  defaults?: Record<string, string>;
-  min?: Record<string, string>;
-  max?: Record<string, string>;
-  templates?: string[];
-}
-
 // ---- Remote workspaces (out-of-cluster machines via guacd) ----
-
-/** One endpoint a remote machine serves — same shape as WorkspaceProtocol
- * for the fields the UI shares (name/port/default). */
-export interface RemoteProtocol {
-  name: string;
-  port: number;
-  default?: boolean;
-  params?: Record<string, string>;
-}
-
-export interface RemoteWorkspace {
-  id: string;
-  ownerId: string;
-  name: string;
-  hostname: string;
-  /** Legacy mirror of the default endpoint (older API shape). */
-  port: number;
-  protocol: string;
-  /** Every endpoint the machine serves (empty on legacy rows). */
-  protocols?: RemoteProtocol[];
-  /** MAC for Wake-on-LAN (empty = no WoL). */
-  macAddress?: string;
-  params?: Record<string, string>;
-  /** Which credential fields are stored (never their values). */
-  credentialKeys?: string[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** Admin fleet row for a remote workspace (metadata only, no credentials). */
-export interface RemoteWorkspaceAdmin {
-  id: string;
-  ownerId: string;
-  ownerUsername?: string;
-  name: string;
-  hostname: string;
-  port: number;
-  protocol: string;
-  macAddress?: string;
-  hasCredentials: boolean;
-  lastConnectedAt?: string;
-  activeNow: boolean;
-  createdAt: string;
-}
 
 /** Write-only credential payload; omitted field = keep, '' = delete. */
 export interface RemoteCredentialsInput {
@@ -298,30 +196,6 @@ export interface RemoteWorkspaceInput {
   credentials?: RemoteCredentialsInput;
 }
 
-export interface PolicySubject {
-  kind: 'User' | 'Group';
-  name: string;
-}
-
-export interface PolicyModel {
-  name: string;
-  priority: number;
-  subjects?: PolicySubject[];
-  images?: string[];
-  limits: {
-    maxWorkspaces?: number | null;
-    perWorkspace?: Record<string, string>;
-    aggregate?: Record<string, string>;
-    defaults?: Record<string, string>;
-  };
-  lifecycle?: Record<string, string>;
-  clipboard?: { copyFromWorkspace?: boolean; pasteToWorkspace?: boolean };
-  /** Policy-level override restriction (empty list = none allowed). */
-  overrides?: { allowedFields: string[] };
-  /** Opt-in to the Remote Workspaces feature. */
-  remoteWorkspaces?: boolean;
-}
-
 /** Which login methods the login page should offer. */
 export interface AuthProviders {
   local: boolean;
@@ -332,31 +206,3 @@ export interface AuthProviders {
   };
 }
 
-/** One policy's outcome in the effective-policy debug view. */
-export interface EvaluatedPolicy {
-  name: string;
-  priority: number;
-  matched: boolean;
-  via?: string;
-  selected: boolean;
-}
-
-/** Admin debug view: which policy governs a user, and why. */
-export interface EffectivePolicy {
-  userId: string;
-  username: string;
-  groups?: string[];
-  evaluated: EvaluatedPolicy[];
-  effective?: PolicyModel;
-  warnings?: string[];
-  denial?: string;
-}
-
-export interface UserUsage {
-  userId: string;
-  username?: string;
-  groups?: string[];
-  policy?: string;
-  workspaces: number;
-  used?: Record<string, string>;
-}

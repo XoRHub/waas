@@ -99,7 +99,7 @@ function CatalogSection() {
                 <tr key={img.name} className="text-slate-700 dark:text-slate-200">
                   <td className="px-4 py-3 font-medium">{img.displayName}</td>
                   <td className="max-w-xs truncate px-4 py-3 font-mono text-xs">{img.image}</td>
-                  <td className="px-4 py-3">{img.protocols.join(', ')}</td>
+                  <td className="px-4 py-3">{img.protocols?.join(', ')}</td>
                   <td className="px-4 py-3">
                     {img.allowedGroups?.join(', ') || t('governance.everyone')}
                   </td>
