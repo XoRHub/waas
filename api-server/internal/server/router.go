@@ -35,10 +35,16 @@ type Handlers struct {
 func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RequestID)
-	// Trust model: client -> nginx ingress -> ClusterIP service -> pod, a
-	// single proxy hop (helm/waas/templates/ingress.yaml). No direct
-	// exposure of the pod exists, so exactly one XFF entry is trusted.
-	r.Use(chimiddleware.ClientIPFromXFFTrustedProxies(1))
+	// Trust model: every Helm deployment (Ingress or HTTPRoute, both route
+	// to the same ClusterIP service — no direct pod exposure) sits behind
+	// exactly one proxy hop, so trust the outermost XFF entry. WAAS_DEV is
+	// never set by the chart, only by a bare `go run` on a laptop with no
+	// proxy in front at all, where XFF is absent — read RemoteAddr instead.
+	if cfg.DevMode {
+		r.Use(chimiddleware.ClientIPFromRemoteAddr)
+	} else {
+		r.Use(chimiddleware.ClientIPFromXFFTrustedProxies(1))
+	}
 	r.Use(chimiddleware.Recoverer)
 	if cfg.MetricsEnabled {
 		r.Use(middleware.Metrics)
