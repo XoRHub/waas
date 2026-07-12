@@ -131,16 +131,23 @@ user-tunable via `userParams`.
 ### KasmVNC user config (`spec.kasmvncConfig`)
 
 kasmvnc templates may embed the raw content of the user-level KasmVNC
-YAML. The string is **opaque by design** (never parsed by the operator,
-every upstream option works); it materializes as a per-workspace
+YAML. The string is **opaque by design** (every upstream option works;
+the operator only checks it parses and rejects the policy-managed
+clipboard keys, see below); it materializes as a per-workspace
 ConfigMap mounted read-only at `<homeMountPath>/.vnc/kasmvnc.yaml`
-(single-file subPath on top of the home volume — `.vnc` stays writable
-for KasmVNC's runtime artifacts). A content change rolls the workload
-(hash annotation on the pod template); clearing the field removes the
-file and the image default applies. The webhook rejects the field on
-templates without a kasmvnc protocol. Trust boundary: templates are
-admin-managed CRs — the config can loosen security-relevant KasmVNC
-settings (`require_ssl`, auth file paths), which is the admin's call.
+(single-file subPath; the `.vnc` directory is an operator-managed
+emptyDir so it stays writable for KasmVNC's runtime artifacts). KasmVNC
+deep-merges this file over the image's own defaults, so a partial
+config inherits every unspecified key — WaaS adds no default layer of
+its own. The clipboard DLP keys derived from `WorkspacePolicy.Clipboard`
+are stamped last over the admin's content (and rejected if set by hand);
+the mount is therefore unconditional for a kasmvnc template, even with
+an empty field. A content change rolls the workload (hash annotation on
+the pod template). The webhook rejects the field on templates without a
+kasmvnc protocol. Trust boundary: templates are admin-managed CRs — the
+config can loosen security-relevant KasmVNC settings (`require_ssl`,
+auth file paths), which is the admin's call. Full detail:
+[kasmvnc.md](kasmvnc.md).
 
 ### Private registries (`WorkspaceImage.spec.imagePullSecretRef`)
 

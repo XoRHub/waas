@@ -36,8 +36,8 @@ workload (advanced) ---------------- */`, L749-765, with
    of the template, the workspace doesn't exist yet) and in
    `ConnectionSettingsDialog.tsx:204-208` (variant `'effective'`, the
    merged content read via `useWorkspaceKasmVNCConfig`, cf.
-   `docs/studies/10-prompt-feature12-kasmvncconfig-admin-default-merge.md`
-   for the 3-layer merge on the controller side).
+   `docs/kasmvnc.md`
+   for the merge on the controller side).
 
 **Decided**: `YamlEditor` is the authoritative component. Usages 2 and
 3 must converge on it — not the other way around, and not a fourth

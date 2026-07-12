@@ -16,8 +16,8 @@
 // Upstream TLS: KasmVNC images ship `require_ssl: true` with a
 // self-signed certificate, so the transport skips verification. The
 // hop is pod-to-pod inside the cluster and netpol-guarded; replacing
-// the self-signed cert with a cert-manager one is the phase-4 hardening
-// documented in docs/studies/kasm-images-feasibility.md.
+// the self-signed cert with a cert-manager one is the pending hardening
+// documented in docs/kasmvnc.md.
 package kasm
 
 import (
@@ -141,7 +141,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// the kasmvnc /api surface stays open by design: a WaaS kasmvnc
 	// session is single-user and self-owned (kasm_user holds the owner
 	// role), with no third party to protect the user from — see
-	// docs/studies/kasm-images-feasibility.md.
+	// docs/kasmvnc.md.
 	if isDownloadsAPIPath(rest) {
 		http.Error(w, "file transfer is not enabled for this session", http.StatusForbidden)
 		return

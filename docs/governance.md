@@ -91,6 +91,15 @@ filtering `clipboard` streams in both directions and clamps the
 overlay's live toggles to the grant. No policy match = both directions
 denied (fail closed) while the session itself still opens.
 
+On the **kasmvnc** data plane there is no guacd tunnel to filter:
+enforcement is container-side instead. The operator derives KasmVNC DLP
+directives from the workspace **owner's** resolved policy at reconcile
+and stamps them into the mounted `kasmvnc.yaml`, so a policy denial
+actually disables copy/paste inside the container (see
+`docs/kasmvnc.md` and the full precedence map in `docs/clipboard.md`).
+Either way the policy stays the sole security authority — templates and
+connection params can only restrict further, never widen.
+
 ### Override restriction (`spec.overrides`)
 
 `spec.overrides.allowedFields` bounds instantiation-time template

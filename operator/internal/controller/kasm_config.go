@@ -26,7 +26,7 @@ import (
 //   2. the clipboard DLP keys derived from WorkspacePolicy.Clipboard
 //      (the security authority), stamped last so denying clipboard in
 //      the policy actually disables copy/paste in the container instead
-//      of only greying out a button (docs/studies/08-prompt-feature11-*).
+//      of only greying out a button (docs/kasmvnc.md).
 // Everything else the admin wrote is preserved.
 //
 // WaaS does NOT add a base/defaults layer of its own. KasmVNC already

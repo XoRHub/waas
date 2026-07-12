@@ -128,8 +128,8 @@ user docs) rather than a fragile workaround fix.
   prompt only concerns `kasmvnc`.
 - Don't relitigate the fail-closed behavior of `policy.ClipboardOf`
   (`operator/pkg/policy/policy.go:161-171`) — this is a security
-  choice already decided (Feature 11,
-  `docs/studies/08-prompt-feature11-kasmvnc-governance-gap.md`), not a
+  choice already decided (Feature 11, now documented in
+  `docs/kasmvnc.md`), not a
   bug.
 - If you add `allow` to the iframe, check that it doesn't release
   more permissions than necessary (limit yourself to `clipboard-read` and
