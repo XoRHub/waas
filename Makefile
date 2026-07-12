@@ -9,7 +9,7 @@ IMAGE_TAG        := dev
 DEV_IMAGES       := operator api-server wwt frontend
 
 # Workspace desktop images. They live in their own repo since 2026-07-10
-# (git@gitlab.com:drummyjohn/waas-images.git); dev-build-images resolves
+# (git@github.com:XoRHub/waas-images.git); dev-build-images resolves
 # the checkout via WAAS_IMAGES_DIR (default: sibling of this repo). Base
 # images are build-time-only (FROM layers); only the leaf images are ever
 # scheduled as pods, so only those get imported into k3d.
@@ -147,7 +147,7 @@ dev-reload-all: dev-reload dev-load-images
 dev-build-images:
 ifeq ($(wildcard $(WAAS_IMAGES_DIR)/Makefile),)
 	@echo "error: waas-images repo not found at '$(WAAS_IMAGES_DIR)' (split out of this monorepo 2026-07-10)." >&2
-	@echo "  clone it first:  git clone git@gitlab.com:drummyjohn/waas-images.git $(WAAS_IMAGES_DIR)" >&2
+	@echo "  clone it first:  git clone git@github.com:XoRHub/waas-images.git $(WAAS_IMAGES_DIR)" >&2
 	@echo "  or point WAAS_IMAGES_DIR at an existing checkout:  make dev-build-images WAAS_IMAGES_DIR=/path/to/waas-images" >&2
 	@exit 1
 else
