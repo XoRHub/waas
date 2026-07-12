@@ -128,6 +128,24 @@ user-tunable via `userParams`.
   re-validates at connect time, so the preference is a convenience, not a
   grant.
 
+### Audio port (`protocols[].exposeAudioPort`)
+
+Server-side audio needs two things that are configured separately: the
+guacd parameter `enable-audio` (per session) and a reachable PulseAudio
+port. `exposeAudioPort: true` on a `vnc` protocol entry (VNC only,
+webhook-enforced) opens port **4713** — fixed by the waas-images build
+(`module-native-protocol-tcp`, gated by `WAAS_AUDIO_ENABLED` in the
+image) — on both the desktop container and the workspace Service, which
+mirrors container ports 1:1. Without it, `enable-audio` dials a port
+nothing routes and the session degrades silently (video OK, no sound) —
+which is why the `vnc-audio` smoke subtest exists
+(`docs/smoke-connections.md`). Like the session ports it stays
+cluster-internal (ClusterIP), never on the Ingress. In the portal the
+field only surfaces once `enable-audio` is turned on in the protocol
+form. Service ports converge on every reconcile, so enabling it reaches
+already-provisioned workspaces without recreating them
+(`docs/adr/0001-template-boundary-convergence.md`, exception note).
+
 ### KasmVNC user config (`spec.kasmvncConfig`)
 
 kasmvnc templates may embed the raw content of the user-level KasmVNC

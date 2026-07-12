@@ -52,6 +52,18 @@ phase 2.
   `operator/internal/controller/kasm_config_test.go`
   (`TestKasmConfigBoundaryConvergence`).
 
+## Exception — `Service.Ports` converge on every reconcile
+
+The workspace `Service` is not held to the boundary doctrine:
+`ensureService` (`operator/internal/controller/workspace_controller.go`)
+updates `Spec.Ports` on every reconcile when the desired list differs
+(a template gaining a protocol or the audio port must reach existing
+workspaces without recreating them). Updating a Service's ports kills
+no session — the pod is untouched — so the doctrine's rationale doesn't
+apply. The convergence is deliberately scoped to `Spec.Ports`: the rest
+of the `Service` spec stays create-only, like the wider podTemplate
+handling this ADR governs.
+
 ## Addendum (2026-07-10) — manual reload and runtime overrides
 
 The doctrine covers BOTH sources of drift — edited template **and**

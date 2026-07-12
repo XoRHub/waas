@@ -815,9 +815,9 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 		// Ports converge on every reconcile: a template gaining a
 		// protocol or the audio port after the Service was created must
 		// reach existing workspaces without recreating them. Deliberately
-		// scoped to Spec.Ports — the rest of the Service (and the wider
-		// create-only podTemplate gap, see docs/studies/audit-2026-07.md)
-		// stays as-is.
+		// scoped to Spec.Ports — the rest of the Service follows the
+		// create-only/boundary doctrine, see the exception note in
+		// docs/adr/0001-template-boundary-convergence.md.
 		if servicePortsEqual(existing.Spec.Ports, ports) {
 			return nil
 		}
