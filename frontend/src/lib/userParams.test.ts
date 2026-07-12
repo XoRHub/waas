@@ -34,13 +34,23 @@ describe('userParams editor helpers', () => {
 
   it('delegating a category absorbs its now-redundant individual names', () => {
     expect(
-      toggleCategory(['enable-audio', 'color-depth'], 'audio', ['enable-audio', 'audio-servername'], true),
+      toggleCategory(
+        ['enable-audio', 'color-depth'],
+        'audio',
+        ['enable-audio', 'audio-servername'],
+        true,
+      ),
     ).toEqual(['color-depth', 'cat:audio']);
   });
 
   it('revoking a category removes only the selector', () => {
     expect(
-      toggleCategory(['cat:audio', 'color-depth'], 'audio', ['enable-audio', 'audio-servername'], false),
+      toggleCategory(
+        ['cat:audio', 'color-depth'],
+        'audio',
+        ['enable-audio', 'audio-servername'],
+        false,
+      ),
     ).toEqual(['color-depth']);
   });
 

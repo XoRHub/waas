@@ -85,13 +85,7 @@ export type WorkspacePhase =
 export type ParamTier = 'ui' | 'advanced' | 'platform';
 export type ParamKind = 'string' | 'bool' | 'int' | 'enum';
 export type ParamCategory =
-  | 'display'
-  | 'audio'
-  | 'input'
-  | 'clipboard'
-  | 'session'
-  | 'security'
-  | 'connection';
+  'display' | 'audio' | 'input' | 'clipboard' | 'session' | 'security' | 'connection';
 
 export interface ParamMeta {
   name: string;
@@ -175,4 +169,3 @@ export interface AuthProviders {
     startUrl?: string;
   };
 }
-

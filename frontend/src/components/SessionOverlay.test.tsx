@@ -113,9 +113,7 @@ describe('SessionOverlay kasmvnc effective config', () => {
     apiMock.api.get.mockClear();
     await renderOverlay('vnc');
 
-    expect(
-      screen.queryByText('KasmVNC configuration (managed by the administrator)'),
-    ).toBeNull();
+    expect(screen.queryByText('KasmVNC configuration (managed by the administrator)')).toBeNull();
     expect(apiMock.api.get).not.toHaveBeenCalledWith('/api/v1/workspaces/w1/kasmvnc-config');
   });
 });

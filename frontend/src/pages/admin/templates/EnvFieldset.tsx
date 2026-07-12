@@ -18,7 +18,9 @@ export function EnvFieldset({
       <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
         {t('admin.templatesPage.env')}
       </legend>
-      <p className="text-xs text-slate-400 dark:text-slate-500">{t('admin.templatesPage.envHint')}</p>
+      <p className="text-xs text-slate-400 dark:text-slate-500">
+        {t('admin.templatesPage.envHint')}
+      </p>
       {vars.map((v, i) => (
         <EnvRow
           key={i}
@@ -128,7 +130,11 @@ function EnvRow({
           />
         </label>
       )}
-      <button type="button" onClick={onRemove} className="pb-2 text-sm text-red-600 hover:underline">
+      <button
+        type="button"
+        onClick={onRemove}
+        className="pb-2 text-sm text-red-600 hover:underline"
+      >
         ✕
       </button>
     </div>

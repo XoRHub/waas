@@ -8,8 +8,7 @@ import { canReadSystemClipboard, ClipboardSync, hasClipboardApi } from '@/lib/cl
  */
 export interface ClipboardClient {
   onclipboard:
-    | ((stream: InstanceType<typeof Guacamole.InputStream>, mimetype: string) => void)
-    | null;
+    ((stream: InstanceType<typeof Guacamole.InputStream>, mimetype: string) => void) | null;
   createClipboardStream(mimetype: string): InstanceType<typeof Guacamole.OutputStream>;
 }
 

@@ -25,21 +25,28 @@ describe('VENDORED_ICONS parity with public/icons/', () => {
   // Build-time enumeration of the committed icons (no fs access, works
   // under both vitest and tsc).
   const files = new Set(
-    Object.keys(import.meta.glob('../../public/icons/*.svg')).map(
-      (p) => p.split('/').pop()!.replace(/\.svg$/, ''),
+    Object.keys(import.meta.glob('../../public/icons/*.svg')).map((p) =>
+      p
+        .split('/')
+        .pop()!
+        .replace(/\.svg$/, ''),
     ),
   );
 
   it('every listed slug is vendored', () => {
     for (const slug of VENDORED_ICONS) {
-      expect(files, `missing public/icons/${slug}.svg — rerun hack/vendor-icons.sh`).toContain(slug);
+      expect(files, `missing public/icons/${slug}.svg — rerun hack/vendor-icons.sh`).toContain(
+        slug,
+      );
     }
   });
 
   it('every vendored app icon is listed (os-* fallbacks excepted)', () => {
     for (const file of files) {
       if (file.startsWith('os-')) continue;
-      expect(VENDORED_ICONS, `unlisted icon ${file}.svg — add it to VENDORED_ICONS`).toContain(file);
+      expect(VENDORED_ICONS, `unlisted icon ${file}.svg — add it to VENDORED_ICONS`).toContain(
+        file,
+      );
     }
   });
 

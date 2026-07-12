@@ -47,7 +47,9 @@ export function ImagePicker({
         aria-expanded={open}
         aria-label={label}
         onClick={() => setOpen((o) => !o)}
-        title={selected ? [selected.title, selected.subtitle].filter(Boolean).join('\n') : undefined}
+        title={
+          selected ? [selected.title, selected.subtitle].filter(Boolean).join('\n') : undefined
+        }
         className="flex w-full items-center gap-2.5 rounded-md border border-slate-300 px-2.5 py-1.5 text-left dark:border-slate-600 dark:bg-slate-700"
       >
         {selected ? (

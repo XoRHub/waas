@@ -10,7 +10,13 @@ afterEach(cleanup);
 
 const options: ImagePickerOption[] = [
   { id: 'xfce', os: 'linux', title: 'XFCE Desktop', subtitle: 'linux · vnc/rdp' },
-  { id: 'kasm', os: 'linux', icon: 'terminal', title: 'Kasm Terminal', subtitle: 'linux · kasmvnc' },
+  {
+    id: 'kasm',
+    os: 'linux',
+    icon: 'terminal',
+    title: 'Kasm Terminal',
+    subtitle: 'linux · kasmvnc',
+  },
   {
     id: 'blocked',
     os: 'linux',

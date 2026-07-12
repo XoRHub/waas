@@ -49,7 +49,14 @@ describe('ImageOptionCard', () => {
   });
 
   it('includes the disabled reason in the tooltip', () => {
-    render(<ImageOptionCard title="Firefox" subtitle="linux · vnc" disabled disabledReason="unavailable" />);
+    render(
+      <ImageOptionCard
+        title="Firefox"
+        subtitle="linux · vnc"
+        disabled
+        disabledReason="unavailable"
+      />,
+    );
     expect(screen.getByRole('option').getAttribute('title')).toBe(
       'Firefox\nlinux · vnc\nunavailable',
     );

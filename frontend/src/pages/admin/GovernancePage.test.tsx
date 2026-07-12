@@ -90,7 +90,9 @@ describe('GovernancePage sections', () => {
     expect(screen.getByText(en.governance.disabled)).toBeInTheDocument();
     // Policy card ('devs-policy' also shows in the usage table: scope
     // to the card heading).
-    expect(await screen.findByRole('heading', { level: 3, name: 'devs-policy' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'devs-policy' }),
+    ).toBeInTheDocument();
     expect(screen.getByText('Group:devs')).toBeInTheDocument();
     expect(screen.getByText('cpu=2')).toBeInTheDocument();
     // Usage row.

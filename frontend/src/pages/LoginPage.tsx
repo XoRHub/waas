@@ -33,7 +33,9 @@ export function LoginPage() {
   // Don't flash the local form while the providers request is in flight:
   // if the answer is local: false it would pop in and vanish.
   if (providers.isPending) {
-    return <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-900" />;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-900" />
+    );
   }
 
   // No fallback form here: providers and login are served by the same

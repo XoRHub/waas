@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sectionedParams } from './ParamField';
 import type { ParamMeta, ProtocolMeta } from '@/types';
 
-const p = (
-  name: string,
-  tier: ParamMeta['tier'],
-  category: ParamMeta['category'],
-): ParamMeta => ({
+const p = (name: string, tier: ParamMeta['tier'], category: ParamMeta['category']): ParamMeta => ({
   name,
   protocols: ['rdp'],
   kind: 'string',
@@ -82,7 +78,10 @@ describe('sectionedParams null-safety (kasmvnc/terminal regression)', () => {
       entry: { name: 'kasmvnc', params: null as unknown as ParamMeta[] },
     },
     { label: 'kasmvnc with empty params', entry: { name: 'kasmvnc', params: [] } },
-    { label: 'vnc with params', entry: { name: 'vnc', params: [p('color-depth', 'ui', 'display')] } },
+    {
+      label: 'vnc with params',
+      entry: { name: 'vnc', params: [p('color-depth', 'ui', 'display')] },
+    },
   ];
   for (const { label, entry } of shapes) {
     it(`does not throw for ${label}`, () => {
