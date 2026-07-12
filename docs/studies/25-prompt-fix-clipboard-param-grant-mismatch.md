@@ -89,7 +89,7 @@ touche tout aussi bien vnc/rdp/ssh via ces deux params dédiés.
    rôle, cf. `remote_workspace_service.go:418-430`).
    - Piège concret dans `Connect()` (`workspace_service.go:395-452`) :
      le template n'est fetché QUE si `len(in.Params) > 0 ||
-     in.Protocol != ""`. Un workspace dont `disable-copy: true` vit
+in.Protocol != ""`. Un workspace dont `disable-copy: true` vit
      uniquement dans le template (aucun override à la connexion) ne
      déclenche ni l'un ni l'autre — il faut donc résoudre `entry.Params`
      indépendamment de cette condition avant d'appeler `clipboardGrant`
@@ -99,7 +99,7 @@ touche tout aussi bien vnc/rdp/ssh via ces deux params dédiés.
    probablement une petite fonction dans `workspace_service.go` (ou le
    package `params` si tu préfères la co-localiser avec le registre) du
    genre `clipboardParamOverride(params map[string]string) (blockCopy,
-   blockPaste bool)` lisant `params["disable-copy"]`/`["disable-paste"]`
+blockPaste bool)` lisant `params["disable-copy"]`/`["disable-paste"]`
    via `strconv.ParseBool`. **Fail-closed sur erreur de parsing** (une
    valeur malformée doit bloquer, pas être ignorée) — c'est déjà la
    doctrine du commentaire existant ligne 526-528 (« Resolution failure
@@ -161,9 +161,9 @@ touche tout aussi bien vnc/rdp/ssh via ces deux params dédiés.
   marchent, choisis selon ce qui te semble le plus proche de l'usage
   (le package `params` n'a aujourd'hui aucune logique de lecture de
   valeur, seulement du registre/validation ; ça peut être une raison de
-  la garder côté service).
+  la garder côté service). arbitrage coté service
 - Si tu factorises le merge template-params + session-params (déjà
   dupliqué entre `ConnectionInfo` et le nouveau besoin de `Connect`),
   une petite fonction partagée est bienvenue mais n'est pas le but
   premier de ce fix — ne te lance pas dans un refactor plus large que
-  nécessaire.
+  nécessaire., si le refactor n'est pas immense et est abordable via une petite fnction c'est une bonne idée de faire ça maitnenant
