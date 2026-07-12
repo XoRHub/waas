@@ -37,4 +37,5 @@ curl -fsSL "$CDN/linux.svg" -o "$DEST/os-linux.svg"
 echo "  microsoft-windows -> os-windows"
 curl -fsSL "$CDN/microsoft-windows.svg" -o "$DEST/os-windows.svg"
 
-echo "done: $(ls "$DEST" | grep -c '\.svg$') icons in $DEST"
+set -- "$DEST"/*.svg
+echo "done: $# icons in $DEST"
