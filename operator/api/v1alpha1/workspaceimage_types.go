@@ -136,7 +136,7 @@ type WorkspaceImageSpec struct {
 }
 
 // ImageCatalogSpec points at exactly one catalog manifest source.
-// +kubebuilder:validation:XValidation:rule="!has(self.auth) || self.from.url != ''",message="auth is only meaningful when from.url is set"
+// +kubebuilder:validation:XValidation:rule="!has(self.auth) || size(self.from.url) > 0",message="auth is only meaningful when from.url is set"
 type ImageCatalogSpec struct {
 	// From is the catalog manifest source (format below, § 1) —
 	// exactly one of URL/ConfigMapKeyRef/SecretKeyRef, mutually

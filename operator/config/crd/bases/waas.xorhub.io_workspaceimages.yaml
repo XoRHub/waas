@@ -212,7 +212,7 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: auth is only meaningful when from.url is set
-                  rule: '!has(self.auth) || self.from.url != '''''
+                  rule: '!has(self.auth) || size(self.from.url) > 0'
               description:
                 description: Description is shown to users when picking an image.
                 type: string
