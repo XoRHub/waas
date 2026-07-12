@@ -5,7 +5,7 @@ you (Fable 5) have no prior conversation context.
 
 ## Source
 
-`docs/studies/20-report-audit2-organisation-doublons-securite.md` is
+`docs/audit/20-report-audit2-organisation-doublons-securite.md` is
 the full audit report (2026-07-11). Read it first in its entirety,
 especially the §4 findings table (rows C15 through C20) and the §5
 action plan — this prompt saves you from redoing the file:line

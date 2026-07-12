@@ -1,7 +1,7 @@
 # Audit 2 — organization, duplicates, security, tests (2026-07-11)
 
 Second full audit of the repo, revalidating
-`docs/studies/audit-2026-07.md` (2026-07-08): every finding from the
+`docs/audit/audit-2026-07.md` (2026-07-08): every finding from the
 previous audit has been re-tested against the real state of the code,
 coverage numbers are **measured** (commands in §3), and every finding
 in the §4 table carries its complexity and a "worth it" verdict.

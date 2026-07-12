@@ -24,7 +24,7 @@ don't assume without checking).
 
 ## Starting point: an existing audit, to revalidate, not to copy
 
-`docs/studies/audit-2026-07.md` (2026-07-08) is a complete audit of the
+`docs/audit/audit-2026-07.md` (2026-07-08) is a complete audit of the
 same kind, component by component, with measured coverage numbers and
 findings sourced by file+line. **Don't start from scratch**: read it
 first, and for every remaining "Important"/"Cosmetic" finding, check
@@ -169,7 +169,7 @@ affected modules (the dependency graph can change).
 
 ## Track B — Qualitative audit, method and format
 
-Same rigor standard as `docs/studies/audit-2026-07.md`: every finding
+Same rigor standard as `docs/audit/audit-2026-07.md`: every finding
 is **sourced by file+line**, coverage numbers are **measured** (run
 the real coverage tools per component), never estimated by eyeballing.
 No implementation in this track, report only (the only code you touch
