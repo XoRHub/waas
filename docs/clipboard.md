@@ -1,4 +1,106 @@
-# Clipboard: full chain and expected matrix
+# Clipboard: full chain, precedence, and expected matrix
+
+## Two disjoint mechanisms, one authority
+
+The clipboard is not governed by ONE resolution path but by TWO, with
+no shared code beyond `WorkspacePolicy.spec.clipboard` and
+`policy.ClipboardOf()`:
+
+- **guacd (`vnc`/`rdp`/`ssh`)**: 4 layers (policy, template `params`,
+  template `userParams`, connection override), resolved on EVERY
+  connection, enforced by the wwt proxy via the connection token.
+- **`kasmvnc`**: a single layer (policy), resolved at RECONCILE time
+  (not at connection time), baked into `~/.vnc/kasmvnc.yaml` by the
+  operator (see `docs/kasmvnc.md`). Template `params`/`userParams` have
+  no effect at all: `disable-copy`/`disable-paste` are only registered
+  for `vnc`/`rdp`/`ssh` (`operator/pkg/params/params.go`), and the
+  template webhook rejects a `userParams` citing these names on a
+  `kasmvnc` entry — which is anyway impossible to combine with
+  `vnc`/`rdp`/`ssh` on the same template (kasmvnc is exclusive). The
+  inconsistent configuration is prevented at admission, not silently
+  ignored.
+
+In both families the policy is the sole security authority: the
+template can never relax it — on the guacd side it can only restrict
+further (logical AND, never OR), on the kasmvnc side it has no lever at
+all. There is one ceiling and cascading restrictions, not three
+independent decision points.
+
+### Configuration points
+
+| Field | Who edits it | Protocol scope | When evaluated | Real role |
+|---|---|---|---|---|
+| `WorkspacePolicy.spec.clipboard` (`copyFromWorkspace`/`pasteToWorkspace`) | admin, CR | all | every connection (guacd) / every reconcile (kasmvnc) | **security ceiling, sole authority for kasmvnc** |
+| `WorkspaceTemplate.spec.protocols[].params["disable-copy"/"disable-paste"]` | admin, template CR | `vnc`/`rdp`/`ssh` only | every connection, template refetched | default value applied if the user doesn't submit an override |
+| `WorkspaceTemplate.spec.protocols[].userParams` | admin, template CR | `vnc`/`rdp`/`ssh` only | every connection | **delegation of NAMES**, not values: which parameters the user may submit as an override |
+| `ConnectInput.Params` (connection-settings dialog) | connecting user (or template owner / admin) | `vnc`/`rdp`/`ssh` only, delegated names only | every connection, ephemeral — never persisted on a CR | effective value requested for THIS session |
+| Session menu (`SessionOverlay.tsx`) | read-only | all | display only | mirrors the already-clamped result + names WHO blocked it (`ClipboardLockPolicy` vs `ClipboardLockParams`) |
+
+The session menu is never a decision point — it mirrors the result
+already computed server-side (`clipboardCapabilities`,
+`api-server/internal/service/workspace_service.go`).
+
+### Resolution chain — guacd (`vnc`/`rdp`/`ssh`)
+
+Code: `WorkspaceService.Connect` and
+`clampClipboardGrant`/`mergeParams`/`clipboardCapabilities`
+(`api-server/internal/service/workspace_service.go`).
+
+1. `policyGrant = policy.ClipboardOf(resolved policy of the CONNECTING
+   user)` — resolution failure (no user, no matched policy) fails
+   closed, `(false, false)`.
+2. For each direction (copy / paste), the effective param value is: the
+   user's `ConnectInput.Params` value if the name is delegated
+   (`userParams`, or actor is admin / declared template owner) AND the
+   policy allows the `protocolParams` override field; otherwise the
+   template's `params` value if present; otherwise absent.
+3. `effectiveGrant.direction = policyGrant.direction AND NOT(effective
+   value == true)` — a param can only restrict, never widen beyond the
+   policy (guarded by `connect_clipboard_test.go`).
+4. The signed connection token embeds `effectiveGrant` — that is what
+   wwt enforces via the tunnel. `clipboardCapabilities` builds only the
+   display view plus the blocking-reason label (policy wins the label
+   if both block).
+
+Note that `params` (locked) and `userParams` (delegated) are **not
+mutually exclusive**: a name may appear in both (`params` supplies a
+default, `userParams` lets the user change it for their session). An
+admin who wants a real lock simply omits the name from `userParams` —
+putting it in `params` alone fixes the value for everyone.
+
+### Resolution chain — `kasmvnc`
+
+Code: `ensureKasmConfig`/`kasmClipboardGrant`/`applyClipboardPolicy`
+(`operator/internal/controller/kasm_config.go`).
+
+1. At reconcile (not at connection time): `policy.ClipboardOf(resolved
+   policy of the workspace OWNER, not of the connecting user)` —
+   container-level DLP can only enforce one policy per workload, so it
+   follows the owner. Resolution failure fails closed.
+2. The two booleans are stamped into the effective `kasmvnc.yaml`
+   (admin's `kasmvncConfig` + these keys last, so authoritative):
+   `data_loss_prevention.clipboard.server_to_client.enabled` (copy),
+   `…client_to_server.enabled` (paste), and
+   `runtime_configuration.allow_client_to_override_kasm_server_settings:
+   false` (always — otherwise the KasmVNC client can reopen what the
+   server closed).
+3. Template `params`/`userParams` never come into play — no
+   delegation lever exists for kasmvnc, only the policy. An admin can
+   therefore never delegate the clipboard to the user on a kasmvnc
+   workspace, even partially — an accepted structural asymmetry
+   (kasmvnc has no guacd tunnel to instrument).
+4. Separately, at connection time, the api-server computes
+   `capabilities` for display — with the CONNECTING user's policy, not
+   the owner's.
+
+**Watch point (shared kasmvnc workspaces)**: the policy actually
+enforced inside the container is the **owner's**, whereas a guest's
+session menu reflects THEIR OWN policy. On a share between users with
+different policies the menu can diverge from what the container
+enforces. Not an exploitation path — the container DLP is never more
+permissive than the owner's policy; the annoying case is UX-only (menu
+more optimistic than reality). To revisit if RW/RO sharing of kasmvnc
+workspaces becomes a real usage pattern.
 
 ## Chain (and where each link applies)
 
