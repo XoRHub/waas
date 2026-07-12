@@ -29,6 +29,7 @@ type remoteFixture struct {
 	remotes    repository.RemoteWorkspaceRepository
 	sessionsDB repository.SessionRepository
 	auditSvc   *AuditService
+	signer     *auth.Signer
 }
 
 func (f *remoteFixture) sessions() repository.SessionRepository { return f.sessionsDB }
@@ -80,6 +81,7 @@ func newRemoteFixture(t *testing.T, usersIn []model.User, policies []waasv1alpha
 		remotes:    remotes,
 		sessionsDB: sessions,
 		auditSvc:   audit,
+		signer:     signer,
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -405,12 +406,19 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 	if in.Protocol != "" {
 		protocol = in.Protocol
 	}
+	// The template is resolved on EVERY connect, not only when overrides
+	// need vetting: its locked params (disable-copy/disable-paste) feed
+	// the clipboard clamp below even on a plain no-override connect.
+	tpl := &waasv1alpha1.WorkspaceTemplate{}
+	tplErr := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: ws.Spec.TemplateRef}, tpl)
+	var entry *waasv1alpha1.WorkspaceProtocol
+	if tplErr == nil {
+		entry = tpl.Spec.ProtocolNamed(protocol)
+	}
 	if len(in.Params) > 0 || in.Protocol != "" {
-		tpl := &waasv1alpha1.WorkspaceTemplate{}
-		if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: ws.Spec.TemplateRef}, tpl); err != nil {
-			return nil, fmt.Errorf("fetching template %s: %w", ws.Spec.TemplateRef, err)
+		if tplErr != nil {
+			return nil, fmt.Errorf("fetching template %s: %w", ws.Spec.TemplateRef, tplErr)
 		}
-		entry := tpl.Spec.ProtocolNamed(protocol)
 		if entry == nil {
 			return nil, apierror.BadRequest(fmt.Sprintf("protocol %q is not offered by this workspace", protocol))
 		}
@@ -474,7 +482,23 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 	// actually enforces it. The two agree on personal kasmvnc workspaces
 	// (owner == connecting user); the operator follows the workspace owner
 	// because container-level DLP is one-per-workload.
+	//
+	// The policy grant is then clamped by the session's effective
+	// disable-copy/disable-paste params — template values overlaid with
+	// the vetted connect-time overrides, the same precedence guacd sees
+	// via ConnectionInfo. Params only ever restrict, never grant. A
+	// template that failed to resolve fails closed, like every other
+	// resolution failure here: session yes, clipboard no.
 	clipboard := s.clipboardGrant(ctx, actor)
+	if tplErr != nil {
+		clipboard = auth.ClipboardGrant{}
+	} else {
+		var locked map[string]string
+		if entry != nil {
+			locked = entry.Params
+		}
+		clipboard = clampClipboardGrant(clipboard, mergeParams(locked, in.Params))
+	}
 	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, string(ws.UID), clipboard, s.connectionTTL))
 	if err != nil {
 		return nil, fmt.Errorf("issuing connection token: %w", err)
@@ -584,6 +608,44 @@ func resolveClipboardGrant(ctx context.Context, kube client.Client, namespace st
 	return auth.ClipboardGrant{Copy: copyFrom, Paste: pasteTo}
 }
 
+// clampClipboardGrant applies the disable-copy/disable-paste connection
+// parameters on top of the policy grant. Params only ever restrict:
+// true forces the direction off whatever the policy says, absent/false
+// leaves the policy's decision alone. A malformed value blocks too —
+// fail closed, the same doctrine as grant resolution itself.
+func clampClipboardGrant(grant auth.ClipboardGrant, params map[string]string) auth.ClipboardGrant {
+	if clipboardParamBlocks(params["disable-copy"]) {
+		grant.Copy = false
+	}
+	if clipboardParamBlocks(params["disable-paste"]) {
+		grant.Paste = false
+	}
+	return grant
+}
+
+func clipboardParamBlocks(value string) bool {
+	if value == "" {
+		return false
+	}
+	block, err := strconv.ParseBool(value)
+	return err != nil || block
+}
+
+// mergeParams overlays connect-time overrides on the locked base params
+// (template entry or remote registration) — the single precedence rule
+// shared by the guacd resolution and the clipboard clamp, so wwt
+// enforcement and the session menu always see the same effective values.
+func mergeParams(base, overrides map[string]string) map[string]string {
+	merged := make(map[string]string, len(base)+len(overrides))
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range overrides {
+		merged[k] = v
+	}
+	return merged
+}
+
 // EndSession closes a session record (called by the proxy on disconnect via
 // the internal API, or by the frontend).
 func (s *WorkspaceService) EndSession(ctx context.Context, sessionID string) error {
@@ -647,13 +709,7 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 		// overrides.
 		entry := tpl.Spec.ProtocolNamed(info.Protocol)
 		if entry != nil {
-			info.Params = map[string]string{}
-			for k, v := range entry.Params {
-				info.Params[k] = v
-			}
-			for k, v := range session.Params {
-				info.Params[k] = v
-			}
+			info.Params = mergeParams(entry.Params, session.Params)
 		} else if len(session.Params) > 0 {
 			info.Params = session.Params
 		}
@@ -738,13 +794,7 @@ func (s *WorkspaceService) remoteConnectionInfo(ctx context.Context, session *mo
 		Protocol: entry.Name,
 		Hostname: rw.Hostname,
 		Port:     entry.Port,
-		Params:   map[string]string{},
-	}
-	for k, v := range entry.Params {
-		info.Params[k] = v
-	}
-	for k, v := range session.Params {
-		info.Params[k] = v
+		Params:   mergeParams(entry.Params, session.Params),
 	}
 	if err := s.applyCredentialsSecret(ctx, rw.SecretName, info); err != nil {
 		return nil, err
