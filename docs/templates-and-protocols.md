@@ -243,9 +243,47 @@ settings, remote workspaces) is generated from the platform registry
 - the `platform` tier never reaches a form (hostname/port/credentials/
   gateways/recording are platform-owned and rejected server-side).
 
+The ui/advanced distinction only exists in **rendering** — validation
+treats both identically; only `platform` is rejected for every caller.
+
+Every parameter also carries a **`Category`** (7 values: `display`,
+`audio`, `input`, `clipboard`, `session`, `security`, `connection` —
+canonical order in `AllCategories()`): the forms render one disclosure
+section per category, and a registry exhaustiveness test keeps a new
+parameter from shipping without one. Widget rendering is driven by
+`Kind` (`ParamField.tsx`): booleans are a **tri-state segmented
+control** (Default / On / Off — empty deliberately means "let guacd
+apply its own default", which a binary toggle cannot express);
+`int`/`string` parameters with a registry default render as a hybrid
+select listing the default and common values plus a "Custom…" free
+entry. Rendering only — the wire contract stays `""`/`"true"`/`"false"`.
+
 Adding a guacd parameter = one entry in the registry table; the forms,
 the validation (webhook + connect) and `docs/guacd-parameters.md`
 (`make docs-params`) all follow without UI code changes.
+
+### Delegating parameters: `userParams` and the connect-time gate
+
+`protocols[].userParams` delegates parameter **names** (not values) the
+user may override at connect time. Each entry is either an exact name
+or a **category selector** `cat:X` (e.g. `cat:audio`), which delegates
+every parameter of that category for that protocol — resolved
+dynamically against the registry (`params.ResolveUserParamNames`), so a
+parameter later added to a delegated category needs no template change.
+Entries are purely additive and deduplicated (`cat:audio` +
+`audio-servername` ≡ `cat:audio` alone); `platform`-tier names stay
+banned whatever the syntax. The webhook rejects unknown names and
+unknown categories. The template editor works on the **raw** list
+(`cat:` intact, so it can render "whole category delegated" vs
+per-parameter checkboxes); the connect-time model serves the list
+**already resolved** — the frontend never parses `cat:` itself.
+
+`userParams` only takes effect **under** the `protocolParams` override
+right: at `/connect`, a non-admin needs `protocolParams` in the
+template's `overrides.allowedFields` AND in the policy's (same
+intersection as creation-time overrides; the template `owner` bypasses
+the template side only, admins bypass both). Without that right, a
+populated `userParams` grants nothing.
 
 **Keyboard layout (auto).** The RDP `server-layout` is a first-class UI
 parameter, but its *default* is auto-detected: when neither the template
@@ -258,6 +296,41 @@ parameter (VNC forwards keysyms directly). Non-admin users
 additionally stay inside the template's `userParams` allow-list whatever
 the tier; the browser-managed resolution (width/height/dpi) is sent at
 handshake time and is not a form parameter.
+
+## Protocol × feature matrix
+
+Cross-cutting capabilities of the four connection paths (VNC/RDP/SSH
+brokered by guacd; KasmVNC reverse-proxied by `wwt/internal/kasm`, see
+`docs/kasmvnc.md`). Legend: ✅ supported · ⚙️ CR/YAML or advanced tier
+only · 🚫 platform-blocked (reason in the registry) · ❌ absent ·
+N/A not applicable.
+
+| Feature | VNC | RDP | SSH | KasmVNC |
+|---|---|---|---|---|
+| Audio playback | ✅ `enable-audio` + `exposeAudioPort` (PulseAudio in waas-images) | ⚙️ `disable-audio` param exists; internal images ship no RDP audio chain | N/A | ❌ Kasm-platform-only upstream |
+| Microphone | ❌ | ⚙️ `enable-audio-input` exists but the web client has no capture wiring — inert | N/A | ❌ |
+| Governed clipboard | ✅ live | ✅ live, text only (xrdp-libvnc bridge) | ✅ live | ✅ container-side DLP (owner policy, reconcile-time) |
+| Persistent home | ✅ | ✅ | ✅ | ✅ (`/home/kasm-user`) |
+| Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ | ❌ |
+| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked | 🚫 | 🚫 | 🚫 `/api/downloads` blocked at the proxy |
+| Session recording | 🚫 `recording-*` platform-blocked | 🚫 | 🚫 (`typescript-path` too) | ❌ |
+| Keyboard layout | N/A (direct keysyms) | ✅ `server-layout` + browser auto-detect | N/A | N/A |
+| Dynamic resize | ✅ pod-exec mechanism | ✅ same (`resize-method` stays inert in-cluster) | ❌ (handshake size, CSS-scaled) | ✅ native client-side (`resize=remote`) |
+| Multi-monitor | ❌ | ❌ | N/A | not integrated (upstream client capability, unverified through the iframe) |
+| Live (no-reconnect) params | `disable-copy`/`disable-paste` only | same | same | none (no guac tunnel) |
+| Post-creation overrides | ✅ protocol-independent (`PATCH /overrides` + reload) | ✅ | ✅ | ✅ |
+
+Detail lives in the dedicated docs: `docs/clipboard.md` (precedence and
+browser matrix), `docs/session-resize.md` (why resize is pod-exec, not
+guacd), `docs/volumes.md`, `docs/kasmvnc.md`, and
+`docs/adr/0001-template-boundary-convergence.md` (overrides/drift).
+File transfer and recording are deliberately blocked **for everyone,
+admins included**, "until the file-transfer feature ships with its own
+policy gate" (`operator/pkg/params/params.go`) — the kasmvnc downloads
+block mirrors the same doctrine. Remote workspaces run the same guacd
+protocols with the same clipboard filter (and a real RDP server does
+mount cliprdr, unlike the internal images); kasmvnc is refused there
+(`docs/remote-workspaces.md`).
 
 ## Portal UX shipped alongside
 
