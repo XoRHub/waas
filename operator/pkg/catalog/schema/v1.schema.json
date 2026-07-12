@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Entry": {
+      "properties": {
+        "image": {
+          "type": "string"
+        },
+        "os": {
+          "type": "string",
+          "enum": [
+            "",
+            "linux",
+            "windows"
+          ]
+        },
+        "app": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "image"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "enum": [
+        "waas.xorhub.io/catalog/v1"
+      ]
+    },
+    "images": {
+      "items": {
+        "$ref": "#/$defs/Entry"
+      },
+      "type": "array"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion"
+  ],
+  "title": "WaaS image catalog manifest (waas.xorhub.io/catalog/v1)"
+}

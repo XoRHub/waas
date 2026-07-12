@@ -33,6 +33,10 @@ test-envtest:
 
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	# JSON Schema of the shared catalog.yaml wire-format, generated from
+	# pkg/catalog so it can never diverge from the parser. Drift-gated by
+	# the go-generated-drift CI job (its diff already covers operator/).
+	go run ./hack/gen-catalog-schema
 
 manifests:
 	$(CONTROLLER_GEN) rbac:roleName=waas-operator-role crd webhook paths="./..." \
