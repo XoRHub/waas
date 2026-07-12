@@ -73,13 +73,42 @@ the sole governance source — never enable both for the same name.
   - **OIDC login** (when `apiServer.oidc.*` is configured in Helm): the
     IdP's `groups` claim overwrites the mirror at **every** SSO login;
     role can also be synced via `adminGroups`. Local login stays
-    available as break-glass.
+    available as break-glass — unless disabled, see below.
   - **Admin editing** (always available): the Users page or
     PATCH `/api/v1/users/{id}` with `groups` — the only path when OIDC
     is not configured.
   A user whose mirror is empty matches only subjects-less policies:
   that is the `default`-policy-for-everyone symptom, not a priority
   bug.
+
+### OIDC-only login (`WAAS_LOGIN_OIDC_ONLY`)
+
+`WAAS_LOGIN_OIDC_ONLY` (Helm: `apiServer.oidc.disableLocalLogin`)
+disables local username/password login **for everyone without
+exception, bootstrap admin included** — every account must go through
+the IdP. Opt-in, never the default. Behavior:
+
+- `POST /api/v1/auth/login` answers 404 from a guard at the top of the
+  handler (route mounting unchanged, same pattern as the unconfigured
+  SSO endpoints); `GET /api/v1/auth/providers` returns `local: false`,
+  so the portal renders only the SSO button.
+- **Fail-closed at startup**: the flag without a configured OIDC
+  issuer/clientID makes the api-server refuse to start — a mistaken
+  flag can never silently lock everyone out. The chart deliberately
+  emits the env var **outside** the `issuerURL` block so that
+  misconfiguration reaches the startup error instead of being hidden by
+  Helm.
+- `EnsureBootstrapAdmin` stays unconditional — the bootstrap admin
+  account still exists, it just cannot log in locally while the flag is
+  set. There is deliberately **no hidden bypass** for it: the
+  break-glass is redeploying without the flag (a cluster-admin act,
+  visible and auditable), signing in locally, fixing the IdP, then
+  setting the flag back.
+- Set `adminGroups` at the same time: with the flag on and
+  `WAAS_OIDC_ADMIN_GROUPS` empty, no account can ever reach the admin
+  role through SSO (role sync only runs when `adminGroups` is
+  configured) while the bootstrap admin is unreachable — the api-server
+  logs a startup warning for this combination.
 
 ### Clipboard policy
 

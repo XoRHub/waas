@@ -122,8 +122,8 @@ type OIDCConfig struct {
 	// Requires Enabled() == true (validated at startup); the bootstrap
 	// admin account still EXISTS (EnsureBootstrapAdmin is unconditional)
 	// but cannot log in locally while this is set — see
-	// docs/studies/18-prompt-feature14-oidc-only-login.md for the
-	// break-glass procedure.
+	// docs/governance.md ("OIDC-only login") for the break-glass
+	// procedure.
 	OIDCOnly bool
 }
 

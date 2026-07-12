@@ -135,8 +135,8 @@ apiServer:
     # otherwise). The bootstrap admin account is still CREATED but
     # cannot log in locally while this is true — the break-glass is
     # redeploying with this back to false, signing in as the bootstrap
-    # admin, then re-enabling; see
-    # docs/studies/18-prompt-feature14-oidc-only-login.md.
+    # admin, then re-enabling; see docs/governance.md ("OIDC-only
+    # login").
     #
     # Set adminGroups (above) at the same time, or no account will
     # ever be able to reach the admin role through SSO — only the
