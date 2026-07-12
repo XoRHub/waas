@@ -537,10 +537,17 @@ jobs:
 
   # ------------------------------------------------------------------
   # Release. release-please (manifest mode, SemVer, conventional commits)
-  # maintains a release PR; merging it lands the version bump (Chart.yaml
-  # via extra-files) and, on THAT main run, creates tag vX.Y.Z + the
-  # GitHub Release — then promote re-tags this run's freshly pushed
-  # <short-sha> images. needs: gates release-please on the full green
+  # maintains TWO independent release PRs (separate-pull-requests: true),
+  # like DrummyFloyd/crunchy-userinit-controller:
+  #   "."         the app — images, the vX.Y.Z git tag ArgoCD tracks
+  #               (Application targetRevision, deploys straight from
+  #               git), and Chart.yaml's appVersion (extra-files).
+  #   "helm/waas" the chart's OWN SemVer (Chart.yaml `version`), only
+  #               used for the OCI chart artifact pushed for external
+  #               `helm install --version` consumers — free to diverge
+  #               from the app version between chart releases.
+  # Merging either PR creates that package's tag + GitHub Release on
+  # THAT main run. needs: gates release-please on the full green
   # pipeline, so a tag can only ever point at a releasable SHA.
   # ------------------------------------------------------------------
   release-please:
@@ -553,6 +560,8 @@ jobs:
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}
       tag_name: ${{ steps.rp.outputs.tag_name }}
+      chart_release_created: ${{ steps.rp.outputs['helm/waas--release_created'] }}
+      chart_tag_name: ${{ steps.rp.outputs['helm/waas--tag_name'] }}
     steps:
       - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         id: rp
@@ -587,21 +596,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: v3.17.3
       - name: Verify promotion preconditions
         run: |
           set -euo pipefail
-          V="${TAG#v}"
           SHORT="${GITHUB_SHA::7}"
           # The chart at the released SHA must reference the release (the
           # git tag is what ArgoCD deploys; image tag defaults to
-          # appVersion). release-please bumps both lines via the
-          # x-release-please markers in Chart.yaml — this guards against
-          # the markers being dropped.
-          grep -Eq "^version:[[:space:]]*${V}[[:space:]]*$" helm/waas/Chart.yaml \
-            || { echo "FATAL Chart.yaml 'version' must be ${V} at ${TAG}"; exit 1; }
+          # appVersion). release-please bumps appVersion via the
+          # x-release-please marker in Chart.yaml — this guards against
+          # the marker being dropped. The chart's own `version` field is
+          # a separate package (helm/waas) and is NOT checked here.
           grep -Eq "^appVersion:[[:space:]]*\"${TAG}\"[[:space:]]*$" helm/waas/Chart.yaml \
             || { echo "FATAL Chart.yaml 'appVersion' must be \"${TAG}\""; exit 1; }
           for c in $COMPONENTS; do
@@ -631,16 +635,6 @@ jobs:
               "$IMAGE@$DIGEST"
             printf '| %s | `%s@%s` |\n' "$c" "$IMAGE" "$DIGEST" >> release-images.md
           done
-      - name: Package and push release chart
-        # No repackage-with-override: the committed Chart.yaml at the
-        # tagged SHA IS the release (already verified above to match
-        # $TAG). No dedicated Helm chart registry planned — same ghcr.io
-        # registry as the images, `charts/` sub-path.
-        run: |
-          set -euo pipefail
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
-          helm package helm/waas -d dist
-          helm push dist/waas-*.tgz "oci://$REGISTRY/${GITHUB_REPOSITORY,,}/charts"
       - name: Append digest table to the Release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -649,3 +643,31 @@ jobs:
           gh release view "$TAG" --json body -q .body > notes.md
           cat release-images.md >> notes.md
           gh release edit "$TAG" --notes-file notes.md
+
+  # Independent OCI publish of the chart, gated on the "helm/waas"
+  # package's OWN release (its SemVer, not the app's). No repackage-
+  # with-override: the committed Chart.yaml at the tagged SHA IS the
+  # release. No dedicated Helm chart registry planned — same ghcr.io
+  # registry as the images, `charts/` sub-path. External
+  # `helm pull`/`helm install --version` consumers only; ArgoCD deploys
+  # from git and never reads this artifact.
+  promote-chart:
+    needs: release-please
+    if: needs.release-please.outputs.chart_release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write  # push the chart OCI artifact
+    env:
+      CHART_TAG: ${{ needs.release-please.outputs.chart_tag_name }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.17.3
+      - name: Package and push the chart
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+          helm package helm/waas -d dist
+          helm push dist/waas-*.tgz "oci://$REGISTRY/${GITHUB_REPOSITORY,,}/charts"
+          echo "Pushed chart for $CHART_TAG"

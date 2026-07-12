@@ -5,12 +5,16 @@ description: >-
   and Windows (RDP via KubeVirt) desktops, declared as Kubernetes resources.
   The only external prerequisite is cert-manager.
 type: application
-# Bumped by release-please (extra-files block markers). The updater only
-# rewrites the numeric version inside the block, so the "v" prefix of
-# appVersion (= default image tag, matching the promoted vX.Y.Z image
-# tags) is preserved. Keep kubeVersion & friends OUTSIDE the block.
-# x-release-please-start-version
+# version: the chart's OWN SemVer, bumped natively by release-please's
+# "helm" package strategy (helm/waas package) — independent of the app.
 version: 0.1.0
+# appVersion: the app's version (default image tag), bumped by the root
+# "." package via extra-files. The block-marker updater only rewrites the
+# numeric part, so the "v" prefix (matching the promoted vX.Y.Z image
+# tags) is preserved. Keep this block scoped to appVersion ONLY — if it
+# wraps `version` too, the root package's release would also touch the
+# chart's own SemVer.
+# x-release-please-start-version
 appVersion: "v0.1.0"
 # x-release-please-end
 kubeVersion: ">=1.26.0-0"

@@ -1,22 +1,41 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "//": [
-    "Single root package ON PURPOSE: the platform releases as one vX.Y.Z",
-    "tag (ArgoCD targetRevision, whole image set promoted together).",
-    "Per-component packages would break the one-tag-one-deployable-state",
-    "contract. The desktop images are out of scope: waas-images is its",
-    "own repo since 2026-07-10 (own per-image versioning).",
-    "Chart.yaml is bumped via the x-release-please-start-version/end",
-    "block markers (generic updater; the 'v' in appVersion survives",
-    "because the version regex only matches the numeric part)."
+    "Two independent packages, like DrummyFloyd/crunchy-userinit-controller:",
+    "  - \".\": the platform app — bumps images, the vX.Y.Z git tag ArgoCD",
+    "    tracks (Application targetRevision), and Chart.yaml's appVersion",
+    "    (default image tag). ArgoCD deploys straight from git, so this tag",
+    "    is the actual deployable-state contract.",
+    "  - \"helm/waas\": the chart's OWN SemVer (Chart.yaml `version`), bumped",
+    "    only by changes under helm/, used solely for the OCI chart artifact",
+    "    pushed for external `helm install --version` consumers. It can",
+    "    legitimately diverge from the app version between chart releases —",
+    "    that's normal Helm practice, not a bug.",
+    "appVersion keeps its 'v' prefix because the generic updater only",
+    "rewrites the numeric part inside the x-release-please block."
   ],
-  "release-type": "simple",
   "bump-minor-pre-major": true,
+  "separate-pull-requests": true,
+  "sequential-calls": true,
+  "always-update": true,
   "packages": {
     ".": {
       "package-name": "waas",
+      "release-type": "simple",
       "changelog-path": "CHANGELOG.md",
+      "exclude-paths": ["helm/waas/"],
       "extra-files": ["helm/waas/Chart.yaml"]
+    },
+    "helm/waas": {
+      "package-name": "waas-chart",
+      "release-type": "helm",
+      "include-v-in-tag": false,
+      "changelog-path": "CHANGELOG.md",
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "chore", "section": "Chores" }
+      ]
     }
   }
 }

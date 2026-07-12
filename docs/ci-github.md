@@ -25,11 +25,13 @@ push main — EVERYTHING is built (invariant: every main SHA carries the
 ├─ chart-oci                 OCI push of the chart, version `X.Y.Z-main.<short-sha>`
 │                            (SemVer prerelease, never collides with vX.Y.Z)
 └─ release-please            AT THE END of the pipeline (needs on everything else)
-   └─ promote  (if release_created)   ZERO rebuild:
-      verify (Chart.yaml = version, sources present, tags free)
-      → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → digest table
-        added to the Release notes
-      → chart: helm package (Chart.yaml of the tagged SHA, no override) + OCI push
+   ├─ promote        (if "." release_created)          ZERO rebuild:
+   │     verify (Chart.yaml appVersion = tag, sources present, tags free)
+   │     → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → digest table
+   │       added to the Release notes
+   └─ promote-chart   (if "helm/waas" release_created)  independent of promote:
+         helm package (Chart.yaml of the tagged SHA, no override) + OCI push,
+         using the chart's OWN SemVer
 ```
 
 ## Helm chart as OCI
@@ -41,10 +43,11 @@ subpath (`ghcr.io/<owner>/<repo>/charts/waas:<version>`). `azure/setup-helm`
 
 - job `chart-oci` (push main): `helm package --version
   X.Y.Z-main.<short-sha>`, mirroring the images' mobile `main` tag.
-- step in `promote` (tag `vX.Y.Z`): `helm package` **without override** —
-  the `Chart.yaml` of the tagged commit already carries `version: X.Y.Z`
-  (verified by the "Verify promotion preconditions" step), so packaging
-  this file as-is IS the release, not a rebuild.
+- job `promote-chart` (tag `waas-chart-X.Y.Z`, from the `helm/waas`
+  release-please package): `helm package` **without override** — the
+  `Chart.yaml` of the tagged commit already carries the released
+  `version: X.Y.Z`, so packaging this file as-is IS the release, not a
+  rebuild. Independent of the app's `promote` job/tag.
 
 ArgoCD continues to deploy from the Git tag (`path: helm/waas`); this
 OCI chart is for external `helm pull`/`helm install --version`
@@ -53,23 +56,37 @@ consumers.
 ## Release (release-please, SemVer, conventional commits)
 
 - Manifest mode: `release-please-config.json` + `.release-please-manifest.json`,
-  **a single root package** — the platform ships as one unique `vX.Y.Z` tag
-  (ArgoCD targetRevision, promoted as a block). Desktop images are
-  out of scope (separate `waas-images` repo since 2026-07-10,
-  versioned per image).
-- The release PR bumps `version.txt`, `CHANGELOG.md` and `helm/waas/Chart.yaml`
-  (`x-release-please-start-version`/`end` markers; the `v` of `appVersion`
-  survives because the updater only matches the numeric part).
-- **Procedure: merge the release PR, that's it.** The subsequent main
-  run rebuilds/scans the merged SHA, creates tag + Release, then promotes
-  and signs.
-- **No PAT / GitHub App**: the tag created with `GITHUB_TOKEN` triggers
-  no workflow (GitHub anti-loop) — this is intentional. Promotion is
-  chained in the SAME run via the `release_created` output, which also
-  guarantees that the promoted `<short-sha>` images were just pushed
-  by this run (a separate `release.yml` on push main would race with
-  the builds). A PAT would only be needed to re-trigger a separate
-  `on: push: tags` workflow.
+  **two independent packages** (like
+  `DrummyFloyd/crunchy-userinit-controller`):
+  - `"."` — the app: images, the `vX.Y.Z` git tag ArgoCD tracks
+    (`targetRevision`, deploys straight from git — this tag is the real
+    deployable-state contract), and `Chart.yaml`'s `appVersion` (default
+    image tag, bumped via `extra-files`).
+  - `"helm/waas"` — the chart's **own** SemVer (`Chart.yaml`'s
+    `version` field, release-type `helm`), used only for the OCI chart
+    artifact published for external consumers. It bumps only on commits
+    touching `helm/`, independently of the app version — normal Helm
+    practice, not a bug. `exclude-paths: ["helm/waas/"]` on the root
+    package stops `helm/`-only changes from also cutting an app release.
+  - Desktop images are out of scope (separate `waas-images` repo since
+    2026-07-10, versioned per image).
+- Each package gets its own release PR (`separate-pull-requests: true`).
+  The app's release PR bumps `CHANGELOG.md` and `helm/waas/Chart.yaml`'s
+  `appVersion` (`x-release-please-start-version`/`end` marker scoped to
+  that one line; the `v` prefix survives because the updater only
+  matches the numeric part). The chart's release PR bumps its own
+  `CHANGELOG.md` and `Chart.yaml`'s `version` field natively (helm
+  strategy) — comments and the `appVersion` line are untouched.
+- **Procedure: merge either release PR, that's it.** The subsequent main
+  run rebuilds/scans the merged SHA, creates that package's tag + Release,
+  then runs the matching promotion job.
+- **No PAT / GitHub App**: tags created with `GITHUB_TOKEN` trigger no
+  workflow (GitHub anti-loop) — this is intentional. Promotion is
+  chained in the SAME run via the `release_created` /
+  `chart_release_created` outputs, which also guarantees that the
+  promoted `<short-sha>` images were just pushed by this run (a separate
+  `release.yml` on push main would race with the builds). A PAT would
+  only be needed to re-trigger a separate `on: push: tags` workflow.
 - Idempotent retry: `promote` tolerates a release tag that already
   exists **if the digest is identical** (re-run after a partial failure)
   and refuses otherwise (immutability).
