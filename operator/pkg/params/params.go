@@ -8,10 +8,10 @@
 //   - the api-server validates connect-time overrides and serves the
 //     registry to the frontend (GET /api/v1/meta/protocols), which renders
 //     its forms from it;
-//   - the docs mapping (docs/guacd-parameters.md) is generated from it.
+//   - the docs mapping (operator/docs/guacd-parameters.md) is generated from it.
 //
 // Adding a parameter = adding one entry here (see the guide in
-// docs/guacd-parameters.md).
+// operator/docs/guacd-parameters.md).
 package params
 
 import (
@@ -615,7 +615,7 @@ func ValidateTemplateParams(protocol string, params map[string]string) *Violatio
 	for name, value := range params {
 		p := Lookup(protocol, name)
 		if p == nil {
-			return &Violation{name, fmt.Sprintf("not a registered %s parameter (see docs/guacd-parameters.md to add one)", protocol)}
+			return &Violation{name, fmt.Sprintf("not a registered %s parameter (see operator/docs/guacd-parameters.md to add one)", protocol)}
 		}
 		if p.Tier == TierPlatform {
 			return &Violation{name, "platform-owned: " + p.Description}

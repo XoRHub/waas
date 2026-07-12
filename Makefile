@@ -45,10 +45,10 @@ tidy:
 generate manifests:
 	$(MAKE) -C operator $@
 
-# docs/guacd-parameters.md is generated from the parameter registry so the
-# docs can never drift from what the webhook enforces.
+# operator/docs/guacd-parameters.md is generated from the parameter
+# registry so the docs can never drift from what the webhook enforces.
 docs-params:
-	cd operator && go run ./cmd/paramsdoc ../docs/guacd-parameters.md
+	cd operator && go run ./cmd/paramsdoc docs/guacd-parameters.md
 
 # Generated TypeScript API models (tygo): api-server/internal/model is
 # the single source of the frontend types (frontend/src/types.gen.ts,

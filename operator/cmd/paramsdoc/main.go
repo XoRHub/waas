@@ -1,4 +1,4 @@
-// paramsdoc renders docs/guacd-parameters.md from the parameter registry
+// paramsdoc renders operator/docs/guacd-parameters.md from the parameter registry
 // (operator/pkg/params) so the documentation can never drift from what the
 // webhook enforces. Run via `make docs-params` after editing the registry.
 package main
@@ -85,7 +85,7 @@ parameters at connect time.
    that payload.
 `)
 
-	path := "../docs/guacd-parameters.md"
+	path := "docs/guacd-parameters.md"
 	if len(os.Args) > 1 {
 		path = os.Args[1]
 	}

@@ -268,8 +268,8 @@ jobs:
         if: matrix.module == 'operator'
         run: hack/ci/coverage-ratchet.sh operator/coverage.out pkg/policy:84
 
-  # zz_generated.deepcopy.go, CRDs and docs/guacd-parameters.md are
-  # generated and committed; regenerating must be a no-op.
+  # zz_generated.deepcopy.go, CRDs and operator/docs/guacd-parameters.md
+  # are generated and committed; regenerating must be a no-op.
   go-generated-drift:
     needs: changes
     if: needs.changes.outputs.drift == 'true'
@@ -281,7 +281,7 @@ jobs:
           go-version-file: operator/go.mod
           cache-dependency-path: operator/go.sum
       - run: make generate manifests docs-params generate-types
-      - run: git diff --exit-code -- operator helm/waas/crds docs frontend/src/types.gen.ts
+      - run: git diff --exit-code -- operator helm/waas/crds frontend/src/types.gen.ts
 
   # ------------------------------------------------------------------
   # Frontend gates: eslint + format check + tsc -b + vitest coverage.
