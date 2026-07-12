@@ -35,7 +35,10 @@ type Handlers struct {
 func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
+	// Trust model: client -> nginx ingress -> ClusterIP service -> pod, a
+	// single proxy hop (helm/waas/templates/ingress.yaml). No direct
+	// exposure of the pod exists, so exactly one XFF entry is trusted.
+	r.Use(chimiddleware.ClientIPFromXFFTrustedProxies(1))
 	r.Use(chimiddleware.Recoverer)
 	if cfg.MetricsEnabled {
 		r.Use(middleware.Metrics)
@@ -58,11 +61,11 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Local login is the only credential-guessing surface: throttle
-		// it per IP (RealIP above makes RemoteAddr trustworthy behind
-		// the ingress). Per-IP only — keying on the username too would
-		// require buffering the body before the handler reads it, and
-		// argon2id (~50ms/try) already bounds per-account throughput.
-		r.With(httprate.LimitByIP(10, time.Minute)).Post("/auth/login", h.Auth.Login)
+		// it per IP (ClientIPFromXFFTrustedProxies above resolves the
+		// trusted client IP). Per-IP only — keying on the username too
+		// would require buffering the body before the handler reads it,
+		// and argon2id (~50ms/try) already bounds per-account throughput.
+		r.With(httprate.LimitBy(10, time.Minute, loginRateLimitKey)).Post("/auth/login", h.Auth.Login)
 		r.Get("/auth/providers", h.Auth.Providers)
 		r.Get("/auth/oidc/start", h.Auth.OIDCStart)
 		r.Get("/auth/oidc/callback", h.Auth.OIDCCallback)
@@ -190,4 +193,10 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 	})
 
 	return r
+}
+
+// loginRateLimitKey keys the login throttle off the client IP resolved by
+// ClientIPFromXFFTrustedProxies, canonicalized so IPv6 clients bucket by /64.
+func loginRateLimitKey(r *http.Request) (string, error) {
+	return httprate.CanonicalizeIP(chimiddleware.GetClientIP(r.Context())), nil
 }

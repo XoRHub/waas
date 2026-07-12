@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+
 	"github.com/xorhub/waas/api-server/internal/apierror"
 	"github.com/xorhub/waas/api-server/internal/service"
 	"github.com/xorhub/waas/shared/auth"
@@ -62,7 +64,7 @@ func RequireAdmin(next http.Handler) http.Handler {
 // not carried in the token; handlers that need it enrich the actor from the
 // user service when relevant.
 func Actor(r *http.Request) service.Actor {
-	actor := service.Actor{ClientIP: clientIP(r)}
+	actor := service.Actor{ClientIP: chimiddleware.GetClientIP(r.Context())}
 	if claims, ok := r.Context().Value(claimsKey).(*auth.AccessClaims); ok {
 		actor.ID = claims.Subject
 		actor.Role = string(claims.Role)
@@ -107,15 +109,4 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-func clientIP(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		return strings.TrimSpace(strings.Split(fwd, ",")[0])
-	}
-	host := r.RemoteAddr
-	if idx := strings.LastIndex(host, ":"); idx > 0 {
-		host = host[:idx]
-	}
-	return host
 }
