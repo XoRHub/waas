@@ -74,6 +74,11 @@ rules:
   - apiGroups: [waas.xorhub.io]
     resources: [workspaces/status]
     verbs: [get, patch, update]
+  # Catalog sync results (status.catalog) — display metadata only,
+  # never read by enforcement.
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspaceimages/status]
+    verbs: [get, patch, update]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -180,6 +185,11 @@ spec:
             # break-glass admins). Keep this list short and audited.
             - name: WAAS_POLICY_BYPASS
               value: {{ .Values.operator.policyBypass | default "system:masters" | quote }}
+            # Catalog re-sync cadence for WorkspaceImage.spec.catalog
+            # (cosmetic picker metadata; an invalid duration refuses to
+            # start).
+            - name: WAAS_CATALOG_SYNC_INTERVAL
+              value: {{ .Values.operator.catalogSyncInterval | default "6h" | quote }}
           ports:
             - name: webhook
               containerPort: 9443

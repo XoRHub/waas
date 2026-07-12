@@ -84,6 +84,11 @@ operator:
   # Add your GitOps applier SA here if it manages Workspace CRs, e.g.
   # "system:masters,system:serviceaccount:argocd:argocd-application-controller".
   policyBypass: "system:masters"
+  # Re-sync cadence of WorkspaceImage.spec.catalog sources (live URL
+  # fetch and static ConfigMap/Secret re-read alike). Purely cosmetic
+  # picker metadata — a longer interval only delays logos, never
+  # workspace creation.
+  catalogSyncInterval: 6h
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { memory: 256Mi }

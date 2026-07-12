@@ -100,6 +100,15 @@ rules:
 - apiGroups:
   - waas.xorhub.io
   resources:
+  - workspaceimages/status
+  - workspaces/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - waas.xorhub.io
+  resources:
   - workspaces
   verbs:
   - delete
@@ -107,11 +116,3 @@ rules:
   - list
   - update
   - watch
-- apiGroups:
-  - waas.xorhub.io
-  resources:
-  - workspaces/status
-  verbs:
-  - get
-  - patch
-  - update
