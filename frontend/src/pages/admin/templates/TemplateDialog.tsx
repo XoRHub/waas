@@ -1,0 +1,193 @@
+import { useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { stringify as yamlStringify } from 'yaml';
+import {
+  useOverrideFields,
+  usePlaceholders,
+  useProtocolMeta,
+  useSaveTemplate,
+  type TemplateInput,
+  type TemplateProtocolInput,
+} from '@/hooks/useApi';
+import { Dialog } from '@/components/Dialog';
+import { parseYaml } from '@/components/YamlEditor';
+import { EnvFieldset } from './EnvFieldset';
+import { IdentityFields } from './IdentityFields';
+import { KasmVNCConfigFieldset } from './KasmVNCConfigFieldset';
+import { OverridesFieldset } from './OverridesFieldset';
+import { PlacementFieldset } from './PlacementFieldset';
+import { ProtocolsFieldset } from './ProtocolsFieldset';
+import { ResourcesFieldset } from './ResourcesFieldset';
+import { ScheduleFieldset } from './ScheduleFieldset';
+import { WorkloadSection } from './WorkloadSection';
+import { validateWorkload } from './validate';
+
+export const DEFAULT_PORTS: Record<string, number> = {
+  vnc: 5901,
+  rdp: 3389,
+  ssh: 2222,
+  kasmvnc: 6901,
+};
+
+/**
+ * The template create/edit form. This component owns the SINGLE source
+ * of truth (input/workloadText/activeProto and the protocol-list
+ * invariants) plus the submit flow; each section below renders one
+ * facet and reports edits through callbacks — no section keeps state.
+ */
+export function TemplateDialog({
+  isNew,
+  initial,
+  onClose,
+}: {
+  isNew: boolean;
+  initial: TemplateInput;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const save = useSaveTemplate();
+  const meta = useProtocolMeta();
+  const placeholders = usePlaceholders();
+  // The overridable fields come from the server registry (single source
+  // shared with the policy editor and the enforcement) — this page holds
+  // no local copy of the list.
+  const overrideFields = useOverrideFields();
+  const [input, setInput] = useState(initial);
+  // Workload edited as YAML (converted transparently: the API/CR still
+  // stores the structured value).
+  const [workloadText, setWorkloadText] = useState(
+    initial.workload ? yamlStringify(initial.workload) : '',
+  );
+  const [workloadError, setWorkloadError] = useState('');
+
+  const set = (patch: Partial<TemplateInput>) => setInput((prev) => ({ ...prev, ...patch }));
+  const protocols = input.protocols ?? [];
+  const [activeProto, setActiveProto] = useState(protocols[0]?.name ?? '');
+  const patchActive = (patch: Partial<TemplateProtocolInput>) => {
+    set({ protocols: protocols.map((p) => (p.name === activeProto ? { ...p, ...patch } : p)) });
+  };
+
+  const availableProtocols = (meta.data?.data ?? []).map((m) => m.name);
+  // A template declares each protocol at most once (webhook-enforced):
+  // the shared "+" menu offers only the registry protocols not
+  // configured yet — the admin picks explicitly which one to add.
+  // kasmvnc is exclusive (it bypasses guacd; the webhook rejects any
+  // combination with vnc/rdp/ssh): once present nothing else is
+  // addable, and it is only offered while the protocol list is empty.
+  const unusedProtocols = availableProtocols.filter((p) => {
+    if (protocols.some((x) => x.name === p)) return false;
+    if (protocols.some((x) => x.name === 'kasmvnc')) return false;
+    if (p === 'kasmvnc' && protocols.length > 0) return false;
+    return true;
+  });
+  const addProtocol = (name: string) => {
+    set({
+      protocols: [
+        ...protocols,
+        { name, port: DEFAULT_PORTS[name] ?? 0, default: protocols.length === 0 },
+      ],
+    });
+    setActiveProto(name);
+  };
+  const removeProtocol = (name: string) => {
+    const next = protocols.filter((p) => p.name !== name);
+    // Keep exactly one default among the survivors.
+    if (next.length > 0 && !next.some((p) => p.default)) next[0] = { ...next[0], default: true };
+    // kasmvncConfig only means something to a kasmvnc endpoint (the
+    // server rejects the leftover) and its editor is hidden without
+    // one: a stale value would block the save invisibly.
+    set({ protocols: next, ...(name === 'kasmvnc' ? { kasmvncConfig: '' } : {}) });
+    setActiveProto(next[0]?.name ?? '');
+  };
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    let workload: Record<string, unknown> | undefined;
+    if (workloadText.trim() !== '') {
+      const { value, issues } = parseYaml(workloadText, validateWorkload);
+      if (issues.length > 0 || value === undefined) {
+        setWorkloadError(t('admin.templatesPage.workloadInvalid'));
+        return;
+      }
+      workload = value as Record<string, unknown>;
+    }
+    setWorkloadError('');
+    save.mutate({ isNew, input: { ...input, workload } }, { onSuccess: onClose });
+  };
+
+  return (
+    <Dialog
+      title={
+        isNew ? t('admin.templatesPage.new') : t('admin.templatesPage.edit', { name: input.name })
+      }
+      onClose={onClose}
+      onSubmit={onSubmit}
+      maxWidth="max-w-2xl"
+      footer={
+        <>
+          {save.isError && <p className="mr-auto text-sm text-red-600">{save.error.message}</p>}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+          >
+            {t('app.cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={save.isPending}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {t('app.save')}
+          </button>
+        </>
+      }
+    >
+      <IdentityFields input={input} isNew={isNew} onPatch={set} />
+
+      <ResourcesFieldset requests={input.requests} limits={input.limits} onPatch={set} />
+
+      <ProtocolsFieldset
+        protocols={protocols}
+        meta={meta.data?.data}
+        active={activeProto}
+        onSelect={setActiveProto}
+        addable={unusedProtocols}
+        onAdd={addProtocol}
+        onRemove={removeProtocol}
+        onPatchActive={patchActive}
+        onMakeDefault={() =>
+          set({ protocols: protocols.map((p) => ({ ...p, default: p.name === activeProto })) })
+        }
+      />
+
+      {/* Gated on the whole protocol list, not the active tab — same
+          guard the webhook enforces ("kasmvncConfig requires a kasmvnc
+          protocol entry"). */}
+      {protocols.some((p) => p.name === 'kasmvnc') && (
+        <KasmVNCConfigFieldset
+          value={input.kasmvncConfig ?? ''}
+          onChange={(text) => set({ kasmvncConfig: text })}
+        />
+      )}
+
+      <EnvFieldset env={input.env} onChange={(env) => set({ env })} />
+
+      <OverridesFieldset
+        overrides={input.overrides}
+        fields={overrideFields.data?.data ?? []}
+        onChange={(overrides) => set({ overrides })}
+      />
+
+      <PlacementFieldset
+        placement={input.placement}
+        placeholders={placeholders.data?.data ?? []}
+        onChange={(placement) => set({ placement })}
+      />
+
+      <ScheduleFieldset value={input.schedule} onChange={(schedule) => set({ schedule })} />
+
+      <WorkloadSection text={workloadText} onChange={setWorkloadText} error={workloadError} />
+    </Dialog>
+  );
+}
