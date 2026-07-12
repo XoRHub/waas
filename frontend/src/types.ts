@@ -15,6 +15,7 @@ import type {
 import type {
   AuditLog,
   CatalogImage,
+  DiscoveredImage,
   EffectivePolicy,
   EvaluatedPolicy,
   PolicyModel,
@@ -46,6 +47,7 @@ export type {
   WorkspaceWorkload,
   AuditLog,
   CatalogImage,
+  DiscoveredImage,
   EffectivePolicy,
   EvaluatedPolicy,
   PolicyModel,

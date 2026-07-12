@@ -687,6 +687,18 @@ func imageToModel(img *waasv1alpha1.WorkspaceImage) model.CatalogImage {
 		m.Min = sizeToMap(r.Min)
 		m.Max = sizeToMap(r.Max)
 	}
+	if c := img.Status.Catalog; c != nil {
+		for _, e := range c.Entries {
+			m.Discovered = append(m.Discovered, model.DiscoveredImage{
+				Image:       e.Image,
+				OS:          string(e.OS),
+				App:         e.App,
+				Version:     e.Version,
+				Icon:        e.Icon,
+				DisplayName: e.DisplayName,
+			})
+		}
+	}
 	return m
 }
 

@@ -319,3 +319,56 @@ func TestQuotaFollowsGroupMirror(t *testing.T) {
 		t.Fatalf("expected power-user limits to apply, got %+v", quota.MaxWorkspaces)
 	}
 }
+
+// TestCatalogSurfacesDiscoveredEntries: the discovered entries of a
+// registry-mode image (status.catalog, written by the operator's sync)
+// ride on the SAME visibility gate as the CatalogImage itself
+// (policy.AllowedImages) — nested under the image, no separate list,
+// no separate filter.
+func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
+	openPolicy := waasv1alpha1.WorkspacePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec:       waasv1alpha1.WorkspacePolicySpec{Priority: 0},
+	}
+	svc := newGovernanceFixture(t, []model.User{{ID: "u1", Username: "u1"}}, []waasv1alpha1.WorkspacePolicy{openPolicy})
+	ctx := context.Background()
+
+	visible := &waasv1alpha1.WorkspaceImage{
+		ObjectMeta: metav1.ObjectMeta{Name: "waas-images", Namespace: testNS},
+		Spec: waasv1alpha1.WorkspaceImageSpec{
+			DisplayName: "XorHub images", Registry: "ghcr.io/xorhub/waas-images",
+			Protocols: []waasv1alpha1.Protocol{waasv1alpha1.ProtocolKasmVNC}, Enabled: true,
+		},
+		Status: waasv1alpha1.WorkspaceImageStatus{
+			Catalog: &waasv1alpha1.ImageCatalogStatus{
+				Entries: []waasv1alpha1.DiscoveredImage{{
+					Image: "ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:def",
+					OS:    waasv1alpha1.OSLinux, App: "firefox", Icon: "firefox",
+				}},
+				Source: "Fetched",
+			},
+		},
+	}
+	// Same catalog data on a group-restricted image the user is NOT in:
+	// its discovered entries must vanish with the image itself.
+	hidden := visible.DeepCopy()
+	hidden.Name = "restricted-images"
+	hidden.Spec.AllowedGroups = []string{"ops-only"}
+	for _, img := range []*waasv1alpha1.WorkspaceImage{visible, hidden} {
+		if err := svc.kube.Create(ctx, img); err != nil {
+			t.Fatalf("seeding image %s: %v", img.Name, err)
+		}
+	}
+
+	catalog, err := svc.Catalog(ctx, Actor{ID: "u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog) != 1 || catalog[0].Name != "waas-images" {
+		t.Fatalf("expected only the unrestricted image, got %+v", catalog)
+	}
+	got := catalog[0].Discovered
+	if len(got) != 1 || got[0].Icon != "firefox" || got[0].OS != "linux" {
+		t.Fatalf("discovered entries not surfaced verbatim: %+v", got)
+	}
+}

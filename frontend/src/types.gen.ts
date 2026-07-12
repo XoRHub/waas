@@ -461,6 +461,41 @@ export interface CatalogImage {
    * catalog card to "create workspace".
    */
   templates?: string[];
+  /**
+   * Discovered are the entries of the last catalog sync
+   * (WorkspaceImage.status.catalog) of a registry-mode entry —
+   * display metadata (os/app/version/icon) for the picker, nested
+   * here (not a root-level list) because each picker card needs both
+   * the discovered entry AND the parent's bounds/protocols without
+   * re-correlating two lists. Same visibility gate as the rest of
+   * the CatalogImage: policy.AllowedImages, nothing extra.
+   */
+  discovered?: DiscoveredImage[];
+}
+/**
+ * DiscoveredImage is one catalog-sync entry of a registry-mode
+ * WorkspaceImage — display metadata only, never an approval.
+ */
+export interface DiscoveredImage {
+  /**
+   * Image is the exact, pinned reference (digest recommended).
+   */
+  image: string;
+  /**
+   * OS is "linux" or "windows"; empty renders as linux.
+   */
+  os?: string;
+  /**
+   * App is a logical grouping slug (e.g. "firefox").
+   */
+  app?: string;
+  version?: string;
+  /**
+   * Icon is a locally vendored dashboard-icons slug; unknown or
+   * absent falls back to the OS icon.
+   */
+  icon?: string;
+  displayName?: string;
 }
 /**
  * QuotaStatus is "where do I stand" for one user: applied policy, hard
