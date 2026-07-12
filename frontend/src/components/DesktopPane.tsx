@@ -1,10 +1,10 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Guacamole from 'guacamole-common-js';
+import { useClipboardBridge } from '@/hooks/useClipboardBridge';
+import { useSessionResize } from '@/hooks/useSessionResize';
 import { api } from '@/lib/api';
-import { canReadSystemClipboard, ClipboardSync, hasClipboardApi } from '@/lib/clipboard';
 import { detectServerLayout } from '@/lib/keyboard';
-import { createSessionResizer } from '@/lib/sessionResize';
 import { useAuthStore } from '@/stores/authStore';
 import type { ConnectResult, SessionCapabilities, WorkspaceConnectionPrefs } from '@/types';
 
@@ -54,10 +54,10 @@ export const DesktopPane = forwardRef<
   const displayRef = useRef<HTMLDivElement>(null);
   const tunnelRef = useRef<InstanceType<typeof Guacamole.WebSocketTunnel> | null>(null);
   const clientRef = useRef<InstanceType<typeof Guacamole.Client> | null>(null);
-  // Clipboard state survives reconnects (the desktop's copy is still the
-  // latest known one); sender is bound to the live client by the effect.
-  const clipboardRef = useRef(new ClipboardSync());
-  const sendClipboardRef = useRef<(text: string, force?: boolean) => void>(() => {});
+  // Clipboard echo-guard state lives in the hook and survives reconnects;
+  // the effect binds it to the live client via attach().
+  const clipboard = useClipboardBridge();
+  const sessionResize = useSessionResize();
   const [state, setState] = useState<ConnectionState>('connecting');
   // kasmvnc sessions embed KasmVNC's own web client instead of the guac
   // canvas: wwt reverse-proxies the whole app under /kasm/{session}.
@@ -93,8 +93,8 @@ export const DesktopPane = forwardRef<
     setClipboard: (direction, enabled) => {
       tunnelRef.current?.sendMessage('', 'waas-clipboard', direction, enabled ? '1' : '0');
     },
-    sendClipboard: (text) => sendClipboardRef.current(text, true),
-    readRemoteClipboard: () => clipboardRef.current.lastReceived,
+    sendClipboard: (text) => clipboard.sendClipboard(text, true),
+    readRemoteClipboard: () => clipboard.readRemoteClipboard(),
   }));
 
   useEffect(() => {
@@ -106,10 +106,7 @@ export const DesktopPane = forwardRef<
     const conn = JSON.parse(effectiveJSON) as WorkspaceConnectionPrefs;
     let client: InstanceType<typeof Guacamole.Client> | null = null;
     let keyboard: InstanceType<typeof Guacamole.Keyboard> | null = null;
-    let observer: ResizeObserver | null = null;
-    let resizer: ReturnType<typeof createSessionResizer> | null = null;
     let cancelled = false;
-    let cleanupClipboard: (() => void) | null = null;
 
     const setBoth = (s: ConnectionState) => {
       setState(s);
@@ -195,7 +192,7 @@ export const DesktopPane = forwardRef<
           rescale();
           // Prime the desktop with the current local clipboard, so the
           // first in-session Ctrl+V pastes what the user last copied.
-          syncFromSystem();
+          clipboard.syncFromSystem();
         }
         if (clientState === STATE_DISCONNECTED) {
           setBoth('disconnected');
@@ -203,72 +200,9 @@ export const DesktopPane = forwardRef<
       };
       client.onerror = () => setBoth('failed');
 
-      // ---- clipboard: desktop → browser --------------------------------
-      // wwt already dropped this stream when policy forbids copy; anything
-      // arriving here is allowed. Non-text clipboards are not relayed.
-      const sync = clipboardRef.current;
-      client.onclipboard = (stream, mimetype) => {
-        if (!mimetype.startsWith('text/')) {
-          stream.sendAck('unsupported clipboard type', 0x0100);
-          return;
-        }
-        const reader = new Guacamole.StringReader(stream);
-        let data = '';
-        reader.ontext = (text) => {
-          data += text;
-        };
-        reader.onend = () => {
-          sync.receive(data);
-          // Best effort: writeText needs a secure context AND document
-          // focus. The overlay's manual exchange covers the rest.
-          if (hasClipboardApi() && document.hasFocus()) {
-            void navigator.clipboard.writeText(data).catch(() => {});
-          }
-        };
-      };
-
-      // ---- clipboard: browser → desktop --------------------------------
-      // force bypasses the echo guard for explicit user actions (paste
-      // event, overlay send button).
-      const sendClipboardText = (text: string, force = false) => {
-        if (!client || text === '' || (!force && !sync.shouldSend(text))) return;
-        const stream = client.createClipboardStream('text/plain');
-        const writer = new Guacamole.StringWriter(stream);
-        writer.sendText(text);
-        writer.sendEnd();
-        sync.sent(text);
-      };
-      sendClipboardRef.current = sendClipboardText;
-
-      // DOM paste event: a safety net only — it does NOT fire on a real
-      // Ctrl+V in the pane, because Guacamole.Keyboard preventDefaults
-      // every keydown it relays, which suppresses the browser's native
-      // paste action (verified live). Letting Ctrl+V's default through
-      // would race the relayed keystroke against the clipboard stream and
-      // paste stale content. Seamless local→remote is the focus sync
-      // below; without it, the overlay's manual exchange is the fallback.
-      const onPaste = (e: ClipboardEvent) => {
-        const text = e.clipboardData?.getData('text/plain');
-        if (text) sendClipboardText(text, true);
-      };
-      container.addEventListener('paste', onPaste);
-
-      // Seamless path (Chromium + HTTPS): re-read the system clipboard
-      // whenever the user comes back to the page, so the desktop already
-      // holds it when they paste inside the session.
-      const syncFromSystem = () => {
-        if (!canReadSystemClipboard() || !document.hasFocus()) return;
-        navigator.clipboard
-          .readText()
-          .then((text) => sendClipboardText(text))
-          .catch(() => {}); // permission denied: paste event still works
-      };
-      window.addEventListener('focus', syncFromSystem);
-      cleanupClipboard = () => {
-        container.removeEventListener('paste', onPaste);
-        window.removeEventListener('focus', syncFromSystem);
-        sendClipboardRef.current = () => {};
-      };
+      // Clipboard wiring (both directions + paste/focus listeners) lives
+      // in the hook; the echo-guard state survives reconnects there.
+      clipboard.attach(client, container);
 
       displayHost.appendChild(client.getDisplay().getElement());
       client.connect();
@@ -307,12 +241,12 @@ export const DesktopPane = forwardRef<
       // CSS rescale on every event; the SERVER-side resize (exec of
       // waas-resize in the pod) is debounced and self-gated to
       // in-cluster vnc/rdp — kasmvnc/ssh/remote never call the endpoint.
-      resizer = createSessionResizer({ workspaceId, kind, protocol: result.protocol });
-      observer = new ResizeObserver(() => {
-        rescale();
-        resizer?.report(container.clientWidth, container.clientHeight);
+      sessionResize.attach(container, {
+        workspaceId,
+        kind,
+        protocol: result.protocol,
+        onResize: rescale,
       });
-      observer.observe(container);
       if (autoFocus) container.focus();
     };
 
@@ -320,9 +254,8 @@ export const DesktopPane = forwardRef<
 
     return () => {
       cancelled = true;
-      observer?.disconnect();
-      resizer?.cancel();
-      cleanupClipboard?.();
+      sessionResize.detach();
+      clipboard.detach();
       if (keyboard) {
         keyboard.onkeydown = null;
         keyboard.onkeyup = null;
@@ -336,7 +269,17 @@ export const DesktopPane = forwardRef<
       setKasmUrl(null);
       displayHost.replaceChildren();
     };
-  }, [workspaceId, kind, effectiveJSON, onStateChange, onCapabilities, autoFocus, generation]);
+  }, [
+    workspaceId,
+    kind,
+    effectiveJSON,
+    onStateChange,
+    onCapabilities,
+    autoFocus,
+    generation,
+    clipboard,
+    sessionResize,
+  ]);
 
   return (
     <div
