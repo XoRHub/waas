@@ -1,29 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Monorepo config: Dockerfiles, CI job images across .gitlab-ci.yml + .gitlab/ci/, tool pins in scripts and Makefiles. The waas-images repo (split out 2026-07-10) carries its own config again.",
+  "description": "Monorepo config: Dockerfiles, CI job images across .github/workflows/, tool pins in scripts and Makefiles. The waas-images repo (split out 2026-07-10) carries its own config again.",
   "extends": [
     "config:recommended",
     "docker:pinDigests",
     "helpers:pinGitHubActionDigests"
   ],
-  "gitlabci": {
-    "managerFilePatterns": [
-      "/\\.gitlab-ci\\.ya?ml$/",
-      "/^\\.gitlab/ci/.+\\.ya?ml$/"
-    ]
-  },
   "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Container tool images pinned inside CI job scripts (binfmt, trivy, cosign, buildkit).",
-      "managerFilePatterns": [
-        "/^\\.gitlab/ci/.+\\.(sh|ya?ml)$/"
-      ],
-      "matchStrings": [
-        "(?<depName>[a-z0-9.\\/-]+\\/(?:binfmt|trivy|cosign|buildkit)):(?<currentValue>v?[a-zA-Z0-9.-]+)"
-      ],
-      "datasourceTemplate": "docker"
-    },
     {
       "customType": "regex",
       "description": "Container tools run via `docker run` in GitHub workflows (gitleaks, kubeconform, hadolint).",
@@ -49,17 +32,6 @@
     },
     {
       "customType": "regex",
-      "description": "Go tools invoked via `go run module@version` in CI jobs (gocover-cobertura).",
-      "managerFilePatterns": [
-        "/^\\.gitlab/ci/.+\\.ya?ml$/"
-      ],
-      "matchStrings": [
-        "go run (?<depName>[a-z0-9.-]+\\.[a-z]{2,}(?:\\/[a-zA-Z0-9._-]+)+)@(?<currentValue>v[0-9][a-zA-Z0-9.-]*)"
-      ],
-      "datasourceTemplate": "go"
-    },
-    {
-      "customType": "regex",
       "description": "controller-gen pin in operator/Makefile.",
       "managerFilePatterns": [
         "/^operator/Makefile$/"
@@ -81,18 +53,6 @@
       ],
       "depNameTemplate": "sigs.k8s.io/controller-runtime/tools/setup-envtest",
       "datasourceTemplate": "go"
-    },
-    {
-      "customType": "regex",
-      "description": "git-cliff invoked via npx in the release pipeline.",
-      "managerFilePatterns": [
-        "/^\\.gitlab/ci/release\\.ya?ml$/"
-      ],
-      "matchStrings": [
-        "git-cliff@(?<currentValue>[0-9.]+)"
-      ],
-      "depNameTemplate": "git-cliff",
-      "datasourceTemplate": "npm"
     },
     {
       "customType": "regex",

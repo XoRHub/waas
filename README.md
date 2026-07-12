@@ -58,13 +58,13 @@ it down, `make smoke` validates real per-protocol sessions.
 
 ## CI/CD
 
-GitLab pipeline (`.gitlab-ci.yml` + `.gitlab/ci/`): selective per-component
-builds on MRs, native amd64/arm64 image builds merged into multi-arch
+GitHub Actions pipeline (`.github/workflows/ci.yml`): selective per-component
+builds on PRs, native amd64/arm64 image builds merged into multi-arch
 manifest lists, blocking security gates (gitleaks, Trivy), and releases by
 **promotion** — a `vX.Y.Z` git tag re-tags and cosign-signs the exact
 digests a green `main` pipeline already tested and scanned. ArgoCD deploys
 the git tag (path `helm/waas`). Pipeline map, release procedure, registry
-cleanup and debugging: see [docs/ci.md](docs/ci.md).
+cleanup and debugging: see [docs/ci-github.md](docs/ci-github.md).
 
 ## License
 

@@ -1,9 +1,9 @@
-# WaaS monorepo pipeline — GitHub is the canonical home (GitLab is
-# transitional; its pipeline stays untouched until it is retired).
+# WaaS monorepo pipeline — GitHub is the sole and canonical forge (the
+# GitLab pipeline has been retired).
 # Full picture in docs/ci-github.md.
 #
-#   PR:    selective per-component gates (dorny/paths-filter mirrors the
-#          .gitlab/ci/rules.yml change scopes) — lint + tests + security
+#   PR:    selective per-component gates (dorny/paths-filter drives the
+#          change scopes) — lint + tests + security
 #          + image builds (NOT pushed, amd64 scanned locally)
 #   main:  same gates, ALL images built and pushed as <short-sha>
 #          (+ moving `main` tag) — a release PROMOTES the images of the
@@ -22,7 +22,7 @@
 # runner is picked by the WAAS_BUILD_STRATEGY repository variable:
 #   native → ubuntu-24.04-arm (free on public repos)
 #   anything else / unset → ubuntu-latest under QEMU (safe default)
-# A merge job assembles the manifest list, exactly like the GitLab side.
+# A merge job assembles the manifest list.
 #
 # Actions are pinned by commit SHA (Renovate: helpers:pinGitHubActionDigests).
 
@@ -63,8 +63,8 @@ jobs:
       drift: ${{ steps.plan.outputs.drift }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      # Change scopes mirror .gitlab/ci/rules.yml and follow the REAL
-      # dependency graph (go.mod replace directives):
+      # Change scopes follow the REAL dependency graph (go.mod replace
+      # directives):
       #   api-server -> operator + shared, wwt -> shared,
       #   test/smoke -> operator, operator self-contained.
       # &ci is the global-rebuild trap: shared CI config changes retrigger
@@ -204,7 +204,7 @@ jobs:
           cache-dependency-path: ${{ matrix.module }}/go.sum
       - uses: golangci/golangci-lint-action@d583c34f0599d37dbac4a198b9c83201be380893 # v9.3.0
         with:
-          version: v2.12.2 # keep >= the modules' go directive (see .gitlab/ci/go.yml)
+          version: v2.12.2 # keep >= the modules' go directive (see .mise.toml)
           working-directory: ${{ matrix.module }}
 
   go-test:
@@ -306,7 +306,7 @@ jobs:
       - run: npm run typecheck
       - name: Test with coverage
         # Coverage provider installed --no-save at the locked vitest
-        # version so the lockfile stays untouched (see .gitlab/ci/frontend.yml).
+        # version so the lockfile stays untouched.
         # --coverage.all + include counts every src/ file, not just the
         # ones already imported by a test (audit-2 C14).
         run: |
@@ -342,7 +342,7 @@ jobs:
       - name: kubeconform
         # -skip CustomResourceDefinition: no usable upstream schema for the
         # CRD kind itself; CRDs are drift-checked and every CR validates
-        # against them here (see .gitlab/ci/manifests.yml).
+        # against them here.
         run: |
           docker run --rm -v "$PWD:/work" -w /work \
             ghcr.io/yannh/kubeconform:v0.6.7-alpine \
@@ -413,9 +413,7 @@ jobs:
             hadolint --failure-threshold warning \
             operator/Dockerfile api-server/Dockerfile wwt/Dockerfile frontend/Dockerfile
       - name: shellcheck
-        # Globs kept in sync with .gitlab/ci/manifests.yml; drop the
-        # .gitlab/ glob when the GitLab pipeline is retired.
-        run: shellcheck -S warning .gitlab/ci/*.sh hack/dev/*.sh hack/*.sh
+        run: shellcheck -S warning hack/dev/*.sh hack/*.sh
       - name: make dev-target resolution
         # The dev-env targets are prerequisite chains over docker/k3d/helm
         # commands nothing else in CI exercises; -n proves the graph still
@@ -430,9 +428,8 @@ jobs:
   # QEMU, per WAAS_BUILD_STRATEGY). PR: build only (nothing pushed, the
   # amd64 image is scanned locally). main: push <short-sha>-<arch>, then
   # merge assembles the manifest list. Builds run in parallel with the
-  # test gates (same DAG philosophy as GitLab: an ephemeral PR image with
-  # failing tests keeps the pipeline red; blocking gates for RELEASED
-  # bits are on main).
+  # test gates: an ephemeral PR image with failing tests keeps the
+  # pipeline red; blocking gates for RELEASED bits are on main.
   # ------------------------------------------------------------------
   build-images:
     needs: changes
@@ -564,9 +561,9 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # Promotion of already-tested artifacts, never a rebuild (mirror of
-  # .gitlab/ci/release.yml): verify -> re-tag -> keyless cosign -> digest
-  # table appended to the Release notes. Signing verification:
+  # Promotion of already-tested artifacts, never a rebuild: verify ->
+  # re-tag -> keyless cosign -> digest table appended to the Release
+  # notes. Signing verification:
   #   cosign verify \
   #     --certificate-identity-regexp 'https://github.com/<owner>/<repo>/\.github/workflows/ci\.yml@.*' \
   #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
