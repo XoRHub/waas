@@ -91,6 +91,7 @@
     "tabWorkspaces": "Mes workspaces",
     "loadError": "Impossible de charger vos workspaces. Vérifiez votre connexion puis réessayez.",
     "templateUnavailable": "indisponible (image non autorisée par votre policy)",
+    "templatePlaceholder": "Choisir un template…",
     "showAdvancedParams": "Afficher les paramètres avancés",
     "advancedMode": "Avancé (overrides du template)",
     "advancedModeHint": "Déviations par rapport au template, limitées à ce que votre policy et le template autorisent. Chaque override est journalisé dans l'audit.",

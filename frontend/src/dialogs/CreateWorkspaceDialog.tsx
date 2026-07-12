@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog } from '@/components/Dialog';
+import { ImagePicker } from '@/components/ImagePicker';
 import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
 import { ScheduleEditor } from '@/components/ScheduleEditor';
 import {
@@ -106,6 +107,13 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const image = catalog.isSuccess
     ? catalog.data.data.find((img) => img.templates?.includes(templateRef))
     : undefined;
+  // Catalog-sync icon of a template: the discovered entry (of its
+  // approving CatalogImage) whose exact reference matches the
+  // template's image. Absent = the card falls back to the OS icon.
+  const discoveredIconFor = (name: string, imageRef: string) =>
+    catalog.data?.data
+      .find((img) => img.templates?.includes(name))
+      ?.discovered?.find((d) => d.image === imageRef)?.icon;
   const q = quota.isSuccess ? quota.data.data : undefined;
 
   // Remaining aggregate = policy aggregate cap minus current usage.
@@ -186,6 +194,9 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
+    // The card grid has no native `required`: an empty selection just
+    // refuses to submit (cards are the only way to pick).
+    if (!templateRef) return;
     const chosenProtocol =
       protocolOverridable && effectiveProtocol !== defaultProtocol ? effectiveProtocol : undefined;
     const cleanedByProto: Record<string, Record<string, string>> = {};
@@ -264,26 +275,28 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
         </>
       }
     >
-      <label className="block">
+      <div>
         <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.template')}</span>
-        <select
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-          value={templateRef}
-          onChange={(e) => selectTemplate(e.target.value)}
-          required
-        >
-          <option value="" disabled>
-            —
-          </option>
-          {availability.map(({ template: tpl, available }) => (
-            <option key={tpl.name} value={tpl.name} disabled={!available}>
-              {tpl.displayName} ({tpl.os}
-              {tpl.protocols?.length ? ` · ${tpl.protocols.map((p) => p.name).join('/')}` : ''})
-              {available ? '' : ` — ${t('portal.templateUnavailable')}`}
-            </option>
-          ))}
-        </select>
-      </label>
+        <div className="mt-1">
+          <ImagePicker
+            label={t('portal.template')}
+            placeholder={t('portal.templatePlaceholder')}
+            value={templateRef}
+            onChange={selectTemplate}
+            options={availability.map(({ template: tpl, available }) => ({
+              id: tpl.name,
+              icon: discoveredIconFor(tpl.name, tpl.image),
+              os: tpl.os,
+              title: tpl.displayName,
+              subtitle: `${tpl.os}${
+                tpl.protocols?.length ? ` · ${tpl.protocols.map((p) => p.name).join('/')}` : ''
+              }`,
+              disabled: !available,
+              disabledReason: t('portal.templateUnavailable'),
+            }))}
+          />
+        </div>
+      </div>
       <label className="block">
         <span className="text-sm text-slate-600 dark:text-slate-300">
           {t('portal.displayName')}

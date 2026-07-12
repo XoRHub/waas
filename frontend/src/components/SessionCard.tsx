@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { AppIcon } from '@/components/ImageOptionCard';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useReloadWorkspace, useUpdateProfile } from '@/hooks/useApi';
 import { useEscape } from '@/hooks/useEscape';
@@ -83,12 +84,17 @@ export function SessionCard({
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800">
       <div className="flex items-start justify-between">
-        <div>
-          <h2 className="font-medium text-slate-900 dark:text-white">{target.displayName}</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {target.subtitle}
-            {currentFolder && <span className="ml-2">📁 {currentFolder}</span>}
-          </p>
+        <div className="flex min-w-0 items-center gap-3">
+          <AppIcon os={target.os} size={32} />
+          <div className="min-w-0">
+            <h2 className="truncate font-medium text-slate-900 dark:text-white">
+              {target.displayName}
+            </h2>
+            <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+              {target.subtitle}
+              {currentFolder && <span className="ml-2">📁 {currentFolder}</span>}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-1">
           {target.capabilities.hasPhase && phase && <StatusBadge phase={phase} />}

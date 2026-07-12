@@ -55,6 +55,9 @@ export interface SessionTarget {
   /** Pending template update: the workspace restarts with it at the
    *  next resume. Workspace kind only. */
   templateDrifted?: boolean;
+  /** OS family ("linux"/"windows") for the card logo; absent (remote
+   *  machines) renders the linux fallback. */
+  os?: string;
 }
 
 export function targetFromWorkspace(ws: Workspace): SessionTarget {
@@ -74,6 +77,7 @@ export function targetFromWorkspace(ws: Workspace): SessionTarget {
     protocols,
     defaultProtocol: protocols.find((p) => p.default)?.name ?? ws.protocol ?? '',
     templateDrifted: ws.templateDrifted,
+    os: ws.os,
     capabilities: {
       pause: true,
       wake: false,

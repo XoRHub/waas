@@ -71,8 +71,11 @@ describe('CreateWorkspaceDialog', () => {
     signIn({ username: 'marc' });
     renderWithProviders(<CreateWorkspaceDialog onClose={() => {}} />);
 
+    await userEvent.click(await screen.findByRole('button', { name: 'Template' }));
     const blocked = await screen.findByRole('option', { name: /No image/ });
     expect(blocked).toBeDisabled();
+    // The reason rides on the card itself — never silently dropped.
+    expect(blocked.textContent).toContain('unavailable');
     expect(await screen.findByRole('option', { name: /XFCE Desktop/ })).toBeEnabled();
   });
 
@@ -81,8 +84,8 @@ describe('CreateWorkspaceDialog', () => {
     const onClose = vi.fn();
     renderWithProviders(<CreateWorkspaceDialog onClose={onClose} />);
 
-    await screen.findByRole('option', { name: /XFCE Desktop/ });
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'xfce');
+    await userEvent.click(await screen.findByRole('button', { name: 'Template' }));
+    await userEvent.click(await screen.findByRole('option', { name: /XFCE Desktop/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Create' }));
 
     await waitFor(() => expect(apiMock.api.post).toHaveBeenCalled());

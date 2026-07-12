@@ -91,6 +91,7 @@
     "tabWorkspaces": "My workspaces",
     "loadError": "Your workspaces could not be loaded. Check your connection and try again.",
     "templateUnavailable": "unavailable (image not allowed by your policy)",
+    "templatePlaceholder": "Select a template…",
     "showAdvancedParams": "Show advanced parameters",
     "advancedMode": "Advanced (template overrides)",
     "advancedModeHint": "Deviations from the template, limited to what your policy and the template allow. Every override is recorded in the audit trail.",
