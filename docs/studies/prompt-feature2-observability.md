@@ -1,89 +1,89 @@
-# Prompt Fable 5 — Feature 2 : métriques Prometheus + dashboards Grafana
+# Fable 5 Prompt — Feature 2: Prometheus metrics + Grafana dashboards
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du principe que tu (Fable 5) n'as aucun contexte de conversation préalable.
+Paste this document as-is as an implementation prompt. It assumes you (Fable 5) have no prior conversation context.
 
-## Contexte du repo
+## Repo context
 
-WaaS a trois composants Go qui tournent en pods dans le cluster : `wwt/` (proxy websocket, port unique `:8081`), `api-server/` (backend REST chi, port unique `:8080`), `operator/` (controller-runtime, déjà scaffoldé avec un endpoint metrics controller-runtime standard sur `:8080` — voir plus bas). **Aucun des trois n'expose de métriques applicatives aujourd'hui** — vérifié : zéro import `prometheus` dans tout le module Go du repo, zéro `ServiceMonitor`/`PodMonitor` dans `helm/waas/`, zéro référence Grafana en dehors du brief historique. C'est un chantier entièrement neuf.
+WaaS has three Go components that run as pods in the cluster: `wwt/` (websocket proxy, single port `:8081`), `api-server/` (chi REST backend, single port `:8080`), `operator/` (controller-runtime, already scaffolded with a standard controller-runtime metrics endpoint on `:8080` — see below). **None of the three exposes application metrics today** — verified: zero `prometheus` import anywhere in the repo's Go module, zero `ServiceMonitor`/`PodMonitor` in `helm/waas/`, zero Grafana reference outside the historical brief. This is an entirely greenfield effort.
 
-## Ce qui existe déjà (à connaître avant de coder)
+## What already exists (know this before coding)
 
-**operator (`operator/cmd/main.go`)** : le manager controller-runtime est déjà configuré avec `metricsserver.Options{BindAddress: ":8080"}` (`ctrl.Options` ligne ~59) — c'est le port `metrics` déjà déclaré dans `helm/waas/templates/operator.yaml:176-177` sur le Deployment. Ça expose déjà, sans rien faire, les métriques standard controller-runtime/client-go (`controller_runtime_reconcile_total`, `workqueue_*`, etc.) — **mais il n'y a aucun `Service` Kubernetes exposant ce port** (seul un `Service` webhook existe, `helm/waas/templates/operator-webhook.yaml:29-42`, port 443→`webhook`). Sans Service, un `ServiceMonitor` ne peut rien cibler ; un `PodMonitor` (sélection par labels de Pod, pas besoin de Service) fonctionne directement — c'est probablement le bon outil pour l'opérateur.
+**operator (`operator/cmd/main.go`)**: the controller-runtime manager is already configured with `metricsserver.Options{BindAddress: ":8080"}` (`ctrl.Options` line ~59) — this is the `metrics` port already declared in `helm/waas/templates/operator.yaml:176-177` on the Deployment. This already exposes, with no extra work, the standard controller-runtime/client-go metrics (`controller_runtime_reconcile_total`, `workqueue_*`, etc.) — **but there is no Kubernetes `Service` exposing this port** (only a webhook `Service` exists, `helm/waas/templates/operator-webhook.yaml:29-42`, port 443→`webhook`). Without a Service, a `ServiceMonitor` has nothing to target; a `PodMonitor` (selection by Pod labels, no Service needed) works directly — this is probably the right tool for the operator.
 
-**api-server (`api-server/cmd/api-server/main.go`)** : un seul `http.Server` avec `ReadHeaderTimeout` seulement (écart déjà noté dans `docs/studies/audit-2026-07.md` §api-server — ajoute `ReadTimeout`/`IdleTimeout` si tu y touches, mais ce n'est pas l'objet de cette feature). Le routeur chi (`api-server/internal/server/router.go`) monte `/healthz`, `/readyz`, `/.well-known/jwks.json` hors `/api/v1`, puis tout le reste sous `/api/v1` derrière `middleware.Auth`. Le Service helm (`helm/waas/templates/api-server.yaml:242-255`) expose le port `http` (8080) — un `ServiceMonitor` peut cibler ce Service directement.
+**api-server (`api-server/cmd/api-server/main.go`)**: a single `http.Server` with only `ReadHeaderTimeout` (a gap already noted in `docs/studies/audit-2026-07.md` §api-server — add `ReadTimeout`/`IdleTimeout` if you touch this, but that's not the point of this feature). The chi router (`api-server/internal/server/router.go`) mounts `/healthz`, `/readyz`, `/.well-known/jwks.json` outside `/api/v1`, then everything else under `/api/v1` behind `middleware.Auth`. The helm Service (`helm/waas/templates/api-server.yaml:242-255`) exposes the `http` port (8080) — a `ServiceMonitor` can target this Service directly.
 
-**wwt (`wwt/cmd/main.go`)** : `http.ServeMux` brut, `/ws` + `/kasm/` + `/healthz` + `/readyz` sur `:8081`. Service helm (`helm/waas/templates/wwt.yaml:58-71`) expose le port `http` (8081) — même remarque, `ServiceMonitor` OK.
+**wwt (`wwt/cmd/main.go`)**: raw `http.ServeMux`, `/ws` + `/kasm/` + `/healthz` + `/readyz` on `:8081`. Helm Service (`helm/waas/templates/wwt.yaml:58-71`) exposes the `http` port (8081) — same remark, `ServiceMonitor` OK.
 
-**Exposition publique — vérifié, ne rien casser :** `helm/waas/templates/ingress.yaml` et `httproute.yaml` n'allow-listent que des chemins explicites (`/api`, `/.well-known/jwks.json`, `/ws`, `/kasm`, `/` pour le frontend). Un nouvel endpoint `/metrics` monté sur le même port que le trafic applicatif **n'est déjà pas atteignable depuis l'extérieur** tant que tu ne l'ajoutes pas à ces fichiers — ne l'y ajoute pas. Le scraping Prometheus se fait exclusivement en cluster (via le Service ClusterIP ou directement les IP de Pod pour le PodMonitor de l'opérateur), jamais via l'Ingress public.
+**Public exposure — verified, do not break anything:** `helm/waas/templates/ingress.yaml` and `httproute.yaml` only allow-list explicit paths (`/api`, `/.well-known/jwks.json`, `/ws`, `/kasm`, `/` for the frontend). A new `/metrics` endpoint mounted on the same port as application traffic **is already unreachable from the outside** as long as you don't add it to these files — do not add it. Prometheus scraping happens exclusively in-cluster (via the ClusterIP Service or directly via Pod IPs for the operator's PodMonitor), never through the public Ingress.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### A. Métriques applicatives dans les 3 composants
+### A. Application metrics in the 3 components
 
-Ajoute `github.com/prometheus/client_golang` (déjà présent transitivement dans `go.sum` via des dépendances de `operator`/`api-server`, à promouvoir en dépendance directe) et un endpoint `/metrics` (`promhttp.Handler()`) sur le port existant de chaque composant — pas de port séparé à créer, réutilise `:8080`/`:8081`/`:8080` (operator).
+Add `github.com/prometheus/client_golang` (already present transitively in `go.sum` via `operator`/`api-server` dependencies, to be promoted to a direct dependency) and a `/metrics` endpoint (`promhttp.Handler()`) on each component's existing port — no separate port to create, reuse `:8080`/`:8081`/`:8080` (operator).
 
-Pas de métriques "gratuites" au-delà de ce que controller-runtime donne déjà à l'opérateur : chaque composant doit exposer des métriques **métier**, ancrées dans du code réel existant plutôt qu'inventées. Pistes concrètes (ajuste les noms/labels à ton goût, garde le principe — une métrique par signal qui a déjà une trace dans le code) :
+No "free" metrics beyond what controller-runtime already gives the operator: each component must expose **business** metrics, grounded in real existing code rather than invented. Concrete leads (adjust names/labels to taste, keep the principle — one metric per signal that already has a trace in the code):
 
-- **operator** : gauge du nombre de workspaces par phase (le `WorkspaceReconciler` connaît déjà `status.Phase` à chaque reconcile — voir `operator/internal/controller/workspace_controller.go`), compteur de workspaces en dérive (`TemplateDrifted`, cf. `docs/adr/0001-template-boundary-convergence.md` et le prompt Feature 1 si tu l'implémentes aussi), compteur de réclamations du `NamespaceJanitor` (`operator/internal/controller/namespace_janitor.go`), compteur d'échecs de teardown (l'Event `TeardownFailed` existe déjà, `docs/workspace-deletion.md` — miroir en métrique), durée/erreurs par type de reconciler si tu veux aller plus loin que les métriques controller-runtime déjà gratuites.
-- **api-server** : histogramme durée+compteur requêtes HTTP par route/méthode/statut (middleware chi à ajouter dans `router.go`, avant ou après `chimiddleware.Recoverer`), gauge sessions actives (le `SessionSweeper` — mémoire projet : "goroutine WAAS_SESSION_SWEEP_INTERVAL" — connaît déjà l'état des sessions), gauge clients SSE connectés (`EventHub`, `api-server/internal/service/event_hub.go`), compteur de refus de politique (chaque refus passe déjà par `s.audit.Record(ctx, actor, "workspace.denied", ...)` dans `workspace_service.go` — ajoute un compteur au même point d'appel plutôt que de dupliquer la logique de détection).
-- **wwt** : gauge de tunnels actifs (guacd + kasm, les deux handlers existent dans `wwt/internal/proxy` et `wwt/internal/kasm`), compteur d'octets proxyés, compteur d'échecs de validation de token de connexion (`proxy.ValidateConnectionToken`, déjà exporté et partagé entre les deux chemins), compteur de blocages du `ClipboardFilter` (`wwt/internal/guac`, déjà policy-aware).
+- **operator**: gauge of the number of workspaces per phase (the `WorkspaceReconciler` already knows `status.Phase` at every reconcile — see `operator/internal/controller/workspace_controller.go`), counter of drifted workspaces (`TemplateDrifted`, cf. `docs/adr/0001-template-boundary-convergence.md` and the Feature 1 prompt if you implement that too), counter of `NamespaceJanitor` reclamations (`operator/internal/controller/namespace_janitor.go`), counter of teardown failures (the `TeardownFailed` Event already exists, `docs/workspace-deletion.md` — mirror it as a metric), duration/errors per reconciler type if you want to go further than the already-free controller-runtime metrics.
+- **api-server**: duration histogram + counter of HTTP requests by route/method/status (chi middleware to add in `router.go`, before or after `chimiddleware.Recoverer`), gauge of active sessions (the `SessionSweeper` — project memory: "WAAS_SESSION_SWEEP_INTERVAL goroutine" — already knows session state), gauge of connected SSE clients (`EventHub`, `api-server/internal/service/event_hub.go`), counter of policy denials (every denial already goes through `s.audit.Record(ctx, actor, "workspace.denied", ...)` in `workspace_service.go` — add a counter at the same call site rather than duplicating the detection logic).
+- **wwt**: gauge of active tunnels (guacd + kasm, both handlers exist in `wwt/internal/proxy` and `wwt/internal/kasm`), counter of proxied bytes, counter of connection-token validation failures (`proxy.ValidateConnectionToken`, already exported and shared between the two paths), counter of `ClipboardFilter` blocks (`wwt/internal/guac`, already policy-aware).
 
-Chaque compteur/gauge ajouté doit avoir un test (le repo a une culture de tests systématiques — `wwt` est à 87/86,8/62,2% de couverture sur `guac`/`kasm`/`proxy`, ne fais pas baisser ça).
+Every counter/gauge added must have a test (the repo has a culture of systematic testing — `wwt` is at 87/86.8/62.2% coverage on `guac`/`kasm`/`proxy`, do not lower that).
 
-### B. Helm chart : PodMonitor / ServiceMonitor / annotations de scrape
+### B. Helm chart: PodMonitor / ServiceMonitor / scrape annotations
 
-Rends les trois mécanismes disponibles en toggle `values.yaml`, désactivés par défaut (cohérent avec le reste du chart — ex. `operator.webhook.enabled`, `apiServer.oidc.*` — tout est opt-in avec un commentaire explicatif) :
+Make all three mechanisms available as `values.yaml` toggles, disabled by default (consistent with the rest of the chart — e.g. `operator.webhook.enabled`, `apiServer.oidc.*` — everything is opt-in with an explanatory comment):
 
 ```yaml
 metrics:
-  enabled: false          # expose /metrics sur chaque composant (toujours cluster-interne, jamais via l'Ingress)
-  scrapeAnnotations: false  # pose prometheus.io/scrape=true, /port, /path sur les Pods (Prometheus classique sans CRDs)
+  enabled: false          # exposes /metrics on each component (always cluster-internal, never via the Ingress)
+  scrapeAnnotations: false  # sets prometheus.io/scrape=true, /port, /path on the Pods (classic Prometheus without CRDs)
   podMonitor:
-    enabled: false         # operator (pas de Service metrics) — étends aux 3 si tu préfères l'uniformité
-    labels: {}             # labels additionnels pour le sélecteur du Prometheus/PrometheusOperator ciblé
+    enabled: false         # operator (no metrics Service) — extend to all 3 if you prefer uniformity
+    labels: {}             # additional labels for the targeted Prometheus/PrometheusOperator selector
     interval: 30s
   serviceMonitor:
-    enabled: false         # api-server + wwt (ont déjà un Service ClusterIP)
+    enabled: false         # api-server + wwt (already have a ClusterIP Service)
     labels: {}
     interval: 30s
 ```
 
-`metrics.enabled: false` doit couper l'endpoint lui-même (ne serve rien), pas juste cacher le manifeste K8s — évite d'exposer un endpoint non demandé par défaut. Ajoute `metrics` comme port nommé sur les Deployments concernés uniquement quand pertinent pour le `PodMonitor`/`ServiceMonitor` cible.
+`metrics.enabled: false` must cut off the endpoint itself (serve nothing), not just hide the K8s manifest — avoid exposing an endpoint that wasn't requested by default. Add `metrics` as a named port on the relevant Deployments only when relevant for the targeted `PodMonitor`/`ServiceMonitor`.
 
-CRDs `PodMonitor`/`ServiceMonitor` viennent de prometheus-operator et ne sont pas forcément installées sur tous les clusters cibles — c'est pourquoi elles doivent rester opt-in et ne jamais faire échouer `helm template`/`helm install` quand désactivées (pas de `lookup` bloquant, pas de dépendance dure aux CRDs). Vérifie `helm lint` et `helm template` avec les toggles activés ET désactivés (le repo a déjà un job CI `.github/workflows/ci.yml` qui lint/template le chart — reste cohérent avec ce que couvre `docs/ci-github.md`).
+The `PodMonitor`/`ServiceMonitor` CRDs come from prometheus-operator and are not necessarily installed on every target cluster — that's why they must remain opt-in and must never make `helm template`/`helm install` fail when disabled (no blocking `lookup`, no hard dependency on the CRDs). Check `helm lint` and `helm template` with the toggles both enabled AND disabled (the repo already has a CI job, `.github/workflows/ci.yml`, that lints/templates the chart — stay consistent with what `docs/ci-github.md` covers).
 
-### C. Dashboards Grafana
+### C. Grafana dashboards
 
-Fournis au moins un dashboard JSON par composant (ou un dashboard unique multi-composant si tu préfères — panels sur les métriques ajoutées en A) et deux modes de déploiement, en toggle `values.yaml` :
+Provide at least one dashboard JSON per component (or a single multi-component dashboard if you prefer — panels on the metrics added in A) and two deployment modes, as `values.yaml` toggles:
 
 ```yaml
 grafana:
   dashboards:
     enabled: false
     mode: configmap        # "configmap" | "operator"
-    # mode configmap: sidecar grafana (convention grafana/grafana Helm
-    # chart officiel) — label grafana_dashboard: "1" sur la ConfigMap,
-    # récupéré automatiquement par le sidecar de découverte.
-    # mode operator: grafana-operator (grafana.integreatly.org/v1beta1
-    # GrafanaDashboard) — nécessite de cibler une instance Grafana existante.
-    instanceSelector:       # utilisé seulement en mode "operator"
+    # configmap mode: grafana sidecar (official grafana/grafana Helm
+    # chart convention) — grafana_dashboard: "1" label on the ConfigMap,
+    # automatically picked up by the discovery sidecar.
+    # operator mode: grafana-operator (grafana.integreatly.org/v1beta1
+    # GrafanaDashboard) — requires targeting an existing Grafana instance.
+    instanceSelector:       # used only in "operator" mode
       matchLabels: {}
     folder: WaaS
 ```
 
-- Mode `configmap` : une `ConfigMap` par dashboard avec le label `grafana_dashboard: "1"` (convention du sidecar `kiwigrid/k8s-sidecar` embarqué par le chart Grafana officiel — la plupart des installs Prometheus/Grafana stack l'utilisent déjà, zéro dépendance à un opérateur).
-- Mode `operator` : une CR `GrafanaDashboard` (`grafana.integreatly.org/v1beta1`) par dashboard, `spec.instanceSelector` piloté par `values.grafana.dashboards.instanceSelector`, `spec.json` = le contenu du dashboard. N'installe pas les CRDs grafana-operator toi-même (comme pour prometheus-operator, opt-in, jamais de dépendance dure).
-- Les deux modes doivent rendre le **même contenu de dashboard** (pas deux JSON divergents à maintenir — factorise le JSON dans un seul fichier/`include` Helm consommé par les deux templates).
+- `configmap` mode: one `ConfigMap` per dashboard with the `grafana_dashboard: "1"` label (convention of the `kiwigrid/k8s-sidecar` sidecar bundled by the official Grafana chart — most Prometheus/Grafana stack installs already use it, zero dependency on an operator).
+- `operator` mode: one `GrafanaDashboard` CR (`grafana.integreatly.org/v1beta1`) per dashboard, `spec.instanceSelector` driven by `values.grafana.dashboards.instanceSelector`, `spec.json` = the dashboard content. Do not install the grafana-operator CRDs yourself (as with prometheus-operator, opt-in, never a hard dependency).
+- Both modes must render the **same dashboard content** (not two diverging JSON files to maintain — factor the JSON into a single file/Helm `include` consumed by both templates).
 
-## Contraintes à respecter
+## Constraints to respect
 
-- Suis le principe déjà appliqué partout dans ce chart : chaque nouvelle capacité est **opt-in par défaut**, documentée par un commentaire dans `values.yaml`, jamais un comportement qui change silencieusement l'existant.
-- `gofmt` propre sur les 3 modules Go ; pas de nouveau `console.log`/`TODO`.
-- Ajoute la nouvelle doc (`docs/observability.md` ou équivalent — vérifie qu'un tel fichier n'existe pas déjà avant d'en créer un) décrivant : les métriques exposées par composant, comment activer PodMonitor/ServiceMonitor/annotations, comment activer les dashboards dans les deux modes.
-- Mets à jour `docs/studies/audit-2026-07.md` seulement si tu y touches directement (ce n'est pas un document vivant à maintenir à chaque feature — laisse-le tel quel sauf si une de ses lignes devient fausse).
-- Le CI GitHub Actions (`docs/ci-github.md`) build par composant via un graphe de `go.work replace` — si tu ajoutes `prometheus/client_golang` en dépendance directe à `operator`/`api-server`/`wwt`, vérifie que `go mod tidy` reste cohérent dans chaque module et que le `go.work.sum` racine suit.
+- Follow the principle already applied everywhere in this chart: every new capability is **opt-in by default**, documented with a comment in `values.yaml`, never a behavior that silently changes existing behavior.
+- Clean `gofmt` across the 3 Go modules; no new `console.log`/`TODO`.
+- Add the new doc (`docs/observability.md` or equivalent — check that such a file doesn't already exist before creating one) describing: the metrics exposed per component, how to enable PodMonitor/ServiceMonitor/annotations, how to enable the dashboards in both modes.
+- Update `docs/studies/audit-2026-07.md` only if you touch it directly (it is not a living document to be maintained on every feature — leave it as-is unless one of its lines becomes false).
+- The GitHub Actions CI (`docs/ci-github.md`) builds per component via a `go.work replace` graph — if you add `prometheus/client_golang` as a direct dependency to `operator`/`api-server`/`wwt`, verify that `go mod tidy` stays consistent in each module and that the root `go.work.sum` follows.
 
-## Points ouverts (ton arbitrage)
+## Open points (your call)
 
-- Uniformiser sur `PodMonitor` partout (plus simple, pas de dépendance à l'existence d'un Service) vs. `ServiceMonitor` pour api-server/wwt qui ont déjà un Service : les deux sont défendables, choisis et documente le choix dans `docs/observability.md`.
-- Authentification de l'endpoint `/metrics` (aucune aujourd'hui côté api-server/wwt, contrairement au reste de l'API) : comme il n'est jamais exposé publiquement (voir plus haut), rester non-authentifié en cluster est cohérent avec la pratique Prometheus standard — à confirmer/documenter plutôt qu'à requestionner par défaut.
+- Standardize on `PodMonitor` everywhere (simpler, no dependency on a Service existing) vs. `ServiceMonitor` for api-server/wwt which already have a Service: both are defensible, choose and document the choice in `docs/observability.md`.
+- Authentication of the `/metrics` endpoint (none today on api-server/wwt, unlike the rest of the API): since it is never exposed publicly (see above), staying unauthenticated in-cluster is consistent with standard Prometheus practice — confirm/document this rather than reconsidering it by default.

@@ -1,93 +1,92 @@
-# Copier-coller : chaîne complète et matrice attendue
+# Clipboard: full chain and expected matrix
 
-## Chaîne (et où chaque maillon s'applique)
+## Chain (and where each link applies)
 
 ```
-WorkspacePolicy.spec.clipboard ──► token de connexion (grant, signé)
+WorkspacePolicy.spec.clipboard ──► connection token (grant, signed)
         │                                   │
         ▼                                   ▼
-capabilities du /connect            wwt ClipboardFilter (ENFORCEMENT :
-(l'overlay AFFICHE, n'applique      drop des streams "clipboard" +
- jamais)                            toggles live clampés au grant)
+/connect capabilities               wwt ClipboardFilter (ENFORCEMENT:
+(the overlay DISPLAYS, never        drops "clipboard" streams +
+ enforces)                          live toggles clamped to the grant)
                                             │
-        navigateur ◄── flux guac ──► guacd ◄──► bureau (VNC/RDP/SSH)
+        browser ◄── guac stream ──► guacd ◄──► desktop (VNC/RDP/SSH)
             │
-   DesktopPane (intégration client) :
-   onclipboard → presse-papiers local ; paste/focus → createClipboardStream
+   DesktopPane (client integration):
+   onclipboard → local clipboard ; paste/focus → createClipboardStream
 ```
 
-- **Policy** : `clipboard.copyFromWorkspace` / `pasteToWorkspace` de la
-  policy résolue. Fail-closed : pas de policy résolue = pas de clipboard.
-  Le grant part dans le JWT de connexion — wwt applique, l'UI reflète.
-- **guacd** : aucun paramètre de connexion à passer — le clipboard fait
-  partie du protocole guac ; il n'existe **pas** de défaut restrictif
-  côté guacd qui l'éteindrait (`disable-copy`/`disable-paste` sont bannis
-  du registre côté plateforme, l'enforcement est dans wwt).
-- **wwt** : `ClipboardFilter` droppe les streams de la direction refusée
-  (+ ack d'erreur 771 côté collage) et traite les toggles live
-  `waas-clipboard` de l'overlay, clampés au grant.
-- **Client web** (le maillon qui manquait — cause du « rien ne marche sur
-  aucun protocole ») : `DesktopPane` relaie désormais les deux sens :
-  - bureau → local : `client.onclipboard` → `navigator.clipboard.writeText`
-    (best-effort) + tampon exposé à l'overlay (échange manuel) ;
-  - local → bureau : relecture du presse-papiers système au focus de la
-    fenêtre (Chromium + HTTPS), avec garde anti-écho (`lib/clipboard.ts`,
-    testé). L'événement DOM `paste` reste câblé mais n'est qu'un filet
-    théorique : un vrai Ctrl+V dans le pane ne le déclenche jamais —
-    `Guacamole.Keyboard` fait `preventDefault()` sur le keydown relayé,
-    ce qui supprime l'action de collage native (vérifié en live,
-    2026-07). Sans focus-sync, le chemin réel est l'échange manuel de
-    l'overlay.
+- **Policy**: `clipboard.copyFromWorkspace` / `pasteToWorkspace` of the
+  resolved policy. Fail-closed: no resolved policy = no clipboard.
+  The grant travels in the connection JWT — wwt enforces, the UI reflects.
+- **guacd**: no connection parameter to pass — clipboard is
+  part of the guac protocol; there is **no** restrictive default
+  on the guacd side that would turn it off (`disable-copy`/`disable-paste`
+  are banned from the platform-side registry, enforcement lives in wwt).
+- **wwt**: `ClipboardFilter` drops streams in the refused direction
+  (+ error ack 771 on the paste side) and handles the overlay's
+  live `waas-clipboard` toggles, clamped to the grant.
+- **Web client** (the missing link — the cause of "nothing works on
+  any protocol"): `DesktopPane` now relays both directions:
+  - desktop → local: `client.onclipboard` → `navigator.clipboard.writeText`
+    (best-effort) + a buffer exposed to the overlay (manual exchange);
+  - local → desktop: re-reading the system clipboard on window focus
+    (Chromium + HTTPS), with an anti-echo guard (`lib/clipboard.ts`,
+    tested). The DOM `paste` event stays wired but is only a
+    theoretical safety net: a real Ctrl+V in the pane never fires it —
+    `Guacamole.Keyboard` calls `preventDefault()` on the relayed keydown,
+    which suppresses the native paste action (verified live,
+    2026-07). Without focus-sync, the real path is the overlay's
+    manual exchange.
 
-## Contexte sécurisé : ce que le navigateur autorise
+## Secure context: what the browser allows
 
-| Contexte | copier (bureau→local) | coller (local→bureau) |
+| Context | copy (desktop→local) | paste (local→desktop) |
 |---|---|---|
-| HTTPS + Chromium | automatique (`writeText`) | automatique au focus (`readText`, permission demandée) |
-| HTTPS + Firefox | automatique (`writeText`) | échange manuel de l'overlay (pas de `readText`, et Ctrl+V ne déclenche pas l'event `paste` dans le pane) |
-| HTTP | **échange manuel de l'overlay uniquement** | **échange manuel de l'overlay uniquement** |
+| HTTPS + Chromium | automatic (`writeText`) | automatic on focus (`readText`, permission requested) |
+| HTTPS + Firefox | automatic (`writeText`) | manual exchange via the overlay (no `readText`, and Ctrl+V does not trigger the `paste` event in the pane) |
+| HTTP | **manual exchange via the overlay only** | **manual exchange via the overlay only** |
 
-L'env de dev sert les deux : `https://waas.127.0.0.1.nip.io:8443`
-(cert auto-signé, seamless OK) et `http://…:8080` (smoke tests ; pas de
-contexte sécurisé, donc seamless off). Vérifié bout en bout en Chromium
-réel sur le dev k3d le 2026-07-10 — protocole et résultats dans
+The dev env serves both: `https://waas.127.0.0.1.nip.io:8443`
+(self-signed cert, seamless OK) and `http://…:8080` (smoke tests; no
+secure context, so seamless off). Verified end-to-end in real
+Chromium on the dev k3d on 2026-07-10 — protocol and results in
 `docs/studies/16-report-clipboard-https-dev-verification.md`.
 
-L'overlay (Ctrl+Alt+M → Presse-papiers → Échange manuel) montre le dernier
-texte reçu du bureau et permet d'en envoyer un — c'est le chemin de
-vérification indépendant des permissions navigateur.
+The overlay (Ctrl+Alt+M → Clipboard → Manual exchange) shows the last
+text received from the desktop and lets you send one — this is the
+verification path independent of browser permissions.
 
-## Matrice attendue {protocole × direction × policy}
+## Expected matrix {protocol × direction × policy}
 
-L'enforcement (wwt) est indépendant du protocole : le tableau policy vaut
-pour VNC, RDP et SSH.
+Enforcement (wwt) is protocol-independent: the policy table holds
+for VNC, RDP and SSH alike.
 
 | Direction | Policy ✔ | Policy ✘ |
 |---|---|---|
-| Copier depuis le workspace | le texte copié dans le bureau arrive (auto ou overlay) | stream droppé par wwt ; toggle grisé 🔒 |
-| Coller vers le workspace | focus-sync pousse le texte, l'appli du bureau colle | stream refusé (ack 771) ; toggle grisé 🔒 |
-| Toggle overlay OFF puis ON | coupe puis rétablit en live (≤ grant) | reste OFF : la réponse wwt reflète l'état effectif |
+| Copy from the workspace | text copied on the desktop arrives (auto or overlay) | stream dropped by wwt; toggle greyed out 🔒 |
+| Paste to the workspace | focus-sync pushes the text, the desktop app pastes it | stream refused (ack 771); toggle greyed out 🔒 |
+| Overlay toggle OFF then ON | turns off then restores live (≤ grant) | stays OFF: the wwt response reflects the effective state |
 
-Réalité par protocole (côté bureau, images `waas-images`) :
+Reality per protocol (desktop side, `waas-images` images):
 
-- **VNC** : chemin recommandé — Xvnc gère le cut-buffer nativement, les
-  deux sens fonctionnent.
-- **RDP** : fonctionne, **texte uniquement** — le backend libvnc de
-  xrdp embarque son propre pont cliprdr ↔ cut-text RFB
-  (`vnc/vnc_clip.c`), sans chansrv. Vérifié en session réelle contre
-  guacd 1.5.5 dans les deux sens (2026-07). Les formats non-texte
-  (fichiers, images) ne passent pas ; le filtre wwt s'applique à
-  l'identique.
-- **SSH** : le terminal est rendu par guacd, qui possède son propre
-  presse-papiers de terminal — les deux sens passent par les mêmes
-  streams guac, mêmes règles.
+- **VNC**: recommended path — Xvnc handles the cut-buffer natively,
+  both directions work.
+- **RDP**: works, **text only** — the xrdp-libvnc backend embeds
+  its own cliprdr ↔ cut-text RFB bridge (`vnc/vnc_clip.c`), without
+  chansrv. Verified in a real session against guacd 1.5.5 in both
+  directions (2026-07). Non-text formats (files, images) don't go
+  through; the wwt filter applies identically.
+- **SSH**: the terminal is rendered by guacd, which has its own
+  terminal clipboard — both directions go through the same guac
+  streams, same rules.
 
 ## Tests
 
-- wwt : `wwt/internal/guac/clipboard_test.go` — les deux directions ×
-  grant × toggles live (clamp), acks des streams refusés.
-- frontend : `src/lib/clipboard.test.ts` — dédup, garde anti-écho,
-  tampon du fallback manuel.
-- vérification en session : overlay → Échange manuel (indépendant des
-  permissions navigateur), sur une session par protocole après
+- wwt: `wwt/internal/guac/clipboard_test.go` — both directions ×
+  grant × live toggles (clamp), acks of refused streams.
+- frontend: `src/lib/clipboard.test.ts` — dedup, anti-echo guard,
+  manual-fallback buffer.
+- session verification: overlay → Manual exchange (independent of
+  browser permissions), on one session per protocol after
   `make smoke`.

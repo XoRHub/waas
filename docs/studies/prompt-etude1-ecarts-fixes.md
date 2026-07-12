@@ -1,138 +1,138 @@
-# Prompt Fable 5 — combler les écarts UI/réalité de l'étude protocole × fonctionnalité
+# Fable 5 Prompt — closing the UI/reality gaps from the protocol × feature study
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du principe que tu (Fable 5) n'as aucun contexte de conversation préalable.
+Paste this document as-is as an implementation prompt. It assumes that you (Fable 5) have no prior conversation context.
 
-## Contexte
+## Context
 
-`docs/studies/protocol-feature-matrix-2026-07-10.md` (livrée 2026-07-10) croise les 4 chemins de connexion (VNC/RDP/SSH via guacd, KasmVNC via reverse-proxy HTTP brut) avec les fonctionnalités transverses, entièrement sourcée code. Sa section finale, **« Écarts vs. ce que l'UI laisse penser »**, liste 6 endroits où le portail promet quelque chose que le système ne tient pas (ou l'inverse). Ce prompt les traite dans un ordre de complexité croissante, pas dans l'ordre de gravité du document source — lis quand même la section source avant de coder, elle contient les preuves (fichier:ligne) que ce prompt résume.
+`docs/studies/protocol-feature-matrix-2026-07-10.md` (shipped 2026-07-10) cross-references the 4 connection paths (VNC/RDP/SSH via guacd, KasmVNC via raw HTTP reverse-proxy) with cross-cutting features, entirely sourced from the code. Its final section, **"Gaps vs. what the UI implies"**, lists 6 places where the portal promises something the system doesn't deliver (or the reverse). This prompt handles them in order of increasing complexity, not in the source document's order of severity — read the source section anyway before coding, it contains the evidence (file:line) this prompt summarizes.
 
-Traite chaque tâche comme un incrément indépendant, commit séparé si possible. Les tâches A et B ne touchent aucun fichier commun avec C/D/E. C, D et E touchent toutes `waas-images/` mais des chemins distincts (VNC-audio pour C, xrdp/sesman pour D, aucun fichier image pour E — E est backend + frontend).
+Treat each task as an independent increment, separate commit if possible. Tasks A and B touch no file in common with C/D/E. C, D, and E all touch `waas-images/` but distinct paths (VNC audio for C, xrdp/sesman for D, no image file at all for E — E is backend + frontend).
 
-**Décisions déjà arbitrées (ne les rouvre pas)** :
-- KasmVNC est explicitement refusé sur les remote workspaces (tâche A).
-- Le clipboard/audio RDP fait l'objet d'une investigation architecturale avant tout code (tâche D) — implémente seulement si tu peux le faire sans regresser le hardening documenté ; sinon documente et arrête-toi.
-- Le resize dynamique (tâche E) doit être un mécanisme réel de bout en bout, pas un simple `sendSize()` frontend — l'architecture actuelle ne le supporterait pas (voir tâche E).
-
----
-
-## Tâche A (la plus simple) : refuser KasmVNC sur les remote workspaces
-
-**Écart #5 de l'étude.** Le code accepte aujourd'hui kasmvnc comme protocole d'un remote workspace (`api-server/internal/service/remote_workspace_service.go:174`, `normalizeRemoteProtocols` valide contre `params.Protocols()` sans exclusion), la résolution applique `kasmDefaults` (`workspace_service.go:810`), et le frontend route `kind=remote` + `kasmvnc` vers l'iframe (`DesktopPane.tsx:149`). Mais ni la doc (`docs/remote-workspaces.md:4-5`) ni le commentaire du modèle (`api-server/internal/model/model.go:82-84`, « reachable through guacd ») ne mentionnent kasmvnc, et ce croisement n'est exercé par aucun test — **jamais vérifié en session live**. Décision : kasmvnc reste un protocole in-cluster uniquement (le reverse-proxy `wwt/internal/kasm` cible un serveur KasmVNC co-localisé dans le cluster ; la sémantique « machine externe » n'a pas d'équivalent kasm sans une brique supplémentaire, et personne ne peut garantir aujourd'hui que ça marche).
-
-**À faire** :
-1. Dans `normalizeRemoteProtocols` (`remote_workspace_service.go:174`), exclure explicitement `kasmvnc` de la liste des protocoles acceptés pour un remote workspace : `slices.Contains(params.Protocols(), e.Name) && e.Name != "kasmvnc"`, avec un message d'erreur explicite (« kasmvnc is not supported for remote workspaces »).
-2. Applique la même exclusion partout où un protocole de remote workspace est validé au connect (`in.Protocol`, cf. le bloc autour de `remote_workspace_service.go:396-399` qui appelle `params.ValidateTemplateParams`) — vérifie s'il y a un point d'entrée unique ou s'il faut dupliquer le garde ; si tu dupliques, factorise dans une petite fonction plutôt que de copier la condition.
-3. Ajoute un test (`remote_workspace_service_test.go`) : enregistrer un remote workspace avec `protocol: "kasmvnc"` doit échouer en 400.
-4. Le message d'erreur remonte tel quel au frontend (`apierror.BadRequest`) — pas besoin de filtrer côté UI en plus, sauf si tu constates qu'un formulaire propose déjà kasmvnc dans un select de remote workspace (vérifie `RemoteWorkspaceDialog.tsx`) ; si oui, retire l'option de la liste plutôt que de laisser l'utilisateur se prendre un 400 après coup.
-
-Effort : petit (~1h avec tests), backend uniquement, zéro changement de contrat pour VNC/RDP/SSH remote.
+**Decisions already settled (don't reopen them)**:
+- KasmVNC is explicitly refused on remote workspaces (task A).
+- RDP clipboard/audio requires an architectural investigation before any code (task D) — implement only if you can do so without regressing the documented hardening; otherwise document and stop.
+- Dynamic resize (task E) must be a real end-to-end mechanism, not a simple frontend `sendSize()` — the current architecture wouldn't support that (see task E).
 
 ---
 
-## Tâche B : masquer l'overlay clipboard sur les sessions kasmvnc
+## Task A (the simplest): refuse KasmVNC on remote workspaces
 
-**Écart #1, le plus grave de l'étude.** `SessionOverlay.tsx` (section « clipboard (live) », autour de la ligne 244) rend les toggles copier/coller et l'échange manuel pour toute session sans distinction de protocole. Sur une session kasmvnc, ces contrôles sont des no-op silencieux : `tunnelRef.current` est nul sur la branche kasm (`DesktopPane.tsx:95` + branche kasmvnc `:149`), `sendClipboardRef` (`:59`) n'est jamais réassigné hors du chemin guac (seulement `:231`), et le vrai presse-papiers vit dans l'iframe KasmVNC, hors de portée de la policy (`wwt/internal/kasm/kasm.go`, reverse-proxy pur sans inspection). C'est l'inverse de la décision v1 assumée (« affichage honnête », `docs/studies/kasm-images-feasibility.md:86`).
+**Gap #5 of the study.** The code today accepts kasmvnc as a protocol for a remote workspace (`api-server/internal/service/remote_workspace_service.go:174`, `normalizeRemoteProtocols` validates against `params.Protocols()` with no exclusion), resolution applies `kasmDefaults` (`workspace_service.go:810`), and the frontend routes `kind=remote` + `kasmvnc` to the iframe (`DesktopPane.tsx:149`). But neither the docs (`docs/remote-workspaces.md:4-5`) nor the model comment (`api-server/internal/model/model.go:82-84`, "reachable through guacd") mention kasmvnc, and this combination is exercised by no test — **never verified in a live session**. Decision: kasmvnc stays an in-cluster-only protocol (the `wwt/internal/kasm` reverse-proxy targets a KasmVNC server co-located in the cluster; the "external machine" semantics has no kasm equivalent without an additional component, and nobody today can guarantee it works).
 
-**À faire** : la variable `protocol` existe déjà au niveau du composant (`const protocol = protoSwitch.active`, `SessionOverlay.tsx:105`) — utilise-la pour conditionner le rendu de la section clipboard (bloc autour de la ligne 244) : si `protocol === 'kasmvnc'`, ne rends ni les toggles copier/coller ni le bloc d'échange manuel. Remplace par soit rien (section absente), soit un texte court expliquant que le presse-papiers de cette session est géré par le client KasmVNC lui-même, hors de la policy WaaS — choisis la première option si tu n'as pas de nouvelle clé i18n à justifier pour un message qui ne sert qu'un seul protocole, la seconde si tu penses qu'un utilisateur serait surpris par l'absence totale de la section.
+**To do**:
+1. In `normalizeRemoteProtocols` (`remote_workspace_service.go:174`), explicitly exclude `kasmvnc` from the list of protocols accepted for a remote workspace: `slices.Contains(params.Protocols(), e.Name) && e.Name != "kasmvnc"`, with an explicit error message ("kasmvnc is not supported for remote workspaces").
+2. Apply the same exclusion everywhere a remote-workspace protocol is validated at connect time (`in.Protocol`, cf. the block around `remote_workspace_service.go:396-399` that calls `params.ValidateTemplateParams`) — check whether there's a single entry point or whether the guard needs to be duplicated; if you duplicate it, factor it into a small function rather than copying the condition.
+3. Add a test (`remote_workspace_service_test.go`): registering a remote workspace with `protocol: "kasmvnc"` must fail with 400.
+4. The error message propagates as-is to the frontend (`apierror.BadRequest`) — no need to filter on the UI side too, unless you find that a form already offers kasmvnc in a remote-workspace select (check `RemoteWorkspaceDialog.tsx`); if so, remove the option from the list rather than letting the user hit a 400 afterward.
 
-**Points d'attention** :
-- Ne touche pas à `hasClipboardApi()` ni au reste de l'overlay (pause/wake/resize/params) — uniquement la section clipboard.
-- Si `capabilities.clipboardCopy`/`clipboardPaste` restent `true` pour une session kasmvnc (la policy peut accorder un droit clipboard sur un protocole qui ne peut pas l'enforcer), ne corrige pas ça silencieusement dans ce prompt — documente-le comme écart supplémentaire dans le commit.
-- Ajoute un test component (`SessionOverlay.test.tsx` s'il existe, sinon crée-le à côté en suivant la convention des autres tests de composants) : une session kasmvnc ne rend pas les contrôles clipboard, une session vnc/rdp/ssh les rend.
-
-Effort : petit à moyen (~2-3h avec test), frontend uniquement, zéro changement de contrat backend.
-
----
-
-## Tâche C : audio VNC réel via PulseAudio (indépendant de xrdp)
-
-**Écart #3 (partie VNC).** `enable-audio` (`operator/pkg/params/params.go:116`, `Protocols: []string{"vnc"}`, `Tier: ui`) et `audio-servername` (`:121`, advanced) existent déjà au registre, avec une description honnête (« requires the image to run one »). Le catalogue interne (`waas-images/`) n'en fournit pas aujourd'hui (`waas-images/HARDENING.md:80-82`). **Contrairement au clipboard/audio RDP (tâche D), ceci ne dépend pas de xrdp/chansrv** : guacd sait streamer l'audio d'une session VNC directement depuis un serveur PulseAudio joignable en réseau (paramètre `audio-servername`), sans passer par xrdp. C'est une intégration standard de Guacamole, pas une extrapolation.
-
-**À faire, dans `waas-images/base/ubuntu/`** :
-1. Installer `pulseaudio` (+ `pulseaudio-utils` si besoin pour les tests smoke) dans `Dockerfile`, à côté du bloc `tigervnc-standalone-server` (ligne ~45-59). Reste dans le principe `--no-install-recommends` déjà en place.
-2. Configurer PulseAudio pour tourner **en mode utilisateur, sans root, sans setuid** — c'est le mode natif de PulseAudio moderne, cohérent avec tout le reste de l'image (aucune régression attendue sur le hardening). Charge le module réseau nécessaire pour que guacd (qui tourne dans un autre pod) puisse se connecter en TCP au serveur PulseAudio de ce pod (`module-native-protocol-tcp`, avec une ACL/auth cohérente avec le modèle de menace déjà documenté — le trafic VNC/RDP est déjà en clair intra-cluster par design, `HARDENING.md` §Threat model — reste sur le même principe plutôt que d'inventer un mécanisme d'auth réseau à part).
-3. Superviser PulseAudio via le même mécanisme que Xvnc/xrdp (`supervisord`, fragment rendu par `waas-entrypoint` dans `${RUNDIR}/supervisor.d/`, cf. le pattern existant pour xrdp autour de `waas-entrypoint:154`).
-4. Ouvrir le port PulseAudio choisi dans `EXPOSE` (`Dockerfile:98`) et dans `waas-images/examples/networkpolicy-workspaces.yaml` (ajouter une entrée `port:` à côté de 5901/3389, même `from: guacd`).
-5. Bump `version` dans `waas-images/base/ubuntu/manifest.yaml` (actuellement `1.2.0` — c'est un changement d'image, les tags sont immuables, la CI l'impose) et dans `waas-images/desktop/xfce/manifest.yaml` si cette image dérive du base modifié (vérifie `from: ubuntu-base-rdp`).
-6. Mets à jour `waas-images/HARDENING.md` : retire ou reformule la ligne « Audio is not shipped » (section « Known, accepted gaps ») pour ne garder que ce qui reste vrai (RDP toujours sans audio, cf. tâche D), et ajoute une entrée dans « Enforced at runtime » décrivant le nouveau composant PulseAudio et sa portée réseau.
-7. Étends `waas-images/ci/smoke_test.sh` (ou le mécanisme `smoke:` des manifests) si c'est réaliste de vérifier que le module PulseAudio écoute, sans exiger un vrai flux audio de bout en bout (out of scope : tester guacd lui-même).
-
-**Contrainte non négociable** : ne touche à rien dans `operator/pkg/params/params.go` — le paramètre `enable-audio`/`audio-servername` existe déjà avec la bonne sémantique, cette tâche est une implémentation image, pas un changement de contrat. Ne t'approche pas de xrdp/RDP dans cette tâche — c'est le périmètre de la tâche D, avec une contrainte de sécurité différente (voir plus bas).
-
-Effort : moyen (~1 jour), confiné à `waas-images/`.
+Effort: small (~1h with tests), backend only, zero contract change for remote VNC/RDP/SSH.
 
 ---
 
-## Tâche D : clipboard + audio RDP — investigation avant tout code
+## Task B: hide the clipboard overlay on kasmvnc sessions
 
-**Écarts #1 (matrice, ligne 1) et #3 (partie RDP).** Le clipboard RDP (`disable-copy`/`disable-paste` déjà au registre, gouvernés par la policy) et l'audio RDP (`disable-audio`, `enable-audio-input`, `params.go:160,165`) passent tous deux par **chansrv**, le canal de xrdp qui porte clipboard et audio. Aujourd'hui, `waas-images/base/ubuntu/Dockerfile:13-19` documente une décision délibérée : xrdp tourne **sans sesman/PAM**, en pont direct (`libvnc` backend) vers la session Xvnc déjà lancée — précisément pour rester « fully non-root (no PAM, no setuid) », cohérent avec le reste du hardening (`HARDENING.md` : zéro binaire setuid vérifié en CI, `find / -xdev -perm /6000`). Chansrv n'est démarré que par sesman à l'ouverture de session — sans sesman, pas de chansrv, donc pas de clipboard ni d'audio RDP. C'est la même contrainte architecturale pour les deux fonctionnalités : ne mène pas deux investigations séparées, une seule suffit.
+**Gap #1, the most severe in the study.** `SessionOverlay.tsx` (the "clipboard (live)" section, around line 244) renders the copy/paste toggles and the manual exchange for every session with no distinction by protocol. On a kasmvnc session, these controls are silent no-ops: `tunnelRef.current` is null on the kasm branch (`DesktopPane.tsx:95` + kasmvnc branch `:149`), `sendClipboardRef` (`:59`) is never reassigned outside the guac path (only `:231`), and the real clipboard lives inside the KasmVNC iframe, out of the policy's reach (`wwt/internal/kasm/kasm.go`, pure reverse-proxy with no inspection). This is the opposite of the accepted v1 decision ("honest display", `docs/studies/kasm-images-feasibility.md:86`).
 
-**Ce qu'on te demande, dans cet ordre strict** :
+**To do**: the `protocol` variable already exists at the component level (`const protocol = protoSwitch.active`, `SessionOverlay.tsx:105`) — use it to gate rendering of the clipboard section (the block around line 244): if `protocol === 'kasmvnc'`, render neither the copy/paste toggles nor the manual exchange block. Replace with either nothing (section absent) or a short text explaining that this session's clipboard is managed by the KasmVNC client itself, outside the WaaS policy — pick the first option if you don't have a new i18n key to justify for a message that only serves a single protocol, the second if you think a user would be surprised by the total absence of the section.
 
-1. **Investigue d'abord, sans écrire de code image.** Réponds concrètement à :
-   - Est-il possible de faire tourner `xrdp-sesman` pour une session utilisateur **unique et fixe** (le conteneur n'a qu'un seul utilisateur, `WAAS_USER` UID 1000 — pas de bascule multi-utilisateur à gérer) sans que sesman ait besoin d'une authentification PAM réelle (mot de passe système, `/etc/shadow`) ? Le mot de passe de session existe déjà et est vérifié ailleurs (bridge `password=ask` documenté dans `waas-entrypoint`) — sesman n'a pas besoin de re-vérifier un mot de passe système, juste d'autoriser le seul utilisateur du conteneur à démarrer sa session existante. Un module PAM du type `pam_permit.so` (accepte toute tentative) est la piste évidente, mais vérifie qu'il ne réintroduit pas un vecteur d'authentification que rien d'autre ne garde (par exemple : est-ce que sesman, une fois PAM contourné, expose un moyen pour n'importe quel process du pod de se faire passer pour n'importe quel utilisateur ? Ici il n'y a qu'un utilisateur, donc l'impact devrait être nul, mais vérifie-le explicitement).
-   - Les paquets `xrdp-sesman`/`xrdp` (et donc chansrv) embarquent-ils des binaires setuid/setgid sur Ubuntu 24.04 ? Si oui, est-ce strictement nécessaire pour le mode mono-utilisateur ciblé, ou est-ce lié à la bascule multi-utilisateur classique de xrdp (setuid pour changer d'UID à l'ouverture de session) que ce déploiement n'utilise pas ? Le smoke test CI (`ci/smoke_test.sh`) fait déjà `find / -xdev -perm /6000` — n'importe quelle régression sera détectée, mais fais cette vérification toi-même avant de proposer le changement.
-   - Est-ce que sesman doit tourner en root pour son propre fonctionnement (indépendamment du besoin de changer d'UID), ou peut-il tourner sous l'UID 1000 comme tout le reste de l'image ?
-2. **Si la réponse aux trois points est favorable** (mono-utilisateur possible sans PAM réel, pas de setuid nouveau nécessaire ou strippable sans casser le fonctionnement, pas besoin de root) : implémente-le. Ajoute sesman (mode minimal) + chansrv dans le variant `ubuntu-base-rdp` du Dockerfile, adapte `waas-entrypoint`/`xrdp.ini.tpl`/supervisord en conséquence (même pattern que le rendu de config existant pour xrdp), fais tourner le smoke test avec `--read-only --cap-drop ALL --security-opt no-new-privileges` pour confirmer qu'aucune régression de hardening n'apparaît, bump les versions de manifest concernées, et documente le nouveau composant dans `HARDENING.md` (retire la ligne « RDP path has no chansrv » de « Known, accepted gaps », ajoute la description du mécanisme sesman-lite dans « Enforced at runtime », avec le raisonnement de sécurité que tu as validé à l'étape 1). Ajoute un test de clipboard RDP dans `wwt/internal/guac/clipboard_test.go` si le protocole change de comportement observable par wwt.
-3. **Si un des trois points est défavorable** (setuid nécessaire non strippable, besoin de root, ou risque d'authentification réel non maîtrisé) : **n'implémente rien**. Documente dans `waas-images/HARDENING.md` (section « Known, accepted gaps ») exactement ce que tu as trouvé et pourquoi c'est resté hors de portée sans régresser le hardening — remplace la ligne actuelle par une version qui montre que la question a été creusée, pas juste répétée. Ne touche à aucun Dockerfile dans ce cas.
+**Points of attention**:
+- Don't touch `hasClipboardApi()` or the rest of the overlay (pause/wake/resize/params) — only the clipboard section.
+- If `capabilities.clipboardCopy`/`clipboardPaste` stay `true` for a kasmvnc session (the policy can grant a clipboard right on a protocol that can't enforce it), don't silently fix that in this prompt — document it as an additional gap in the commit.
+- Add a component test (`SessionOverlay.test.tsx` if it exists, otherwise create it alongside following the convention of the other component tests): a kasmvnc session doesn't render the clipboard controls, a vnc/rdp/ssh session does.
 
-**Ne mélange pas cette tâche avec la tâche C** : l'audio VNC (tâche C) ne dépend d'aucune de ces réponses et doit être livrée qu'importe l'issue de cette investigation.
-
-Effort : variable — l'investigation seule est de l'ordre de quelques heures ; l'implémentation (si elle a lieu) est un chantier moyen à lourd (~1-2 jours), et touche la surface de sécurité la plus sensible de tout ce prompt — ne merge pas sans repasser par `/security-review` sur le diff final.
+Effort: small to medium (~2-3h with test), frontend only, zero backend contract change.
 
 ---
 
-## Tâche E (la plus lourde) : vrai resize dynamique VNC/RDP, de bout en bout
+## Task C: real VNC audio via PulseAudio (independent of xrdp)
 
-**Écart #2, mais plus profond que ce que l'étude documente en surface.** `resize-method` (RDP, `params.go:145`) et le fait que rien ne redimensionne jamais la session en cours ne se règlent PAS en câblant `client.sendSize()` de `guacamole-common-js` : le script déjà présent dans l'image, `waas-images/base/ubuntu/rootfs/usr/local/bin/waas-resize`, documente explicitement que **le pont xrdp-libvnc ne peut de toute façon pas répercuter un resize sur le Xvnc sous-jacent**, même si guacd recevait l'instruction. Envoyer `sendSize()` ferait donc un aller-retour pour rien. La seule voie qui fonctionne réellement aujourd'hui est ce script `waas-resize` exécuté **dans le pod**, qui pilote Xvnc via `xrandr` (RandR `SetDesktopSize`, supporté nativement par TigerVNC) — rien ne l'appelle depuis l'extérieur actuellement.
+**Gap #3 (VNC part).** `enable-audio` (`operator/pkg/params/params.go:116`, `Protocols: []string{"vnc"}`, `Tier: ui`) and `audio-servername` (`:121`, advanced) already exist in the registry, with an honest description ("requires the image to run one"). The internal catalog (`waas-images/`) doesn't provide one today (`waas-images/HARDENING.md:80-82`). **Unlike RDP clipboard/audio (task D), this doesn't depend on xrdp/chansrv**: guacd knows how to stream a VNC session's audio directly from a network-reachable PulseAudio server (`audio-servername` parameter), without going through xrdp. This is a standard Guacamole integration, not an extrapolation.
 
-Le mécanisme à construire est donc **spécifique à WaaS, pas le mécanisme resize natif de guacd** : bureau redimensionné en exécutant une commande dans le pod, indépendamment de ce que RDP/VNC savent faire nativement. Ça s'applique à VNC ET RDP (les deux tournent sur le même Xvnc dans ce catalogue d'images) — pas à kasmvnc (déjà géré nativement côté client, `DesktopPane.tsx:156-163`) ni SSH (pas de bureau).
+**To do, in `waas-images/base/ubuntu/`**:
+1. Install `pulseaudio` (+ `pulseaudio-utils` if needed for smoke tests) in the `Dockerfile`, next to the `tigervnc-standalone-server` block (line ~45-59). Stay within the `--no-install-recommends` principle already in place.
+2. Configure PulseAudio to run **in user mode, no root, no setuid** — this is modern PulseAudio's native mode, consistent with the rest of the image (no regression expected on the hardening). Load the network module needed so guacd (which runs in a different pod) can connect over TCP to this pod's PulseAudio server (`module-native-protocol-tcp`, with an ACL/auth consistent with the already-documented threat model — VNC/RDP traffic is already cleartext intra-cluster by design, `HARDENING.md` §Threat model — stick to the same principle rather than inventing a separate network auth mechanism).
+3. Supervise PulseAudio via the same mechanism as Xvnc/xrdp (`supervisord`, fragment rendered by `waas-entrypoint` in `${RUNDIR}/supervisor.d/`, cf. the existing pattern for xrdp around `waas-entrypoint:154`).
+4. Open the chosen PulseAudio port in `EXPOSE` (`Dockerfile:98`) and in `waas-images/examples/networkpolicy-workspaces.yaml` (add a `port:` entry next to 5901/3389, same `from: guacd`).
+5. Bump `version` in `waas-images/base/ubuntu/manifest.yaml` (currently `1.2.0` — this is an image change, tags are immutable, the CI enforces it) and in `waas-images/desktop/xfce/manifest.yaml` if that image derives from the modified base (check `from: ubuntu-base-rdp`).
+6. Update `waas-images/HARDENING.md`: remove or rephrase the "Audio is not shipped" line (the "Known, accepted gaps" section) to keep only what remains true (RDP still has no audio, cf. task D), and add an entry under "Enforced at runtime" describing the new PulseAudio component and its network scope.
+7. Extend `waas-images/ci/smoke_test.sh` (or the manifests' `smoke:` mechanism) if it's realistic to verify that the PulseAudio module is listening, without requiring a real end-to-end audio stream (out of scope: testing guacd itself).
 
-**Architecture recommandée** (vérifiée sur le code existant, pas une supposition) :
+**Non-negotiable constraint**: don't touch anything in `operator/pkg/params/params.go` — the `enable-audio`/`audio-servername` parameter already exists with the right semantics, this task is an image implementation, not a contract change. Don't go near xrdp/RDP in this task — that's task D's scope, with a different security constraint (see below).
 
-- **wwt n'a aujourd'hui aucun accès cluster** (pas de client Kubernetes, RBAC ou dépendance k8s dans `wwt/`) et son architecture actuelle (« parle uniquement à `shared/auth` + l'API interne ») ne doit pas en gagner un pour ce besoin — ce n'est pas sa responsabilité.
-- **`api-server` a déjà un client Kubernetes et de l'accès RBAC** (`s.kube`, controller-runtime client, utilisé partout dans `WorkspaceService`, ex. `Reload` à `workspace_service.go:497`). C'est donc `api-server` qui doit exécuter la commande dans le pod, pas wwt.
-- Le frontend parle déjà directement à `api-server` pour les actions de session (pause/wake/reload) sans passer par wwt — un nouvel endpoint public suit le même chemin, pas besoin d'inventer un canal via le tunnel guac (qui est un flux binaire opaque, mauvais candidat pour porter un signal hors-bande).
-
-**À faire** :
-
-1. **Frontend** : dans `DesktopPane.tsx`, le `ResizeObserver` existant (ligne ~292) ne fait aujourd'hui que rescaler le canvas en CSS. Ajoute, **débouncé** (le resize d'une fenêtre navigateur déclenche des dizaines d'événements par seconde — vise ~500ms après la dernière variation avant d'agir), un appel à un nouvel endpoint quand le protocole de la session est `vnc` ou `rdp` (pas kasmvnc, pas ssh — vérifie le protocole actif comme le fait déjà `SessionOverlay.tsx:105`).
-2. **api-server, nouvel endpoint public** (à côté des autres actions de session existantes, ex. `Reload`/`Connect` dans `workspace_service.go` + le handler correspondant) : `POST /api/v1/workspaces/{id}/resize` (nom à adapter à la convention REST déjà en place — regarde comment `Reload` est exposé pour rester cohérent), body `{width, height}`.
-   - Réutilise l'autorisation existante (`fetchByID(ctx, actor, id)`, même modèle que `Reload`) — pas de nouvelle logique d'auth.
-   - Rejette explicitement les remote workspaces (`kind: "remote"`) : ils n'ont **aucun pod** (`model.go:82-86`, « no template, no operator lifecycle, no compute ») — un 400/409 explicite, pas un échec silencieux.
-   - Valide strictement `width`/`height` côté serveur **avant** de construire quoi que ce soit (regex ou bornes numériques, ex. 100–7680 sur chaque axe) — défense en profondeur même si `remotecommand` n'invoque pas de shell (pas d'injection possible via les arguments, mais des valeurs absurdes peuvent quand même faire n'importe quoi à `xrandr` dans le pod).
-   - Résous le pod cible par label selector dans le namespace du workspace (`waas.xorhub.io/workspace=<name>`, cf. `operator/pkg/metakeys` pour la clé exacte et `operator/pkg/naming` pour la convention de nommage) — il n'existe aujourd'hui aucune résolution de pod dans `api-server`, tu es le premier à en écrire une ; garde-la minimale (un seul pod attendu par workspace).
-   - Exécute `waas-resize WIDTHxHEIGHT` via `client-go` (`kubernetes.Interface.CoreV1().Pods(ns).GetLogs`/`RESTClient().Post().Resource("pods").SubResource("exec")` + `remotecommand.NewSPDYExecutor`) — **commande fixe, un seul argument construit à partir des entiers déjà validés, jamais de shell** (pas de `sh -c`). `s.kube` (controller-runtime client) ne suffit pas pour l'exec — il te faut en plus un `kubernetes.Interface` (client-go classique) et un `*rest.Config` ; regarde comment `main.go` construit déjà la config in-cluster pour le reste et ajoute ce qu'il manque au constructeur du service, sans dupliquer la config de connexion.
-   - Si le workspace n'est pas `Running`, retourne un conflit explicite (même pattern que `Reload`, `workspace_service.go:502-504`).
-3. **RBAC** (`helm/waas/templates/api-server.yaml`) : le `ClusterRole` de l'api-server a aujourd'hui `pods: [get, list]` (autour de la ligne 73-75) — ajoute une entrée séparée `resources: [pods/exec]`, `verbs: [create]`. **Ne mélange pas ce verbe avec l'entrée `pods` existante** : `pods/exec` est un sous-droit à part entière et mérite sa propre ligne visible en review, pas noyé dans le `get, list` du reste.
-4. **Tests** : côté Go, teste au moins la validation des bornes width/height et le rejet explicite des remote workspaces et des workspaces non-Running (fake client suffit, pas besoin d'un vrai exec en test — mock/interface l'exécuteur pour ne pas dépendre d'un vrai pod). Côté frontend, teste que le debounce n'envoie pas une requête par pixel et que kasmvnc/ssh n'appellent jamais l'endpoint.
-5. **Documentation** : ajoute une note dans `docs/` (le fichier le plus proche est probablement `docs/diagnostics/` ou un nouveau doc court) expliquant que ce resize est un mécanisme WaaS maison (exec direct dans le pod), pas le resize natif de RDP/VNC — pour que le prochain lecteur ne cherche pas `sendSize()` dans le tunnel guac et ne perde pas de temps comme cette étude a failli le faire.
-
-**Ce qui reste hors de portée de cette tâche** : rendre `resize-method` (le paramètre guacd RDP) lui-même fonctionnel au sens propre du terme — ce paramètre resterait inerte au sens guacd/RDP classique même après cette tâche, puisque le vrai mécanisme contourne complètement guacd. Si tu juges que ça rend le paramètre trompeur une fois ce mécanisme en place (l'utilisateur a un vrai resize, mais pas via le chemin que le paramètre `resize-method` est censé contrôler), signale-le en fin de tâche plutôt que de le corriger toi-même — c'est un arbitrage produit (faut-il garder/retirer/reformuler `resize-method` maintenant que le vrai mécanisme est ailleurs), pas un bug technique.
-
-**Sécurité — ne merge pas sans repasser dessus** : cette tâche ajoute une nouvelle capacité d'exécution de commande dans un pod, déclenchable depuis le navigateur. Le rayon d'action est volontairement étroit (une commande fixe, deux entiers validés, un binaire qui valide lui-même son format en plus), mais `pods/exec` est un droit RBAC significatif — passe le diff final par `/security-review` avant de le considérer terminé, indépendamment des tests unitaires.
-
-Effort : lourd (~2-3 jours), traverse frontend + api-server + Helm RBAC + doc — la tâche la plus transverse de ce prompt.
+Effort: medium (~1 day), confined to `waas-images/`.
 
 ---
 
-## Tâche F : formulaires kasmvnc vides — aucune action
+## Task D: RDP clipboard + audio — investigate before any code
 
-**Écart #6.** `ForProtocol("kasmvnc")` ne retourne aucun paramètre par construction (`params.go:416-434`) : les tabs "paramètres protocole" du portail n'afficheront jamais rien pour kasmvnc, la vraie configuration passant par `kasmvncConfig` (YAML opaque admin-only). C'est un état jugé correct — **ne fais rien ici**, ne fabrique pas un message spécifique à un seul protocole pour combler un "écart" qui n'en est pas un. Mentionné uniquement pour que tu ne le redécouvres pas comme un bug en cours de route.
+**Gaps #1 (matrix, line 1) and #3 (RDP part).** Both RDP clipboard (`disable-copy`/`disable-paste` already in the registry, governed by the policy) and RDP audio (`disable-audio`, `enable-audio-input`, `params.go:160,165`) go through **chansrv**, xrdp's channel that carries clipboard and audio. Today, `waas-images/base/ubuntu/Dockerfile:13-19` documents a deliberate decision: xrdp runs **without sesman/PAM**, as a direct bridge (`libvnc` backend) to the already-running Xvnc session — precisely to stay "fully non-root (no PAM, no setuid)", consistent with the rest of the hardening (`HARDENING.md`: zero setuid binaries, CI-verified, `find / -xdev -perm /6000`). chansrv is only started by sesman when a session opens — without sesman, no chansrv, hence no RDP clipboard nor audio. This is the same architectural constraint for both features: don't run two separate investigations, one is enough.
+
+**What's being asked of you, in this strict order**:
+
+1. **Investigate first, without writing any image code.** Concretely answer:
+   - Is it possible to run `xrdp-sesman` for a **single, fixed** user session (the container has only one user, `WAAS_USER` UID 1000 — no multi-user switching to handle) without sesman needing real PAM authentication (system password, `/etc/shadow`)? The session password already exists and is verified elsewhere (bridge `password=ask` documented in `waas-entrypoint`) — sesman doesn't need to re-verify a system password, just authorize the container's single user to start their existing session. A PAM module like `pam_permit.so` (accepts any attempt) is the obvious route, but check that it doesn't reintroduce an authentication vector nothing else guards (for example: once PAM is bypassed, does sesman expose a way for any process in the pod to impersonate any user? Here there's only one user, so the impact should be nil, but verify it explicitly).
+   - Do the `xrdp-sesman`/`xrdp` packages (and thus chansrv) ship setuid/setgid binaries on Ubuntu 24.04? If so, is that strictly necessary for the targeted single-user mode, or is it tied to xrdp's classic multi-user switching (setuid to change UID at session open) that this deployment doesn't use? The CI smoke test (`ci/smoke_test.sh`) already does `find / -xdev -perm /6000` — any regression will be caught, but do this check yourself before proposing the change.
+   - Does sesman need to run as root for its own operation (independently of the need to switch UID), or can it run under UID 1000 like the rest of the image?
+2. **If the answer to all three points is favorable** (single-user possible without real PAM, no new setuid required or strippable without breaking function, no root needed): implement it. Add sesman (minimal mode) + chansrv to the `ubuntu-base-rdp` Dockerfile variant, adapt `waas-entrypoint`/`xrdp.ini.tpl`/supervisord accordingly (same pattern as the existing config rendering for xrdp), run the smoke test with `--read-only --cap-drop ALL --security-opt no-new-privileges` to confirm no hardening regression appears, bump the affected manifest versions, and document the new component in `HARDENING.md` (remove the "RDP path has no chansrv" line from "Known, accepted gaps", add a description of the sesman-lite mechanism under "Enforced at runtime", with the security reasoning you validated in step 1). Add an RDP clipboard test in `wwt/internal/guac/clipboard_test.go` if the protocol's wwt-observable behavior changes.
+3. **If one of the three points is unfavorable** (unstrippable setuid required, root needed, or an unmanaged real authentication risk): **implement nothing**. Document in `waas-images/HARDENING.md` ("Known, accepted gaps" section) exactly what you found and why it stayed out of reach without regressing the hardening — replace the current line with a version that shows the question was dug into, not just repeated. Don't touch any Dockerfile in this case.
+
+**Don't mix this task with task C**: VNC audio (task C) doesn't depend on any of these answers and must ship regardless of this investigation's outcome.
+
+Effort: variable — the investigation alone is on the order of a few hours; the implementation (if it happens) is a medium-to-heavy effort (~1-2 days), and touches the most sensitive security surface in this entire prompt — don't merge without going through `/security-review` on the final diff.
 
 ---
 
-## Contraintes transverses
+## Task E (the heaviest): real end-to-end dynamic VNC/RDP resize
 
-- `tsc -b` sans erreur, `strict: true`, zéro `any` sur tout changement frontend.
-- `go build ./...` + tests Go existants verts sur tout changement backend.
-- i18n : toute nouvelle chaîne passe par `frontend/src/i18n/locales/{en,fr}.json` — mais réfléchis avant d'en ajouter une pour un seul protocole (tâche B) : préfère l'absence de texte à un message qui n'existera que pour justifier son existence.
-- N'étends pas le registre `pkg/params` dans ce prompt (aucune des tâches ne le demande — C/D changent l'image derrière un paramètre déjà existant, pas le paramètre lui-même).
-- Chaque tâche est livrable seule — n'attends pas d'avoir fait A→E pour committer la première.
-- Les tâches C, D et E touchent à la sécurité du catalogue d'images ou à une nouvelle capacité d'exécution cluster : ne les considère jamais "terminées" au sens de ce prompt tant que le smoke test hardening (`ci/smoke_test.sh`, `--read-only --cap-drop ALL --security-opt no-new-privileges`) et, pour E, une passe `/security-review`, n'ont pas confirmé l'absence de régression.
+**Gap #2, but deeper than what the study documents on the surface.** `resize-method` (RDP, `params.go:145`) and the fact that nothing ever resizes the ongoing session are NOT fixed by wiring up `guacamole-common-js`'s `client.sendSize()`: the script already present in the image, `waas-images/base/ubuntu/rootfs/usr/local/bin/waas-resize`, explicitly documents that **the xrdp-libvnc bridge can't propagate a resize to the underlying Xvnc anyway**, even if guacd received the instruction. Sending `sendSize()` would therefore be a round trip for nothing. The only path that actually works today is this `waas-resize` script executed **inside the pod**, which drives Xvnc via `xrandr` (RandR `SetDesktopSize`, natively supported by TigerVNC) — nothing currently calls it from the outside.
 
-## Points ouverts (ton arbitrage, résumé)
+The mechanism to build is therefore **WaaS-specific, not guacd's native resize mechanism**: desktop resized by running a command inside the pod, independently of what RDP/VNC natively know how to do. This applies to VNC AND RDP (both run on the same Xvnc in this image catalog) — not to kasmvnc (already handled natively client-side, `DesktopPane.tsx:156-163`) nor SSH (no desktop).
 
-- Tâche B : section clipboard absente vs. message explicatif pour une session kasmvnc.
-- Tâche D : implémenter ou documenter-seulement selon ce que l'investigation sesman/PAM révèle réellement — ne force pas une implémentation si un des trois critères de sécurité n'est pas clairement rempli.
-- Tâche E : que faire de `resize-method` une fois le vrai mécanisme en place ailleurs — signale, ne tranche pas silencieusement.
+**Recommended architecture** (verified against the existing code, not a guess):
+
+- **wwt today has no cluster access at all** (no Kubernetes client, RBAC, or k8s dependency in `wwt/`) and its current architecture ("talks only to `shared/auth` + the internal API") should not gain one for this need — it's not its responsibility.
+- **`api-server` already has a Kubernetes client and RBAC access** (`s.kube`, controller-runtime client, used everywhere in `WorkspaceService`, e.g. `Reload` at `workspace_service.go:497`). So it's `api-server` that must execute the command inside the pod, not wwt.
+- The frontend already talks directly to `api-server` for session actions (pause/wake/reload) without going through wwt — a new public endpoint follows the same path, no need to invent a channel through the guac tunnel (which is an opaque binary stream, a poor candidate for carrying an out-of-band signal).
+
+**To do**:
+
+1. **Frontend**: in `DesktopPane.tsx`, the existing `ResizeObserver` (line ~292) today only rescales the canvas in CSS. Add, **debounced** (a browser window resize triggers dozens of events per second — aim for ~500ms after the last change before acting), a call to a new endpoint when the session's protocol is `vnc` or `rdp` (not kasmvnc, not ssh — check the active protocol the same way `SessionOverlay.tsx:105` already does).
+2. **api-server, new public endpoint** (next to the other existing session actions, e.g. `Reload`/`Connect` in `workspace_service.go` + the corresponding handler): `POST /api/v1/workspaces/{id}/resize` (name to adapt to the REST convention already in place — look at how `Reload` is exposed to stay consistent), body `{width, height}`.
+   - Reuse the existing authorization (`fetchByID(ctx, actor, id)`, same model as `Reload`) — no new auth logic.
+   - Explicitly reject remote workspaces (`kind: "remote"`): they have **no pod at all** (`model.go:82-86`, "no template, no operator lifecycle, no compute") — an explicit 400/409, not a silent failure.
+   - Strictly validate `width`/`height` server-side **before** building anything (regex or numeric bounds, e.g. 100-7680 on each axis) — defense in depth even though `remotecommand` doesn't invoke a shell (no injection possible via the arguments, but absurd values could still do anything to `xrandr` inside the pod).
+   - Resolve the target pod by label selector in the workspace's namespace (`waas.xorhub.io/workspace=<name>`, cf. `operator/pkg/metakeys` for the exact key and `operator/pkg/naming` for the naming convention) — no pod resolution exists in `api-server` today, you're the first to write one; keep it minimal (a single pod expected per workspace).
+   - Execute `waas-resize WIDTHxHEIGHT` via `client-go` (`kubernetes.Interface.CoreV1().Pods(ns).GetLogs`/`RESTClient().Post().Resource("pods").SubResource("exec")` + `remotecommand.NewSPDYExecutor`) — **fixed command, a single argument built from already-validated integers, never a shell** (no `sh -c`). `s.kube` (controller-runtime client) is not enough for exec — you additionally need a `kubernetes.Interface` (classic client-go) and a `*rest.Config`; look at how `main.go` already builds the in-cluster config for the rest and add what's missing to the service's constructor, without duplicating the connection config.
+   - If the workspace isn't `Running`, return an explicit conflict (same pattern as `Reload`, `workspace_service.go:502-504`).
+3. **RBAC** (`helm/waas/templates/api-server.yaml`): the api-server's `ClusterRole` today has `pods: [get, list]` (around line 73-75) — add a separate entry `resources: [pods/exec]`, `verbs: [create]`. **Don't mix this verb into the existing `pods` entry**: `pods/exec` is a full sub-right of its own and deserves its own visible line in review, not buried in the `get, list` for the rest.
+4. **Tests**: on the Go side, test at least the width/height bounds validation and the explicit rejection of remote workspaces and non-Running workspaces (a fake client is enough, no need for a real exec in tests — mock/interface the executor so as not to depend on a real pod). On the frontend side, test that the debounce doesn't send a request per pixel and that kasmvnc/ssh never call the endpoint.
+5. **Documentation**: add a note in `docs/` (the closest file is probably `docs/diagnostics/` or a new short doc) explaining that this resize is a homegrown WaaS mechanism (direct exec inside the pod), not RDP/VNC's native resize — so the next reader doesn't go looking for `sendSize()` in the guac tunnel and waste time the way this study nearly did.
+
+**What stays out of this task's scope**: making `resize-method` (the guacd RDP parameter) itself functional in the proper sense of the term — this parameter would remain inert in the classic guacd/RDP sense even after this task, since the real mechanism completely bypasses guacd. If you judge that this makes the parameter misleading once this mechanism is in place (the user gets a real resize, but not via the path `resize-method` is supposed to control), flag it at the end of the task rather than fixing it yourself — this is a product decision (should `resize-method` be kept/removed/reworded now that the real mechanism lives elsewhere), not a technical bug.
+
+**Security — don't merge without a pass on this**: this task adds a new command-execution capability inside a pod, triggerable from the browser. The blast radius is deliberately narrow (a fixed command, two validated integers, a binary that additionally validates its own format), but `pods/exec` is a significant RBAC right — run the final diff through `/security-review` before considering it done, independently of the unit tests.
+
+Effort: heavy (~2-3 days), spans frontend + api-server + Helm RBAC + docs — the most cross-cutting task in this prompt.
+
+---
+
+## Task F: empty kasmvnc forms — no action
+
+**Gap #6.** `ForProtocol("kasmvnc")` returns no parameters by construction (`params.go:416-434`): the portal's "protocol parameters" tabs will never show anything for kasmvnc, real configuration going through `kasmvncConfig` (opaque, admin-only YAML). This is a state judged correct — **do nothing here**, don't fabricate a message specific to a single protocol to fill a "gap" that isn't one. Mentioned only so you don't rediscover it as a bug along the way.
+
+---
+
+## Cross-cutting constraints
+
+- `tsc -b` with no error, `strict: true`, zero `any` on every frontend change.
+- `go build ./...` + existing Go tests green on every backend change.
+- i18n: every new string goes through `frontend/src/i18n/locales/{en,fr}.json` — but think before adding one for a single protocol (task B): prefer no text over a message that only exists to justify its own existence.
+- Don't extend the `pkg/params` registry in this prompt (none of the tasks require it — C/D change the image behind an already-existing parameter, not the parameter itself).
+- Each task is shippable on its own — don't wait to have done A→E before committing the first one.
+- Tasks C, D, and E touch either the image catalog's security or a new cluster execution capability: never consider them "done" in the sense of this prompt until the hardening smoke test (`ci/smoke_test.sh`, `--read-only --cap-drop ALL --security-opt no-new-privileges`) and, for E, a `/security-review` pass, have confirmed there's no regression.
+
+## Open points (your call, summary)
+
+- Task B: absent clipboard section vs. explanatory message for a kasmvnc session.
+- Task D: implement or document-only depending on what the sesman/PAM investigation actually reveals — don't force an implementation if one of the three security criteria isn't clearly met.
+- Task E: what to do with `resize-method` once the real mechanism lives elsewhere — flag it, don't decide silently.

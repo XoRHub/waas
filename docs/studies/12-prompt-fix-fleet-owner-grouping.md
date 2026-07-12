@@ -1,115 +1,118 @@
-# Prompt Fable 5 — Fix : fleet admin, regrouper les workspaces par utilisateur (sauf ceux de l'admin)
+# Fable 5 Prompt — Fix: admin fleet, group workspaces by user (except the admin's own)
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context.
 
-## Contexte du repo
+## Repo context
 
 `FleetPage.tsx` → `WorkspacesFleet()` (`frontend/src/pages/admin/FleetPage.tsx:108-169`)
-affiche **tous** les workspaces (tous propriétaires confondus, pour un
-admin) dans une table plate, dans l'ordre renvoyé par l'API — pas de
-tri ni de regroupement. La colonne « owner » (L129, L144) affiche
-`ws.ownerId` brut (`font-mono text-xs`), pas de nom lisible.
+displays **all** workspaces (across all owners, for an
+admin) in a flat table, in whatever order the API returns — no
+sorting or grouping. The "owner" column (L129, L144) displays the raw
+`ws.ownerId` (`font-mono text-xs`), not a human-readable name.
 
-- **Backend** : `WorkspaceHandler.List` →
+- **Backend**: `WorkspaceHandler.List` →
   `WorkspaceService.List(ctx, actor)` (`workspace_service.go:127-150`) —
-  si `actor.Role != admin`, filtre par label `ownerLabel: actor.ID`
-  (L129-131) ; sinon aucune restriction, l'admin reçoit tout le
-  namespace. C'est cette liste complète, non groupée, que reçoit
-  `useWorkspaces()` (`hooks/useApi.ts:34-37`, `GET /api/v1/workspaces`).
-- **Modèle** : `model.Workspace` (`model.go:172-...`) n'a que
-  `OwnerID string` (json `ownerId`) — **pas** de nom d'utilisateur
-  résolu, contrairement à `model.RemoteWorkspaceAdmin.OwnerUsername`
-  (`model.go:253`, json `ownerUsername,omitempty`) qui existe déjà pour
-  l'onglet « remote » de la même page.
-- **Pattern à répliquer** : `RemoteWorkspaceService.AdminList`
-  (`remote_workspace_service.go:459-490`) résout déjà exactement ce
-  besoin pour les remote workspaces — une map `usernames map[string]string`
-  peuplée à la volée via `s.users.FindByID(ctx, rw.OwnerID)` (évite les
-  lookups redondants quand plusieurs rows partagent le même owner),
-  consommée ensuite par `RemoteFleet()` côté frontend avec le fallback
-  `rw.ownerUsername || rw.ownerId` (`FleetPage.tsx:206`).
-  `WorkspaceService` a déjà accès à `s.users` (déjà utilisé dans
-  `Create`, `workspace_service.go:158`) — le même pattern s'applique
-  tel quel.
-- **Identifier les workspaces de l'admin lui-même** : comparer
-  `ws.ownerId === user.id`, `user` venant de `useAuthStore((s) => s.user)`
-  côté frontend (déjà ce pattern dans `ConnectionSettingsDialog.tsx:31,52`).
+  if `actor.Role != admin`, filters by label `ownerLabel: actor.ID`
+  (L129-131); otherwise no restriction, the admin receives the entire
+  namespace. This is the complete, ungrouped list that `useWorkspaces()`
+  receives (`hooks/useApi.ts:34-37`, `GET /api/v1/workspaces`).
+- **Model**: `model.Workspace` (`model.go:172-...`) only has
+  `OwnerID string` (json `ownerId`) — **no** resolved
+  username, unlike `model.RemoteWorkspaceAdmin.OwnerUsername`
+  (`model.go:253`, json `ownerUsername,omitempty`) which already exists for
+  the "remote" tab of the same page.
+- **Pattern to replicate**: `RemoteWorkspaceService.AdminList`
+  (`remote_workspace_service.go:459-490`) already resolves exactly this
+  need for remote workspaces — a `usernames map[string]string` map
+  populated on the fly via `s.users.FindByID(ctx, rw.OwnerID)` (avoids
+  redundant lookups when several rows share the same owner),
+  then consumed by `RemoteFleet()` on the frontend side with the
+  `rw.ownerUsername || rw.ownerId` fallback (`FleetPage.tsx:206`).
+  `WorkspaceService` already has access to `s.users` (already used in
+  `Create`, `workspace_service.go:158`) — the same pattern applies
+  as-is.
+- **Identifying the admin's own workspaces**: compare
+  `ws.ownerId === user.id`, `user` coming from `useAuthStore((s) => s.user)`
+  on the frontend side (already this pattern in
+  `ConnectionSettingsDialog.tsx:31,52`).
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-1. **Backend** : ajoute `OwnerUsername string \`json:"ownerUsername,omitempty"\``à`model.Workspace`, et résous-le dans`WorkspaceService.List`uniquement pour la branche admin (inutile de payer un lookup
-supplémentaire quand un utilisateur non-admin ne voit que ses
-propres workspaces — il connaît déjà son propre nom). Reprends la
-map de cache par requête, comme`AdminList` — ne fais pas un lookup
-   par ligne sans cache.
-2. **Génère les types** : `make generate-types` (régénère
-   `frontend/src/types.gen.ts`, drift-checké en CI) plutôt que d'éditer
-   `types.gen.ts` à la main.
-3. **Frontend, `WorkspacesFleet()` (`FleetPage.tsx:108-169`)** :
-   - Récupère l'utilisateur courant (`useAuthStore((s) => s.user)`).
-   - Partitionne `workspaces.data.data` en deux : les workspaces dont
-     `ownerId === user?.id` (l'admin lui-même) et le reste.
-   - **Décidé — pas de dossier pour les workspaces de l'admin** : ses
-     propres workspaces restent dans une section à plat, non groupée
-     (« à ranger par l'admin lui-même » = pas de repli/organisation
-     imposée dessus, exactement comme un utilisateur normal voit les
-     siens sans dossiers).
-   - **Décidé — les workspaces des autres utilisateurs sont regroupés
-     par propriétaire** : une section/disclosure par `ownerId`,
-     l'en-tête affichant `ownerUsername || ownerId` (même fallback que
-     `RemoteFleet`), groupes triés alphabétiquement sur ce même libellé.
-     Garde les colonnes de table actuelles telles quelles à l'intérieur
-     de chaque groupe (pas de refonte des colonnes) ; la colonne
-     « owner » devient redondante à l'intérieur d'un groupe mais ne la
-     supprime pas sans nécessité — documente ton choix si tu la retires
-     (ex. pour éviter la répétition visuelle du même nom sur chaque
-     ligne d'un groupe).
-   - **Deux vues séparées vs une seule page à deux sections** : la
-     demande autorise les deux ; **par défaut**, préfère une seule page
-     avec deux sections empilées (« Mes workspaces » puis « Par
-     utilisateur », chaque groupe utilisateur repliable) plutôt que deux
-     onglets distincts — ça évite un aller-retour de navigation pour un
-     contenu qui reste la même ressource (le même `useWorkspaces()`).
-     Si en l'implémentant tu juges qu'un onglet séparé est nettement
-     plus lisible (ex. volumétrie importante), documente pourquoi dans
-     le commit plutôt que de trancher silencieusement.
-4. Garde le comportement de suppression (`remove.mutate`, L152-163)
-   identique quel que soit le groupe/section où la ligne apparaît.
+1. **Backend**: add `OwnerUsername string \`json:"ownerUsername,omitempty"\`` to `model.Workspace`, and resolve it in
+`WorkspaceService.List` only for the admin branch (no need to pay an extra
+lookup when a non-admin user only sees their own workspaces — they
+already know their own name). Reuse the per-request cache
+map, like `AdminList` — don't do a lookup
+   per row without caching.
+2. **Generate types**: `make generate-types` (regenerates
+   `frontend/src/types.gen.ts`, drift-checked in CI) rather than editing
+   `types.gen.ts` by hand.
+3. **Frontend, `WorkspacesFleet()` (`FleetPage.tsx:108-169`)**:
+   - Get the current user (`useAuthStore((s) => s.user)`).
+   - Partition `workspaces.data.data` into two: workspaces where
+     `ownerId === user?.id` (the admin themself) and the rest.
+   - **Decided — no folder for the admin's own workspaces**: their
+     own workspaces stay in a flat section, not grouped
+     ("to be organized by the admin themself" = no imposed
+     folding/organization on top, exactly like a normal user sees
+     their own without folders).
+   - **Decided — other users' workspaces are grouped
+     by owner**: one section/disclosure per `ownerId`,
+     the header showing `ownerUsername || ownerId` (same fallback as
+     `RemoteFleet`), groups sorted alphabetically on that same label.
+     Keep the current table columns as-is inside
+     each group (no column redesign); the "owner" column
+     becomes redundant inside a group but don't remove it without
+     necessity — document your choice if you do remove it
+     (e.g. to avoid visually repeating the same name on every
+     line of a group).
+   - **Two separate views vs. a single page with two sections**: the
+     request allows either; **by default**, prefer a single page
+     with two stacked sections ("My workspaces" then "By
+     user," each user group collapsible) rather than two
+     separate tabs — this avoids a navigation round-trip for
+     content that stays the same resource (the same `useWorkspaces()`).
+     If while implementing it you judge that a separate tab is clearly
+     more readable (e.g. large volume), document why in
+     the commit rather than silently deciding.
+4. Keep the deletion behavior (`remove.mutate`, L152-163)
+   identical regardless of the group/section where the row appears.
 
-## Contraintes
+## Constraints
 
-- Ne touche pas à `RemoteFleet()` ni `VolumesFleet()` — cette partie ne
-  concerne que l'onglet « workspaces » de la fleet.
-- Ne touche pas au filtrage serveur pour les non-admins
-  (`workspace_service.go:129-131`) — l'admin continue de recevoir la
-  liste complète non filtrée, seul l'enrichissement `OwnerUsername`
-  s'ajoute.
-- i18n : nouvelles clés sous `admin.fleetPage.*` (en/fr) pour les
-  libellés de section (« Mes workspaces » / « Par utilisateur » ou
-  équivalent retenu).
+- Don't touch `RemoteFleet()` or `VolumesFleet()` — this part only
+  concerns the "workspaces" tab of the fleet.
+- Don't touch the server-side filtering for non-admins
+  (`workspace_service.go:129-131`) — the admin continues to receive the
+  full unfiltered list, only the `OwnerUsername` enrichment
+  is added.
+- i18n: new keys under `admin.fleetPage.*` (en/fr) for the
+  section labels ("My workspaces" / "By user" or
+  the equivalent chosen).
 
 ## Tests
 
-- Go : `WorkspaceService.List` en tant qu'admin renvoie
-  `OwnerUsername` peuplé pour un owner existant, vide (`omitempty`) si
-  l'utilisateur a été supprimé entretemps (lookup en erreur — ne fais
-  pas échouer tout le `List` pour un owner introuvable, reproduis le
-  comportement best-effort de `AdminList`) ; en tant qu'utilisateur
-  non-admin, le champ n'a pas besoin d'être peuplé (documente si tu le
-  laisses vide plutôt que de payer le lookup).
-- Vitest, nouveau `FleetPage.test.tsx` (n'existe pas encore) : les
-  workspaces de l'admin connecté apparaissent dans la section à plat ;
-  les workspaces d'un autre owner apparaissent groupés sous son nom (ou
-  son id si `ownerUsername` absent) ; suppression fonctionne depuis les
-  deux sections.
-- `go build ./...` + tests Go sur `api-server` ; `tsc -b` + vitest sur
+- Go: `WorkspaceService.List` as an admin returns
+  `OwnerUsername` populated for an existing owner, empty (`omitempty`) if
+  the user has since been deleted (lookup error — don't
+  fail the whole `List` for a not-found owner, reproduce the
+  best-effort behavior of `AdminList`); as a non-admin
+  user, the field doesn't need to be populated (document whether you
+  leave it empty rather than paying the lookup).
+- Vitest, new `FleetPage.test.tsx` (doesn't exist yet): the logged-in
+  admin's workspaces appear in the flat section;
+  another owner's workspaces appear grouped under their name (or
+  their id if `ownerUsername` is absent); deletion works from both
+  sections.
+- `go build ./...` + Go tests on `api-server`; `tsc -b` + vitest on
   `frontend`.
 
-## Points ouverts (ton arbitrage)
+## Open points (your arbitration)
 
-- Deux sections sur une page vs deux onglets (arbitrage donné
-  ci-dessus, tranchable si tu trouves un signal fort en l'implémentant).
-  => un tab serait le mieux pour bine dissocier les workspace admin du reste du cluster, oragniasé par nom utilisater et non UUID uitlsateur
-- Conserver ou non la colonne « owner » à l'intérieur des groupes. que propose tu ?
+- Two sections on one page vs. two tabs (arbitration given
+  above, arbitrable if you find a strong signal while implementing it).
+  => a tab would be best to clearly separate the admin's workspaces from the
+  rest of the cluster, organized by username and not user UUID
+- Whether to keep the "owner" column inside the groups. What do you propose?
+</content>

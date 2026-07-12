@@ -1,123 +1,123 @@
-# Prompt Fable 5 — Fix : un seul composant YAML, celui du champ « workload (advanced) » fait foi
+# Fable 5 Prompt — Fix: a single YAML component, the one from the "workload (advanced)" field is authoritative
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context.
 
-## Contexte du repo
+## Repo context
 
-Le frontend a aujourd'hui **trois implémentations différentes** pour
-« afficher/éditer du YAML », sans convergence :
+The frontend today has **three different implementations** for
+"display/edit YAML," with no convergence:
 
 1. **`YamlEditor`** (`frontend/src/components/YamlEditor.tsx:86-161`) —
-   le composant le plus abouti : textarea transparente superposée à un
-   mirror avec coloration syntaxique ligne par ligne (`highlight()`,
-   L42-78), gouttière de numéros de ligne, surbrillance des lignes en
-   erreur, et validation live via `parseYaml()` (L21-37, parse AST avec
-   la lib `yaml`, `YamlIssue[]` ancrées à la ligne + un callback
-   `validate?` pour de la validation sémantique par-dessus la syntaxe).
-   Utilisé aujourd'hui à seulement deux endroits : le champ « workload
-   (advanced) » de `TemplatesPage.tsx` (section commentée `/* ----------------
-workload (advanced) ---------------- */`, L749-765, avec
-   `validateWorkload` L23-34 qui vérifie que c'est un mapping YAML et
-   que `kind` est `Deployment`/`StatefulSet`/`Pod`) et le champ policy de
-   `GovernancePage.tsx:488`. **Ne touche pas ces deux usages-là**, ils
-   sont déjà la référence.
-2. **Un `<textarea>` brut** pour le champ admin `kasmvncConfig`, **dans
-   le même fichier** `TemplatesPage.tsx:606-613` — aucune coloration,
-   aucune gouttière, aucune validation live, alors que 150 lignes plus
-   bas ce même fichier utilise `YamlEditor` pour le champ workload.
+   the most polished component: a transparent textarea overlaid on a
+   mirror with line-by-line syntax highlighting (`highlight()`,
+   L42-78), a line-number gutter, highlighting of lines in error, and
+   live validation via `parseYaml()` (L21-37, AST parse with
+   the `yaml` lib, `YamlIssue[]` anchored to the line + a `validate?`
+   callback for semantic validation on top of syntax). Used today at
+   only two places: the "workload (advanced)" field of
+   `TemplatesPage.tsx` (section commented `/* ----------------
+workload (advanced) ---------------- */`, L749-765, with
+   `validateWorkload` L23-34 which checks that it's a YAML mapping and
+   that `kind` is `Deployment`/`StatefulSet`/`Pod`) and the policy field of
+   `GovernancePage.tsx:488`. **Don't touch these two usages**, they
+   are already the reference.
+2. **A raw `<textarea>`** for the admin `kasmvncConfig` field, **in
+   the same file** `TemplatesPage.tsx:606-613` — no highlighting,
+   no gutter, no live validation, while 150 lines further down this
+   same file uses `YamlEditor` for the workload field.
 3. **`KasmVNCConfigView`** (`frontend/src/components/ProtocolTabs.tsx:182-209`)
-   — la vue lecture seule côté utilisateur : un simple
+   — the user-facing read-only view: a plain
    `<pre className="max-h-48 overflow-auto ...">{config}</pre>`
-   (L200-203), sans coloration ni numérotation. Deux variantes
-   `'template' | 'effective'` pilotent seulement le texte d'aide
-   au-dessus (L196-198), pas le rendu du bloc lui-même. Utilisé dans
-   `CreateWorkspaceDialog.tsx:447-451` (variant `'template'`, texte brut
-   du template, le workspace n'est pas encore né) et dans
-   `ConnectionSettingsDialog.tsx:204-208` (variant `'effective'`, le
-   contenu fusionné lu via `useWorkspaceKasmVNCConfig`, cf.
+   (L200-203), no highlighting or numbering. Two variants
+   `'template' | 'effective'` only drive the help text
+   above (L196-198), not the rendering of the block itself. Used in
+   `CreateWorkspaceDialog.tsx:447-451` (variant `'template'`, raw text
+   of the template, the workspace doesn't exist yet) and in
+   `ConnectionSettingsDialog.tsx:204-208` (variant `'effective'`, the
+   merged content read via `useWorkspaceKasmVNCConfig`, cf.
    `docs/studies/10-prompt-feature12-kasmvncconfig-admin-default-merge.md`
-   pour la fusion 3 couches côté contrôleur).
+   for the 3-layer merge on the controller side).
 
-**Décidé** : `YamlEditor` est le composant qui fait foi. Les usages 2 et
-3 doivent converger vers lui — pas l'inverse, et pas une quatrième
-implémentation.
+**Decided**: `YamlEditor` is the authoritative component. Usages 2 and
+3 must converge on it — not the other way around, and not a fourth
+implementation.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-1. **Ajoute un mode lecture seule à `YamlEditor`** (`YamlEditor.tsx`) :
-   un prop `readOnly?: boolean` qui pose l'attribut HTML `readOnly` sur
-   le `<textarea>` (L135-147) — garde la sélection/le scroll/le copier-
-   coller natifs, bloque juste la saisie. Le prop `onChange` reste
-   requis dans la signature (pas de refactor de l'API), les appelants
-   lecture-seule passeront un no-op (`() => {}`) — c'est le choix le
-   plus simple, ne complique pas la signature pour un cas qui n'a pas
-   besoin d'être optionnel. Garde le gutter et la coloration actifs en
-   lecture seule (c'est tout l'intérêt de la bascule vers ce
-   composant) ; le panneau d'erreurs (L149-158) ne s'affiche que si
-   l'appelant passe un `validate`, ce qui restera le cas par défaut pour
-   les deux vues lecture seule ci-dessous (pas de `validate` passé =
-   pas de panneau, comportement inchangé pour elles).
-2. **`kasmvncConfig` admin (`TemplatesPage.tsx:606-613`)** : remplace le
-   `<textarea>` par `<YamlEditor value={input.kasmvncConfig ?? ''}
+1. **Add a read-only mode to `YamlEditor`** (`YamlEditor.tsx`): a
+   `readOnly?: boolean` prop that sets the HTML `readOnly` attribute on
+   the `<textarea>` (L135-147) — keep native selection/scroll/copy-
+   paste, just block typing. The `onChange` prop stays required in the
+   signature (no API refactor), read-only callers will pass a
+   no-op (`() => {}`) — that's the simplest choice, don't complicate the
+   signature for a case that doesn't need to be optional. Keep the
+   gutter and highlighting active in read-only mode (that's the whole
+   point of switching to this component); the error panel
+   (L149-158) only shows if the caller passes a `validate`, which will
+   remain the default for the two read-only views below (no `validate`
+   passed = no panel, unchanged behavior for them).
+2. **Admin `kasmvncConfig` (`TemplatesPage.tsx:606-613`)**: replace the
+   `<textarea>` with `<YamlEditor value={input.kasmvncConfig ?? ''}
 onChange={(text) => set({ kasmvncConfig: text })} rows={8} validate={...} />`.
-   Écris `validateKasmVNCConfig` sur le même modèle que
-   `validateWorkload` (L23-34) mais plus léger : vérifie uniquement que
-   le contenu parsé est un mapping YAML (objet, pas un scalaire ni une
-   liste) quand le texte n'est pas vide — **ne duplique pas** la
-   validation des 3 clés clipboard-DLP interdites (webhook
-   `workspacetemplate_webhook.go:150-167`) : la Feature 12 a déjà tranché
-   ce point (« pas de validation dupliquée côté client, juste ne pas
-   surprendre l'admin sur le retour d'erreur ») — le webhook renvoie
-   déjà un message explicite en cas de tentative, laisse ce chemin
-   d'erreur tel quel.
-3. **Vue lecture seule utilisateur (`KasmVNCConfigView`,
-   `ProtocolTabs.tsx:182-209`)** : remplace le `<pre>` (L200-203) par
+   Write `validateKasmVNCConfig` on the same model as
+   `validateWorkload` (L23-34) but lighter: only check that
+   the parsed content is a YAML mapping (an object, not a scalar or a
+   list) when the text isn't empty — **don't duplicate** the
+   validation of the 3 forbidden clipboard-DLP keys (webhook
+   `workspacetemplate_webhook.go:150-167`): Feature 12 already settled
+   this point ("no client-side duplicated validation, just don't
+   surprise the admin about the error response") — the webhook already
+   returns an explicit message on any attempt, leave this error path
+   as-is.
+3. **User read-only view (`KasmVNCConfigView`,
+   `ProtocolTabs.tsx:182-209`)**: replace the `<pre>` (L200-203) with
    `<YamlEditor value={config} onChange={() => {}} readOnly rows={...} />`,
-   à l'intérieur du même `if (config.trim() !== '')` — garde le message
-   italique « vide » (L204-205) inchangé pour le cas vide, ne fais pas
-   passer une chaîne vide dans `YamlEditor` pour ce cas-là. Calcule
-   `rows` dynamiquement à partir du nombre de lignes du contenu, clampé
-   pour rester visuellement proche de l'ancien `max-h-48` (~12rem ; avec
-   `lineHeight: 1.25rem` dans `YamlEditor`, ça correspond à environ 9-10
-   lignes visibles avant scroll interne) plutôt qu'un nombre de lignes
-   fixe arbitraire — un template avec 3 lignes de config ne doit pas
-   afficher un cadre vide de 10 lignes.
-4. Les deux textes d'aide selon `variant` (L196-198) et le titre
-   (L192-194) restent inchangés — seule la zone de rendu du contenu
-   change de composant.
+   inside the same `if (config.trim() !== '')` — keep the italic
+   "empty" message (L204-205) unchanged for the empty case, don't
+   pass an empty string into `YamlEditor` for that case. Compute
+   `rows` dynamically from the content's line count, clamped
+   to stay visually close to the old `max-h-48` (~12rem; with
+   `lineHeight: 1.25rem` in `YamlEditor`, that corresponds to about 9-10
+   visible lines before internal scroll) rather than an arbitrary
+   fixed line count — a template with 3 lines of config shouldn't
+   display an empty 10-line frame.
+4. The two help texts per `variant` (L196-198) and the title
+   (L192-194) remain unchanged — only the content rendering area
+   changes component.
 
-## Contraintes
+## Constraints
 
-- N'ajoute pas de nouvelle dépendance (pas de Monaco/CodeMirror) — le
-  CSP interdit les CDN, `YamlEditor` est déjà 100% local, c'est
-  précisément pourquoi c'est lui la référence.
-- Ne touche pas aux deux usages déjà sur `YamlEditor` (`TemplatesPage.tsx`
+- Don't add a new dependency (no Monaco/CodeMirror) — the
+  CSP forbids CDNs, `YamlEditor` is already 100% local, that's
+  precisely why it's the reference.
+- Don't touch the two usages already on `YamlEditor` (`TemplatesPage.tsx`
   workload, `GovernancePage.tsx`).
-- i18n : aucune nouvelle chaîne attendue (les textes d'aide existants ne
-  bougent pas) sauf si tu ajoutes un message d'erreur pour
-  `validateKasmVNCConfig` — dans ce cas, clé sous
-  `admin.templatesPage.*` dans `en.json`/`fr.json`, comme le reste du
-  fichier.
+- i18n: no new string expected (the existing help texts don't
+  move) unless you add an error message for
+  `validateKasmVNCConfig` — in that case, a key under
+  `admin.templatesPage.*` in `en.json`/`fr.json`, like the rest of the
+  file.
 
 ## Tests
 
-- `YamlEditor.test.ts` : le mode `readOnly` bloque bien la saisie
-  (l'attribut est posé) sans casser le rendu de la coloration/gutter.
-- `TemplatesPage.test.tsx` : le champ `kasmvncConfig` reste
-  fonctionnel en round-trip save/reload une fois migré sur
-  `YamlEditor` (le test existant tapait probablement dans un
-  `<textarea>` par role/testid — adapte le sélecteur, ne supprime pas
-  le test).
-- `ProtocolTabs.test.ts` (ou nouveau test si absent pour
-  `KasmVNCConfigView`) : le rendu non-vide passe bien par `YamlEditor`
-  en lecture seule (pas d'`onChange` déclenché par une frappe utilisateur
-  simulée), le rendu vide garde le message italique.
-- `tsc -b` sur `frontend`.
+- `YamlEditor.test.ts`: the `readOnly` mode does block typing
+  (the attribute is set) without breaking the highlighting/gutter rendering.
+- `TemplatesPage.test.tsx`: the `kasmvncConfig` field stays
+  functional in a save/reload round-trip once migrated onto
+  `YamlEditor` (the existing test probably typed into a
+  `<textarea>` by role/testid — adapt the selector, don't remove
+  the test).
+- `ProtocolTabs.test.ts` (or a new test if none exists for
+  `KasmVNCConfigView`): the non-empty rendering does go through `YamlEditor`
+  in read-only mode (no `onChange` triggered by a simulated user
+  keystroke), the empty rendering keeps the italic message.
+- `tsc -b` on `frontend`.
 
-## Points ouverts (ton arbitrage)
+## Open points (your arbitration)
 
-- Nombre exact de `rows` par défaut pour la vue lecture seule (formule
-  de clamp précise) — donne la priorité à ne pas afficher un cadre
-  disproportionné par rapport au contenu réel. => arbitrage, en 7 rows ,mais l'utilisaeur doit pouvoir scroller dedans
+- Exact default `rows` count for the read-only view (precise clamp
+  formula) — give priority to not displaying a frame
+  disproportionate to the actual content. => arbitration, 7 rows, but the user
+  must be able to scroll inside it
+</content>

@@ -1,84 +1,84 @@
-# Prompt Fable 5 — Feature 1 : reconfiguration runtime d'un workspace + indicateur de changement en attente
+# Fable 5 Prompt — Feature 1: runtime reconfiguration of a workspace + pending-change indicator
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du principe que tu (Fable 5) n'as aucun contexte de conversation préalable — tout ce qui est nécessaire est ci-dessous ou dans les fichiers référencés.
+Paste this document as-is as an implementation prompt. It assumes you (Fable 5) have no prior conversation context — everything needed is below or in the referenced files.
 
-## Contexte du repo
+## Repo context
 
-WaaS est une plateforme K8s-native de "workspace as a service" (bureaux distants VNC/RDP/SSH/KasmVNC provisionnés via un opérateur Go controller-runtime). Composants : `operator/` (CRDs `Workspace`/`WorkspaceTemplate`/`WorkspacePolicy`/`WorkspaceImage` + reconcilers + webhooks + la bibliothèque de gouvernance partagée `operator/pkg/policy`), `api-server/` (backend REST chi, consomme `operator/api/v1alpha1` + `operator/pkg/*`), `frontend/` (React 19 + TS strict + react-query), `wwt/` (proxy websocket).
+WaaS is a K8s-native "workspace as a service" platform (remote VNC/RDP/SSH/KasmVNC desktops provisioned via a Go controller-runtime operator). Components: `operator/` (CRDs `Workspace`/`WorkspaceTemplate`/`WorkspacePolicy`/`WorkspaceImage` + reconcilers + webhooks + the shared governance library `operator/pkg/policy`), `api-server/` (chi REST backend, consumes `operator/api/v1alpha1` + `operator/pkg/*`), `frontend/` (React 19 + strict TS + react-query), `wwt/` (websocket proxy).
 
-Lis d'abord `docs/adr/0001-template-boundary-convergence.md` — c'est la doctrine centrale sur laquelle cette feature s'appuie : un `WorkspaceTemplate` édité (ou les overrides d'un `Workspace`) ne convergent vers le workload vivant (Deployment/StatefulSet/Pod) qu'aux frontières de scale-up (pause→reprise, arrêt planifié→reprise). En session, la dérive est **signalée, jamais appliquée**. Ce mécanisme existe déjà et fonctionne pour les deux sources de dérive (template ET overrides du workspace), car `buildPodTemplate` (`operator/internal/controller/workload.go:36+`) consomme les deux pour construire le fingerprint de dérive (`podTemplateFingerprint`, comparé dans `ensureDeployment`/`ensureStatefulSet`/`ensurePod`).
+First read `docs/adr/0001-template-boundary-convergence.md` — this is the core doctrine this feature relies on: an edited `WorkspaceTemplate` (or a `Workspace`'s overrides) only converge onto the live workload (Deployment/StatefulSet/Pod) at scale-up boundaries (pause→resume, scheduled stop→resume). In-session, drift is **signaled, never applied**. This mechanism already exists and works for both sources of drift (template AND workspace overrides), since `buildPodTemplate` (`operator/internal/controller/workload.go:36+`) consumes both to build the drift fingerprint (`podTemplateFingerprint`, compared in `ensureDeployment`/`ensureStatefulSet`/`ensurePod`).
 
-## Ce qui existe déjà (à connaître avant de coder)
+## What already exists (know this before coding)
 
-**Gouvernance des overrides (déjà complète, ne pas dupliquer) :**
-- `operator/api/v1alpha1/workspace_types.go` : `WorkspaceOverrides` porte déjà `Env`, `SecurityContext`, `PodSecurityContext`, `Volumes`, `VolumeMounts`, `NodeSelector`, `Tolerations`, `Protocol`, `Schedule`, `Labels`, `Annotations`. `WorkspaceSpec.Resources *corev1.ResourceRequirements` est un champ séparé (non-nil = override, présence testée jamais valeurs — voir commentaire `specClaims` dans `operator/pkg/policy/overrides.go`).
-- `operator/pkg/policy/overrides.go` est LE registre unique reliant chaque champ JSON à un `OverridableField` (`FieldEnv`, `FieldNodeSelector`, `FieldTolerations`, `FieldResources`, etc.) et `CheckOverrides` calcule l'usage par réflexion — **zéro code de gouvernance à écrire côté toi**, le webhook d'admission (`operator/internal/webhook`) revalide automatiquement toute mise à jour du CR `Workspace`, y compris une mise à jour faite après création.
-- Le front calcule déjà côté `CreateWorkspaceDialog.tsx:174-177` le pattern de gating :
+**Overrides governance (already complete, do not duplicate):**
+- `operator/api/v1alpha1/workspace_types.go`: `WorkspaceOverrides` already carries `Env`, `SecurityContext`, `PodSecurityContext`, `Volumes`, `VolumeMounts`, `NodeSelector`, `Tolerations`, `Protocol`, `Schedule`, `Labels`, `Annotations`. `WorkspaceSpec.Resources *corev1.ResourceRequirements` is a separate field (non-nil = override, presence is tested, never values — see the `specClaims` comment in `operator/pkg/policy/overrides.go`).
+- `operator/pkg/policy/overrides.go` is THE single registry mapping each JSON field to an `OverridableField` (`FieldEnv`, `FieldNodeSelector`, `FieldTolerations`, `FieldResources`, etc.) and `CheckOverrides` computes usage via reflection — **zero governance code for you to write**, the admission webhook (`operator/internal/webhook`) automatically revalidates every update of the `Workspace` CR, including an update made after creation.
+- The frontend already computes the gating pattern at `CreateWorkspaceDialog.tsx:174-177`:
   ```ts
   const policyAllows = (field) => !q?.allowedOverrides || q.allowedOverrides.includes(field);
   const canOverride = (field) => isAdmin || ((template?.allowedOverrides?.includes(field) ?? false) && policyAllows(field));
   ```
-  `q` vient de `useQuota()` (policy-level `allowedOverrides`), `template` de `useTemplates()` (template-level `allowedOverrides`). **Réutilise ce pattern tel quel** pour griser les champs non autorisés — c'est exactement le mécanisme demandé ("uniquement si le WorkspaceTemplate l'y autorise, auquel cas les options devront être grisées").
-- `Workspace.templateRef` existe déjà dans `frontend/src/types.gen.ts:190` — un `ConnectionSettingsDialog` peut donc résoudre le template via `useTemplates().data?.data.find(t => t.name === workspace.templateRef)` exactement comme le fait la création.
+  `q` comes from `useQuota()` (policy-level `allowedOverrides`), `template` from `useTemplates()` (template-level `allowedOverrides`). **Reuse this pattern as-is** to gray out disallowed fields — it's exactly the mechanism requested ("only if the WorkspaceTemplate allows it, in which case the options must be grayed out").
+- `Workspace.templateRef` already exists in `frontend/src/types.gen.ts:190` — so a `ConnectionSettingsDialog` can resolve the template via `useTemplates().data?.data.find(t => t.name === workspace.templateRef)` exactly like creation does.
 
-**UI existante à réutiliser (ne pas réinventer) :**
-- Éditeur de resources (sliders CPU/mémoire bornés) : `CreateWorkspaceDialog.tsx:329-443`.
-- Éditeur d'env (liste de lignes name/value, add/remove) : `CreateWorkspaceDialog.tsx:444-500`.
-- Il n'existe **aucune UI aujourd'hui** pour `nodeSelector`/`tolerations` (nulle part dans le repo — seulement éditable en YAML brut dans l'éditeur de template admin, `TemplatesPage.tsx`). C'est le seul morceau réellement nouveau visuellement : un éditeur clé/valeur pour `nodeSelector` (même UX que les lignes env) et un petit éditeur de liste pour `tolerations` (`{key, operator, value, effect, tolerationSeconds}` par ligne — cf. `corev1.Toleration`).
-- `ConnectionSettingsDialog.tsx` actuel : un seul niveau d'onglets, un par protocole (`ProtocolTabs`/`ProtocolParamsForm`, `frontend/src/components/ProtocolTabs.tsx`).
+**Existing UI to reuse (do not reinvent):**
+- Resources editor (bounded CPU/memory sliders): `CreateWorkspaceDialog.tsx:329-443`.
+- Env editor (list of name/value rows, add/remove): `CreateWorkspaceDialog.tsx:444-500`.
+- There is **no UI today** for `nodeSelector`/`tolerations` (nowhere in the repo — only editable as raw YAML in the admin template editor, `TemplatesPage.tsx`). This is the only truly new piece visually: a key/value editor for `nodeSelector` (same UX as the env rows) and a small list editor for `tolerations` (`{key, operator, value, effect, tolerationSeconds}` per row — cf. `corev1.Toleration`).
+- Current `ConnectionSettingsDialog.tsx`: a single level of tabs, one per protocol (`ProtocolTabs`/`ProtocolParamsForm`, `frontend/src/components/ProtocolTabs.tsx`).
 
-**Le badge de dérive existe déjà, partiellement :**
-- Backend : `model.Workspace.TemplateDrifted bool` (`api-server/internal/model/model.go:199-203`), alimenté par le `drifted` retourné par `ensureWorkload`/`ensureDeployment` etc.
-- Frontend : badge ambre cliquable-non-actionnable dans `SessionCard.tsx:90-104`, avec tooltip statique (`portal.drift.badge`/`portal.drift.full` dans `frontend/src/i18n/locales/{en,fr}.json:106-109`). Le texte actuel ("Le modèle de ce workspace a été mis à jour...") ne couvre QUE le cas template — à généraliser puisque la Feature ci-dessous permettra aussi de faire dériver un workspace via ses propres overrides.
-- Pas de déclencheur manuel aujourd'hui : la seule façon de forcer la convergence est de suspendre puis reprendre le workspace via `useWorkspaceAction()` (`POST /api/v1/workspaces/{id}/pause` puis `.../resume`, `frontend/src/hooks/useApi.ts:170-177`), qui stamp `AnnotationManualStateAt` — pertinent pour la règle B du scheduler (`docs/workspace-lifecycle.md`), mais un enchaînement pause+resume manuel depuis le front n'est pas un "reload" propre : il modifie l'intention de pause persistante et l'annotation qui pilote la résolution de conflit avec le planning cron, alors que l'utilisateur veut juste forcer une convergence ponctuelle sans toucher à son planning.
+**The drift badge already exists, partially:**
+- Backend: `model.Workspace.TemplateDrifted bool` (`api-server/internal/model/model.go:199-203`), fed by the `drifted` value returned by `ensureWorkload`/`ensureDeployment` etc.
+- Frontend: clickable-but-non-actionable amber badge in `SessionCard.tsx:90-104`, with a static tooltip (`portal.drift.badge`/`portal.drift.full` in `frontend/src/i18n/locales/{en,fr}.json:106-109`). The current text ("This workspace's template has been updated...") covers ONLY the template case — needs generalizing since the Feature below will also allow a workspace to drift via its own overrides.
+- No manual trigger today: the only way to force convergence is to suspend then resume the workspace via `useWorkspaceAction()` (`POST /api/v1/workspaces/{id}/pause` then `.../resume`, `frontend/src/hooks/useApi.ts:170-177`), which stamps `AnnotationManualStateAt` — relevant to scheduler rule B (`docs/workspace-lifecycle.md`), but a manual pause+resume sequence from the frontend isn't a clean "reload": it changes the persistent pause intent and the annotation that drives conflict resolution with the cron schedule, whereas the user just wants to force a one-off convergence without touching their schedule.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### A. Onglet "Workspace" dans Connection Settings — reconfiguration runtime
+### A. "Workspace" tab in Connection Settings — runtime reconfiguration
 
-Le menu "connection settings" d'un workspace (`ConnectionSettingsDialog.tsx`) doit gagner un niveau d'onglets au-dessus des onglets protocole actuels : **"Connexion"** (ce qui existe déjà — les onglets VNC/RDP/SSH) et **"Workspace"** (nouveau).
+The "connection settings" menu for a workspace (`ConnectionSettingsDialog.tsx`) must gain a level of tabs above the current protocol tabs: **"Connection"** (what already exists — the VNC/RDP/SSH tabs) and **"Workspace"** (new).
 
-L'onglet "Workspace" permet de modifier, sur un workspace déjà instancié :
-- les variables d'environnement (`overrides.env`),
-- le placement (`overrides.nodeSelector` + `overrides.tolerations` — c'est le "nodePlacement" demandé),
-- les ressources (`spec.resources`, CPU/mémoire).
+The "Workspace" tab allows editing, on an already-instantiated workspace:
+- environment variables (`overrides.env`),
+- placement (`overrides.nodeSelector` + `overrides.tolerations` — this is the requested "nodePlacement"),
+- resources (`spec.resources`, CPU/memory).
 
-Chaque groupe de champs est actionnable seulement si `canOverride(field)` est vrai pour le champ concerné (`FieldEnv`, `FieldNodeSelector`, `FieldTolerations`, `FieldResources` — mappe direct sur le registre `operator/pkg/policy/overrides.go`) ; sinon grisé, avec une explication (le pattern `portal.fixedSizing` existe déjà côté `PortalPage.tsx` pour le cas "resources non autorisé à la création" — inspire-t'en pour le libellé "non autorisé par ce modèle/cette politique").
+Each field group is actionable only if `canOverride(field)` is true for the field in question (`FieldEnv`, `FieldNodeSelector`, `FieldTolerations`, `FieldResources` — maps directly onto the `operator/pkg/policy/overrides.go` registry); otherwise grayed out, with an explanation (the `portal.fixedSizing` pattern already exists on `PortalPage.tsx` for the "resources not allowed at creation" case — draw inspiration from it for the "not allowed by this template/policy" label).
 
-**Backend — nouvel endpoint à créer** (rien de tel n'existe aujourd'hui, seuls `Create`/`Get`/`Delete`/`Pause`/`Resume`/`Connect`/volumes existent dans `WorkspaceHandler`) :
-- `PATCH /api/v1/workspaces/{id}/overrides`, corps `{ env?, nodeSelector?, tolerations?, resources? }`.
-- Nouvelle méthode `WorkspaceService.UpdateOverrides(ctx, actor, id, in)` : `fetchByID` (vérifie déjà la propriété), applique les champs fournis sur `ws.Spec.Overrides`/`ws.Spec.Resources` (remplacement complet du champ fourni, pas de fusion partielle — cohérent avec la sémantique "présence = override" déjà en place), `s.kube.Update(ctx, ws)`. Le webhook refait la vérification `CheckOverrides` automatiquement (comme pour `SetPaused`) : réutilise le helper `policyDenial(err)` déjà utilisé dans `SetPaused` (`workspace_service.go:352-378`) pour retourner un 403 `[ReasonCode]` propre côté API si le champ n'est en fait pas autorisé (défense en profondeur, le front ne doit pas être la seule ligne).
-- Audit : suit le même principe que l'audit `workspace.overrides_applied` évoqué pour la création (noms de champs modifiés seulement, **jamais les valeurs d'env** — contrainte existante à respecter).
+**Backend — new endpoint to create** (nothing like this exists today, only `Create`/`Get`/`Delete`/`Pause`/`Resume`/`Connect`/volumes exist on `WorkspaceHandler`):
+- `PATCH /api/v1/workspaces/{id}/overrides`, body `{ env?, nodeSelector?, tolerations?, resources? }`.
+- New method `WorkspaceService.UpdateOverrides(ctx, actor, id, in)`: `fetchByID` (already checks ownership), applies the supplied fields onto `ws.Spec.Overrides`/`ws.Spec.Resources` (full replacement of the supplied field, no partial merge — consistent with the "presence = override" semantics already in place), `s.kube.Update(ctx, ws)`. The webhook automatically redoes the `CheckOverrides` check (as for `SetPaused`): reuse the `policyDenial(err)` helper already used in `SetPaused` (`workspace_service.go:352-378`) to return a clean 403 `[ReasonCode]` on the API side if the field is in fact not allowed (defense in depth, the frontend must not be the only line of defense).
+- Audit: follows the same principle as the `workspace.overrides_applied` audit mentioned for creation (only the names of the modified fields, **never env values** — existing constraint to respect).
 
-Aucune modification de `operator/pkg/policy` ni du webhook n'est nécessaire : c'est le même CR, la même voie d'admission Update que `Pause`/`Resume` empruntent déjà.
+No change to `operator/pkg/policy` or the webhook is needed: it's the same CR, the same Update admission path that `Pause`/`Resume` already use.
 
-### B. Icône de changement en attente + reload manuel, à côté du statut "running"
+### B. Pending-change icon + manual reload, next to the "running" status
 
-Sur la card d'un workspace (`SessionCard.tsx`), quand une dérive est en attente (`target.templateDrifted`, que la cause soit un template édité **ou** un changement fait via la Feature A ci-dessus), l'icône doit :
-1. Être visible à côté du badge de statut (c'est déjà le cas — étendre le badge existant, ne pas en créer un second).
-2. Afficher au survol un tooltip **à puces** expliquant : ce qui va changer et pourquoi (généraliser le texte actuel qui ne parle que du template), et que ça s'applique automatiquement à la prochaine bascule scale-down/scale-up (pause/reprise ou arrêt planifié — texte déjà correct, à garder).
-3. Être cliquable pour déclencher un **reload manuel immédiat** (scale-down puis scale-up forcé), avec confirmation ("le bureau va redémarrer, le travail non sauvegardé sera perdu").
+On a workspace's card (`SessionCard.tsx`), when a drift is pending (`target.templateDrifted`, whether the cause is an edited template **or** a change made via Feature A above), the icon must:
+1. Be visible next to the status badge (already the case — extend the existing badge, do not create a second one).
+2. On hover, show a **bulleted** tooltip explaining: what is going to change and why (generalize the current text which only talks about the template), and that it will apply automatically on the next scale-down/scale-up transition (pause/resume or scheduled stop — text already correct, keep it).
+3. Be clickable to trigger an **immediate manual reload** (forced scale-down then scale-up), with confirmation ("the desktop will restart, unsaved work will be lost").
 
-**Backend — mécanisme suggéré** (à toi d'ajuster si tu trouves plus propre, mais reste dans l'idiome déjà établi par le repo : des annotations comme signal d'action one-shot consommé par le reconciler — voir `AnnotationManualStateAt`, `waas.xorhub.io/delete-home`, le label `waas.xorhub.io/cleanup`) :
-- `POST /api/v1/workspaces/{id}/reload` (nouvelle route/handler/service method, à côté de `Pause`/`Resume`). **Ne touche pas `spec.paused` ni `AnnotationManualStateAt`** — un reload ne doit pas interférer avec la résolution de conflit du scheduler (règle B, `docs/workspace-lifecycle.md`) ni avec l'intention de pause de l'utilisateur.
-- Stamp une annotation dédiée (ex. `waas.xorhub.io/reload-requested-at=<RFC3339>`) sur le CR.
-- Dans le reconciler (`operator/internal/controller/workload.go`), quand cette annotation est plus récente que la dernière application connue et que le workload tourne (`!paused`), force une frontière de convergence ponctuelle : scale à 0 puis 1 (Deployment/StatefulSet) ou recréation (Pod) — réutilise le chemin déjà emprunté par la branche `wasDown || want == 0` de `ensureDeployment` (`workload.go:~240`), puis nettoie l'annotation une fois appliqué. Émets un Event K8s (`WorkloadReloaded`) en cohérence avec les autres transitions déjà instrumentées (`Provisioning`/`Ready`/`Paused`/`Stopped`/`TemplateDrifted`).
-- Ajoute un test dans le style de `operator/internal/controller/kasm_config_test.go` (`TestKasmConfigBoundaryConvergence`) pour ce nouveau chemin.
+**Backend — suggested mechanism** (feel free to adjust if you find something cleaner, but stay within the idiom already established by the repo: annotations as a one-shot action signal consumed by the reconciler — see `AnnotationManualStateAt`, `waas.xorhub.io/delete-home`, the `waas.xorhub.io/cleanup` label):
+- `POST /api/v1/workspaces/{id}/reload` (new route/handler/service method, next to `Pause`/`Resume`). **Do not touch `spec.paused` or `AnnotationManualStateAt`** — a reload must not interfere with the scheduler's conflict resolution (rule B, `docs/workspace-lifecycle.md`) nor with the user's pause intent.
+- Stamp a dedicated annotation (e.g. `waas.xorhub.io/reload-requested-at=<RFC3339>`) on the CR.
+- In the reconciler (`operator/internal/controller/workload.go`), when this annotation is more recent than the last known application and the workload is running (`!paused`), force a one-off convergence boundary: scale to 0 then 1 (Deployment/StatefulSet) or recreate (Pod) — reuse the path already taken by the `wasDown || want == 0` branch of `ensureDeployment` (`workload.go:~240`), then clear the annotation once applied. Emit a K8s Event (`WorkloadReloaded`) consistent with the other already-instrumented transitions (`Provisioning`/`Ready`/`Paused`/`Stopped`/`TemplateDrifted`).
+- Add a test in the style of `operator/internal/controller/kasm_config_test.go` (`TestKasmConfigBoundaryConvergence`) for this new path.
 
-**Frontend :**
-- Nouveau hook `useReloadWorkspace()` (même forme que `useWorkspaceAction`, `frontend/src/hooks/useApi.ts:170-177`), `POST /api/v1/workspaces/{id}/reload`.
-- Le "reload" est une capacité workspace-only (les workspaces distants n'ont pas de dérive de template) : ajoute-le au modèle `SessionTarget`/`capabilities` (`frontend/src/lib/target.ts`) suivant la règle documentée dans `docs/frontend-capabilities.md` ("How this shapes future features" — matrice de validation à mettre à jour), plutôt que de le brancher en dur dans `SessionCard`.
-- Mets à jour `portal.drift.badge`/`portal.drift.full` (en/fr) pour couvrir les deux causes de dérive, et ajoute les clés du nouveau flux (confirmation, succès, erreur).
+**Frontend:**
+- New hook `useReloadWorkspace()` (same shape as `useWorkspaceAction`, `frontend/src/hooks/useApi.ts:170-177`), `POST /api/v1/workspaces/{id}/reload`.
+- "Reload" is a workspace-only capability (remote workspaces have no template drift): add it to the `SessionTarget`/`capabilities` model (`frontend/src/lib/target.ts`) following the rule documented in `docs/frontend-capabilities.md` ("How this shapes future features" — validation matrix to update), rather than hardwiring it into `SessionCard`.
+- Update `portal.drift.badge`/`portal.drift.full` (en/fr) to cover both causes of drift, and add the keys for the new flow (confirmation, success, error).
 
-## Contraintes à respecter
+## Constraints to respect
 
-- Le repo n'a **aucun TODO/FIXME** et le préfère ainsi (audit `docs/studies/audit-2026-07.md`) — livre complet ou pas du tout, pas de stub.
-- Tests obligatoires : Go (`UpdateOverrides` service + handler + le nouveau chemin reconciler) et frontend (vitest — le hook, le gating `canOverride`, le badge). Le repo mesure sa couverture par zone ; ne baisse pas la barre existante.
-- `gofmt` propre, `tsc -b` sans erreur (`strict: true`, zéro `any`), pas de nouveau `console.log`.
-- Mets à jour la documentation existante plutôt que d'en créer une nouvelle isolée : `docs/adr/0001-template-boundary-convergence.md` (note additive sur le reload manuel), `docs/workspace-lifecycle.md`, `docs/frontend-capabilities.md`.
-- i18n : toute chaîne visible passe par `frontend/src/i18n/locales/{en,fr}.json`, jamais de texte en dur dans les composants.
+- The repo has **no TODO/FIXME** and prefers it that way (audit `docs/studies/audit-2026-07.md`) — deliver complete or not at all, no stubs.
+- Tests mandatory: Go (`UpdateOverrides` service + handler + the new reconciler path) and frontend (vitest — the hook, the `canOverride` gating, the badge). The repo measures coverage per area; do not lower the existing bar.
+- Clean `gofmt`, `tsc -b` with no errors (`strict: true`, zero `any`), no new `console.log`.
+- Update existing documentation rather than creating a new isolated one: `docs/adr/0001-template-boundary-convergence.md` (additive note on manual reload), `docs/workspace-lifecycle.md`, `docs/frontend-capabilities.md`.
+- i18n: every visible string goes through `frontend/src/i18n/locales/{en,fr}.json`, never hardcoded text in components.
 
-## Points ouverts (ton arbitrage)
+## Open points (your call)
 
-- Faut-il distinguer dans le tooltip "c'est le template qui a changé" vs "ce sont vos propres réglages qui ont changé" ? Le signal backend actuel est un seul booléen (`TemplateDrifted`) qui ne fait pas cette distinction. Un texte générique ("la configuration de ce workspace a changé") couvre le besoin fonctionnel sans backend supplémentaire ; distinguer les deux est un nice-to-have, pas un blocant.
-- Forme exacte du mini-éditeur de `tolerations` (une ligne par tolération avec les 4-5 champs, ou un textarea JSON minimal comme fallback) : les deux sont défendables, choisis en cohérence avec le reste de la page.
+- Should the tooltip distinguish "it's the template that changed" from "it's your own settings that changed"? The current backend signal is a single boolean (`TemplateDrifted`) that doesn't make this distinction. Generic text ("this workspace's configuration has changed") covers the functional need without additional backend work; distinguishing the two is a nice-to-have, not a blocker.
+- Exact shape of the `tolerations` mini-editor (one row per toleration with the 4-5 fields, or a minimal JSON textarea as a fallback): both are defensible, choose whichever is consistent with the rest of the page.

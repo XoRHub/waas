@@ -1,80 +1,81 @@
-# Diagnostic — session VNC inutilisable (artefacts noirs, aucun input)
+# Diagnostic — unusable VNC session (black artifacts, no input)
 
-**Statut : corrigé.** Concerne toute session guacd (VNC **et** RDP, SSH à venir) :
-le défaut était dans le proxy WebSocket, pas dans le protocole desktop.
+**Status: fixed.** Affects every guacd session (VNC **and** RDP, SSH pending):
+the bug was in the WebSocket proxy, not in the desktop protocol.
 
-## Symptômes
+## Symptoms
 
-- L'écran distant s'affiche partiellement, couvert de zones noires.
-- Souris et clavier sans effet (ou clics décalés).
-- Écran qui gèle après quelques secondes ; parfois déconnexion sèche.
+- The remote screen displays partially, covered with black
+  patches.
+- Mouse and keyboard have no effect (or clicks land offset).
+- Screen freezes after a few seconds; sometimes a hard disconnect.
 
-## Cause racine
+## Root cause
 
-`wwt` relayait le flux guacd → navigateur par blocs TCP bruts de 32 Ko,
-chacun envoyé tel quel comme message WebSocket (`proxy.pipe()`).
+`wwt` relayed the guacd → browser stream in raw 32KB TCP chunks,
+each sent as-is as a single WebSocket message (`proxy.pipe()`).
 
-Or guacamole-common-js (`Guacamole.WebSocketTunnel.onmessage`) parse **chaque
-message WebSocket comme une suite autonome d'instructions complètes** — c'est
-un invariant du transport WebSocket de Guacamole, garanti dans la stack
-officielle par le tunnel serveur qui découpe aux frontières d'instructions.
-Un message coupé au milieu d'une instruction produit :
+But guacamole-common-js (`Guacamole.WebSocketTunnel.onmessage`) parses **each
+WebSocket message as a self-contained sequence of complete
+instructions** — this is an invariant of Guacamole's WebSocket transport,
+guaranteed in the official stack by the server-side tunnel that splits
+at instruction boundaries. A message cut mid-instruction produces:
 
-- au mieux des éléments parasites, silencieusement ignorés par le client →
-  instructions de dessin (`png`/`blob`) perdues → **zones noires** ;
-- la perte des `sync`/acks → guacd cesse d'envoyer des frames → **gel** ;
-- au pire `close_tunnel("Incomplete instruction")` → le tunnel droppe
-  silencieusement tout envoi ultérieur → **plus de souris ni clavier** alors
-  que le canvas reste affiché.
+- at best, garbage elements silently ignored by the client →
+  drawing instructions (`png`/`blob`) lost → **black patches**;
+- loss of `sync`/acks → guacd stops sending frames → **freeze**;
+- at worst `close_tunnel("Incomplete instruction")` → the tunnel silently
+  drops all further sends → **no more mouse or keyboard** while
+  the canvas remains displayed.
 
-Toute frame > 32 Ko (garanti dès le premier framebuffer 1920×1080) déclenchait
-le problème. Les petites mises à jour passaient — d'où une session qui
-« marchait presque ».
+Any frame > 32KB (guaranteed from the very first 1920×1080 framebuffer)
+triggered the issue. Small updates got through — hence a session that
+"almost worked".
 
-### Défauts secondaires corrigés en même temps
+### Secondary defects fixed at the same time
 
-1. **Coordonnées souris non compensées du scale** (`DesktopPane.tsx`) : le
-   display est mis à l'échelle du panneau (`display.scale(...)`) mais les
-   événements souris partaient en pixels écran → clics décalés. Les
-   coordonnées sont maintenant divisées par `display.getScale()`.
-2. **Ping interne du tunnel forwardé à guacd** : le tunnel JS émet toutes les
-   500 ms une instruction interne (opcode vide : `0.,4.ping,…;`) destinée au
-   *endpoint* du tunnel, qui doit répondre par un ping identique. wwt la
-   transmettait brute à guacd. Il l'intercepte désormais : écho au navigateur,
-   jamais forwardée.
-3. **Blacklist TigerVNC** (corrigé séparément, commit `c21d40c`) : la probe
-   TCP Kubernetes comptait comme échec d'auth VNC ; au 5ᵉ, TigerVNC
-   blacklistait la source et bloquait aussi guacd → connexions refusées.
-   `-UseBlacklist=0` (port ClusterIP uniquement, gaté par le connection token).
+1. **Mouse coordinates not compensated for scale** (`DesktopPane.tsx`): the
+   display is scaled to the panel (`display.scale(...)`) but mouse
+   events were sent in screen pixels → offset clicks. Coordinates are now
+   divided by `display.getScale()`.
+2. **Internal tunnel ping forwarded to guacd**: the JS tunnel emits an
+   internal instruction every 500ms (empty opcode: `0.,4.ping,…;`) meant for
+   the tunnel *endpoint*, which must reply with an identical ping. wwt was
+   passing it through raw to guacd. It now intercepts it: echoed back to the browser,
+   never forwarded.
+3. **TigerVNC blacklist** (fixed separately, commit `c21d40c`): the
+   Kubernetes TCP probe counted as a VNC auth failure; on the 5th, TigerVNC
+   blacklisted the source and also blocked guacd → connections refused.
+   `-UseBlacklist=0` (ClusterIP port only, gated by the connection token).
 
-## Correctif
+## Fix
 
-- `wwt/internal/guac/framing.go` : `Framer` accumule le flux guacd et n'émet
-  que des messages WebSocket se terminant sur une frontière d'instruction
-  (scan des préfixes de longueur, comptés en points de code Unicode, sans
-  parse complet). Flux corrompu ⇒ fermeture propre de la session.
-- `wwt/internal/proxy/proxy.go` : `pipe()` utilise le `Framer` (guacd→ws),
-  intercepte les messages internes `0.` (ws→guacd) et échoifie les pings.
-- `frontend/src/components/DesktopPane.tsx` : mapping souris scale-aware.
+- `wwt/internal/guac/framing.go`: `Framer` buffers the guacd stream and only emits
+  WebSocket messages that end on an instruction
+  boundary (scanning length prefixes, counted in Unicode code points, without a
+  full parse). Corrupted stream ⇒ clean session close.
+- `wwt/internal/proxy/proxy.go`: `pipe()` uses the `Framer` (guacd→ws),
+  intercepts internal `0.` messages (ws→guacd) and echoes pings.
+- `frontend/src/components/DesktopPane.tsx`: scale-aware mouse mapping.
 
-## Reproduire / valider
+## Reproduce / validate
 
-1. **Repro (avant fix)** : ouvrir une session VNC 1920×1080 avec un fond
-   d'écran chargé. DevTools → Network → WS : des messages entrants ne se
-   terminent pas par `;` ; console : `Incomplete instruction` possible.
-2. **Validation (après fix)** :
-   - chaque message WS entrant se termine par `;` et commence par un préfixe
-     de longueur valide ;
-   - plus de zones noires après un plein redraw (bouger une fenêtre sur tout
-     l'écran) ;
-   - souris précise sur les quatre coins à différents scales (redimensionner
-     le panneau / split view) ; clavier OK après clic dans le panneau ;
-   - logs guacd (`guacd -L debug`) : réception des events `key`/`mouse`,
-     aucune instruction inconnue « ping ».
-3. **Régression automatisée** : `wwt/internal/guac/framing_test.go` (splits
-   adverses byte-à-byte, runes multi-octets) et
+1. **Repro (before fix)**: open a 1920×1080 VNC session with a loaded
+   wallpaper. DevTools → Network → WS: some incoming messages don't
+   end with `;`; console: `Incomplete instruction` possible.
+2. **Validation (after fix)**:
+   - every incoming WS message ends with `;` and starts with a valid
+     length prefix;
+   - no more black patches after a full redraw (drag a window across
+     the whole screen);
+   - mouse accurate on all four corners at different scales (resize
+     the panel / split view); keyboard OK after clicking in the panel;
+   - guacd logs (`guacd -L debug`): receiving `key`/`mouse` events,
+     no unknown "ping" instruction.
+3. **Automated regression**: `wwt/internal/guac/framing_test.go` (adversarial
+   byte-by-byte splits, multi-byte runes) and
    `wwt/internal/proxy/proxy_test.go::TestFramesEndOnInstructionBoundaries`
-   (guacd factice qui « goutte » une grosse instruction + écho ping + le ping
-   n'atteint jamais guacd).
-4. **RDP** : même chemin de code, même correctif ; dérouler la même grille
-   (artefacts, input, précision souris) sur une session RDP pour confirmer.
+   (fake guacd that "drips" a large instruction + ping echo + the ping
+   never reaches guacd).
+4. **RDP**: same code path, same fix; run through the same checklist
+   (artifacts, input, mouse accuracy) on an RDP session to confirm.

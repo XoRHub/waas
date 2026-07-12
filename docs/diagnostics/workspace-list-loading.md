@@ -1,40 +1,40 @@
-# Diagnostic — lenteur d'affichage de la liste des workspaces
+# Diagnostic — slow rendering of the workspace list
 
-Constat utilisateur : la liste met longtemps à s'afficher, sans feedback.
-Le feedback est traité (skeleton loaders + états vide/erreur distincts sur
-`PortalPage`) ; ce document trace les causes probables de la latence côté
-plateforme, pour une itération dédiée.
+User report: the list takes a long time to display, with no
+feedback. The feedback part is handled (skeleton loaders + distinct
+empty/error states on `PortalPage`); this document traces the likely
+platform-side causes of the latency, for a dedicated iteration.
 
-## Ce que fait réellement un affichage du portail
+## What a portal render actually does
 
-1. `GET /api/v1/workspaces` — deux LIST Kubernetes (workspaces + templates,
-   pour enrichir chaque ligne de ses protocoles). Coût raisonnable et
-   constant : **pas** de N+1 ici.
-2. `GET /api/v1/me/quota` — c'est le point chaud :
-   - `usageOf()` fait un `GET` **par workspace** du template correspondant
-     (`internal/service/governance_service.go`) → N+1 sur l'API server
-     Kubernetes dès que l'utilisateur (ou l'admin, qui voit tout) possède
-     beaucoup de workspaces ;
-   - le frontend **re-poll ce endpoint toutes les 15 s**
-     (`useQuota → refetchInterval: 15000`), donc le N+1 tourne en boucle.
-3. `GET /api/v1/catalog` + `GET /api/v1/workspace-templates` en parallèle
-   à l'ouverture du dialogue de création — négligeable.
+1. `GET /api/v1/workspaces` — two Kubernetes LISTs (workspaces + templates,
+   to enrich each row with its protocols). Reasonable and
+   constant cost: **no** N+1 here.
+2. `GET /api/v1/me/quota` — this is the hot spot:
+   - `usageOf()` does a `GET` **per workspace** of the corresponding
+     template (`internal/service/governance_service.go`) → N+1 against
+     the Kubernetes API server as soon as the user (or the admin, who sees
+     everything) owns many workspaces;
+   - the frontend **re-polls this endpoint every 15s**
+     (`useQuota → refetchInterval: 15000`), so the N+1 keeps running in a loop.
+3. `GET /api/v1/catalog` + `GET /api/v1/workspace-templates` in parallel
+   when opening the creation dialog — negligible.
 
-Autre facteur structurel : l'api-server parle à l'API Kubernetes **sans
-cache** (client direct, pas d'informer). Chaque requête portail = plusieurs
-allers-retours vers kube-apiserver ; sur un control-plane chargé, la
-latence est celle de kube-apiserver, pas de la base.
+Another structural factor: the api-server talks to the Kubernetes API
+**without a cache** (direct client, no informer). Every portal request means
+several round trips to kube-apiserver; on a busy control plane, the
+latency is kube-apiserver's, not the database's.
 
-## Pistes (non implémentées dans cette itération)
+## Leads (not implemented in this iteration)
 
-- **Supprimer le N+1 de `usageOf`** : un seul LIST des templates puis
-  lookup en map (le même pattern existe déjà dans `WorkspaceService.List`).
-  Gain immédiat, changement trivial — recommandé en premier.
-- **Client Kubernetes avec cache** (informers/controller-runtime cache)
-  pour workspaces/templates/images/policies : transforme les LIST répétés
-  en lectures mémoire ; demande de gérer le démarrage (sync initiale).
-- **Allonger/conditionner le poll quota** : ne re-fetcher le quota que sur
-  mutation (create/pause/delete invalident déjà la query) + un intervalle
-  long (60 s) en veille.
-- **Pagination** de `/api/v1/workspaces` pour le cas admin (fleet) — le
-  portail utilisateur n'en a pas besoin à court terme.
+- **Remove the N+1 in `usageOf`**: a single LIST of the templates then
+  a map lookup (the same pattern already exists in `WorkspaceService.List`).
+  Immediate gain, trivial change — recommended first.
+- **Kubernetes client with cache** (informers/controller-runtime cache)
+  for workspaces/templates/images/policies: turns repeated LISTs
+  into in-memory reads; requires handling startup (initial sync).
+- **Lengthen/gate the quota poll**: only re-fetch the quota on
+  mutation (create/pause/delete already invalidate the query) + a
+  long interval (60s) when idle.
+- **Pagination** of `/api/v1/workspaces` for the admin (fleet) case — the
+  end-user portal doesn't need it in the short term.

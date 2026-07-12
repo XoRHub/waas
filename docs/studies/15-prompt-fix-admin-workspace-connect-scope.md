@@ -1,26 +1,25 @@
-# Prompt Fable 5 — Fix : un admin ne doit voir/se connecter qu'à SES workspaces depuis « My Workspaces »
+# Fable 5 Prompt — Fix: an admin must only see/connect to THEIR workspaces from "My Workspaces"
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context.
 
-## Contexte du repo
+## Repo context
 
-Aujourd'hui, un admin connecté sur SA page personnelle « My Workspaces »
-(pas la page fleet admin) voit et peut se connecter à **tous** les
-workspaces du cluster, tous propriétaires confondus — c'est un problème
-de design/sécurité (traçabilité). Le seul endroit où un admin doit
-pouvoir _voir_ les workspaces des autres utilisateurs, sans jamais s'y
-connecter, est la page Fleet admin (revue dans le commit précédent,
-`docs/studies/12-prompt-fix-fleet-owner-grouping.md` : les 3 onglets
-fleet groupent déjà par owner). Une future feature de partage RW/RO
-initiée par le propriétaire (dépannage tracé) est **hors scope** ici —
-mentionne-la seulement comme point ouvert, ne l'implémente pas.
+Today, an admin logged into THEIR personal "My Workspaces" page
+(not the admin fleet page) sees and can connect to **all**
+workspaces in the cluster, across all owners — this is a
+design/security problem (traceability). The only place where an admin
+should be able to _see_ other users' workspaces, without ever
+connecting to them, is the admin Fleet page (reviewed in the previous
+commit, `docs/studies/12-prompt-fix-fleet-owner-grouping.md`: the 3
+fleet tabs already group by owner). A future feature for RW/RO
+sharing initiated by the owner (traced troubleshooting) is **out of
+scope** here — mention it only as an open point, don't implement it.
 
-- **Le bug est à la fois côté visibilité (List) et côté action
-  (fetchByID)** :
+- **The bug is both on the visibility side (List) and the action
+  side (fetchByID)**:
   - `WorkspaceService.List` (`api-server/internal/service/workspace_service.go:126-166`)
-    ne filtre jamais pour un admin :
+    never filters for an admin:
 
     ```go
     func (s *WorkspaceService) List(ctx context.Context, actor Actor) ([]model.Workspace, error) {
@@ -31,18 +30,18 @@ mentionne-la seulement comme point ouvert, ne l'implémente pas.
         }
     ```
 
-    C'est cette même liste (route unique `GET /api/v1/workspaces`,
-    `router.go:74`, hook unique `useWorkspaces()`,
-    `frontend/src/hooks/useApi.ts:34`) que consomment **à la fois** la
-    page personnelle (`frontend/src/sections/WorkspacesSection.tsx`,
-    montée par `PortalPage.tsx`) et `WorkspacesFleet()`
-    (`frontend/src/pages/admin/FleetPage.tsx:90-92`). Rien ne distingue
-    aujourd'hui les deux usages côté serveur.
+    This is the same list (single route `GET /api/v1/workspaces`,
+    `router.go:74`, single hook `useWorkspaces()`,
+    `frontend/src/hooks/useApi.ts:34`) consumed **both** by
+    the personal page (`frontend/src/sections/WorkspacesSection.tsx`,
+    mounted by `PortalPage.tsx`) and `WorkspacesFleet()`
+    (`frontend/src/pages/admin/FleetPage.tsx:90-92`). Nothing today
+    distinguishes the two uses on the server side.
   - `WorkspaceService.fetchByID` (`workspace_service.go:930-940`),
-    utilisé par `Get`, `Delete`, `SetPaused`/`Resume`,
+    used by `Get`, `Delete`, `SetPaused`/`Resume`,
     `UpdateOverrides`, `Reload`, `EffectiveKasmVNCConfig`, `Events`,
-    `Resize` **et** `Connect` (`workspace_service.go:543-547`), contient
-    un bypass explicite pour l'admin :
+    `Resize` **and** `Connect` (`workspace_service.go:543-547`), contains
+    an explicit bypass for the admin:
 
     ```go
     if actor.Role != string(auth.RoleAdmin) && ws.Spec.Owner != actor.ID {
@@ -51,59 +50,58 @@ mentionne-la seulement comme point ouvert, ne l'implémente pas.
     }
     ```
 
-    Un admin peut donc appeler `POST /workspaces/{id}/connect` sur
-    n'importe quel workspace du cluster, pas seulement les siens — c'est
-    le cœur du bug.
-- **Frontend** : `WorkspacesSection.tsx` rend `workspaces.data.data` tel
-  quel dans `FolderedGrid` (groupage par _dossiers personnels_ de
-  l'utilisateur, sans rapport avec `ownerId`), avec les boutons
-  Open/Pause/Delete pleinement actifs. `WorkspaceCard` ouvre
+    An admin can therefore call `POST /workspaces/{id}/connect` on
+    any workspace in the cluster, not just their own — this is
+    the core of the bug.
+- **Frontend**: `WorkspacesSection.tsx` renders `workspaces.data.data` as
+  is in `FolderedGrid` (grouping by the user's _personal
+  folders_, unrelated to `ownerId`), with the Open/Pause/Delete
+  buttons fully active. `WorkspaceCard` opens
   `target.connectUrl` = `` `/workspaces/${ws.id}/connect` ``
-  (`frontend/src/lib/target.ts:73`) sans aucune condition d'ownership.
-  Une fois `List` corrigé, un admin ne recevra plus que ses propres
-  workspaces sur cette page — le filtrage doit donc être fait côté
-  serveur, pas frontend.
-- **Piège : `FleetPage.tsx` a besoin de continuer à voir et supprimer
-  les workspaces des autres** — le commit précédent (étude 12) a
-  volontairement câblé `remove.mutate` (`useDeleteWorkspace()`) pour
-  fonctionner sur les workspaces de tous les owners depuis la fleet,
-  avec un commentaire explicite :
+  (`frontend/src/lib/target.ts:73`) with no ownership condition
+  whatsoever. Once `List` is fixed, an admin will only receive their own
+  workspaces on this page — the filtering must therefore be done
+  server-side, not frontend.
+- **Trap: `FleetPage.tsx` needs to keep seeing and deleting
+  other users' workspaces** — the previous commit (study 12) has
+  deliberately wired `remove.mutate` (`useDeleteWorkspace()`) to
+  work on every owner's workspaces from the fleet,
+  with an explicit comment:
 
   ```
   {/* Admin fleet delete always RETAINS the user's volume: ... */}
   onClick={() => remove.mutate({ id: ws.id, keepVolume: true })}
   ```
 
-  Si tu retires bêtement le bypass de `fetchByID`, ce delete admin
-  casse. Il faut donc **séparer** la liste et la suppression
-  « fleet-wide » (légitimes, gestion d'infra) de l'accès « session
-  live » (`Connect` et, par cohérence, les autres actions par ID —
-  `Get`, pause, resize, overrides, reload, kasmvnc-config, events) qui
-  doit devenir strictement réservé au propriétaire, sans exception de
-  rôle.
-- **Deux patterns sœurs existent déjà dans le repo pour exactement ce
-  problème** — reprends-les, ne réinvente rien :
-  - **Volumes** (le plus proche de ce qu'il faut faire ici) :
+  If you naively remove `fetchByID`'s bypass, this admin delete
+  breaks. You must therefore **separate** the "fleet-wide" list and delete
+  (legitimate, infra management) from the "live session"
+  access (`Connect` and, for consistency, the other by-ID actions —
+  `Get`, pause, resize, overrides, reload, kasmvnc-config, events) which
+  must become strictly owner-only, with no role exception.
+- **Two sibling patterns already exist in the repo for exactly this
+  problem** — reuse them, don't reinvent anything:
+  - **Volumes** (the closest to what needs to be done here):
     `WorkspaceService.ListRetainedVolumes(ctx, actor, all bool)`
-    (`volume_service.go:24-28`) — `all=false` filtre par owner,
-    `all=true` ne filtre pas. Deux handlers distincts appellent la même
-    méthode : `ListVolumes` (`workspace_handler.go:110-117`, route
-    `GET /api/v1/volumes`, **toujours** `all=false`) et
+    (`volume_service.go:24-28`) — `all=false` filters by owner,
+    `all=true` doesn't filter. Two distinct handlers call the same
+    method: `ListVolumes` (`workspace_handler.go:110-117`, route
+    `GET /api/v1/volumes`, **always** `all=false`) and
     `AdminListVolumes` (`workspace_handler.go:130-137`, route
-    `GET /api/v1/admin/volumes` sous `middleware.RequireAdmin`,
-    `router.go:157-158`, **toujours** `all=true`). Idem côté suppression :
-    `DeleteVolume` (route utilisateur, jamais admin) vs
-    `AdminDeleteVolume` (route admin dédiée, `router.go:159`). Deux
-    hooks frontend distincts : `useWorkspaces`-like perso vs
+    `GET /api/v1/admin/volumes` under `middleware.RequireAdmin`,
+    `router.go:157-158`, **always** `all=true`). Same on the deletion
+    side: `DeleteVolume` (user route, never admin) vs.
+    `AdminDeleteVolume` (dedicated admin route, `router.go:159`). Two
+    distinct frontend hooks: personal `useWorkspaces`-like vs.
     `useAdminVolumes`/`useAdminDeleteVolume` (`useApi.ts:256,264`),
-    consommés respectivement par la page perso et par
+    consumed respectively by the personal page and by
     `VolumesFleet()`.
-  - **Remote workspaces** (le plus strict, mais sans suppression admin
-    du tout — pas forcément ce qu'on veut ici puisque le delete fleet
-    est déjà un acquis de l'étude 12) : `List` toujours scopé à
+  - **Remote workspaces** (the strictest, but with no admin deletion
+    at all — not necessarily what we want here since the fleet delete
+    is already an established gain from study 12): `List` always scoped to
     `actor.ID` (`remote_workspace_service.go:255-260`), `AdminList`
-    séparé sans filtre (`:460`), et surtout `fetchOwned`
-    (`remote_workspace_service.go:536-548`) **sans aucun bypass rôle** :
+    separate with no filter (`:460`), and above all `fetchOwned`
+    (`remote_workspace_service.go:536-548`) **with no role bypass at all**:
 
     ```go
     // Ownership is strict — remotes and their credentials are personal.
@@ -112,115 +110,117 @@ mentionne-la seulement comme point ouvert, ne l'implémente pas.
     }
     ```
 
-    C'est le modèle à suivre pour `fetchByID` : retire le
-    `actor.Role != admin &&`, ne garde que la comparaison d'ownership.
+    This is the model to follow for `fetchByID`: remove the
+    `actor.Role != admin &&`, keep only the ownership comparison.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-1. **`WorkspaceService.List`** : donne-lui un paramètre `all bool`
-   (signature `List(ctx, actor, all bool)`, comme
-   `ListRetainedVolumes`) ou toute variante équivalente que tu juges
-   plus lisible (méthode séparée `AdminList`, à la
-   `RemoteWorkspaceService`) — documente ton choix. Dans tous les cas :
-   - la route personnelle `GET /api/v1/workspaces` (consommée par
-     `WorkspacesSection`/`PortalPage`) doit **toujours** filtrer par
-     `ownerLabel: actor.ID`, y compris pour un admin ;
-   - ajoute une route admin dédiée `GET /api/v1/admin/workspaces`
-     (nouveau bloc sous `router.go:150` aux côtés de
-     `admin/volumes`/`admin/remote-workspaces`, sous
-     `middleware.RequireAdmin`) qui renvoie tout le namespace, avec
-     `OwnerUsername` résolu (reprends la logique déjà écrite en
-     `workspace_service.go:146-163`, juste conditionnée à `all` plutôt
-     qu'à `isAdmin`).
-2. **`fetchByID`** (`workspace_service.go:930-940`) : retire le bypass
-   de rôle, ne garde que `ws.Spec.Owner != actor.ID` → 404, exactement
-   comme `RemoteWorkspaceService.fetchOwned`. Ça rend strictes toutes
-   les actions qui passent par elle : `Connect`, `Get`, `SetPaused`,
+1. **`WorkspaceService.List`**: give it an `all bool` parameter
+   (signature `List(ctx, actor, all bool)`, like
+   `ListRetainedVolumes`) or any equivalent variant you judge
+   more readable (separate `AdminList` method, like
+   `RemoteWorkspaceService`) — document your choice. In all cases:
+   - the personal route `GET /api/v1/workspaces` (consumed by
+     `WorkspacesSection`/`PortalPage`) must **always** filter by
+     `ownerLabel: actor.ID`, admin included;
+   - add a dedicated admin route `GET /api/v1/admin/workspaces`
+     (new block under `router.go:150` alongside
+     `admin/volumes`/`admin/remote-workspaces`, under
+     `middleware.RequireAdmin`) that returns the entire namespace, with
+     `OwnerUsername` resolved (reuse the logic already written in
+     `workspace_service.go:146-163`, just conditioned on `all` rather
+     than on `isAdmin`).
+2. **`fetchByID`** (`workspace_service.go:930-940`): remove the role
+   bypass, keep only `ws.Spec.Owner != actor.ID` → 404, exactly
+   like `RemoteWorkspaceService.fetchOwned`. This makes strict all
+   actions that go through it: `Connect`, `Get`, `SetPaused`,
    `UpdateOverrides`, `Reload`, `EffectiveKasmVNCConfig`, `Events`,
-   `Resize` — un admin ne peut plus agir sur le workspace d'un autre
-   utilisateur via ces endpoints, quel que soit le canal d'appel (UI ou
-   appel direct à l'API).
-3. **Suppression admin fleet** : comme `fetchByID` devient strict, le
-   `Delete` via la route utilisateur (`DELETE /workspaces/{id}`) devient
-   lui aussi strict — attendu, un utilisateur ne doit supprimer que les
-   siens. Mais l'admin fleet doit continuer à pouvoir supprimer
-   n'importe quel workspace (comportement acquis de l'étude 12, avec
-   retain du volume). Ajoute donc, à l'image de
-   `AdminDeleteVolume`/`admin/volumes/{namespace}/{name}` :
-   - une méthode service séparée, p. ex.
-     `AdminDelete(ctx, actor, id string, keepVolume bool)`, qui saute
-     `fetchByID` et va chercher le workspace sans contrôle d'ownership
-     (l'appelant est déjà garanti admin par le middleware de route) ;
-   - une route `DELETE /api/v1/admin/workspaces/{id}` sous
-     `middleware.RequireAdmin` (même bloc que le reste de `/admin`,
-     `router.go:150-160`) ;
-   - un hook frontend `useAdminDeleteWorkspace()` (mirroir de
+   `Resize` — an admin can no longer act on another user's
+   workspace through these endpoints, regardless of the call channel (UI or
+   direct API call).
+3. **Admin fleet deletion**: since `fetchByID` becomes strict, the
+   `Delete` via the user route (`DELETE /workspaces/{id}`) also becomes
+   strict — expected, a user should only delete their own. But
+   the admin fleet must keep being able to delete any workspace
+   (established behavior from study 12, with volume retention). So add,
+   mirroring
+   `AdminDeleteVolume`/`admin/volumes/{namespace}/{name}`:
+   - a separate service method, e.g.
+     `AdminDelete(ctx, actor, id string, keepVolume bool)`, which skips
+     `fetchByID` and fetches the workspace without an ownership check
+     (the caller is already guaranteed to be admin by the route middleware);
+   - a route `DELETE /api/v1/admin/workspaces/{id}` under
+     `middleware.RequireAdmin` (same block as the rest of `/admin`,
+     `router.go:150-160`);
+   - a frontend hook `useAdminDeleteWorkspace()` (mirroring
      `useAdminDeleteVolume`, `useApi.ts:264`).
 4. **Frontend `FleetPage.tsx`, `WorkspacesFleet()`
-   (`FleetPage.tsx:90-...`)** : bascule de `useWorkspaces()` +
-   `useDeleteWorkspace()` vers les nouveaux
-   `useAdminWorkspaces()`/`useAdminDeleteWorkspace()` (mirroir exact de
-   `useAdminVolumes`/`useAdminDeleteVolume`, déjà utilisés par
-   `VolumesFleet()` dans le même fichier). Le groupage par owner
-   (étude 12) ne change pas de logique, seule la source de données
-   change de hook.
-5. **`WorkspacesSection.tsx`/`PortalPage.tsx`** : aucun changement de
-   code attendu — une fois `List` corrigé côté serveur, un admin n'y
-   verra plus que ses propres workspaces automatiquement. Vérifie
-   simplement qu'aucun filtre frontend redondant n'est nécessaire.
-6. **Génère les types** : `make generate-types` si le schéma de
-   réponse admin diffère (`OwnerUsername` existe déjà sur
-   `model.Workspace`, donc a priori pas de nouveau type, seulement une
-   nouvelle route dans le client généré si applicable).
+   (`FleetPage.tsx:90-...`)**: switch from `useWorkspaces()` +
+   `useDeleteWorkspace()` to the new
+   `useAdminWorkspaces()`/`useAdminDeleteWorkspace()` (exact mirror of
+   `useAdminVolumes`/`useAdminDeleteVolume`, already used by
+   `VolumesFleet()` in the same file). The owner grouping
+   (study 12) doesn't change logic, only the data source
+   changes hook.
+5. **`WorkspacesSection.tsx`/`PortalPage.tsx`**: no code change
+   expected — once `List` is fixed server-side, an admin will
+   only see their own workspaces there automatically. Just check
+   that no redundant frontend filter is needed.
+6. **Generate types**: `make generate-types` if the admin response
+   schema differs (`OwnerUsername` already exists on
+   `model.Workspace`, so a priori no new type, only a
+   new route in the generated client if applicable).
 
-## Contraintes
+## Constraints
 
-- Ne casse pas le groupage par owner de la fleet (étude 12) : la route
-  admin doit continuer à renvoyer `OwnerUsername` peuplé pour chaque
-  ligne.
-- Ne touche pas à `RemoteWorkspaceService` ni `VolumesFleet()` — déjà
-  conformes, hors scope de ce fix.
-- N'implémente pas le partage RW/RO tracé par le propriétaire — note-le
-  en point ouvert seulement.
-- Le comportement de suppression fleet (retain du volume, résilience
-  aux erreurs) doit rester identique à ce qu'a livré l'étude 12, juste
-  via un chemin d'autorisation différent (route/méthode admin dédiée
-  plutôt que bypass dans `fetchByID`).
-- Documente explicitement, dans le commit, la liste des actions
-  désormais strictement propriétaire-only (`Connect`, `Get`, pause,
-  resize, overrides, reload, kasmvnc-config, events) vs celles qui
-  restent admin-accessibles via un chemin dédié (`List` fleet, delete
-  fleet) — c'est la distinction centrale de ce fix, ne la laisse pas
-  implicite.
+- Don't break the fleet's owner grouping (study 12): the
+  admin route must keep returning `OwnerUsername` populated for each
+  row.
+- Don't touch `RemoteWorkspaceService` or `VolumesFleet()` — already
+  compliant, out of scope for this fix.
+- Don't implement the traced RW/RO sharing by the owner — just note it
+  as an open point.
+- The fleet deletion behavior (volume retention, resilience
+  to errors) must stay identical to what study 12 delivered, just
+  through a different authorization path (dedicated admin route/method
+  rather than a bypass in `fetchByID`).
+- Explicitly document, in the commit, the list of actions now
+  strictly owner-only (`Connect`, `Get`, pause, resize, overrides,
+  reload, kasmvnc-config, events) vs. those that remain
+  admin-accessible via a dedicated path (fleet `List`, fleet delete)
+  — this is the central distinction of this fix, don't leave it
+  implicit.
 
 ## Tests
 
-- Go : nouveau test (ou extension de `workspace_service_test.go`)
-  vérifiant qu'un actor admin appelant `Connect`/`Get`/`SetPaused`/etc.
-  sur le workspace d'un autre utilisateur reçoit `404 NotFound` (comme
-  un non-admin), alors qu'il continue de fonctionner sur son propre
-  workspace. Étends/adapte `TestListResolvesOwnerUsernamesForAdmins`
-  (`workspace_service_test.go:206-266`) : la liste **personnelle**
-  (`all=false`) pour un actor admin ne doit renvoyer que ses propres
-  workspaces ; un test séparé sur la liste **admin** (`all=true`)
-  confirme qu'elle renvoie tout + `OwnerUsername`. Ajoute un test pour
-  `AdminDelete` (fonctionne sur le workspace d'un autre user, retain du
-  volume respecté).
-- Vitest : mets à jour `FleetPage.test.tsx` (créé par l'étude 12) pour
-  mocker les nouveaux hooks `useAdminWorkspaces`/`useAdminDeleteWorkspace`
-  plutôt que `useWorkspaces`/`useDeleteWorkspace`.
-- `go build ./...` + tests Go sur `api-server` ; `tsc -b` + vitest sur
+- Go: new test (or extension of `workspace_service_test.go`)
+  verifying that an admin actor calling `Connect`/`Get`/`SetPaused`/etc.
+  on another user's workspace receives `404 NotFound` (like
+  a non-admin), while it keeps working on their own
+  workspace. Extend/adapt `TestListResolvesOwnerUsernamesForAdmins`
+  (`workspace_service_test.go:206-266`): the **personal** list
+  (`all=false`) for an admin actor must only return their own
+  workspaces; a separate test on the **admin** list (`all=true`)
+  confirms it returns everything + `OwnerUsername`. Add a test for
+  `AdminDelete` (works on another user's workspace, volume
+  retention respected).
+- Vitest: update `FleetPage.test.tsx` (created by study 12) to
+  mock the new hooks `useAdminWorkspaces`/`useAdminDeleteWorkspace`
+  instead of `useWorkspaces`/`useDeleteWorkspace`.
+- `go build ./...` + Go tests on `api-server`; `tsc -b` + vitest on
   `frontend`.
 
-## Points ouverts (ton arbitrage)
+## Open points (your arbitration)
 
-- Nom exact des nouveaux symboles serveur (`List(ctx, actor, all bool)`
-  façon volumes, vs méthode `AdminList` séparée façon remote-workspaces)
-  — les deux patterns coexistent déjà dans le repo, choisis celui qui
-  te semble le plus lisible ici et documente pourquoi. => que propose tu ?
-- Future feature de partage RW/RO par le propriétaire, avec
-  traçabilité pour le dépannage ou session de travail à plusieurs — non traitée par ce fix, juste à
-  garder en tête pour ne pas fermer la porte à son implémentation
-  ultérieure (par ex. un futur champ `sharedWith`/`accessGrants` sur
-  `model.Workspace` qui viendrait s'ajouter à la vérification
-  d'ownership stricte de `fetchByID`).
+- Exact name of the new server symbols (`List(ctx, actor, all bool)`
+  in the volumes style, vs. a separate `AdminList` method in the
+  remote-workspaces style) — both patterns already coexist in the
+  repo, choose whichever you find more readable here and document why.
+  => what do you propose?
+- Future feature for RW/RO sharing by the owner, with
+  traceability for troubleshooting or multi-person work sessions — not
+  handled by this fix, just to keep in mind so as not to
+  close the door to implementing it later (e.g. a future
+  `sharedWith`/`accessGrants` field on `model.Workspace` that would
+  add to the strict ownership check of `fetchByID`).
+</content>

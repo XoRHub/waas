@@ -1,81 +1,82 @@
-# Resize dynamique des sessions VNC/RDP — mécanisme WaaS, pas guacd
+# Dynamic VNC/RDP session resize — a WaaS mechanism, not guacd
 
-Le redimensionnement en cours de session d'un bureau in-cluster **ne
-passe pas** par le resize natif de Guacamole. Ne cherchez pas de
-`sendSize()` dans le tunnel guac ni d'effet du paramètre RDP
-`resize-method` : les deux sont des impasses dans cette architecture.
+Resizing an in-cluster desktop mid-session **does not** go through
+Guacamole's native resize. Don't look for `sendSize()` in the guac
+tunnel or for any effect from the RDP `resize-method` parameter: both
+are dead ends in this architecture.
 
-## Pourquoi le chemin natif est mort
+## Why the native path is dead
 
-- **VNC** : le client VNC de guacd n'émet jamais de resize en cours de
-  session (pas de `size` client→serveur sur ce protocole).
-- **RDP** : `resize-method=display-update` parlerait au serveur RDP —
-  mais notre serveur RDP est le pont xrdp-libvnc, qui ne peut pas
-  répercuter un resize sur le Xvnc sous-jacent
-  (`waas-images/.../waas-resize`, commentaire d'en-tête).
-- **TigerVNC**, lui, supporte RandR `SetDesktopSize` : la résolution EST
-  changeable en live, mais uniquement *depuis l'intérieur du pod* —
-  c'est ce que fait le script `waas-resize WIDTHxHEIGHT` (xrandr).
+- **VNC**: guacd's VNC client never emits a resize mid-session (no
+  client→server `size` on this protocol).
+- **RDP**: `resize-method=display-update` would talk to the RDP
+  server — but our RDP server is the xrdp-libvnc bridge, which cannot
+  propagate a resize down to the underlying Xvnc
+  (`waas-images/.../waas-resize`, header comment).
+- **TigerVNC**, on the other hand, supports RandR `SetDesktopSize`:
+  resolution CAN be changed live, but only *from inside the pod* —
+  which is exactly what the `waas-resize WIDTHxHEIGHT` script does (xrandr).
 
-## Le mécanisme réel
+## The real mechanism
 
 ```
-navigateur (ResizeObserver, débouncé ~500 ms)
+browser (ResizeObserver, debounced ~500ms)
   → POST /api/v1/workspaces/{id}/resize {width, height}   (api-server)
-    → exec `waas-resize WxH` dans le pod (client-go SPDY, argv fixe)
-      → xrandr / RandR SetDesktopSize sur Xvnc
-        → guacd voit le framebuffer changer et suit naturellement
+    → exec `waas-resize WxH` in the pod (client-go SPDY, fixed argv)
+      → xrandr / RandR SetDesktopSize on Xvnc
+        → guacd sees the framebuffer change and follows naturally
 ```
 
-- Frontend : `frontend/src/lib/sessionResize.ts` (débounce + gating) —
-  seuls les sessions **in-cluster vnc/rdp** appellent l'endpoint.
-  kasmvnc se redimensionne nativement dans son propre client
-  (`resize=remote`), ssh n'a pas de bureau, les remote workspaces n'ont
-  pas de pod (400 explicite côté serveur).
-- api-server : `internal/service/workspace_resize.go`. Autorisation =
-  `fetchByID` (propriétaire ou admin), workspace `Running` exigé (409
-  sinon), bornes 100–7680 validées avant toute résolution, pod résolu
-  par le label `waas.xorhub.io/workspace` dans le namespace de
-  placement. Commande **fixe** (`waas-resize WxH`), jamais de shell ;
-  `waas-resize` re-valide son argument dans le pod.
-- RBAC : `pods/exec` (verbe `create`) est une entrée dédiée du
-  ClusterRole api-server (`helm/waas/templates/api-server.yaml`) —
-  volontairement séparée du `get/list` lecture seule pour rester
-  visible en review.
-- Audit : chaque resize effectif écrit `workspace.resized` (nom + mode).
+- Frontend: `frontend/src/lib/sessionResize.ts` (debounce + gating) —
+  only **in-cluster vnc/rdp** sessions call the endpoint.
+  kasmvnc resizes natively in its own client
+  (`resize=remote`), ssh has no desktop, remote workspaces have
+  no pod (explicit 400 server-side).
+- api-server: `internal/service/workspace_resize.go`. Authorization =
+  `fetchByID` (owner or admin), workspace `Running` required (409
+  otherwise), 100–7680 bounds validated before any resolution, pod
+  resolved via the `waas.xorhub.io/workspace` label in the placement
+  namespace. **Fixed** command (`waas-resize WxH`), never a shell;
+  `waas-resize` re-validates its argument inside the pod.
+- RBAC: `pods/exec` (verb `create`) is a dedicated entry in the
+  api-server ClusterRole (`helm/waas/templates/api-server.yaml`) —
+  deliberately kept separate from the read-only `get/list` to stay
+  visible in review.
+- Audit: every effective resize writes `workspace.resized` (name + mode).
 
-## Pourquoi le PR #469 de guacamole-server n'est pas pertinent ici
+## Why guacamole-server PR #469 isn't relevant here
 
-Le PR #469 (guacd 1.6) ajoute la négociation native guacd↔serveur VNC
-d'un resize serveur-initié. Notre guacd est déjà en 1.6
-(`helm/waas/values.yaml`), mais ce chemin n'est **ni utilisé ni
-nécessaire** : le resize WaaS passe par pod-exec (schéma ci-dessus),
-qui fonctionne identiquement pour VNC et RDP puisque les deux tournent
-sur le même Xvnc dans les images WaaS (RDP = pont xrdp vers ce Xvnc).
-Il n'y a donc rien à « activer » côté guacd pour amener VNC au niveau
-de RDP — c'est déjà symétrique, indépendamment de la version de guacd.
-Implémenter le natif #469 *en plus* (latence moindre qu'un exec, ou
-scénarios sans exec possible) serait un chantier séparé, non entamé.
+PR #469 (guacd 1.6) adds native guacd↔VNC server negotiation of a
+server-initiated resize. Our guacd is already on 1.6
+(`helm/waas/values.yaml`), but this path is **neither used nor
+needed**: WaaS resize goes through pod-exec (diagram above),
+which works identically for VNC and RDP since both run
+on the same Xvnc in the WaaS images (RDP = xrdp bridge to that Xvnc).
+So there's nothing to "enable" on the guacd side to bring VNC up to
+RDP's level — it's already symmetric, regardless of the guacd version.
+Implementing native #469 *in addition* (lower latency than an exec, or
+scenarios where exec isn't possible) would be a separate, not-yet-started
+undertaking.
 
-## Sort de `resize-method` (arbitrage 2026-07-10 : conservé)
+## Fate of `resize-method` (2026-07-10 decision: kept)
 
-`resize-method` (registre RDP, tier ui) reste inerte pour les bureaux
-in-cluster : le mécanisme pod-exec le contourne complètement. Il est
-**conservé** parce que pour les *remote workspaces* RDP, guacd parle à
-un vrai serveur RDP externe et ce paramètre pilote alors la
-négociation native de guacd. Sa description dans le registre
-(`operator/pkg/params/params.go`) dit désormais explicitement cette
-frontière.
+`resize-method` (RDP registry, tier ui) stays inert for
+in-cluster desktops: the pod-exec mechanism bypasses it entirely. It is
+**kept** because for *remote workspaces* RDP, guacd talks to
+a real external RDP server and this parameter then drives guacd's
+native negotiation. Its description in the registry
+(`operator/pkg/params/params.go`) now explicitly states this
+boundary.
 
-## Versions guacd / guacamole-common-js
+## guacd / guacamole-common-js versions
 
-guacd est en 1.6.0 ; le frontend reste sur `guacamole-common-js@^1.5.0`
-**volontairement** : Apache ne publie pas cette lib sur npm — le paquet
-`guacamole-common-js` comme `@glokon/guacamole-common-js` (seul miroir
-en 1.6.x) sont des miroirs tiers, et on refuse d'introduire une source
-non-Apache dans la chaîne d'approvisionnement du frontend. L'API
-consommée (`DesktopPane.tsx` : Tunnel/Client/Mouse/Keyboard/Streams)
-est stable entre 1.5 et 1.6 et guacd 1.6 reste compatible avec les
-clients 1.5. Si l'alignement devient nécessaire, la voie acceptable est
-de vendorer le build officiel Apache (Maven Central
+guacd is on 1.6.0; the frontend stays on `guacamole-common-js@^1.5.0`
+**deliberately**: Apache doesn't publish this lib on npm — the package
+`guacamole-common-js` as well as `@glokon/guacamole-common-js` (the only
+1.6.x mirror) are third-party mirrors, and we refuse to introduce a
+non-Apache source into the frontend's supply chain. The consumed API
+(`DesktopPane.tsx`: Tunnel/Client/Mouse/Keyboard/Streams)
+is stable between 1.5 and 1.6, and guacd 1.6 remains compatible with
+1.5 clients. If alignment becomes necessary, the acceptable path is
+to vendor the official Apache build (Maven Central
 `org.apache.guacamole:guacamole-common-js`).

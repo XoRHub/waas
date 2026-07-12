@@ -1,83 +1,80 @@
-# Prompt Fable 5 — Feature 13 v2, volet A (waas-fable) : catalogue d'images publié (`WorkspaceImage.status.catalog`) et picker visuel unifié
+# Fable 5 Prompt — Feature 13 v2, part A (waas-fable): published image catalog (`WorkspaceImage.status.catalog`) and unified visual picker
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable. **Ce document remplace intégralement**
-`docs/studies/17-prompt-feature13-direct-image-deploy-waas.md`, gardé
-en archive pour l'historique de décision — ne l'utilise pas comme
-source, une relecture architecte a changé la conception du catalogue
-(§ Décision d'architecture centrale ci-dessous détaille quoi et
-pourquoi).
+Paste this document as-is as an implementation prompt. It assumes
+that you (Fable 5) have no prior conversation context. **This document
+fully replaces**
+`docs/studies/17-prompt-feature13-direct-image-deploy-waas.md`, kept
+archived for decision history — don't use it as a source, an
+architect review changed the catalog design (§ Central architecture
+decision below details what and why).
 
-**Ce document est le volet A d'une feature scindée en deux prompts
-indépendants** après relecture architecte : la feature 13 v2 couvrait à
-l'origine à la fois le catalogue d'images ET la création d'un workspace
-sans `WorkspaceTemplate` admin-authored ("orphelin"). Ces deux besoins
-ont des rayons d'impact très différents — le catalogue ne touche jamais
-`enforce()`/le provisioning, la création orpheline si — et la question
-du placement namespace pour un workspace orphelin (pas de template =
-pas de pattern de placement custom) s'est révélée être une vraie
-question d'architecture à part entière. D'où le split :
-- **Volet A (ce document)** : le catalogue lui-même — fetch, statut,
-  schéma JSON, visibilité, picker visuel. Livrable et utile seul, y
-  compris pour améliorer le picker de templates EXISTANT (logos), sans
-  jamais dépendre du volet B.
-- **Volet B** (`docs/studies/28-prompt-feature13-direct-deploy-orphan-workspace.md`) :
-  la création orpheline elle-même (`WorkspacePolicy.directDeploy`,
-  synthèse de `WorkspaceTemplate`, endpoint `CreateDirect`, gate
-  webhook). **Dépend de ce volet A** (consomme
-  `status.catalog.entries` pour son picker) — l'inverse n'est pas vrai.
+**This document is part A of a feature split into two independent
+prompts** after architect review: feature 13 v2 originally covered
+both the image catalog AND the creation of a workspace without an
+admin-authored `WorkspaceTemplate` ("orphan"). These two needs have
+very different blast radii — the catalog never touches
+`enforce()`/provisioning, orphan creation does — and the namespace
+placement question for an orphan workspace (no template = no custom
+placement pattern) turned out to be a real architecture question in
+its own right. Hence the split:
+- **Part A (this document)**: the catalog itself — fetch, status,
+  JSON schema, visibility, visual picker. Shippable and useful on its
+  own, including for improving the EXISTING template picker (logos),
+  never depending on part B.
+- **Part B** (`docs/studies/28-prompt-feature13-direct-deploy-orphan-workspace.md`):
+  orphan creation itself (`WorkspacePolicy.directDeploy`,
+  `WorkspaceTemplate` synthesis, `CreateDirect` endpoint, webhook
+  gate). **Depends on this part A** (consumes
+  `status.catalog.entries` for its picker) — the reverse isn't true.
 
-Ce prompt couvre le repo `waas-fable` uniquement — le volet
-`waas-images` (génération et publication des deux catalogues) reste un
-**prompt séparé et indépendant**. Les deux volets (repos) se
-coordonnent uniquement via le format de fichier catalogue partagé,
-spécifié en entier ci-dessous (§ 1 Format du catalogue) — inchangé par
-rapport à la v1, tu n'as besoin de rien d'autre de l'autre repo.
+This prompt covers the `waas-fable` repo only — the `waas-images` part
+(generating and publishing the two catalogs) remains a **separate,
+independent prompt**. The two parts (repos) coordinate only through
+the shared catalog file format, fully specified below (§ 1 Catalog
+format) — unchanged from v1, you need nothing else from the other
+repo.
 
-## Contexte et objectif
+## Context and goal
 
-**Cataloguer les images approuvées** (os/app/version/icône) pour
-afficher un picker avec logos plutôt qu'une liste de références brutes
-— un fetch périodique d'un fichier `catalog.yaml` publié par le
-registre, exposé sur `WorkspaceImage.status`.
+**Catalog approved images** (os/app/version/icon) to display a picker
+with logos rather than a list of raw references — a periodic fetch of
+a `catalog.yaml` file published by the registry, exposed on
+`WorkspaceImage.status`.
 
-**Registres dans le périmètre** : `ghcr.io/xorhub/waas-images` et
-`docker.io/kasmweb` uniquement (les deux catalogues publiés par le
-volet `waas-images`). Le mécanisme reste générique (n'importe quelle
-`WorkspaceImage` en mode registre peut porter un `spec.catalog`), mais
-rien n'exige de le documenter/promouvoir au-delà de ces deux registres.
+**Registries in scope**: `ghcr.io/xorhub/waas-images` and
+`docker.io/kasmweb` only (the two catalogs published by the
+`waas-images` part). The mechanism stays generic (any `WorkspaceImage`
+in registry mode can carry a `spec.catalog`), but nothing requires
+documenting/promoting it beyond these two registries.
 
-## Décision d'architecture centrale : le catalogue vit DANS WorkspaceImage, pas dans une CR séparée
+## Central architecture decision: the catalog lives INSIDE WorkspaceImage, not in a separate CR
 
-**Écart volontaire par rapport à un premier brouillon** qui proposait
-une CR `WorkspaceCatalog` séparée référencée par
-`WorkspaceImage.spec.catalogRef`. Arbitrage retenu après examen :
-`WorkspaceCatalog` aurait toujours été en cardinalité 1:1 stricte avec
-une `WorkspaceImage` (jamais d'agrégation multi-registre, jamais de vue
-curatée distincte de l'approbation — ces deux besoins ont été
-explicitement écartés), et son seul bénéfice réel (permettre un jour
-un rôle "éditeur de catalogue" distinct de l'admin sécurité via un
-RBAC K8s scopé à une ressource différente) ne tient pas : le modèle
-d'autorisation de toute la plateforme est déjà **applicatif, pas du
-RBAC K8s natif** (`WorkspacePolicy` elle-même n'est enforcée par aucun
-verbe RBAC sur `Workspace`, uniquement par le webhook/api-server qui
-résout une policy). Un futur rôle "éditeur de catalogue" serait de
-toute façon vérifié dans le code de l'api-server avant le
-`PATCH spec.catalog`, exactement comme tout le reste de la
-gouvernance — une CR séparée n'aurait rien apporté à ce futur rôle,
-juste dupliqué un objet pour une cardinalité qui reste 1:1 par
-construction.
+**Deliberate departure from a first draft** which proposed a separate
+`WorkspaceCatalog` CR referenced by `WorkspaceImage.spec.catalogRef`.
+Decision reached after review: `WorkspaceCatalog` would always have
+been in a strict 1:1 cardinality with a `WorkspaceImage` (never
+multi-registry aggregation, never a curated view distinct from
+approval — both needs were explicitly ruled out), and its only real
+benefit (someday allowing a "catalog editor" role distinct from the
+security admin, via K8s RBAC scoped to a different resource) doesn't
+hold up: the platform's entire authorization model is already
+**application-level, not native K8s RBAC** (`WorkspacePolicy` itself
+is not enforced by any RBAC verb on `Workspace`, only by the
+webhook/api-server that resolves a policy). A future "catalog editor"
+role would in any case be checked in the api-server's code before the
+`PATCH spec.catalog`, exactly like the rest of governance — a separate
+CR would have brought nothing to this future role, just duplicated an
+object for a cardinality that remains 1:1 by construction.
 
-**Conséquence pratique** : si un vrai besoin de séparation RBAC K8s
-apparaît un jour (accès direct kubectl/GitOps à granularité fine), le
-split reste possible plus tard — grouper les champs sous une struct
-dédiée maintenant (au lieu de champs plats) rend ce split mécanique
-plus tard. C'est pour ça que `Catalog` est un struct imbriqué et non
-des champs plats sur `WorkspaceImageSpec`/`WorkspaceImageStatus`.
+**Practical consequence**: if a real need for K8s RBAC separation ever
+appears (fine-grained direct kubectl/GitOps access), the split remains
+possible later — grouping the fields under a dedicated struct now
+(instead of flat fields) makes that future split mechanical. That's
+why `Catalog` is a nested struct and not flat fields on
+`WorkspaceImageSpec`/`WorkspaceImageStatus`.
 
-`operator/api/v1alpha1/workspaceimage_types.go` — sur
-`WorkspaceImageSpec`, après `Resources` :
+`operator/api/v1alpha1/workspaceimage_types.go` — on
+`WorkspaceImageSpec`, after `Resources`:
 
 ```go
 // Catalog configures the periodic fetch of a published catalog
@@ -196,9 +193,9 @@ type BearerTokenAuth struct {
 }
 ```
 
-Nouveau statut — `WorkspaceImage` n'a AUCUN `Status` aujourd'hui
-(grep `Status` sur `workspaceimage_types.go` : zéro résultat), donc
-c'est un ajout net, pas une extension :
+New status — `WorkspaceImage` has NO `Status` today
+(grep `Status` on `workspaceimage_types.go`: zero results), so this is
+a net addition, not an extension:
 
 ```go
 // DiscoveredImage is one entry surfaced by a catalog sync — display
@@ -281,39 +278,38 @@ type WorkspaceImage struct {
 }
 ```
 
-Ceci est additif et rétro-compatible per
-[ADR 0002](../adr/0002-crd-evolution.md) — mais avant d'ajouter le
-subresource, grep `WorkspaceImage{}.Status` et `.Status =` across
-`operator/` et `api-server/` pour confirmer qu'aucun code existant
-n'assume l'absence de status sur ce type (attendu : rien, l'objet est
-purement lu par le webhook aujourd'hui).
+This is additive and backward-compatible per
+[ADR 0002](../adr/0002-crd-evolution.md) — but before adding the
+subresource, grep `WorkspaceImage{}.Status` and `.Status =` across
+`operator/` and `api-server/` to confirm no existing code assumes the
+absence of status on this type (expected: nothing, the object is
+purely read by the webhook today).
 
-### Pourquoi ce merge est sûr vis-à-vis du watch existant sur WorkspaceImage
+### Why this merge is safe with respect to the existing watch on WorkspaceImage
 
-`workspace_controller.go` a AUSSI un
+`workspace_controller.go` ALSO has a
 `Watches(&waasv1alpha1.WorkspaceImage{}, mapCatalogToWorkspaces,
-predicate.GenerationChangedPredicate{})` — édition d'une entrée
-catalogue (arch affinity, pull secret) → réévaluation drift de toute
-la flotte du namespace. Une fois `+kubebuilder:subresource:status`
-ajouté, les écritures de `status.catalog.*` passent par le sous-ressource
-`Status().Patch()` et **ne bump JAMAIS `metadata.generation`** — donc
-le sync périodique du catalogue (toutes les 6h par défaut) ne
-déclenche jamais ce watch. Seule une édition humaine de
-`spec.catalog.from`/`auth` bump la génération et redéclenche
-`mapCatalogToWorkspaces` pour toute la flotte — comportement déjà
-accepté aujourd'hui pour toute édition de `WorkspaceImage.spec`
-("catalog edits are rare admin operations and an in-sync reconcile is
-a cheap no-op", commentaire existant). Rien de nouveau à mitiger ici.
+predicate.GenerationChangedPredicate{})` — editing a catalog entry
+(arch affinity, pull secret) → drift re-evaluation of the whole
+namespace fleet. Once `+kubebuilder:subresource:status` is added,
+writes to `status.catalog.*` go through the `Status().Patch()`
+subresource and **NEVER bump `metadata.generation`** — so the periodic
+catalog sync (every 6h by default) never triggers this watch. Only a
+human edit of `spec.catalog.from`/`auth` bumps the generation and
+retriggers `mapCatalogToWorkspaces` for the whole fleet — behavior
+already accepted today for any `WorkspaceImage.spec` edit ("catalog
+edits are rare admin operations and an in-sync reconcile is a cheap
+no-op", existing comment). Nothing new to mitigate here.
 
-Les deux `Watches(&WorkspaceImage{}, ...)` (celui de
-`workspace_controller.go` pour le drift, et le nouveau reconciler du
-§ 4 pour le fetch catalogue) sont deux controllers indépendants
-observant le même GVK pour des raisons différentes — pattern normal en
-controller-runtime, aucun conflit.
+The two `Watches(&WorkspaceImage{}, ...)` (the one in
+`workspace_controller.go` for drift, and the new reconciler from § 4
+for the catalog fetch) are two independent controllers observing the
+same GVK for different reasons — normal controller-runtime pattern, no
+conflict.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### 1. Format du catalogue (contrat partagé avec le repo waas-images) — inchangé
+### 1. Catalog format (contract shared with the waas-images repo) — unchanged
 
 ```yaml
 apiVersion: waas.xorhub.io/catalog/v1
@@ -331,19 +327,19 @@ images:
     icon: firefox
 ```
 
-Parseur tolérant : `apiVersion` inconnue ⇒ rejette proprement (erreur
-de sync, PAS un crash), champs optionnels absents ⇒ zéro valeur (`os`
-vide se traite comme `linux` côté frontend, pas une erreur).
+Tolerant parser: unknown `apiVersion` ⇒ rejects cleanly (a sync error,
+NOT a crash), absent optional fields ⇒ zero value (empty `os` is
+treated as `linux` on the frontend side, not an error).
 
-### 2. Schéma JSON versionné du catalogue — waas-fable en est l'unique source de vérité
+### 2. Versioned catalog JSON schema — waas-fable is its sole source of truth
 
-waas-fable est le **lecteur** du format catalogue (§1) : c'est donc lui
-qui fait autorité sur le schéma, pas waas-images (le producteur). Le
-schéma existe **UNIQUEMENT dans ce repo** — jamais dupliqué ni
-vendoré côté waas-images ni ailleurs — et est référencé depuis les
-fichiers `catalog.yaml` par une URL HTTPS pointant ce repo, consommée
-par un yaml-language-server (ex. extension `redhat.vscode-yaml`) pour
-la validation/autocomplétion à l'édition :
+waas-fable is the **reader** of the catalog format (§1): so it is the
+one that has authority over the schema, not waas-images (the
+producer). The schema exists **ONLY in this repo** — never duplicated
+or vendored on the waas-images side or elsewhere — and is referenced
+from `catalog.yaml` files by an HTTPS URL pointing at this repo,
+consumed by a yaml-language-server (e.g. the `redhat.vscode-yaml`
+extension) for validation/autocompletion while editing:
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/<tag>/operator/pkg/catalog/schema/v1.schema.json
@@ -351,339 +347,336 @@ apiVersion: waas.xorhub.io/catalog/v1
 images: ...
 ```
 
-`<tag>` = un tag de release waas-fable, jamais `main` — même discipline
-que le reste du projet contre les références mouvantes (pas de
-`:latest`). Cette URL n'est qu'un confort éditeur pour quiconque édite
-un `catalog.yaml` à la main (côté waas-images ou ailleurs) : le fetch
-HTTPS a lieu dans l'éditeur de la personne qui édite, jamais dans le
-reconciler waas-fable ni dans un chemin runtime — `status.catalog` reste
-alimenté uniquement par le parseur Go tolérant décrit ci-dessus,
-indépendamment de ce schéma. Une validation CI côté waas-images (si ce
-repo veut gater sa publication dessus) est une décision qui lui est
-propre, hors périmètre de ce prompt.
+`<tag>` = a waas-fable release tag, never `main` — same discipline as
+the rest of the project against moving references (no `:latest`).
+This URL is only an editor convenience for anyone editing a
+`catalog.yaml` by hand (on the waas-images side or elsewhere): the
+HTTPS fetch happens in the editor of the person editing, never in the
+waas-fable reconciler nor in a runtime path — `status.catalog` remains
+fed only by the tolerant Go parser described above, independently of
+this schema. A CI validation on the waas-images side (if that repo
+wants to gate its publication on it) is a decision of its own, out of
+scope for this prompt.
 
-**Le schéma n'est pas écrit à la main : il est généré depuis le struct
-Go canonique**, pour qu'il ne puisse jamais diverger silencieusement du
-parseur réel.
+**The schema is not hand-written: it is generated from the canonical
+Go struct**, so that it can never silently diverge from the actual
+parser.
 
-- `operator/pkg/catalog` (nouveau package) : struct Go du wire-format —
-  `File{APIVersion string; Images []Entry}` — **distinct de
-  `DiscoveredImage`** (§ Décision d'architecture centrale ; les
-  deux types ont des cadences de compatibilité différentes, l'un suit
-  le cycle CRD `v1alpha1`/ADR 0002, l'autre un contrat de fichier
-  inter-repo indépendant). Ce struct est celui que le parseur du
-  reconciler (§4) `Unmarshal` réellement — une seule définition, deux
-  consommateurs (parseur + générateur de schéma), donc aucune fixture
-  de synchronisation à maintenir séparément.
-- `operator/hack/gen-catalog-schema/main.go` : petite commande locale
-  import `catalog.File` + une lib de génération de JSON Schema par
-  réflexion (ex. `invopop/jsonschema`), écrit
-  `operator/pkg/catalog/schema/v1.schema.json`. Dépendance ajoutée à
-  `operator/go.mod` mais jamais importée par `cmd/operator` — même
-  pattern que `tygo` pour `generate-types` (`Makefile:57`, invoqué en
-  `go run pkg@version`, aucune entrée `go.mod` requise pour celui-là
-  précisément, mais même esprit d'outil de génération non lié au
-  binaire livré).
-- Un fichier par `apiVersion` (`v1.schema.json`), figé une fois publié —
-  même discipline additive que les CRD.
-- **Câblage make/CI, réutilise le mécanisme existant, n'en crée pas un
-  nouveau** :
-  - Ajoute la génération au target `generate` existant
+- `operator/pkg/catalog` (new package): Go struct of the wire format —
+  `File{APIVersion string; Images []Entry}` — **distinct from
+  `DiscoveredImage`** (§ Central architecture decision; the two types
+  have different compatibility cadences, one follows the CRD
+  `v1alpha1`/ADR 0002 cycle, the other an independent inter-repo file
+  contract). This struct is the one the reconciler's parser (§4)
+  actually `Unmarshal`s — a single definition, two consumers (parser +
+  schema generator), so no synchronization fixture to maintain
+  separately.
+- `operator/hack/gen-catalog-schema/main.go`: small local command that
+  imports `catalog.File` + a reflection-based JSON Schema generation
+  library (e.g. `invopop/jsonschema`), writes
+  `operator/pkg/catalog/schema/v1.schema.json`. Dependency added to
+  `operator/go.mod` but never imported by `cmd/operator` — same
+  pattern as `tygo` for `generate-types` (`Makefile:57`, invoked via
+  `go run pkg@version`, no `go.mod` entry required for that one
+  specifically, but same spirit of a generation tool unrelated to the
+  shipped binary).
+- One file per `apiVersion` (`v1.schema.json`), frozen once published —
+  same additive discipline as the CRDs.
+- **make/CI wiring reuses the existing mechanism, doesn't create a new
+  one**:
+  - Add the generation to the existing `generate` target
     (`Makefile:45-46`).
-  - Étends la liste de chemins du `git diff --exit-code` du job
-    `go-generated-drift` (`.github/workflows/ci.yml:283-284`) pour
-    inclure `operator/pkg/catalog/schema` — exactement le mécanisme qui
-    gate déjà la dérive des CRD/types TS, un chemin de plus dans le
-    même appel, pas un nouveau job.
+  - Extend the path list of the `go-generated-drift` job's
+    `git diff --exit-code` (`.github/workflows/ci.yml:283-284`) to
+    include `operator/pkg/catalog/schema` — exactly the mechanism that
+    already gates CRD/TS-types drift, one more path in the same call,
+    not a new job.
 
-### 3. Visibilité du catalogue : héritée, pas de nouveau champ
+### 3. Catalog visibility: inherited, no new field
 
-`status.catalog.entries` d'une `WorkspaceImage` n'est visible dans
-l'API `/catalog` (§ 6) que pour les utilisateurs que
-`policy.AllowedImages`/`WorkspaceImage.spec.AllowedGroups` autorisent
-déjà pour CETTE `WorkspaceImage` — même porte que l'enforcement, aucun
-champ de visibilité séparé sur le catalogue. Ne code PAS de second
-mécanisme de filtrage.
+`status.catalog.entries` of a `WorkspaceImage` is only visible in the
+`/catalog` API (§ 6) to users already authorized for THAT
+`WorkspaceImage` by `policy.AllowedImages`/
+`WorkspaceImage.spec.AllowedGroups` — the same gate as enforcement, no
+separate visibility field on the catalog. Do NOT code a second
+filtering mechanism.
 
-### 4. `WorkspaceImageCatalogReconciler` — premier reconciler de WorkspaceImage
+### 4. `WorkspaceImageCatalogReconciler` — first WorkspaceImage reconciler
 
-`WorkspaceImage` n'a aujourd'hui AUCUN reconciler — c'est le premier.
-Fichier suggéré : `operator/internal/controller/workspaceimage_catalog.go`,
-modèle à suivre : `namespace_janitor.go` pour la forme d'un
-`Reconciler` indépendant + `workspace_controller.go` pour le pattern de
-self-requeue (`ctrl.Result{RequeueAfter: interval}`).
+`WorkspaceImage` has NO reconciler today — this is the first one.
+Suggested file: `operator/internal/controller/workspaceimage_catalog.go`,
+model to follow: `namespace_janitor.go` for the shape of an
+independent `Reconciler` + `workspace_controller.go` for the
+self-requeue pattern (`ctrl.Result{RequeueAfter: interval}`).
 
-Logique par `WorkspaceImage` dont `spec.registry != "" && spec.catalog != nil`
-— deux branches **mutuellement exclusives** selon `spec.catalog.from`
-(exactement l'une des trois options, garanti par la XValidation du
-type, § Décision d'architecture centrale) :
+Logic per `WorkspaceImage` with `spec.registry != "" && spec.catalog != nil`
+— two branches that are **mutually exclusive** depending on
+`spec.catalog.from` (exactly one of the three options, guaranteed by
+the type's XValidation, § Central architecture decision):
 
-**Branche A — `From.URL` défini (live, périodique) :**
-1. `GET` HTTP simple (`net/http`, pas de nouvelle dépendance — PAS
-   `crane`/`go-containerregistry`) sur `from.url`, timeout raisonnable
-   (5-10s). Si `spec.catalog.auth.bearerToken != nil`, lis le Secret
-   nommé par `auth.bearerToken.secretRef` dans le namespace plateforme
-   (lecture non cachée, même doctrine que `pull_secret.go` — "Secret
-   reads bypass the cache", commentaire RBAC existant
-   `helm/waas/templates/operator.yaml:31-34`) et ajoute
-   `Authorization: Bearer <clé "token" du Secret>`. Secret
-   manquant/illisible/sans clé `token` → échec de sync (`lastSyncError`),
-   jamais un crash.
-2. Succès + parse OK → parse la réponse dans `catalog.File`/`catalog.Entry`
-   (`operator/pkg/catalog`, § 2 — le même type que le générateur de
-   schéma, jamais un parsing ad-hoc), puis convertit chaque `catalog.Entry`
-   en `DiscoveredImage` pour `status.catalog.entries` (les deux types sont
-   volontairement distincts, § 2 — cette conversion est le seul point
-   de couture entre eux). `status.catalog.source = "Fetched"`,
+**Branch A — `From.URL` set (live, periodic):**
+1. Plain HTTP `GET` (`net/http`, no new dependency — NOT
+   `crane`/`go-containerregistry`) on `from.url`, reasonable timeout
+   (5-10s). If `spec.catalog.auth.bearerToken != nil`, read the Secret
+   named by `auth.bearerToken.secretRef` in the platform namespace
+   (uncached read, same doctrine as `pull_secret.go` — "Secret reads
+   bypass the cache", existing RBAC comment
+   `helm/waas/templates/operator.yaml:31-34`) and add
+   `Authorization: Bearer <"token" key of the Secret>`. Missing/unreadable
+   Secret, or one without the `token` key → sync failure
+   (`lastSyncError`), never a crash.
+2. Success + parse OK → parse the response into `catalog.File`/`catalog.Entry`
+   (`operator/pkg/catalog`, § 2 — the same type as the schema
+   generator, never ad-hoc parsing), then convert each `catalog.Entry`
+   into a `DiscoveredImage` for `status.catalog.entries` (the two
+   types are deliberately distinct, § 2 — this conversion is the only
+   seam between them). `status.catalog.source = "Fetched"`,
    `status.catalog.lastSyncTime = now`, `status.catalog.lastSyncError = ""`.
-3. Échec (réseau, HTTP non-200, auth, parse) → **ne jamais vider un
-   `status.catalog.entries` déjà peuplé** (stale-but-served) ;
-   `status.catalog.lastSyncError` mis à jour, `status.catalog.source`
-   inchangé.
+3. Failure (network, non-200 HTTP, auth, parse) → **never clear an
+   already-populated `status.catalog.entries`** (stale-but-served);
+   `status.catalog.lastSyncError` updated, `status.catalog.source`
+   unchanged.
 
-**Branche B — `From.ConfigMapKeyRef` ou `From.SecretKeyRef` défini
-(statique, GitOps-managed, § 5) :**
-1. Lit la clé référencée (`ConfigMapKeyRef.Key`/`SecretKeyRef.Key`,
-   défaut `catalog.yaml` seulement pour `ConfigMapKeyRef` — requis pour
-   `SecretKeyRef`) dans le namespace plateforme. Lecture non cachée
-   pour le cas Secret (même doctrine que `auth.bearerToken.secretRef` ;
-   le SA operator a déjà `[get, list, ...]` sur `configmaps` ET
-   `secrets` sans restriction de ressource,
-   `helm/waas/templates/operator.yaml:33-40` — aucun nouveau RBAC).
-   Aucun appel HTTP dans cette branche.
-2. Succès + parse OK (même `catalog.File`, § 2, jamais un format
-   spécial) → `status.catalog.entries` = le contenu converti,
+**Branch B — `From.ConfigMapKeyRef` or `From.SecretKeyRef` set
+(static, GitOps-managed, § 5):**
+1. Reads the referenced key (`ConfigMapKeyRef.Key`/`SecretKeyRef.Key`,
+   default `catalog.yaml` only for `ConfigMapKeyRef` — required for
+   `SecretKeyRef`) in the platform namespace. Uncached read for the
+   Secret case (same doctrine as `auth.bearerToken.secretRef`; the
+   operator SA already has `[get, list, ...]` on `configmaps` AND
+   `secrets` with no resource restriction,
+   `helm/waas/templates/operator.yaml:33-40` — no new RBAC). No HTTP
+   call in this branch.
+2. Success + parse OK (same `catalog.File`, § 2, never a special
+   format) → `status.catalog.entries` = the converted content,
    `status.catalog.source = "Static"`, `status.catalog.lastSyncTime = now`,
    `status.catalog.lastSyncError = ""`.
-3. Échec (objet manquant, clé absente, contenu qui ne parse pas) →
-   **ne jamais vider un `status.catalog.entries` déjà peuplé**
-   (stale-but-served, même doctrine que la branche A) ;
-   `status.catalog.lastSyncError` mis à jour, jamais un crash.
+3. Failure (missing object, absent key, content that fails to parse) →
+   **never clear an already-populated `status.catalog.entries`**
+   (stale-but-served, same doctrine as branch A);
+   `status.catalog.lastSyncError` updated, never a crash.
 
-**Commun aux deux branches :**
-4. Requeue après `RequeueAfter: interval` (succès ou échec, les deux
-   branches confondues — la branche B se re-lit au même rythme que la
-   branche A re-fetch, aucun mécanisme de rafraîchissement immédiat
-   séparé, voir pourquoi juste en dessous). `interval` vient d'une
-   variable d'env opérateur (§ 7).
-5. Watch sur `WorkspaceImage` propre à ce reconciler : une édition de
-   `spec.catalog` (y compris un changement de branche A→B ou
-   inversement) retrigger immédiatement (comportement par défaut d'un
-   `For(&WorkspaceImage{})` — pas besoin de predicate supplémentaire,
-   ce reconciler filtre lui-même dans `Reconcile` les entrées sans
-   `spec.catalog`).
+**Common to both branches:**
+4. Requeue after `RequeueAfter: interval` (success or failure, both
+   branches alike — branch B re-reads at the same cadence as branch A
+   re-fetches, no separate immediate-refresh mechanism, see why right
+   below). `interval` comes from an operator env var (§ 7).
+5. Watch on `WorkspaceImage` specific to this reconciler: an edit to
+   `spec.catalog` (including a branch A→B change or the reverse)
+   immediately retriggers (default behavior of a
+   `For(&WorkspaceImage{})` — no extra predicate needed, this
+   reconciler itself filters out entries without `spec.catalog` in
+   `Reconcile`).
 
-**Pas de watch sur la ConfigMap/le Secret référencé par la branche B**
-— ça aurait été la mécanique idiomatique controller-runtime pour un
-rafraîchissement immédiat (édition GitOps → reconciliation instantanée
-au lieu d'attendre `interval`), mais `helm/waas/templates/operator.yaml:32,36`
-documente explicitement que les lectures Secret/ConfigMap de cet
-opérateur **contournent le cache** ("Secret reads bypass the cache...
-no watch", "Uncached reads too") — choix architectural déjà en place,
-RBAC sans le verbe `watch` sur ces deux ressources. Un `Watches(&corev1.ConfigMap{}, ...)`
-irait à l'encontre de ce choix (RBAC à étendre, cache à activer pour
-ces GVK). La branche B accepte donc le même délai de propagation que
-la branche A (jusqu'à `catalogSyncInterval`, § 7) — cohérent plutôt
-qu'un cas spécial, et sans rouvrir une décision d'architecture déjà
-actée ailleurs dans ce repo.
+**No watch on the ConfigMap/Secret referenced by branch B** — that
+would have been the idiomatic controller-runtime mechanics for an
+immediate refresh (GitOps edit → instant reconciliation instead of
+waiting for `interval`), but `helm/waas/templates/operator.yaml:32,36`
+explicitly documents that this operator's Secret/ConfigMap reads
+**bypass the cache** ("Secret reads bypass the cache... no watch",
+"Uncached reads too") — an architectural choice already in place,
+RBAC without the `watch` verb on these two resources. A
+`Watches(&corev1.ConfigMap{}, ...)` would go against this choice (RBAC
+to extend, cache to enable for these GVKs). Branch B therefore accepts
+the same propagation delay as branch A (up to
+`catalogSyncInterval`, § 7) — consistent rather than a special case,
+and without reopening an architecture decision already settled
+elsewhere in this repo.
 
-Ce reconciler ne bloque JAMAIS la création de workspace : séparé,
-purement cosmétique, `enforce()`/`FindImage` ne le lisent jamais.
+This reconciler NEVER blocks workspace creation: separate, purely
+cosmetic, `enforce()`/`FindImage` never read it.
 
-### 5. Source du catalogue : URL fetchée en direct OU contenu statique — jamais un snapshot embarqué dans le binaire
+### 5. Catalog source: directly fetched URL OR static content — never a snapshot embedded in the binary
 
-**Écart volontaire par rapport à deux premiers brouillons.** Le tout
-premier proposait d'embarquer deux fichiers figés via `//go:embed`
-(précédent : `kasmvnc_defaults.yaml`,
-`operator/internal/controller/kasm_config.go`), mappés en dur par
-`spec.registry` exact (`ghcr.io/xorhub/waas-images` → un fichier,
-`docker.io/kasmweb` → un autre) — écarté : ni générique (mapping en dur
-limité à deux registres, alors que N'IMPORTE QUELLE `WorkspaceImage` en
-mode registre peut porter un `spec.catalog`), ni GitOps-compliant
-(rafraîchir le snapshot exige de recompiler et publier une nouvelle
-version de l'opérateur), ni aussi auditable pour un admin qu'un objet
-K8s inspectable directement (`kubectl get configmap -o yaml` contre
-"aller lire le Go source de l'opérateur"). Un second brouillon a ensuite
-introduit `ConfigMapKeyRef`/`SecretKeyRef` comme un **fallback**
-utilisé UNIQUEMENT quand le fetch live n'avait jamais réussi (`url`
-restant un champ séparé, toujours présent) — écarté à son tour :
-`url` et `from.{configMapKeyRef,secretKeyRef}` auraient pu coexister en
-même temps sur le même objet, avec une sémantique implicite de
-priorité (le live gagne s'il a déjà réussi une fois) qu'il fallait
-documenter et tester séparément, pour un besoin qui n'existe pas
-vraiment — un admin choisit UNE source, pas une source-avec-un-plan-B.
+**Deliberate departure from two earlier drafts.** The very first
+proposed embedding two frozen files via `//go:embed` (precedent:
+`kasmvnc_defaults.yaml`,
+`operator/internal/controller/kasm_config.go`), hard-mapped by exact
+`spec.registry` (`ghcr.io/xorhub/waas-images` → one file,
+`docker.io/kasmweb` → another) — ruled out: neither generic (hard
+mapping limited to two registries, whereas ANY `WorkspaceImage` in
+registry mode can carry a `spec.catalog`), nor GitOps-compliant
+(refreshing the snapshot requires recompiling and publishing a new
+operator version), nor as auditable for an admin as a directly
+inspectable K8s object (`kubectl get configmap -o yaml` versus "go
+read the operator's Go source"). A second draft then introduced
+`ConfigMapKeyRef`/`SecretKeyRef` as a **fallback** used ONLY when the
+live fetch had never succeeded (`url` remaining a separate, always
+present field) — ruled out in turn: `url` and
+`from.{configMapKeyRef,secretKeyRef}` could have coexisted at the same
+time on the same object, with an implicit priority semantics (live
+wins if it has already succeeded once) that would need to be
+documented and tested separately, for a need that doesn't really exist
+— an admin picks ONE source, not a source-with-a-plan-B.
 
-**Solution retenue** : `ImageCatalogSpec.From` (§ Décision
-d'architecture centrale) est un struct `ImageCatalogSource` avec
-`URL`/`ConfigMapKeyRef`/`SecretKeyRef` **mutuellement exclusifs à
-trois** (exactement un des trois, jamais deux, jamais zéro — la
-XValidation du type l'impose). Pas de notion de "fallback" ni de
-priorité entre les trois : c'est un choix de source, un point, pas une
-hiérarchie. `URL` reste le fetch live périodique (§4 branche A). Le cas
-`ConfigMapKeyRef` couvre l'admin qui préfère un catalogue statique
-GitOps-managed (contenu non secret, cas courant) ; `SecretKeyRef` existe
-pour l'admin qui veut restreindre l'accès au contenu du manifeste
-lui-même — **sans rapport** avec `ImageCatalogSpec.Auth.BearerToken`
-(le credential du fetch live, uniquement pertinent avec `From.URL`,
-voir la XValidation qui les couple) : les deux servent des rôles
-distincts et peuvent pointer vers des Secrets différents. Générique
-(n'importe quelle `WorkspaceImage` en mode registre choisit sa source,
-pas seulement les deux registres connus), GitOps-managed pour les deux
-variantes statiques (la ConfigMap/le Secret se met à jour par un
-commit, comme `gitops/governance/images.yaml`, et le reconciler la
-re-lit au prochain `catalogSyncInterval` — pas de watch dédié sur ces
-deux ressources, §4 explique pourquoi), et zéro nouveau RBAC (le SA
-operator a déjà
-`[create, delete, get, list, update]` sur `configmaps` ET `secrets`
-sans restriction de ressource, `helm/waas/templates/operator.yaml:33-40`).
+**Solution adopted**: `ImageCatalogSpec.From` (§ Central architecture
+decision) is an `ImageCatalogSource` struct with
+`URL`/`ConfigMapKeyRef`/`SecretKeyRef` **mutually exclusive, three-way**
+(exactly one of the three, never two, never zero — the type's
+XValidation enforces it). No notion of "fallback" or priority among
+the three: it's a source choice, a single point, not a hierarchy.
+`URL` remains the periodic live fetch (§4 branch A). The
+`ConfigMapKeyRef` case covers the admin who prefers a static,
+GitOps-managed catalog (non-secret content, the common case);
+`SecretKeyRef` exists for the admin who wants to restrict access to
+the manifest content itself — **unrelated** to
+`ImageCatalogSpec.Auth.BearerToken` (the live-fetch credential, only
+relevant with `From.URL`, see the XValidation that couples them): the
+two serve distinct roles and can point at different Secrets. Generic
+(any `WorkspaceImage` in registry mode chooses its own source, not
+just the two known registries), GitOps-managed for both static
+variants (the ConfigMap/Secret is updated by a commit, like
+`gitops/governance/images.yaml`, and the reconciler re-reads it at the
+next `catalogSyncInterval` — no dedicated watch on these two
+resources, §4 explains why), and zero new RBAC (the operator SA
+already has
+`[create, delete, get, list, update]` on `configmaps` AND `secrets`
+with no resource restriction, `helm/waas/templates/operator.yaml:33-40`).
 
-Pour les deux registres publics connus (`ghcr.io/xorhub/waas-images`,
-`docker.io/kasmweb`), fournis un **exemple** de manifeste ConfigMap
-(variante `ConfigMapKeyRef`, le contenu n'étant pas secret) sous
-`gitops/governance/examples/` (non appliqué par défaut — le mode
-`spec.registry`+`spec.catalog` est déjà lui-même opt-in,
-`gitops/governance/images.yaml` n'en utilise aucun aujourd'hui, toutes
-ses entrées sont en `spec.image` exact) : un admin qui active le mode
-catalogue pour l'un de ces registres choisit lui-même sa source
-(`url` vers le registre public, ou copie/adapte l'exemple ConfigMap
-pour un usage airgap) plutôt que de dépendre d'un défaut imposé.
+For the two known public registries (`ghcr.io/xorhub/waas-images`,
+`docker.io/kasmweb`), provide an **example** ConfigMap manifest
+(`ConfigMapKeyRef` variant, since the content isn't secret) under
+`gitops/governance/examples/` (not applied by default — the
+`spec.registry`+`spec.catalog` mode is itself already opt-in,
+`gitops/governance/images.yaml` uses none of it today, all its entries
+are exact `spec.image`): an admin who enables catalog mode for one of
+these registries chooses their own source (`url` toward the public
+registry, or copy/adapt the example ConfigMap for an airgap use case)
+rather than depending on an imposed default.
 
-### 6. Frontend — exposition API + picker visuel unifié
+### 6. Frontend — API exposure + unified visual picker
 
-- `GET /catalog` (`Governance.Catalog`, api-server) : ajoute les
-  entrées `WorkspaceImage.status.catalog.entries` des images de
-  catalogue autorisées (réutilise `policy.AllowedImages` pour le
-  filtrage — même gate que le reste, § 3). **Forme imbriquée** :
-  `CatalogImage.discovered?: DiscoveredImage[]` (nouveau champ sur le
-  type `CatalogImage` existant, `frontend/src/types.gen.ts:435-464`) —
-  pas un tableau séparé au niveau racine de la réponse. Chaque carte du
-  picker (§ ci-dessous) a besoin à la fois de l'entrée découverte
-  (icône/version/app) ET des bornes/protocoles de la `CatalogImage`
-  parente (`protocols`/`min`/`max`/`defaults`, déjà présents sur ce
-  type aujourd'hui) — l'imbrication évite toute recorrélation manuelle
-  côté frontend entre deux listes.
-- Nouveau composant de résolution d'icône,
-  `frontend/src/lib/icon.ts` : `resolveIcon(slug?: string, os?: string): string`
-  — retourne le chemin d'un asset vendoré localement
-  (`/icons/<slug>.svg`), fallback sur `/icons/os-<linux|windows>.svg`
-  si `slug` absent ou pas vendoré. **Aucun fetch réseau à l'exécution**.
-- **Composant de carte unifié**, utilisé pour la liste des templates
-  EXISTANTS et pour les entrées catalogue (pas deux rendus distincts) :
-  tout template a au moins un OS connu (`WorkspaceTemplate.spec.os`),
-  donc `resolveIcon(undefined, tpl.os)` retourne déjà un logo de
-  fallback cohérent pour un template qui n'a pas d'icône catalogue —
-  c'est ce qui permet, dès CE volet, de remplacer le `<select>` texte
-  actuel de `CreateWorkspaceDialog.tsx` (L267-286) par une grille de
-  cartes avec logos, sans attendre le volet B. Réutilisé par
+- `GET /catalog` (`Governance.Catalog`, api-server): adds the
+  `WorkspaceImage.status.catalog.entries` entries of authorized
+  catalog images (reuses `policy.AllowedImages` for filtering — same
+  gate as everything else, § 3). **Nested shape**:
+  `CatalogImage.discovered?: DiscoveredImage[]` (new field on the
+  existing `CatalogImage` type, `frontend/src/types.gen.ts:435-464`) —
+  not a separate array at the root of the response. Each picker card
+  (§ below) needs both the discovered entry (icon/version/app) AND the
+  bounds/protocols of the parent `CatalogImage`
+  (`protocols`/`min`/`max`/`defaults`, already present on this type
+  today) — nesting avoids any manual re-correlation on the frontend
+  side between two lists.
+- New icon resolution component,
+  `frontend/src/lib/icon.ts`: `resolveIcon(slug?: string, os?: string): string`
+  — returns the path of a locally vendored asset
+  (`/icons/<slug>.svg`), falling back to `/icons/os-<linux|windows>.svg`
+  if `slug` is absent or not vendored. **No network fetch at
+  runtime**.
+- **Unified card component**, used both for the list of EXISTING
+  templates and for catalog entries (not two distinct renders): every
+  template has at least a known OS (`WorkspaceTemplate.spec.os`), so
+  `resolveIcon(undefined, tpl.os)` already returns a coherent fallback
+  logo for a template without a catalog icon — this is what allows,
+  starting with THIS part, replacing the current text `<select>` of
+  `CreateWorkspaceDialog.tsx` (L267-286) with a grid of cards with
+  logos, without waiting for part B. Reused by
   `SessionCard`/`WorkspaceCard`
   (`frontend/src/components/SessionCard.tsx`,
-  `frontend/src/sections/WorkspacesSection.tsx`) pour la même
-  cohérence visuelle. Ce même composant sert de brique au picker du
-  volet B (qui, lui, ajoute les cartes "depuis le catalogue" à côté des
-  cartes template dans la même grille) — garder le composant
-  suffisamment générique (icône + titre + sous-titre + état
-  disabled/reason) pour que le volet B n'ait qu'à lui fournir des
-  données, jamais à le réécrire.
-- Vendoring des icônes : `dashboard-icons`
-  (github.com/homarr-labs/dashboard-icons, Apache-2.0, structure
-  `svg/<slug>.svg`) — copie manuelle/scriptée d'un sous-ensemble
-  (slugs référencés par les deux catalogues connus + `linux`/`windows`
-  en fallback) dans `frontend/public/icons/`, avec
-  `frontend/public/icons/ATTRIBUTION.md` citant la licence Apache-2.0
-  et le repo source. `hack/vendor-icons.sh` (sophistication libre —
-  liste de slugs en dur suffit, ce n'est pas un chemin d'exécution
-  runtime) télécharge depuis
+  `frontend/src/sections/WorkspacesSection.tsx`) for the same visual
+  consistency. This same component is the building block for part B's
+  picker (which adds "from catalog" cards next to template cards in
+  the same grid) — keep the component generic enough (icon + title +
+  subtitle + disabled/reason state) that part B only has to feed it
+  data, never rewrite it.
+- Icon vendoring: `dashboard-icons`
+  (github.com/homarr-labs/dashboard-icons, Apache-2.0, `svg/<slug>.svg`
+  structure) — manual/scripted copy of a subset (slugs referenced by
+  the two known catalogs + `linux`/`windows` as fallback) into
+  `frontend/public/icons/`, with
+  `frontend/public/icons/ATTRIBUTION.md` citing the Apache-2.0 license
+  and the source repo. `hack/vendor-icons.sh` (sophistication is
+  optional — a hardcoded slug list is enough, this is not a runtime
+  execution path) downloads from
   `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/<slug>.svg`
-  pour faciliter les rafraîchissements futurs, mais n'est PAS exécuté à
-  l'exécution de l'app.
+  to ease future refreshes, but is NOT executed at app runtime.
 
-### 7. Helm — intervalle de sync, RBAC status
+### 7. Helm — sync interval, status RBAC
 
-`helm/waas/values.yaml` : nouvelle clé `operator.catalogSyncInterval`
-(défaut `6h`, même esprit que `apiServer.eventsPollInterval`). Câblée
-en variable d'env opérateur.
+`helm/waas/values.yaml`: new key `operator.catalogSyncInterval`
+(default `6h`, same spirit as `apiServer.eventsPollInterval`). Wired
+into an operator env var.
 
-RBAC (`helm/waas/templates/operator.yaml`) :
+RBAC (`helm/waas/templates/operator.yaml`):
 - L67-69, `workspacetemplates, workspaceimages, workspacepolicies`
-  n'ont que `[get, list, watch]` aujourd'hui. Ajoute une entrée
-  séparée `workspaceimages/status` avec `verbs: [get, update, patch]`
-  (miroir du bloc `workspaces/status` juste en dessous) — régénère
-  avec `make manifests` une fois le marker `+kubebuilder:subresource:status`
-  posé, vérifie que le YAML généré correspond.
-- `secrets` a déjà `[create, delete, get, list, update]` sans
-  restriction de ressource (L33-34) — couvre la lecture de
-  `spec.catalog.auth.bearerToken.secretRef` et de
-  `spec.catalog.from.secretKeyRef`, aucun ajout nécessaire. De même
-  pour `configmaps` (L38-40, mêmes verbes) — couvre
-  `spec.catalog.from.configMapKeyRef`. Aucun des deux n'a (ni ne doit
-  gagner) le verbe `watch` : ces deux resources contournent
-  délibérément le cache de l'opérateur (commentaires existants
-  L32/L36) — voir §4 pour pourquoi ce choix reste inchangé ici.
+  only have `[get, list, watch]` today. Add a separate
+  `workspaceimages/status` entry with `verbs: [get, update, patch]`
+  (mirroring the `workspaces/status` block right below) — regenerate
+  with `make manifests` once the `+kubebuilder:subresource:status`
+  marker is in place, verify the generated YAML matches.
+- `secrets` already has `[create, delete, get, list, update]` with no
+  resource restriction (L33-34) — covers reading
+  `spec.catalog.auth.bearerToken.secretRef` and
+  `spec.catalog.from.secretKeyRef`, no addition needed. Same for
+  `configmaps` (L38-40, same verbs) — covers
+  `spec.catalog.from.configMapKeyRef`. Neither has (nor should gain)
+  the `watch` verb: these two resources deliberately bypass the
+  operator's cache (existing comments L32/L36) — see §4 for why this
+  choice stays unchanged here.
 
-### 8. Régénération
+### 8. Regeneration
 
 `make manifests generate docs-params generate-types` — CRD YAML
-(`helm/waas/crds/waas.xorhub.io_workspaceimages.yaml`), types TS
-générés (`frontend/src/types.gen.ts`), et depuis `generate`
-(désormais) `operator/pkg/catalog/schema/v1.schema.json` (§ 2).
+(`helm/waas/crds/waas.xorhub.io_workspaceimages.yaml`), generated TS
+types (`frontend/src/types.gen.ts`), and, from `generate` (now
+included), `operator/pkg/catalog/schema/v1.schema.json` (§ 2).
 
-## Contraintes
+## Constraints
 
-- [ADR 0002](../adr/0002-crd-evolution.md) : additif uniquement, aucun
-  champ renommé/retypé, `v1alpha1` reste `v1alpha1`.
-- `status.catalog` n'est JAMAIS lu par `enforce()`/`FindImage`/`ImageAllowed` —
-  cosmétique uniquement.
-- Le fetch catalogue ne doit JAMAIS pouvoir bloquer ou retarder la
-  création/l'usage d'un workspace — reconciler séparé, pas un appel
-  synchrone dans `enforce()` ou `buildPodTemplate`.
-- Aucune nouvelle dépendance Go pour le fetch (pas de
-  `go-containerregistry`/`crane` — un `GET` HTTP suffit). Ne s'applique
-  PAS à la dépendance de génération de schéma (§ 2,
-  `invopop/jsonschema` ou équivalent) : outil de `make generate`
-  uniquement, jamais importé par `cmd/operator`, donc absent du binaire
-  livré et sans rapport avec le chemin de fetch runtime que cette règle
-  vise.
-- Pas de nouvelle CR `WorkspaceCatalog` — décision actée § Décision
-  d'architecture centrale, ne la réintroduis pas sans repasser par une
-  revue d'architecture explicite.
+- [ADR 0002](../adr/0002-crd-evolution.md): additive only, no field
+  renamed/retyped, `v1alpha1` stays `v1alpha1`.
+- `status.catalog` is NEVER read by `enforce()`/`FindImage`/`ImageAllowed` —
+  cosmetic only.
+- The catalog fetch must NEVER be able to block or delay the
+  creation/use of a workspace — separate reconciler, not a synchronous
+  call inside `enforce()` or `buildPodTemplate`.
+- No new Go dependency for the fetch (no
+  `go-containerregistry`/`crane` — a plain HTTP `GET` suffices). Does
+  NOT apply to the schema-generation dependency (§ 2,
+  `invopop/jsonschema` or equivalent): a `make generate` tool only,
+  never imported by `cmd/operator`, so absent from the shipped binary
+  and unrelated to the runtime fetch path this rule targets.
+- No new `WorkspaceCatalog` CR — decision settled in § Central
+  architecture decision, don't reintroduce it without going through an
+  explicit architecture review.
 
 ## Tests
 
-- `WorkspaceImageCatalogReconciler`, branche A (`From.URL`) : fetch OK
-  (avec et sans `auth.bearerToken`), fetch KO avec `entries` déjà
-  peuplé (stale-but-served), parse d'un `apiVersion` inconnue (rejet
-  propre), auth avec Secret manquant/sans clé `token` (échec de sync,
-  pas de crash — ce cas concerne `Auth.BearerToken.SecretRef`, à ne pas
-  confondre avec `From.SecretKeyRef` de la branche B dans les fixtures
-  de test).
-- `WorkspaceImageCatalogReconciler`, branche B (`From.ConfigMapKeyRef`/`SecretKeyRef`) :
-  lecture OK (les deux variantes), lecture KO avec `entries` déjà
-  peuplé (stale-but-served), ConfigMap/Secret manquant, clé absente,
-  contenu malformé (tous fail-soft, jamais un crash). Pas de test de
-  rafraîchissement immédiat sur édition externe — délibérément absent
-  (§4), la branche B se re-lit au même rythme que la branche A.
-- XValidation `ImageCatalogSource` : rejet à l'admission si zéro ou
-  plusieurs de `url`/`configMapKeyRef`/`secretKeyRef` sont renseignés ;
-  XValidation `ImageCatalogSpec` : rejet si `auth` est défini sans
+- `WorkspaceImageCatalogReconciler`, branch A (`From.URL`): fetch OK
+  (with and without `auth.bearerToken`), fetch KO with `entries`
+  already populated (stale-but-served), parsing an unknown
+  `apiVersion` (clean rejection), auth with a missing Secret/no
+  `token` key (sync failure, no crash — this case concerns
+  `Auth.BearerToken.SecretRef`, not to be confused with branch B's
+  `From.SecretKeyRef` in the test fixtures).
+- `WorkspaceImageCatalogReconciler`, branch B (`From.ConfigMapKeyRef`/`SecretKeyRef`):
+  read OK (both variants), read KO with `entries` already populated
+  (stale-but-served), missing ConfigMap/Secret, absent key, malformed
+  content (all fail-soft, never a crash). No test for an immediate
+  refresh on external edit — deliberately absent (§4), branch B
+  re-reads at the same cadence as branch A re-fetches.
+- `ImageCatalogSource` XValidation: rejected at admission if zero or
+  several of `url`/`configMapKeyRef`/`secretKeyRef` are set;
+  `ImageCatalogSpec` XValidation: rejected if `auth` is set without
   `from.url`.
-- Schéma catalogue (§ 2) : `make generate` régénère
-  `operator/pkg/catalog/schema/v1.schema.json` sans diff — validé par
-  le job `go-generated-drift` existant (chemin ajouté à son
-  `git diff --exit-code`), pas un nouveau test à écrire.
-- Frontend : Vitest sur `resolveIcon` (slug connu, slug inconnu,
-  absent, fallback OS) ; le composant de carte unifié rend un template
-  SANS icône catalogue avec le fallback OS, et une entrée catalogue
-  avec son icône propre.
-- `/verify` (skill du repo) sur le parcours complet si possible :
-  `WorkspaceImage` avec `spec.catalog.from.url` pointant un fichier de
-  test local (`httptest.Server` pour les tests Go), vérifier que le
-  picker du portail affiche bien les entrées découvertes avec logo.
+- Catalog schema (§ 2): `make generate` regenerates
+  `operator/pkg/catalog/schema/v1.schema.json` with no diff — validated
+  by the existing `go-generated-drift` job (path added to its
+  `git diff --exit-code`), not a new test to write.
+- Frontend: Vitest on `resolveIcon` (known slug, unknown slug, absent,
+  OS fallback); the unified card component renders a template WITHOUT
+  a catalog icon with the OS fallback, and a catalog entry with its
+  own icon.
+- `/verify` (repo skill) on the full flow if possible: `WorkspaceImage`
+  with `spec.catalog.from.url` pointing at a local test file
+  (`httptest.Server` for Go tests), verify that the portal picker
+  correctly displays the discovered entries with logo.
 
-## Points ouverts (ton arbitrage)
+## Open points (your call)
 
-Aucun à ce stade — le point qui restait ouvert (comment ajouter une
-future méthode d'auth catalogue sans renommer `token`) est résolu
-structurellement par `ImageCatalogAuth` (§ Décision d'architecture
-centrale) : un futur `basicAuth`/`mTLS`/etc. s'ajoute comme un nouveau
-champ frère de `bearerToken`, jamais une réinterprétation d'un champ
-existant.
+None at this stage — the point that remained open (how to add a
+future catalog auth method without renaming `token`) is resolved
+structurally by `ImageCatalogAuth` (§ Central architecture decision):
+a future `basicAuth`/`mTLS`/etc. is added as a new field alongside
+`bearerToken`, never a reinterpretation of an existing field.

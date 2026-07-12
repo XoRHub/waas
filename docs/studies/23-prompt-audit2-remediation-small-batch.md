@@ -1,87 +1,87 @@
-# Prompt Fable 5 — Audit 2 : remédiation des constats « Small » (ordres 1, 2, 4, 5, 6, 7, 8)
+# Prompt Fable 5 — Audit 2: remediation of the "Small" findings (orders 1, 2, 4, 5, 6, 7, 8)
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation préalable.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context.
 
 ## Source
 
-`docs/studies/20-report-audit2-organisation-doublons-securite.md` est le
-rapport d'audit complet (2026-07-11). Lis-le d'abord en entier,
-notamment le tableau des constats §4 et le plan d'action §5 — ce prompt
-t'évite de refaire la recherche fichier:ligne pour chaque constat, mais
-le §4 donne le contexte et le raisonnement complets derrière chacun.
+`docs/studies/20-report-audit2-organisation-doublons-securite.md` is
+the full audit report (2026-07-11). Read it first in its entirety,
+especially the §4 findings table and the §5 action plan — this prompt
+saves you from redoing the file:line research for each finding, but §4
+gives the full context and reasoning behind each one.
 
-## Périmètre de ce prompt
+## Scope of this prompt
 
-Le plan d'action (§5) range les constats en 10 ordres, du quick-win au
-chantier structurant. Ce prompt couvre **les ordres 1, 2, 4, 5, 6, 7 et
-8** — tous les ordres d'effort « S » sauf un, avec un ordre traité
-différemment de ce que dit le rapport :
+The action plan (§5) sorts the findings into 10 orders, from quick win
+to structuring effort. This prompt covers **orders 1, 2, 4, 5, 6, 7 and
+8** — every order of effort "S" except one, with one order handled
+differently from what the report says:
 
-- **Ordre 3 (C3 activer Renovate + C5 bump trivy) — EXCLU de ce prompt.**
-  Activer l'app Renovate est une action GitLab (paramètres projet), pas
-  un changement de code ; ne le fais pas dans le cadre de ce prompt.
-- **Ordre 5 (C13, secrets Helm via `lookup`) — traité en mode FIX, pas
-  vérification.** Le rapport propose « S (vérifier le rendu ArgoCD) → M
-  (fix si confirmé) ». **C'est déjà confirmé** : la fonction Helm
-  `lookup` ne fonctionne pas sous ArgoCD (le repo-server rend le chart
-  sans accès au cluster de destination, `lookup` y retourne toujours une
-  map vide) — ne perds pas de temps à re-vérifier ce point, va
-  directement à l'implémentation d'un fix propre (détails ci-dessous,
-  section Ordre 5).
-- **Ordres 9, 10 et la dernière ligne du plan (« au fil de l'eau ») sont
-  hors périmètre** — ce sont les chantiers M/discutables, laissés pour
-  un prompt dédié plus tard.
+- **Order 3 (C3 activate Renovate + C5 trivy bump) — EXCLUDED from
+  this prompt.** Activating the Renovate app is a GitLab action
+  (project settings), not a code change; don't do it as part of this
+  prompt.
+- **Order 5 (C13, Helm secrets via `lookup`) — handled as a FIX, not a
+  verification.** The report proposes "S (verify ArgoCD's rendering) →
+  M (fix if confirmed)". **This is already confirmed**: Helm's
+  `lookup` function doesn't work under ArgoCD (the repo-server renders
+  the chart with no access to the destination cluster, `lookup`
+  always returns an empty map there) — don't waste time re-verifying
+  this, go straight to implementing a proper fix (details below,
+  Order 5 section).
+- **Orders 9, 10 and the last line of the plan ("along the way") are
+  out of scope** — these are the M/debatable efforts, left for a
+  dedicated prompt later.
 
-Chaque section ci-dessous correspond à un ordre du plan. Traite-les dans
-l'ordre (certains touchent les mêmes fichiers CI, voir les notes de
-séquencement). Un commit par ordre (ou par constat si tu préfères du
-grain plus fin), jamais un unique commit fourre-tout — ce sont des
-changements de nature différente (ménage doc, CI, types générés,
-sécurité, GitOps).
-
----
-
-## Ordre 1 — Ménage (C24, C4, C23, C22)
-
-- **C24 (hygiène git des docs)** : au moment de la rédaction de ce
-  prompt, `git status` est déjà propre — ce constat semble résolu depuis
-  le rapport. Vérifie-le quand même (`git status --short`) ; s'il y a
-  des fichiers non trackés/modifiés sous `docs/`, commit-les avant de
-  continuer, sinon ne fais rien pour ce point.
-- **C23 (vestige racine)** : `fable-waas-build-prompt.md` à la racine du
-  repo est le brief de bootstrap historique, sans usage courant. Par
-  défaut `git rm` (le rapport le préfère : « une minute »). Si tu juges
-  qu'il a une valeur d'archive, déplace-le dans `docs/studies/` au lieu
-  de le supprimer — documente ton choix dans le message de commit. tu peux le supprimer de l'arbre complement
-- **C22 (spec morte)** : `docs/openapi-governance.yaml` est une spec
-  OpenAPI manuelle, partielle, non consommée (grep le repo pour
-  confirmer qu'aucun fichier ne la référence hors de `docs/`) et
-  redondante depuis que tygo génère les types. Supprime-la.
-- **C4 (commentaires CI menteurs sur eslint)** — **ne le fais PAS en
-  isolation ici** : traite-le dans l'Ordre 2 ci-dessous, en même temps
-  que l'ajout du job eslint GitLab. Si tu corriges le commentaire avant
-  que le job existe réellement côté GitLab, il redevient faux entre les
-  deux commits. Note-le comme reporté à l'Ordre 2, ne le commit pas deux
-  fois.
+Each section below corresponds to one order of the plan. Handle them
+in order (some touch the same CI files, see the sequencing notes). One
+commit per order (or per finding if you prefer finer grain), never a
+single catch-all commit — these are changes of a different nature
+(doc cleanup, CI, generated types, security, GitOps).
 
 ---
 
-## Ordre 2 — CI : rendre à GitLab les gates déjà écrits (C2, C14) + C4
+## Order 1 — Cleanup (C24, C4, C23, C22)
 
-`.gitlab/ci/go.yml` et `.gitlab/ci/frontend.yml` sont la CI qui compte
-réellement (le remote local est GitLab seul, `docs/ci.md:1` : « Un seul
-point d'entrée : `.gitlab-ci.yml` »). Trois gates existent déjà côté
-GitHub (`.github/workflows/ci.yml`) mais pas côté GitLab :
+- **C24 (docs git hygiene)**: at the time this prompt was written,
+  `git status` is already clean — this finding appears already
+  resolved. Verify anyway (`git status --short`); if there are
+  untracked/modified files under `docs/`, commit them before
+  continuing, otherwise do nothing for this point.
+- **C23 (root leftover)**: `fable-waas-build-prompt.md` at the repo
+  root is the historical bootstrap brief, with no current use. By
+  default `git rm` (the report prefers this: "one minute"). If you
+  judge it has archival value, move it into `docs/studies/` instead of
+  deleting it — document your choice in the commit message. You may
+  delete it entirely from the tree.
+- **C22 (dead spec)**: `docs/openapi-governance.yaml` is a manual,
+  partial OpenAPI spec, not consumed (grep the repo to confirm nothing
+  references it outside `docs/`) and redundant since tygo generates
+  types. Delete it.
+- **C4 (lying CI comments about eslint)** — **don't do this in
+  isolation here**: handle it in Order 2 below, at the same time as
+  adding the GitLab eslint job. If you fix the comment before the job
+  actually exists on GitLab, it becomes false again between the two
+  commits. Note it as deferred to Order 2, don't commit it twice.
 
-### 2.1 — envtest sur GitLab (`go-test`, module `operator`)
+---
 
-`.gitlab/ci/go.yml:30-44` (job `go-test`, matrice
-`MODULE: [shared, operator, api-server, wwt]`) ne positionne jamais
-`KUBEBUILDER_ASSETS` : la suite `operator/test/envtest/` skippe
-silencieusement (`suite_test.go:12-13` — vérifie la ligne exacte, le
-rapport la situe là). Le mécanisme GitHub à répliquer
-(`.github/workflows/ci.yml:242-245`) :
+## Order 2 — CI: restore already-written gates to GitLab (C2, C14) + C4
+
+`.gitlab/ci/go.yml` and `.gitlab/ci/frontend.yml` are the CI that
+actually counts (the local remote is GitLab only, `docs/ci.md:1`: "A
+single entry point: `.gitlab-ci.yml`"). Three gates already exist on
+GitHub (`.github/workflows/ci.yml`) but not on GitLab:
+
+### 2.1 — envtest on GitLab (`go-test`, `operator` module)
+
+`.gitlab/ci/go.yml:30-44` (job `go-test`, matrix
+`MODULE: [shared, operator, api-server, wwt]`) never sets
+`KUBEBUILDER_ASSETS`: the `operator/test/envtest/` suite silently
+skips (`suite_test.go:12-13` — check the exact line, the report places
+it there). The GitHub mechanism to replicate
+(`.github/workflows/ci.yml:242-245`):
 
 ```yaml
 - name: Install envtest control plane
@@ -90,9 +90,10 @@ rapport la situe là). Le mécanisme GitHub à répliquer
   run: echo "KUBEBUILDER_ASSETS=$(make -s envtest-assets)" >> "$GITHUB_ENV"
 ```
 
-Le target `make envtest-assets` existe déjà (`operator/Makefile:27`).
-Adapte au `script:` GitLab (pas de `$GITHUB_ENV`, juste un `export`
-avant l'appel à `go test`), conditionné sur `$MODULE = "operator"` :
+The `make envtest-assets` target already exists
+(`operator/Makefile:27`). Adapt it to the GitLab `script:` (no
+`$GITHUB_ENV`, just an `export` before calling `go test`), conditioned
+on `$MODULE = "operator"`:
 
 ```yaml
 script:
@@ -105,321 +106,317 @@ script:
   - go tool cover -func=coverage.out | tail -n 1
 ```
 
-### 2.2 — job eslint sur GitLab (`.gitlab/ci/frontend.yml`)
+### 2.2 — eslint job on GitLab (`.gitlab/ci/frontend.yml`)
 
-Le fichier n'a que `frontend-typecheck` (tsc -b) et `frontend-test`
-(vitest). GitHub a un `npm run lint` (`.github/workflows/ci.yml:298`,
-job `frontend`) qui n'existe nulle part côté GitLab. Ajoute un job
-`frontend-lint` (stage `lint`, `extends: [.frontend-base,
-.rules-frontend]`, `script: [npm run lint]`) — même script que GitHub,
-ne réplique pas `format:check` (pas identifié comme un gap par
-l'audit, garde le scope de ce constat serré).
+The file only has `frontend-typecheck` (tsc -b) and `frontend-test`
+(vitest). GitHub has a `npm run lint` (`.github/workflows/ci.yml:298`,
+`frontend` job) that doesn't exist anywhere on GitLab. Add a
+`frontend-lint` job (stage `lint`, `extends: [.frontend-base,
+.rules-frontend]`, `script: [npm run lint]`) — same script as GitHub,
+don't replicate `format:check` (not identified as a gap by the audit,
+keep this finding's scope tight).
 
-### 2.3 — corrige les 2 commentaires menteurs (C4), maintenant qu'ils sont vrais
+### 2.3 — fix the 2 lying comments (C4), now that they're true
 
-- `.gitlab/ci/frontend.yml:2` : `# There is no eslint config in the
-repo (yet): tsc -b is the lint gate.` → remplace par un commentaire
-  correct maintenant que le job `frontend-lint` existe (ex. « TypeScript
-  build check + eslint + vitest. »).
-- `.github/workflows/ci.yml:281` : commentaire miroir (« Frontend gates
-  (tsc -b is the lint gate — no eslint config yet). ») — même
-  correction côté GitHub, il est tout aussi faux depuis que
-  `npm run lint` tourne à la ligne 298.
+- `.gitlab/ci/frontend.yml:2`: `# There is no eslint config in the
+repo (yet): tsc -b is the lint gate.` → replace with a correct comment
+  now that the `frontend-lint` job exists (e.g. "TypeScript build
+  check + eslint + vitest.").
+- `.github/workflows/ci.yml:281`: mirror comment ("Frontend gates
+  (tsc -b is the lint gate — no eslint config yet).") — same fix on
+  the GitHub side, it's just as false since `npm run lint` runs at
+  line 298.
 
-### 2.4 — ratchet couverture sur GitLab (`go-test`, module `api-server`) — ATTENTION, piège non listé explicitement dans le rapport
+### 2.4 — coverage ratchet on GitLab (`go-test`, `api-server` module) — WATCH OUT, a trap not explicitly listed in the report
 
-Le rapport dit « un appel ratchet » comme s'il suffisait d'ajouter la
-ligne `hack/ci/coverage-ratchet.sh …`. **Ça ne suffit PAS tel quel** :
-`hack/ci/coverage-ratchet.sh:1-9` attend un profil produit avec
-`-coverpkg=./...` (le commentaire en tête du script est explicite : «
-Reads a merged -coverpkg profile, where every test binary emits blocks
-for EVERY package »). Or le job GitLab actuel
-(`.gitlab/ci/go.yml:42`) lance `go test -race -covermode=atomic
--coverprofile=coverage.out ./...` **sans** `-coverpkg` — le chiffre
-mesuré serait alors la couverture locale basse (2-31 %, l'ancien
-chiffre de juillet), pas le chiffre cross-package (55,3 %/77,7 %) sur
-lequel les seuils `internal/handler:40`/`internal/repository:50` sont
-calibrés. Ajouter le ratchet sans `-coverpkg` ferait échouer la CI
-GitLab immédiatement sur un faux négatif.
+The report says "a ratchet call" as if it were enough to add the line
+`hack/ci/coverage-ratchet.sh …`. **That's NOT enough as-is**:
+`hack/ci/coverage-ratchet.sh:1-9` expects a profile produced with
+`-coverpkg=./...` (the comment at the top of the script is explicit:
+"Reads a merged -coverpkg profile, where every test binary emits
+blocks for EVERY package"). But the current GitLab job
+(`.gitlab/ci/go.yml:42`) runs `go test -race -covermode=atomic
+-coverprofile=coverage.out ./...` **without** `-coverpkg` — the
+measured figure would then be the low local coverage (2-31%, July's
+old figure), not the cross-package figure (55.3%/77.7%) the
+`internal/handler:40`/`internal/repository:50` thresholds are
+calibrated against. Adding the ratchet without `-coverpkg` would fail
+GitLab CI immediately on a false negative.
 
-Réplique donc, pour `MODULE == "api-server"` uniquement, la même
-mécanique que GitHub (`.github/workflows/ci.yml:230-263`) :
+So replicate, for `MODULE == "api-server"` only, the same mechanism as
+GitHub (`.github/workflows/ci.yml:230-263`):
 
-- Un service Postgres (`postgres:` image, healthcheck) pour le test
-  dual-backend (`WAAS_TEST_PG_URL`, voir
+- A Postgres service (`postgres:` image, healthcheck) for the
+  dual-backend test (`WAAS_TEST_PG_URL`, see
   `api-server/internal/repository/backends_test.go`).
-- `-coverpkg=./...` au lieu de `-coverpkg` absent, uniquement pour ce
-  module (garde `./...` simple pour les 3 autres modules — inutile et
-  potentiellement plus lent pour eux).
-- L'appel ratchet après : `hack/ci/coverage-ratchet.sh
+- `-coverpkg=./...` instead of no `-coverpkg`, for this module only
+  (keep plain `./...` for the other 3 modules — unnecessary and
+  potentially slower for them).
+- The ratchet call afterward: `hack/ci/coverage-ratchet.sh
 api-server/coverage.out internal/handler:40 internal/repository:50`.
 
-GitLab CI n'a pas de `services:` par défaut comme GitHub Actions au
-niveau job matriciel simple — vérifie la syntaxe `services:` GitLab CI
-(image `postgres:16-alpine` ou équivalent, variables
-`POSTGRES_PASSWORD`/`POSTGRES_DB`) et adapte `WAAS_TEST_PG_URL` pour
-pointer le hostname du service (`postgres` par défaut en GitLab CI, pas
-`localhost` comme sur le runner GitHub).
+GitLab CI doesn't have a `services:` mechanism identical to GitHub
+Actions at a simple matrix job level — check the exact GitLab CI
+`services:` syntax (image `postgres:16-alpine` or equivalent,
+`POSTGRES_PASSWORD`/`POSTGRES_DB` variables) and adapt
+`WAAS_TEST_PG_URL` to point at the service's hostname (`postgres` by
+default in GitLab CI, not `localhost` as on the GitHub runner).
 
-### 2.5 — coverage.all frontend (C14), sur les DEUX CI
+### 2.5 — frontend coverage.all (C14), on BOTH CIs
 
-`.gitlab/ci/frontend.yml:31-33` et
-`.github/workflows/ci.yml:301-306` lancent tous les deux `npx vitest
-run --coverage.enabled --coverage.provider=v8 …` **sans**
-`--coverage.all` : la couverture ne compte que les fichiers déjà
-importés par un test (62,4 %, chiffre gonflé) au lieu du vrai total
-« tout `src/` » (40,9 % mesuré dans le rapport). Ajoute aux deux
-commandes :
+`.gitlab/ci/frontend.yml:31-33` and
+`.github/workflows/ci.yml:301-306` both run `npx vitest
+run --coverage.enabled --coverage.provider=v8 …` **without**
+`--coverage.all`: coverage only counts files already imported by a
+test (62.4%, an inflated figure) instead of the real "all of `src/`"
+total (40.9% measured in the report). Add to both commands:
 
 ```
 --coverage.all --coverage.include='src/**/*.{ts,tsx}'
 ```
 
-plus les exclusions nécessaires pour ne pas compter les tests eux-mêmes
-et les fichiers générés/déclaratifs : `--coverage.exclude` pour
-`src/**/*.test.{ts,tsx}`, `src/types*.ts`, `**/*.d.ts` (vérifie la
-syntaxe exacte d'exclusion vitest — plusieurs flags `--coverage.exclude`
-répétés ou une liste, selon la version de vitest verrouillée dans
+plus the exclusions needed so tests themselves and generated/
+declarative files aren't counted: `--coverage.exclude` for
+`src/**/*.test.{ts,tsx}`, `src/types*.ts`, `**/*.d.ts` (check the
+exact vitest exclusion syntax — several repeated `--coverage.exclude`
+flags or a list, depending on the vitest version pinned in
 `package.json`).
 
 ---
 
-## Ordre 4 — D2/D3 résiduels : types dupliqués à la main (C7, C8)
+## Order 4 — Residual D2/D3: hand-duplicated types (C7, C8)
 
-### 4.1 — C7 : `RetainedVolume` et `RemoteWorkspaceAdmin` recopiés à la main
+### 4.1 — C7: `RetainedVolume` and `RemoteWorkspaceAdmin` hand-copied
 
-`frontend/src/types.ts` définit `interface RetainedVolume` (ligne 123)
-et `interface RemoteWorkspaceAdmin` (ligne 265) **à la main**, alors que
-`frontend/src/types.gen.ts` génère déjà des types identiques (lignes
-271 et 295) depuis `api-server/internal/model` via tygo. Le fichier a
-déjà exactement le pattern à suivre pour tout le reste du fichier
-(lignes 15-35) : import depuis `./types.gen`, puis réexport via
-`export type { … }`. Applique ce même pattern :
+`frontend/src/types.ts` defines `interface RetainedVolume` (line 123)
+and `interface RemoteWorkspaceAdmin` (line 265) **by hand**, even
+though `frontend/src/types.gen.ts` already generates identical types
+(lines 271 and 295) from `api-server/internal/model` via tygo. The
+file already has exactly the pattern to follow for the rest of the
+file (lines 15-35): import from `./types.gen`, then re-export via
+`export type { … }`. Apply this same pattern:
 
-1. Supprime les deux `interface` manuelles (lignes 123-131 et 265-278
-   au moment de la rédaction de ce prompt — vérifie les lignes exactes,
-   elles ont pu bouger).
-2. Ajoute `RetainedVolume` et `RemoteWorkspaceAdmin` à l'import
-   `from './types.gen'` (lignes 15-22) et au bloc `export type { … }`
-   (lignes 23-35).
-3. `cd frontend && npm run typecheck` pour confirmer qu'aucun
-   consommateur ne cassait sur un léger écart de forme entre la copie
-   manuelle et la version générée (il ne devrait pas y en avoir, mais
-   vérifie).
+1. Remove the two manual `interface`s (lines 123-131 and 265-278 at
+   the time this prompt was written — check the exact lines, they may
+   have moved).
+2. Add `RetainedVolume` and `RemoteWorkspaceAdmin` to the
+   `from './types.gen'` import (lines 15-22) and to the
+   `export type { … }` block (lines 23-35).
+3. `cd frontend && npm run typecheck` to confirm no consumer breaks on
+   a slight shape gap between the manual copy and the generated
+   version (there shouldn't be any, but check).
 
-Le rapport demande aussi de « balayer le reste des 362 lignes de
-types.ts pour tout type présent dans model.go » — fais cette passe :
-pour chaque `interface`/`type` restant dans `types.ts` qui n'est pas
-déjà réexporté depuis `types.gen.ts` ou `types.manual.ts`, vérifie s'il
-existe une définition générée équivalente dans `types.gen.ts` (même
-nom ou structure identique) et migre-le de la même façon si c'est le
-cas. Ne migre PAS un type qui n'a pas d'équivalent généré (ex. types
-purement frontend comme `Theme`, `WorkspaceConnectionPrefs`) — ce
-n'est pas de la duplication, laisse-les en place.
+The report also asks to "sweep the rest of types.ts's 362 lines for
+any type present in model.go" — do this pass: for every remaining
+`interface`/`type` in `types.ts` not already re-exported from
+`types.gen.ts` or `types.manual.ts`, check whether an equivalent
+generated definition exists in `types.gen.ts` (same name or identical
+structure) and migrate it the same way if so. Do NOT migrate a type
+that has no generated equivalent (e.g. purely frontend types like
+`Theme`, `WorkspaceConnectionPrefs`) — that's not duplication, leave
+them in place.
 
-### 4.2 — C8 : garde de synchro pour `WorkspacePhase`
+### 4.2 — C8: sync guard for `WorkspacePhase`
 
-`frontend/src/types.ts:82-83` recopie à la main l'union littérale des 7
-phases (`'Pending' | 'Provisioning' | … | 'Terminating'`). La source de
-vérité est `operator/api/v1alpha1/workspace_types.go:9-25` (marker
-kubebuilder `+kubebuilder:validation:Enum=Pending;Provisioning;…` sur le
-type `WorkspacePhase`). tygo génère ce champ en `phase: string` (type
-trop large pour porter l'union, `types.gen.ts:198`) — le drift-check CI
-ne couvre donc pas une désynchronisation des phases.
+`frontend/src/types.ts:82-83` hand-copies the literal union of the 7
+phases (`'Pending' | 'Provisioning' | … | 'Terminating'`). The source
+of truth is `operator/api/v1alpha1/workspace_types.go:9-25`
+(kubebuilder marker
+`+kubebuilder:validation:Enum=Pending;Provisioning;…` on the
+`WorkspacePhase` type). tygo generates this field as `phase: string`
+(too wide a type to carry the union, `types.gen.ts:198`) — so the CI
+drift-check doesn't cover a phase desync.
 
-Le repo a déjà exactement le modèle à répliquer :
-`operator/pkg/params/protocols_sync_test.go` compare un enum lu dans un
-CRD généré (`operator/config/crd/bases/*.yaml`) à une liste de
-référence Go, avec un helper qui repère l'enum recherché par ses
-valeurs stables (`hasVNC`/`hasRDP`) plutôt que par chemin JSON figé.
-Le même enum de phases existe déjà, généré, dans
-`operator/config/crd/bases/waas.xorhub.io_workspaces.yaml` (repère-le
-par une valeur stable comme `Pending`+`Running`, même logique que
+The repo already has exactly the model to replicate:
+`operator/pkg/params/protocols_sync_test.go` compares an enum read
+from a generated CRD (`operator/config/crd/bases/*.yaml`) to a
+reference Go list, with a helper that locates the target enum by its
+stable values (`hasVNC`/`hasRDP`) rather than a fixed JSON path. The
+same phase enum already exists, generated, in
+`operator/config/crd/bases/waas.xorhub.io_workspaces.yaml` (locate it
+by a stable value like `Pending`+`Running`, same logic as
 `findProtocolEnums`).
 
-Écris un test Go (à côté de `protocols_sync_test.go`, ou dans un nouveau
-fichier `operator/pkg/params/phase_sync_test.go` si le package
-`params` n'a pas de dépendance naturelle sur les phases — à toi de
-choisir l'emplacement le plus cohérent) qui :
+Write a Go test (next to `protocols_sync_test.go`, or in a new file
+`operator/pkg/params/phase_sync_test.go` if the `params` package has
+no natural dependency on phases — pick the most coherent location)
+that:
 
-1. Lit l'enum de phases dans `waas.xorhub.io_workspaces.yaml`.
-2. Lit l'union littérale `WorkspacePhase` dans
-   `frontend/src/types.ts` par une regex simple sur la déclaration
-   `export type WorkspacePhase =\n  'A' | 'B' | …;` — pas besoin d'un
-   vrai parseur TS, un extract regex suffit comme le fait déjà
-   `findProtocolEnums` côté YAML.
-3. Compare les deux listes triées, échoue avec un message explicite si
-   elles divergent (même style que le message d'erreur de
-   `protocols_sync_test.go`).
+1. Reads the phase enum in `waas.xorhub.io_workspaces.yaml`.
+2. Reads the `WorkspacePhase` literal union in
+   `frontend/src/types.ts` via a simple regex on the declaration
+   `export type WorkspacePhase =\n  'A' | 'B' | …;` — no need for a
+   real TS parser, a regex extract is enough, the same as
+   `findProtocolEnums` does on the YAML side.
+3. Compares the two sorted lists, failing with an explicit message if
+   they diverge (same style as `protocols_sync_test.go`'s error
+   message).
 
-Attention au chemin relatif vers `frontend/src/types.ts` depuis le
-module `operator/` (`operator/go.mod` est un module Go séparé du reste
-du repo, mais rien n't'empêche de lire un fichier texte hors module via
-un chemin relatif classique) — vérifie le chemin en lançant le test
-localement plutôt que de le déduire.
-
----
-
-## Ordre 5 — Secrets Helm : abandon de `lookup`, fix propre pour ArgoCD (C13)
-
-### Contexte, déjà tranché — ne pas re-vérifier
-
-`helm/waas/templates/secrets.yaml:1-4` génère `postgres-password`,
-`internal-token` et `jwt-private-key` via `lookup "v1" "Secret" …` pour
-ne pas les régénérer à chaque `helm upgrade` (ré-utilise la valeur déjà
-en cluster si elle existe, sinon en génère une nouvelle aléatoire).
-`docs/ci.md:5-6` confirme qu'ArgoCD est bien le consommateur réel de ce
-chart (« ArgoCD continue de déployer depuis le tag Git (`path:
-helm/waas`) », `docs/ci.md:62`) — pas juste une possibilité
-hypothétique.
-
-**C'est confirmé : `lookup` ne fonctionne pas sous ArgoCD.** Le
-repo-server d'ArgoCD rend les charts Helm via un `helm template`
-côté serveur, sans accès au cluster de destination — `lookup` y
-retourne systématiquement une map vide, que la ressource existe ou non
-dans le cluster cible. Conséquence concrète si rien ne change : **à
-chaque sync ArgoCD**, les 3 secrets seraient régénérés avec des valeurs
-aléatoires fraîches — mot de passe Postgres divergent de celui déjà
-écrit sur le PVC (connexion DB cassée), `internal-token` changé (appels
-wwt→api-server rejetés), `jwt-private-key` changée (toutes les sessions
-utilisateur invalidées instantanément). C'est un incident de prod
-garanti au premier sync, pas un risque théorique.
-
-**N'utilise `lookup` nulle part dans ce fix.** Ne te contente pas non
-plus de vérifier/documenter le problème — implémente la correction.
-
-### Ce qui est attendu
-
-Un mécanisme qui garantit, **identiquement que le chart soit installé
-via `helm install`/`helm upgrade` en direct (dev) ou via ArgoCD (prod,
-rendu hors-cluster)** :
-
-- Au premier déploiement : les 3 valeurs sont générées aléatoirement et
-  persistées dans le Secret `{{ .Release.Name }}-secrets`.
-- À chaque déploiement suivant (upgrade / sync) : les 3 valeurs
-  **existantes ne sont jamais régénérées ni écrasées** si le Secret
-  existe déjà avec ces clés.
-- `database-url` (actuellement calculé dans le même template à partir
-  de `$pgPassword`, ligne 19) doit continuer à refléter le mot de passe
-  Postgres réellement actif (qu'il vienne de `.Values.postgres.password`
-  ou de la valeur générée une fois).
-- `admin-password` (ligne 23-25, dérivé directement de
-  `.Values.postgres.adminPassword`... — relis la ligne exacte, c'est
-  `.Values.apiServer.adminPassword`) reste un simple passage de Values,
-  aucun changement requis dessus, il n'est pas généré.
-- Aucune nouvelle dépendance externe (pas d'External Secrets Operator,
-  pas de Sealed Secrets) — le rapport les cite comme alternative
-  possible, mais ajouter un opérateur supplémentaire pour ce seul
-  problème est disproportionné ; le fix doit rester dans le chart
-  lui-même.
-
-**Piste recommandée** (tu peux en choisir une autre si elle respecte
-mieux les contraintes ci-dessus, documente ton choix) : un **Job Helm
-hook** (`helm.sh/hook: pre-install,pre-upgrade`,
-`helm.sh/hook-delete-policy: before-hook-creation`, poids assez bas
-pour s'exécuter avant les Deployments qui consomment le Secret) qui,
-lui, tourne **dans le cluster réel** (que le manifeste ait été produit
-par `helm template` côté ArgoCD ou appliqué directement par
-`helm install`, une fois planifié en Job c'est un Pod qui s'exécute
-avec un vrai accès à l'API serveur) et fait, de façon idempotente :
-vérifier si le Secret `{{ .Release.Name }}-secrets` existe déjà avec
-les bonnes clés ; si non, générer les valeurs manquantes et
-créer/patcher le Secret ; si oui, ne rien toucher (sauf
-`database-url`/`admin-password` si ces parties restent pilotées par
-Values et doivent donc être tenues à jour même quand le Secret
-existe déjà — à toi d'arbitrer si un patch partiel est nécessaire ou si
-tout doit être Job-managed pour rester cohérent).
-
-Ce Job a besoin d'un ServiceAccount + Role scopés au namespace de
-release, avec seulement `get`/`create`/`update` sur `secrets`, restreint
-si possible au nom exact `{{ .Release.Name }}-secrets` (pas de
-`create`/`update` large sur tous les secrets du namespace).
-
-### Contraintes de vérification
-
-- `helm template` seul (sans cluster, exactement ce que fait le
-  repo-server ArgoCD) ne doit fabriquer AUCUNE valeur secrète — le
-  chart rendu ne doit contenir ni mot de passe ni token en clair
-  produits par un appel `lookup` ou une génération template-time.
-- Simule un `helm upgrade` répété (`helm install` puis `helm upgrade`
-  deux fois de suite sur un cluster de test, ex. k3d local) et confirme
-  que `postgres-password`/`internal-token`/`jwt-private-key` sont
-  identiques entre le premier install et le deuxième upgrade (le Job ne
-  doit pas les avoir régénérés).
-- `helm lint` et `helm template` doivent rester verts (déjà gatés en CI,
-  `helm-render` — vérifie que ton nouveau template Job passe ce lint).
-
-### Points ouverts (ton arbitrage)
-
-- Image du Job : le repo n'a aucun précédent de Job/hook Helm existant
-  dans `helm/waas/templates/` à répliquer. Choisis une image minimale
-  avec accès à l'API Kubernetes (`bitnami/kubectl`, `rancher/kubectl`,
-  ou toute image déjà utilisée ailleurs dans ce repo si elle convient)
-  — documente ton choix, en particulier si tu dois l'ajouter au
-  catalogue Trivy/scan de la CI. utilise bitnami/kubectl
-- Si `database-url`/`admin-password` doivent être gérés par le même Job
-  ou rester des clés templatées à part dans le même Secret — les deux
-  marchent tant que le Secret final a bien toutes les clés attendues
-  par `api-server`/`wwt` (vérifie les consommateurs, ex.
-  `helm/waas/templates/api-server.yaml`, `postgres.yaml`, pour la liste
-  exacte des clés référencées par `secretKeyRef`).
+Watch out for the relative path to `frontend/src/types.ts` from the
+`operator/` module (`operator/go.mod` is a separate Go module from the
+rest of the repo, but nothing stops you from reading a text file
+outside the module via a plain relative path) — verify the path by
+running the test locally rather than guessing it.
 
 ---
 
-## Ordre 6 — Sécurité/repro à faible coût (C11, C12, C6)
+## Order 5 — Helm secrets: dropping `lookup`, a proper fix for ArgoCD (C13)
 
-### 6.1 — C11 : rate-limit sur le login local
+### Context, already settled — no need to re-verify
 
-`api-server/internal/service/auth_service.go:37` (`Login`) vérifie
-argon2id et audite les échecs, mais rien ne freine un brute-force en
-ligne — pas de limite par IP ni par compte. Le routeur
-(`api-server/internal/server/router.go:34-58`) utilise déjà
-`go-chi/v5` avec `chimiddleware.RealIP` monté globalement (ligne 36),
-donc `r.RemoteAddr` est déjà fiable pour un rate-limit par IP même
-derrière un proxy.
+`helm/waas/templates/secrets.yaml:1-4` generates `postgres-password`,
+`internal-token` and `jwt-private-key` via `lookup "v1" "Secret" …` so
+they aren't regenerated on every `helm upgrade` (reuses the value
+already in the cluster if it exists, otherwise generates a new random
+one). `docs/ci.md:5-6` confirms ArgoCD really is this chart's consumer
+("ArgoCD keeps deploying from the Git tag (`path:
+helm/waas`)", `docs/ci.md:62`) — not just a hypothetical possibility.
 
-Ajoute un rate-limit scoped **uniquement à la route
-`POST /api/v1/auth/login`** (`router.go:58`) — pas un middleware
-global, les autres routes n'ont pas ce problème. Le rapport suggère
-`httprate` : `github.com/go-chi/httprate` est l'écosystème naturel vu
-que le routeur est déjà `go-chi`, et évite de réinventer un limiteur à
-la main. Une limite raisonnable par IP (ex. 10 tentatives/minute) suffit
-pour ce constat ; combiner IP+username (comme suggéré par le rapport)
-est possible mais demande de lire le body JSON avant qu'il n'atteigne
-le handler (donc de le bufferiser pour ne pas le consommer deux fois) —
-si tu le fais, documente comment tu évites la double lecture du body,
-sinon une limite par IP seule est un fix suffisant pour ce constat.
+**This is confirmed: `lookup` doesn't work under ArgoCD.** ArgoCD's
+repo-server renders Helm charts via a server-side `helm template`,
+with no access to the destination cluster — `lookup` there always
+returns an empty map, whether the resource exists in the target
+cluster or not. Concrete consequence if nothing changes: **on every
+ArgoCD sync**, the 3 secrets would be regenerated with fresh random
+values — Postgres password diverging from the one already written on
+the PVC (broken DB connection), `internal-token` changed (wwt→api-server
+calls rejected), `jwt-private-key` changed (all user sessions
+instantly invalidated). It's a guaranteed prod incident on the first
+sync, not a theoretical risk.
 
-### 6.2 — C12 : oracle de timing sur l'énumération de comptes
+**Don't use `lookup` anywhere in this fix.** Don't settle for
+verifying/documenting the problem either — implement the fix.
 
-Même fichier, `auth_service.go:38-44` : un username qui n'existe pas
-retourne immédiatement `apierror.Unauthorized` (ligne 41) sans jamais
-passer par `VerifyPassword`/argon2id, alors qu'un username existant
-prend ~50ms (le coût de l'argon2id). L'écart est mesurable à distance.
+### What's expected
 
-Fix : sur la branche `errors.Is(err, repository.ErrUserNotFound)`
-(ligne 40), appelle quand même `VerifyPassword(password, dummyHash)`
-avec un hash PHC argon2id constant (précalculé une fois, pas besoin
-d'être secret — juste au bon format pour que le coût de calcul soit
-comparable) avant de retourner l'erreur, pour que les deux chemins
-prennent un temps similaire. Ignore le résultat du `VerifyPassword`
-(il sera toujours `false` puisque c'est un hash bidon), seul le temps
-écoulé compte.
+A mechanism that guarantees, **identically whether the chart is
+installed via direct `helm install`/`helm upgrade` (dev) or via ArgoCD
+(prod, rendered outside the cluster)**:
 
-**Fais-le dans la foulée** (le rapport le note explicitement) : ce
-chemin `ErrUserNotFound` n'émet **aucun événement d'audit**,
-contrairement aux 3 autres chemins d'échec du login (SSO-only,
-mauvais mot de passe, compte inactif — tous les trois appellent
-`s.audit.Record(…, "user.login_failed", …)`, voir lignes 47-48 et 55-56
-au moment de la rédaction). Ajoute le même appel d'audit sur ce chemin
-pour la cohérence — utilise un identifiant de cible vide/zéro puisqu'il
-n'y a pas de `user.ID` pour un compte inexistant (regarde comment
-`Actor{Username: username, ClientIP: clientIP}` est déjà utilisé sur
-les 3 autres chemins pour rester cohérent sur la forme de l'appel).
+- On first deployment: the 3 values are randomly generated and
+  persisted in the `{{ .Release.Name }}-secrets` Secret.
+- On every subsequent deployment (upgrade / sync): the 3 **existing**
+  values are never regenerated or overwritten if the Secret already
+  exists with those keys.
+- `database-url` (currently computed in the same template from
+  `$pgPassword`, line 19) must keep reflecting the actually active
+  Postgres password (whether it comes from `.Values.postgres.password`
+  or from the once-generated value).
+- `admin-password` (line 23-25, derived directly from
+  `.Values.postgres.adminPassword`... — re-check the exact line, it's
+  `.Values.apiServer.adminPassword`) remains a simple pass-through of
+  Values, no change required there, it isn't generated.
+- No new external dependency (no External Secrets Operator, no Sealed
+  Secrets) — the report cites them as a possible alternative, but
+  adding another operator just for this one problem is
+  disproportionate; the fix must stay within the chart itself.
 
-### 6.3 — C6 : pins toolchain dev vs CI
+**Recommended approach** (you may choose another if it better respects
+the constraints above, document your choice): a **Helm hook Job**
+(`helm.sh/hook: pre-install,pre-upgrade`,
+`helm.sh/hook-delete-policy: before-hook-creation`, a weight low
+enough to run before the Deployments that consume the Secret) which,
+being a Job, runs **in the real cluster** (whether the manifest was
+produced by ArgoCD's `helm template` or applied directly via
+`helm install`, once scheduled as a Job it's a Pod running with real
+API server access) and does, idempotently: check whether the
+`{{ .Release.Name }}-secrets` Secret already exists with the right
+keys; if not, generate the missing values and create/patch the
+Secret; if yes, don't touch anything (except
+`database-url`/`admin-password` if those parts stay Values-driven and
+therefore need to be kept up to date even when the Secret already
+exists — your call whether a partial patch is needed or whether
+everything should be Job-managed for consistency).
 
-`.mise.toml` (racine) :
+This Job needs a ServiceAccount + Role scoped to the release
+namespace, with only `get`/`create`/`update` on `secrets`, restricted
+if possible to the exact name `{{ .Release.Name }}-secrets` (no broad
+`create`/`update` on all secrets in the namespace).
+
+### Verification constraints
+
+- `helm template` alone (no cluster, exactly what the ArgoCD
+  repo-server does) must produce NO secret value at all — the
+  rendered chart must contain no password or token in plaintext
+  produced by a `lookup` call or template-time generation.
+- Simulate a repeated `helm upgrade` (`helm install` then `helm upgrade`
+  twice in a row on a test cluster, e.g. local k3d) and confirm that
+  `postgres-password`/`internal-token`/`jwt-private-key` are identical
+  between the first install and the second upgrade (the Job must not
+  have regenerated them).
+- `helm lint` and `helm template` must stay green (already gated in
+  CI, `helm-render` — check that your new Job template passes this
+  lint).
+
+### Open points (your judgment call)
+
+- Job image: the repo has no existing Helm Job/hook precedent in
+  `helm/waas/templates/` to replicate. Choose a minimal image with
+  Kubernetes API access (`bitnami/kubectl`, `rancher/kubectl`, or any
+  image already used elsewhere in this repo if it fits) — document
+  your choice, especially if you need to add it to the CI's
+  Trivy/scan catalog. Use bitnami/kubectl.
+- Whether `database-url`/`admin-password` should be managed by the
+  same Job or remain separately templated keys in the same Secret —
+  both work as long as the final Secret has all the keys expected by
+  `api-server`/`wwt` (check the consumers, e.g.
+  `helm/waas/templates/api-server.yaml`, `postgres.yaml`, for the
+  exact list of keys referenced by `secretKeyRef`).
+
+---
+
+## Order 6 — Low-cost security/reproducibility (C11, C12, C6)
+
+### 6.1 — C11: rate-limit on local login
+
+`api-server/internal/service/auth_service.go:37` (`Login`) checks
+argon2id and audits failures, but nothing throttles online
+brute-force — no per-IP or per-account limit. The router
+(`api-server/internal/server/router.go:34-58`) already uses
+`go-chi/v5` with `chimiddleware.RealIP` mounted globally (line 36), so
+`r.RemoteAddr` is already reliable for a per-IP rate-limit even behind
+a proxy.
+
+Add a rate-limit scoped **only to the `POST /api/v1/auth/login`
+route** (`router.go:58`) — not a global middleware, the other routes
+don't have this problem. The report suggests `httprate`:
+`github.com/go-chi/httprate` is the natural fit given the router is
+already `go-chi`, and avoids reinventing a hand-rolled limiter. A
+reasonable per-IP limit (e.g. 10 attempts/minute) is enough for this
+finding; combining IP+username (as the report suggests) is possible
+but requires reading the JSON body before it reaches the handler (so
+buffering it to avoid consuming it twice) — if you do this, document
+how you avoid the double body read, otherwise an IP-only limit is a
+sufficient fix for this finding.
+
+### 6.2 — C12: timing oracle on account enumeration
+
+Same file, `auth_service.go:38-44`: a non-existent username returns
+immediately with `apierror.Unauthorized` (line 41) without ever going
+through `VerifyPassword`/argon2id, while an existing username takes
+~50ms (the argon2id cost). The gap is remotely measurable.
+
+Fix: on the `errors.Is(err, repository.ErrUserNotFound)` branch (line
+40), still call `VerifyPassword(password, dummyHash)` with a constant
+PHC argon2id hash (precomputed once, doesn't need to be secret — just
+in the right format so the computation cost is comparable) before
+returning the error, so both paths take a similar amount of time.
+Ignore the result of `VerifyPassword` (it will always be `false` since
+it's a dummy hash), only the elapsed time matters.
+
+**Do it along the way** (the report explicitly notes it): this
+`ErrUserNotFound` path emits **no audit event**, unlike the other 3
+login failure paths (SSO-only, wrong password, inactive account — all
+three call `s.audit.Record(…, "user.login_failed", …)`, see lines
+47-48 and 55-56 at the time of writing). Add the same audit call on
+this path for consistency — use an empty/zero target identifier since
+there's no `user.ID` for a non-existent account (look at how
+`Actor{Username: username, ClientIP: clientIP}` is already used on the
+other 3 paths to stay consistent in the call's shape).
+
+### 6.3 — C6: dev vs. CI toolchain pins
+
+`.mise.toml` (root):
 
 ```
 [tools]
@@ -428,120 +425,116 @@ node = "lts"
 k3d = "latest"
 ```
 
-alors que la CI fige `golang:1.26.4` (`.gitlab/ci/go.yml:33`,
-`.github/workflows/ci.yml`) et `node:22.17.0-alpine`
-(`.gitlab/ci/frontend.yml:5`). Pin les deux versions exactement sur les
-mêmes valeurs que la CI (`go = "1.26.4"`, `node = "22.17.0"`).
+while CI pins `golang:1.26.4` (`.gitlab/ci/go.yml:33`,
+`.github/workflows/ci.yml`) and `node:22.17.0-alpine`
+(`.gitlab/ci/frontend.yml:5`). Pin both versions exactly to the same
+values as CI (`go = "1.26.4"`, `node = "22.17.0"`).
 
-`golangci-lint` n'est pas dans `.mise.toml` du tout, alors que la CI
-l'utilise en image dédiée (`golangci/golangci-lint:v2.12.2`,
-`.gitlab/ci/go.yml:21`) — ajoute `golangci-lint = "2.12.2"` (vérifie
-que mise a bien un plugin/registry pour cet outil, sinon documente
-l'alternative, ex. un script `mise` `run` ou une note dans le Makefile).
+`golangci-lint` isn't in `.mise.toml` at all, while CI uses it via a
+dedicated image (`golangci/golangci-lint:v2.12.2`,
+`.gitlab/ci/go.yml:21`) — add `golangci-lint = "2.12.2"` (check that
+mise has a plugin/registry for this tool, otherwise document the
+alternative, e.g. a `mise run` script or a Makefile note).
 
-`k3d = "latest"` : pin sur une version exacte (vérifie la version
-actuellement installée/utilisée en dev via `k3d version`, ou choisis la
-dernière version stable connue au moment de l'exécution — documente ton
-choix).
+`k3d = "latest"`: pin to an exact version (check the version currently
+installed/used in dev via `k3d version`, or choose the latest known
+stable version at execution time — document your choice).
 
-`hack/dev/k3d-config.yaml:12-20` (`kind: Simple`, `servers: 1`) ne
-pinne pas l'image k3s (pas de champ `image:` au niveau racine du
-manifest) — ajoute `image: rancher/k3s:vX.Y.Z-k3s1` avec une version
-cohérente avec le `k3d` pinné ci-dessus (une version de k3d installe
-une version de k3s par défaut si non spécifiée ; choisis une version
-k3s explicitement compatible et documente le choix, comme le fichier le
-fait déjà pour d'autres décisions — voir le commentaire existant
-lignes 1-9 sur le mapping de ports).
+`hack/dev/k3d-config.yaml:12-20` (`kind: Simple`, `servers: 1`)
+doesn't pin the k3s image (no `image:` field at the manifest root) —
+add `image: rancher/k3s:vX.Y.Z-k3s1` with a version consistent with
+the pinned `k3d` above (a given k3d version installs a default k3s
+version if unspecified; choose a k3s version explicitly compatible
+and document the choice, as the file already does for other decisions
+— see the existing comment on lines 1-9 about port mapping).
 
 ---
 
-## Ordre 7 — Couverture des composants à fort rayon de souffle (C19, C20)
+## Order 7 — Coverage of the highest-blast-radius components (C19, C20)
 
-### 7.1 — C19 : `shared/auth` stagnant (69,4 %), `wwt/internal/jwks` à 0 %
+### 7.1 — C19: `shared/auth` stagnant (69.4%), `wwt/internal/jwks` at 0%
 
-`shared/auth/keys_test.go` (76 lignes) ne couvre que le happy path +
-mauvaise audience + expiration + PEM roundtrip
+`shared/auth/keys_test.go` (76 lines) only covers the happy path +
+wrong audience + expiration + PEM roundtrip
 (`TestSignAndVerifyRoundTrip`, `TestVerifyRejectsWrongAudience`,
-`TestVerifyRejectsExpired`, `TestPEMRoundTrip`). Chemins d'erreur non
-couverts dans `shared/auth/keys.go` : mauvaise méthode de signature
-(alg confusion, ex. token signé en `none`/HS256 rejeté par
-`jwt.WithValidMethods`), mauvaise clé (signature invalide), `kid`
-absent/inconnu, `ParseSignerPEM` avec un PEM invalide ou une clé
-non-RSA (ligne 41-58), issuer incorrect. Ajoute des tests
-table-driven pour ces chemins, dans le style déjà présent dans
-`keys_test.go`.
+`TestVerifyRejectsExpired`, `TestPEMRoundTrip`). Error paths not
+covered in `shared/auth/keys.go`: wrong signature method (alg
+confusion, e.g. a token signed with `none`/HS256 rejected by
+`jwt.WithValidMethods`), wrong key (invalid signature), missing/unknown
+`kid`, `ParseSignerPEM` with an invalid PEM or a non-RSA key (line
+41-58), wrong issuer. Add table-driven tests for these paths, in the
+style already present in `keys_test.go`.
 
-`wwt/internal/jwks/jwks.go` n'a **aucun test** (0 % de couverture,
-73 lignes). Écris `wwt/internal/jwks/jwks_test.go` avec un
-`httptest.Server` servant un document JWKS JSON valide, couvrant :
+`wwt/internal/jwks/jwks.go` has **no tests** (0% coverage, 73 lines).
+Write `wwt/internal/jwks/jwks_test.go` with an `httptest.Server`
+serving a valid JWKS JSON document, covering:
 
-- Fetch initial réussi + `Key()` retourne la bonne clé pour un `kid`
-  connu.
-- Cache : un deuxième appel à `Key()` dans la fenêtre `cacheTTL` (5 min,
-  ligne 28) ne refait pas de requête HTTP (compte les appels reçus par
-  le serveur de test).
-- Rotation : `kid` inconnu déclenche un `refreshLocked` (ligne 46).
-- Erreur réseau/HTTP non-200 sur le refresh : si une clé est déjà en
-  cache, `Key()` sert la valeur stale plutôt que de propager l'erreur
-  (ligne 47-50, comportement volontaire — teste-le explicitement,
-  c'est le genre de choix qui se casse silencieusement en refactor).
-- `kid` totalement absent du document JWKS et cache vide : erreur
-  propagée (ligne 54-56).
+- Successful initial fetch + `Key()` returns the right key for a known
+  `kid`.
+- Cache: a second call to `Key()` within the `cacheTTL` window (5 min,
+  line 28) doesn't make another HTTP request (count the requests
+  received by the test server).
+- Rotation: an unknown `kid` triggers a `refreshLocked` (line 46).
+- Network error/non-200 HTTP on refresh: if a key is already cached,
+  `Key()` serves the stale value instead of propagating the error
+  (line 47-50, intentional behavior — test it explicitly, it's the
+  kind of choice that breaks silently during a refactor).
+- `kid` totally absent from the JWKS document and empty cache: error
+  propagated (line 54-56).
 
-### 7.2 — C20 : `operator/pkg/policy` en régression (84 % → 78,7 %) + ratchet
+### 7.2 — C20: `operator/pkg/policy` regressed (84% → 78.7%) + ratchet
 
-C'est la seule couverture en baisse du repo : le code
-quota/remote-workspaces ajouté depuis juillet est arrivé moins testé
-que l'existant dans `operator/pkg/policy/` (`overrides.go`,
-`policy.go`). Lance `go test -coverprofile=coverage.out ./pkg/policy/...`
-puis `go tool cover -html=coverage.out` (ou `-func=`) pour repérer
-précisément les fonctions/branches non couvertes ajoutées récemment
-(comparé à `git log -p` sur ce package depuis le 8 juillet si besoin de
-contexte sur ce qui est nouveau), et ajoute les tests manquants pour
-remonter au-dessus de 84 %.
+This is the repo's only coverage drop: the quota/remote-workspaces
+code added since July arrived less tested than the existing code in
+`operator/pkg/policy/` (`overrides.go`, `policy.go`). Run
+`go test -coverprofile=coverage.out ./pkg/policy/...` then
+`go tool cover -html=coverage.out` (or `-func=`) to precisely find the
+recently added uncovered functions/branches (compare against
+`git log -p` on this package since July 8 if you need context on
+what's new), and add the missing tests to climb back above 84%.
 
-Une fois remonté, câble ce package dans le mécanisme de ratchet pour
-que la régression ne puisse plus se reproduire silencieusement — même
-schéma que le ratchet api-server ajouté à l'Ordre 2.4, mais pour le
-module `operator` (`MODULE == "operator"` dans `go-test`, les deux CI) :
+Once back up, wire this package into the ratchet mechanism so the
+regression can't silently reoccur — same scheme as the api-server
+ratchet added in Order 2.4, but for the `operator` module
+(`MODULE == "operator"` in `go-test`, both CIs):
 `hack/ci/coverage-ratchet.sh operator/coverage.out pkg/policy:84`.
-Le profil `operator/coverage.out` généré par `go test
--covermode=atomic -coverprofile=coverage.out ./...` (déjà en place,
-`.gitlab/ci/go.yml:42`) est-il compatible avec le format attendu par le
-script (`-coverpkg=./...` requis, cf. Ordre 2.4) ? Vérifie : si les
-tests de `pkg/policy` sont des tests internes au package (pas des tests
-d'intégration cross-package comme pour api-server), un profil simple
-`-coverprofile` **sans** `-coverpkg` peut suffire à condition que le
-format de sortie de `go test` reste compatible avec le parsing awk du
-script (une ligne par bloc, `fichier:ligne.col,ligne.col nstmts hits`)
-— teste le script en local sur le profil réel avant de considérer le
-job fini, ne suppose pas que ça marche sans essayer.
+Is the `operator/coverage.out` profile produced by `go test
+-covermode=atomic -coverprofile=coverage.out ./...` (already in
+place, `.gitlab/ci/go.yml:42`) compatible with the format expected by
+the script (`-coverpkg=./...` required, cf. Order 2.4)? Check: if the
+`pkg/policy` tests are internal package tests (not cross-package
+integration tests like api-server's), a plain `-coverprofile`
+**without** `-coverpkg` may be enough, provided `go test`'s output
+format stays compatible with the script's awk parsing (one line per
+block, `file:line.col,line.col nstmts hits`) — test the script
+locally against the real profile before considering the job done,
+don't assume it works without trying it.
 
 ---
 
 ---
 
-## Contraintes générales
+## General constraints
 
-- N'affaiblis jamais un gate existant (seuils Trivy, ratchets de
-  couverture, gates de sécurité) pour faire passer la CI plus
-  facilement.
-- Chaque ordre ci-dessus est indépendant des autres sauf mention
-  contraire (2.3 dépend de 2.2 ; 2.4 et 7.2 touchent le même job
-  `go-test` mais des modules différents — vérifie qu'ils ne se
-  marchent pas dessus si tu les traites dans le même commit).
-- Les numéros de ligne cités datent de la rédaction de ce prompt
-  (2026-07-12) — vérifie-les avant d'éditer, ils ont pu bouger de
-  quelques lignes depuis.
-- Build/tests verts avant de considérer un ordre terminé :
-  `go build ./... && go test ./...` par module Go touché,
-  `cd frontend && npm run typecheck && npm test` si le frontend est
-  touché, `helm lint`/`helm template` si `helm/waas/` est touché.
+- Never weaken an existing gate (Trivy thresholds, coverage ratchets,
+  security gates) to make CI pass more easily.
+- Each order above is independent of the others except where noted
+  (2.3 depends on 2.2; 2.4 and 7.2 touch the same `go-test` job but
+  different modules — check they don't step on each other if you
+  handle them in the same commit).
+- Line numbers cited date from when this prompt was written
+  (2026-07-12) — check them before editing, they may have shifted by
+  a few lines since.
+- Green build/tests before considering an order done:
+  `go build ./... && go test ./...` per touched Go module,
+  `cd frontend && npm run typecheck && npm test` if the frontend is
+  touched, `helm lint`/`helm template` if `helm/waas/` is touched.
 
-## Points ouverts (ton arbitrage, au-delà de ceux déjà notés par ordre)
+## Open points (your judgment call, beyond those already noted per order)
 
-- Granularité des commits (un par ordre vs un par constat) — les deux
-  sont acceptables, documente ton choix dans les messages de commit. arbitrage => par ordre
-- Si un constat s'avère déjà résolu au moment de l'exécution (comme
-  C24 semble déjà l'être), note-le et passe au suivant sans chercher à
-  produire un changement artificiel.
+- Commit granularity (one per order vs. one per finding) — both are
+  acceptable, document your choice in the commit messages. Judgment
+  call => one per order.
+- If a finding turns out to already be resolved at execution time (as
+  C24 seems to already be), note it and move to the next one without
+  trying to produce an artificial change.

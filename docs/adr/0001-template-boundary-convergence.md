@@ -1,88 +1,89 @@
-# ADR 0001 — Convergence des templates aux frontières de scale-up
+# ADR 0001 — Template convergence at scale-up boundaries
 
-**Statut** : accepté (2026-07-08). **Décideur** : propriétaire de la
-plateforme, sur arbitrage post-audit (T7).
+**Status**: accepted (2026-07-08). **Decider**: platform owner, on
+post-audit decision (T7).
 
-## Contexte
+## Context
 
-Historiquement, `ensureDeployment`/`ensureStatefulSet` étaient
-**create-only** sur le podTemplate : une édition de `WorkspaceTemplate`
-(image, env, resources, mounts, config kasmvnc) n'atteignait jamais les
-workspaces existants — dérive invisible, patches d'images non propagés.
-L'alternative « converger à chaque édition » (GitOps pur) a un défaut
-rédhibitoire pour des bureaux : éditer un template **tuerait la session
-de chaque utilisateur** qui tourne dessus.
+Historically, `ensureDeployment`/`ensureStatefulSet` were
+**create-only** on the podTemplate: editing a `WorkspaceTemplate`
+(image, env, resources, mounts, kasmvnc config) never reached existing
+workspaces — invisible drift, image patches not propagated.
+The alternative "converge on every edit" (pure GitOps) has a
+show-stopping flaw for desktops: editing a template would **kill every
+user's running session**.
 
-## Décision
+## Decision
 
-Convergence **aux frontières de scale-up uniquement** :
+Convergence **only at scale-up boundaries**:
 
-- Un fingerprint du podTemplate désiré (`waas.xorhub.io/pod-template-hash`,
-  sha256 du template construit) est comparé au workload vivant à chaque
-  reconcile.
-- **Workload à 0 réplique (pause, arrêt planifié) ou en train d'y
-  passer** : le podTemplate converge librement — aucune session ne peut
-  être tuée. La reprise démarre donc toujours sur la forme à jour.
-- **Workload en cours d'exécution** : la dérive est **signalée, jamais
-  appliquée** — condition `TemplateDrifted=True` (raison
-  `TemplateChanged`), event `TemplateDrifted` émis à la transition,
-  colonne `DRIFTED` dans `kubectl get workspace`, badge « mise à jour en
-  attente » (tooltip explicatif) à côté du statut sur la card du
-  portail.
-- Workload de kind `Pod` : convergence par recréation (pause/reprise),
-  dérive signalée pareillement.
-- Chemin Windows/KubeVirt : détection de dérive hors périmètre
-  (spec non structurée, chemin non testé e2e).
+- A fingerprint of the desired podTemplate (`waas.xorhub.io/pod-template-hash`,
+  sha256 of the built template) is compared against the live workload on
+  every reconcile.
+- **Workload at 0 replicas (paused, scheduled stop) or transitioning
+  to it**: the podTemplate converges freely — no session can be
+  killed. Resume therefore always starts from the up-to-date shape.
+- **Running workload**: drift is **reported, never applied** —
+  condition `TemplateDrifted=True` (reason
+  `TemplateChanged`), `TemplateDrifted` event emitted on transition,
+  `DRIFTED` column in `kubectl get workspace`, "update pending"
+  badge (explanatory tooltip) next to the status on the portal
+  card.
+- Workload of kind `Pod`: convergence via recreation (pause/resume),
+  drift reported the same way.
+- Windows/KubeVirt path: drift detection out of scope
+  (unstructured spec, path not tested e2e).
 
-**Changement de comportement assumé** : la config kasmvnc
-(`spec.kasmvncConfig`) convergeait jusqu'ici en pleine session (rollout
-immédiat). Elle rentre dans la doctrine générale : le fichier ConfigMap
-converge immédiatement, le POD la prend à sa prochaine frontière — la
-cohérence de doctrine prime sur la promesse d'origine de la phase 2
-kasm.
+**Accepted behavior change**: the kasmvnc config
+(`spec.kasmvncConfig`) used to converge mid-session (immediate
+rollout). It now falls under the general doctrine: the ConfigMap file
+converges immediately, the POD picks it up at its next boundary — doctrine
+consistency takes priority over the original promise of the kasm
+phase 2.
 
-## Conséquences
+## Consequences
 
-- Les éditions de template se propagent d'elles-mêmes au fil des
-  pauses/reprises et des fenêtres d'arrêt planifiées (les workspaces à
-  schedule convergent au plus tard à la prochaine fenêtre).
-- Un workspace jamais suspendu peut dériver longtemps : c'est visible
-  (condition/badge) et l'admin peut forcer via pause/reprise.
-- Les tests de la sémantique vivent dans
+- Template edits propagate on their own through pauses/resumes
+  and scheduled stop windows (scheduled workspaces converge at the
+  latest at the next window).
+- A workspace never suspended can drift for a long time: this is
+  visible (condition/badge) and the admin can force it via pause/resume.
+- The semantics' tests live in
   `operator/internal/controller/kasm_config_test.go`
   (`TestKasmConfigBoundaryConvergence`).
 
-## Note additive (2026-07-10) — reload manuel et overrides runtime
+## Addendum (2026-07-10) — manual reload and runtime overrides
 
-La doctrine couvre les DEUX sources de dérive — template édité **et**
-overrides du workspace (le fingerprint hache le podTemplate construit
-des deux). La reconfiguration runtime d'un workspace instancié
-(`PATCH /api/v1/workspaces/{id}/overrides` : env, nodeSelector,
-tolerations, resources) produit donc la même dérive signalée-jamais-
-appliquée qu'une édition de template.
+The doctrine covers BOTH sources of drift — edited template **and**
+workspace overrides (the fingerprint hashes the podTemplate built from
+both). Runtime reconfiguration of an instantiated workspace
+(`PATCH /api/v1/workspaces/{id}/overrides`: env, nodeSelector,
+tolerations, resources) therefore produces the same
+report-never-apply drift as a template edit.
 
-S'y ajoute un **reload manuel** : au lieu d'attendre la prochaine
-frontière, l'utilisateur peut en forcer UNE, immédiate.
-`POST /api/v1/workspaces/{id}/reload` stampe l'annotation one-shot
-`waas.xorhub.io/reload-requested-at` ; le reconciler applique le
-podTemplate en attente sur le workload qui tourne (la stratégie
-Recreate — ou le rolling update mono-réplica du StatefulSet, ou la
-recréation du Pod nu — garantit l'arrêt avant redémarrage, jamais deux
-pods sur le home RWO), émet l'event `WorkloadReloaded` puis consomme
-l'annotation. Une demande sans dérive en attente, ou sur un workspace à
-l'arrêt, est consommée sans redémarrage. Un reload ne touche NI
-`spec.paused` NI `waas.xorhub.io/manual-state-at` : il ne peut pas
-interférer avec la règle B du scheduler (docs/workspace-lifecycle.md).
-Côté portail, le badge « mise à jour en attente » devient cliquable
-(confirmation : le bureau redémarre, le travail non sauvegardé est
-perdu). Tests : `operator/internal/controller/workload_reload_test.go`.
+Added to this is a **manual reload**: instead of waiting for the
+next boundary, the user can force ONE, immediately.
+`POST /api/v1/workspaces/{id}/reload` stamps the one-shot annotation
+`waas.xorhub.io/reload-requested-at`; the reconciler applies the
+pending podTemplate onto the running workload (the Recreate
+strategy — or the StatefulSet's single-replica rolling update, or bare
+Pod recreation — guarantees a stop before restart, never two
+pods on the RWO home), emits the `WorkloadReloaded` event then
+consumes the annotation. A request with no pending drift, or on a
+stopped workspace, is consumed without a restart. A reload touches
+NEITHER `spec.paused` NOR `waas.xorhub.io/manual-state-at`: it cannot
+interfere with scheduler rule B (docs/workspace-lifecycle.md).
+On the portal side, the "update pending" badge becomes clickable
+(confirmation: the desktop restarts, unsaved work is
+lost). Tests: `operator/internal/controller/workload_reload_test.go`.
 
-La détection elle-même est déclenchée par un watch des
-`WorkspaceTemplate` (spec/generation seulement) qui ré-enqueue les
-workspaces estampillés du template édité : un workspace Running n'a pas
-de requeue périodique, sans ce watch la dérive ne serait évaluée qu'à
-la faveur d'un événement fortuit. Les `WorkspaceImage` sont watchées
-pareillement (elles alimentent le podTemplate : affinité d'architecture,
-pull secret) — la résolution image→template étant globale au catalogue
-(meilleur préfixe registry), une édition ré-enqueue la flotte entière du
-namespace, no-op quand rien ne change. Test : `template_watch_test.go`.
+Detection itself is triggered by a watch on
+`WorkspaceTemplate` (spec/generation only) that re-enqueues
+workspaces stamped with the edited template: a running workspace has
+no periodic requeue, without this watch the drift would only be
+evaluated on the occasion of a fortuitous event. `WorkspaceImage`s
+are watched similarly (they feed into the podTemplate: architecture
+affinity, pull secret) — since image→template resolution is
+catalog-global (best registry prefix match), an edit re-enqueues the
+entire fleet of the namespace, no-op when nothing changes. Test:
+`template_watch_test.go`.

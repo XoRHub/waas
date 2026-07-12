@@ -1,52 +1,54 @@
-# Diagnostic — VNC/RDP « connection closed » : netpol des namespaces placés
+# Diagnostic — VNC/RDP "connection closed": netpol on placed namespaces
 
-> Depuis le passage du défaut `workspaces.namespace` au namespace de
-> release, CR namespace et platform namespace sont **identiques par
-> défaut** — cette classe précise de bug (les deux namespaces divergent
-> silencieusement) devient beaucoup moins probable en configuration par
-> défaut. Elle reste possible pour toute installation qui fixe
-> `workspaces.namespace` explicitement à autre chose que le namespace de
-> release ; le diagnostic ci-dessous reste donc valide dans ce cas.
+> Since the `workspaces.namespace` default switched to the release
+> namespace, the CR namespace and platform namespace are **identical by
+> default** — this specific bug class (the two namespaces silently
+> diverging) becomes much less likely under default configuration. It
+> remains possible for any installation that sets
+> `workspaces.namespace` explicitly to something other than the release
+> namespace; the diagnostic below therefore remains valid in that case.
 
-**Symptôme.** Toute session vers un workspace in-cluster **placé** (namespace
-dédié) tombe immédiatement en « connection closed ». guacd logge
-`Unable to connect to VNC server` (VNC) ou `RDP server closed/refused
-connection: Server refused connection (wrong security type?)` (RDP —
-message générique de freerdp sur un simple ECONNREFUSED, ne pas se laisser
-distraire par « security type »). Les workspaces **non placés**
-(namespace des CRs) fonctionnent, ce qui mimait un bug par-protocole.
+**Symptom.** Any session to a **placed** in-cluster workspace (dedicated
+namespace) immediately drops to "connection closed". guacd logs
+`Unable to connect to VNC server` (VNC) or `RDP server closed/refused
+connection: Server refused connection (wrong security type?)` (RDP — a
+generic freerdp message for a plain ECONNREFUSED, don't be distracted
+by "security type"). **Non-placed** workspaces (CR namespace)
+work fine, which mimicked a per-protocol bug.
 
-**Chaîne de diagnostic** (reproductible telle quelle) :
+**Diagnostic chain** (reproducible as-is):
 
-1. `Status.Address` du workspace vs Service réel : cohérents (même
-   helpers `computeName`/`computeNamespace` des deux côtés) ;
-2. endpoints du Service : sains, et le kubelet (probes) se connecte ;
-3. depuis le pod guacd : `nc -z <svc>.<ns>.svc.cluster.local 5901` →
-   **connection refused** sur tous les ports ;
-4. depuis un pod du namespace des CRs : **succès** — le discriminant.
-   Sous k3s, le contrôleur NetworkPolicy (kube-router) rejette en REJECT,
-   d'où « refused » et non un timeout ;
-5. la netpol `waas-default-ingress` du namespace placé n'admettait que le
-   namespace des CRs (`waas-workspaces`) — pas `waas`, où tournent
-   guacd/wwt.
+1. workspace `Status.Address` vs the real Service: consistent (same
+   `computeName`/`computeNamespace` helpers on both sides);
+2. Service endpoints: healthy, and the kubelet (probes) connects
+   fine;
+3. from the guacd pod: `nc -z <svc>.<ns>.svc.cluster.local 5901` →
+   **connection refused** on every port;
+4. from a pod in the CR namespace: **success** — the discriminant.
+   Under k3s, the NetworkPolicy controller (kube-router) rejects with
+   REJECT, hence "refused" rather than a timeout;
+5. the placed namespace's `waas-default-ingress` netpol only admitted
+   the CR namespace (`waas-workspaces`) — not `waas`, where
+   guacd/wwt run.
 
-**Cause racine.** L'operator tournait avec `PlatformNamespace` vide : le
-Deployment live prédatait le commit 0fa8a9d (qui ajoutait l'env
-`WAAS_PLATFORM_NAMESPACE` au chart), car la release Helm n'avait jamais
-été upgradée — `make dev-reload` rechargeait les images mais ne re-rendait
-pas le chart. Le bootstrap étant create-only, chaque namespace créé
-pendant cette fenêtre gardait sa netpol fausse pour toujours.
+**Root cause.** The operator was running with an empty `PlatformNamespace`:
+the live Deployment predated commit 0fa8a9d (which added the
+`WAAS_PLATFORM_NAMESPACE` env var to the chart), because the Helm
+release had never been upgraded — `make dev-reload` reloaded the
+images but did not re-render the chart. Since bootstrap is create-only,
+every namespace created during that window kept its bogus netpol
+forever.
 
-**Correctifs** (l'un sans les autres ne suffit pas) :
+**Fixes** (none is sufficient on its own):
 
-- l'operator **retombe sur son propre namespace** (montage serviceaccount)
-  quand l'env manque — plus de mode silencieusement cassé ;
-- la netpol `waas-default-ingress` est **désired-state** : re-synchronisée
-  à chaque reconcile tant qu'elle porte le label managed-by (une netpol
-  reprise par un admin — label retiré — n'est jamais réécrite). Les
-  namespaces cassés existants guérissent seuls (event
-  `IngressPolicyHealed`) ;
-- `make dev-reload` inclut désormais `dev-deploy` (helm upgrade) ;
-- gate de livraison : `make smoke` établit une vraie session par
-  protocole (`docs/smoke-connections.md`) — cette classe de régression ne
-  peut plus passer une itération.
+- the operator **falls back to its own namespace** (serviceaccount
+  mount) when the env var is missing — no more silently broken mode;
+- the `waas-default-ingress` netpol is **desired-state**: re-synced
+  on every reconcile as long as it carries the managed-by label (a netpol
+  taken over by an admin — label removed — is never rewritten). Existing
+  broken namespaces self-heal (event
+  `IngressPolicyHealed`);
+- `make dev-reload` now includes `dev-deploy` (helm upgrade);
+- delivery gate: `make smoke` establishes a real session per
+  protocol (`docs/smoke-connections.md`) — this class of regression can
+  no longer pass an iteration.

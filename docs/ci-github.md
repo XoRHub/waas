@@ -1,93 +1,94 @@
-# CI GitHub Actions
+# GitHub Actions CI
 
-GitHub est le dépôt canonique ; le pipeline GitLab (`docs/ci.md`) reste en
-l'état jusqu'à son retrait. Un seul workflow : `.github/workflows/ci.yml`.
+GitHub is the canonical repository; the GitLab pipeline (`docs/ci.md`)
+stays as-is until it's retired. A single workflow: `.github/workflows/ci.yml`.
 
-## Carte du pipeline
+## Pipeline map
 
 ```
-PR — sélectif par chemin (job `changes`, dorny/paths-filter)
-├─ go-lint / go-test        matrice DYNAMIQUE par module, suit le graphe réel :
+PR — selective by path (job `changes`, dorny/paths-filter)
+├─ go-lint / go-test        DYNAMIC matrix per module, follows the real graph:
 │                           api-server ← operator + shared ; wwt ← shared ;
-│                           test/smoke ← operator (lint seul, tests = cluster)
-├─ go-generated-drift       operator/** — regénérer doit être un no-op
+│                           test/smoke ← operator (lint only, tests = cluster)
+├─ go-generated-drift       operator/** — regenerating must be a no-op
 ├─ frontend                 typecheck + vitest (frontend/**)
-├─ helm-manifests           lint + render + kubeconform vs CRDs de CE commit
-├─ security                 gitleaks, trivy fs, hadolint, shellcheck — TOUJOURS
-└─ build-images             par composant impacté × {amd64, arm64},
-                            push:false, scan trivy local (amd64)
+├─ helm-manifests           lint + render + kubeconform vs CRDs of THIS commit
+├─ security                 gitleaks, trivy fs, hadolint, shellcheck — ALWAYS
+└─ build-images             per impacted component × {amd64, arm64},
+                            push:false, local trivy scan (amd64)
 
-push main — TOUT est construit (invariant : chaque SHA de main porte le jeu
-│           d'images complet, prérequis de la promotion)
-├─ mêmes gates + build-images → push <short-sha>-<arch>
-├─ merge-manifests           manifest list <short-sha> + tag mobile `main`
-├─ scan-images               trivy bloquant sur la manifest list
-├─ chart-oci                 push OCI du chart, version `X.Y.Z-main.<short-sha>`
-│                            (SemVer prerelease, ne collisionne jamais avec vX.Y.Z)
-└─ release-please            EN FIN de pipeline (needs sur tout le reste)
-   └─ promote  (si release_created)   ZÉRO rebuild :
-      verify (Chart.yaml = version, sources présentes, tags libres)
-      → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → table des digests
-        ajoutée aux notes de Release
-      → chart : helm package (Chart.yaml du SHA taggé, sans override) + push OCI
+push main — EVERYTHING is built (invariant: every main SHA carries the
+│           complete image set, a prerequisite for promotion)
+├─ same gates + build-images → push <short-sha>-<arch>
+├─ merge-manifests           <short-sha> manifest list + mobile `main` tag
+├─ scan-images               blocking trivy on the manifest list
+├─ chart-oci                 OCI push of the chart, version `X.Y.Z-main.<short-sha>`
+│                            (SemVer prerelease, never collides with vX.Y.Z)
+└─ release-please            AT THE END of the pipeline (needs on everything else)
+   └─ promote  (if release_created)   ZERO rebuild:
+      verify (Chart.yaml = version, sources present, tags free)
+      → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → digest table
+        added to the Release notes
+      → chart: helm package (Chart.yaml of the tagged SHA, no override) + OCI push
 ```
 
-## Chart Helm en OCI
+## Helm chart as OCI
 
-Pas de registre Helm dédié : le chart est poussé comme artefact OCI dans
-**ghcr.io**, même registry que les images, sous-chemin `charts/`
-(`ghcr.io/<owner>/<repo>/charts/waas:<version>`). `azure/setup-helm`
-(v3.17.3) + `helm registry login` avec `GITHUB_TOKEN` :
+No dedicated Helm registry: the chart is pushed as an OCI artifact into
+**ghcr.io**, the same registry as the images, under the `charts/`
+subpath (`ghcr.io/<owner>/<repo>/charts/waas:<version>`). `azure/setup-helm`
+(v3.17.3) + `helm registry login` with `GITHUB_TOKEN`:
 
-- job `chart-oci` (push main) : `helm package --version
-  X.Y.Z-main.<short-sha>`, mirroir du tag mobile `main` des images.
-- step dans `promote` (tag `vX.Y.Z`) : `helm package` **sans override** —
-  le `Chart.yaml` du commit taggé porte déjà `version: X.Y.Z` (vérifié par
-  le step "Verify promotion preconditions"), donc packager ce fichier tel
-  quel EST la release, pas un rebuild.
+- job `chart-oci` (push main): `helm package --version
+  X.Y.Z-main.<short-sha>`, mirroring the images' mobile `main` tag.
+- step in `promote` (tag `vX.Y.Z`): `helm package` **without override** —
+  the `Chart.yaml` of the tagged commit already carries `version: X.Y.Z`
+  (verified by the "Verify promotion preconditions" step), so packaging
+  this file as-is IS the release, not a rebuild.
 
-ArgoCD continue de déployer depuis le tag Git (`path: helm/waas`) ; ce
-chart OCI est pour les consommateurs `helm pull`/`helm install --version`
-externes.
+ArgoCD continues to deploy from the Git tag (`path: helm/waas`); this
+OCI chart is for external `helm pull`/`helm install --version`
+consumers.
 
 ## Release (release-please, SemVer, conventional commits)
 
-- Mode manifest : `release-please-config.json` + `.release-please-manifest.json`,
-  **un seul package racine** — la plateforme sort en un tag `vX.Y.Z` unique
-  (targetRevision ArgoCD, promotion en bloc). Les images desktop sont
-  hors scope (repo `waas-images` séparé depuis le 2026-07-10, versionné
-  par image).
-- La release-PR bump `version.txt`, `CHANGELOG.md` et `helm/waas/Chart.yaml`
-  (marqueurs `x-release-please-start-version`/`end` ; le `v` d'`appVersion`
-  survit car l'updater ne matche que la partie numérique).
-- **Procédure : merger la release-PR, c'est tout.** Le run main qui suit
-  rebuilde/scanne le SHA mergé, crée tag + Release, puis promeut et signe.
-- **Pas de PAT / GitHub App** : le tag créé avec `GITHUB_TOKEN` ne déclenche
-  aucun workflow (anti-boucle GitHub) — c'est voulu. La promotion est
-  chaînée dans le MÊME run via l'output `release_created`, ce qui garantit
-  au passage que les images `<short-sha>` promues viennent d'être poussées
-  par ce run (un `release.yml` séparé sur push main serait en course avec
-  les builds). Un PAT ne serait nécessaire que pour re-déclencher un
-  workflow `on: push: tags` séparé.
-- Retry idempotent : `promote` tolère un tag release déjà présent **si le
-  digest est identique** (re-run après échec partiel) et refuse sinon
-  (immutabilité).
+- Manifest mode: `release-please-config.json` + `.release-please-manifest.json`,
+  **a single root package** — the platform ships as one unique `vX.Y.Z` tag
+  (ArgoCD targetRevision, promoted as a block). Desktop images are
+  out of scope (separate `waas-images` repo since 2026-07-10,
+  versioned per image).
+- The release PR bumps `version.txt`, `CHANGELOG.md` and `helm/waas/Chart.yaml`
+  (`x-release-please-start-version`/`end` markers; the `v` of `appVersion`
+  survives because the updater only matches the numeric part).
+- **Procedure: merge the release PR, that's it.** The subsequent main
+  run rebuilds/scans the merged SHA, creates tag + Release, then promotes
+  and signs.
+- **No PAT / GitHub App**: the tag created with `GITHUB_TOKEN` triggers
+  no workflow (GitHub anti-loop) — this is intentional. Promotion is
+  chained in the SAME run via the `release_created` output, which also
+  guarantees that the promoted `<short-sha>` images were just pushed
+  by this run (a separate `release.yml` on push main would race with
+  the builds). A PAT would only be needed to re-trigger a separate
+  `on: push: tags` workflow.
+- Idempotent retry: `promote` tolerates a release tag that already
+  exists **if the digest is identical** (re-run after a partial failure)
+  and refuses otherwise (immutability).
 
-## Multi-arch : QEMU vs runners natifs
+## Multi-arch: QEMU vs native runners
 
-Variable de dépôt `WAAS_BUILD_STRATEGY` (Settings → Variables) :
+Repository variable `WAAS_BUILD_STRATEGY` (Settings → Variables):
 
-| valeur | leg arm64 |
+| value | arm64 leg |
 |---|---|
-| `native` | `ubuntu-24.04-arm` (gratuit repos publics) |
-| autre / absente | `ubuntu-latest` + QEMU (défaut sûr, repo privé) |
+| `native` | `ubuntu-24.04-arm` (free for public repos) |
+| other / absent | `ubuntu-latest` + QEMU (safe default, private repo) |
 
-Le leg amd64 est toujours natif. Passer à `native` une fois le repo public.
+The amd64 leg is always native. Switch to `native` once the repo is public.
 
-## Signature cosign — écart avec GitLab
+## Cosign signing — divergence from GitLab
 
-GitLab signe avec une **clé** (`COSIGN_PRIVATE_KEY`) ; GitHub signe en
-**keyless OIDC** (Fulcio/Rekor, `id-token: write`). Vérification :
+GitLab signs with a **key** (`COSIGN_PRIVATE_KEY`); GitHub signs with
+**keyless OIDC** (Fulcio/Rekor, `id-token: write`). Verification:
 
 ```sh
 cosign verify \
@@ -96,29 +97,32 @@ cosign verify \
   <image>@<digest>
 ```
 
-Conséquences : plus de secret à faire tourner, mais l'identité du repo est
-inscrite dans le log public Rekor (OK, le repo devient public), et un
-policy-controller cluster doit vérifier **l'identité de certificat** côté
-GitHub vs la **clé publique** côté GitLab tant que les deux coexistent.
+Consequences: no more secret to rotate, but the repo's identity is
+recorded in the public Rekor log (fine, the repo is becoming public),
+and a cluster policy-controller must verify **certificate identity**
+on the GitHub side vs the **public key** on the GitLab side while both
+coexist.
 
-## Épinglage Renovate
+## Renovate pinning
 
-Actions épinglées par SHA de commit (`helpers:pinGitHubActionDigests`),
-images `docker run` des workflows couvertes par un customManager regex
-(gitleaks, kubeconform, hadolint). Pins non gérés automatiquement (bump
-manuel) : `version:` de golangci-lint-action et setup-helm, `node-version`.
+Actions pinned by commit SHA (`helpers:pinGitHubActionDigests`),
+`docker run` images in workflows covered by a regex customManager
+(gitleaks, kubeconform, hadolint). Pins not managed automatically
+(manual bump): `version:` of golangci-lint-action and setup-helm,
+`node-version`.
 
-## Écarts assumés / non porté (encore)
+## Accepted gaps / not ported (yet)
 
-- **waas-images** : GitLab seulement, pas d'équivalent GitHub. Depuis le
-  split du 2026-07-10 le sujet appartient au repo `waas-images` (voir son
-  `docs/RECIPE-STUDY.md`, § CI GitHub Actions).
-- **smoke-connections** (k3d + sessions guacd réelles) : trop lourd pour un
-  runner hébergé 7 Go ; à porter sur runner self-hosted ou à garder GitLab.
-- Images PR **non poussées** (le token des PR de forks ne peut pas écrire
-  ghcr) — GitLab pousse des tags `mr-*` ; le scan PR se fait sur l'image
-  chargée localement (amd64).
-- `merge-manifests` attend TOUTES les paires build (GitHub ne fait pas de
-  `needs` par leg de matrice, contrairement au DAG GitLab par composant).
-- GitLab `release-verify` grep `appVersion` : les marqueurs release-please
-  sont sur des lignes séparées, les greps existants restent valides.
+- **waas-images**: GitLab only, no GitHub equivalent. Since the
+  2026-07-10 split, the topic belongs to the `waas-images` repo (see
+  its `docs/RECIPE-STUDY.md`, § GitHub Actions CI).
+- **smoke-connections** (k3d + real guacd sessions): too heavy for a
+  hosted 7 GB runner; to be ported to a self-hosted runner or kept on
+  GitLab.
+- PR images **not pushed** (fork PR tokens cannot write to
+  ghcr) — GitLab pushes `mr-*` tags; the PR scan runs on the locally
+  loaded image (amd64).
+- `merge-manifests` waits for ALL build pairs (GitHub does not do
+  `needs` per matrix leg, unlike the per-component GitLab DAG).
+- GitLab `release-verify` greps `appVersion`: the release-please
+  markers are on separate lines, the existing greps remain valid.

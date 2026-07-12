@@ -1,14 +1,14 @@
-# Prompt Fable 5 — Feature 3 : toggles pour les booléens + dropdowns pour les options à défaut, dans les formulaires de paramètres protocole
+# Fable 5 Prompt — Feature 3: toggles for booleans + dropdowns for options with a default, in the protocol parameter forms
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du principe que tu (Fable 5) n'as aucun contexte de conversation préalable.
+Paste this document as-is as an implementation prompt. It assumes you (Fable 5) have no prior conversation context.
 
-## Contexte du repo
+## Repo context
 
-WaaS pilote des sessions VNC/RDP/SSH via guacd. Tous les paramètres de connexion guacd (couleur, audio, presse-papier, mise en page clavier, etc.) viennent d'un **registre unique** côté Go, `operator/pkg/params/params.go` : chaque `Param` a un `Kind` (`string`/`bool`/`int`/`enum`), un `Tier` (`ui`/`advanced`/`platform`), un `Default` (documente la valeur par défaut de guacd lui-même, jamais envoyée telle quelle — une valeur vide = "laisser guacd appliquer son défaut"), et pour `enum` un `Enum []string`. Ce registre est exposé tel quel au frontend via `GET /api/v1/meta/protocols` et rendu par un seul composant de formulaire — **tout changement dans ce composant s'applique automatiquement à tous les écrans qui affichent des paramètres protocole**, pas seulement Connection Settings (voir "Portée" plus bas).
+WaaS drives VNC/RDP/SSH sessions via guacd. All guacd connection parameters (color, audio, clipboard, keyboard layout, etc.) come from a **single registry** on the Go side, `operator/pkg/params/params.go`: each `Param` has a `Kind` (`string`/`bool`/`int`/`enum`), a `Tier` (`ui`/`advanced`/`platform`), a `Default` (documents guacd's own default value, never sent as-is — an empty value means "let guacd apply its own default"), and for `enum` an `Enum []string`. This registry is exposed as-is to the frontend via `GET /api/v1/meta/protocols` and rendered by a single form component — **any change to this component automatically applies to every screen that displays protocol parameters**, not just Connection Settings (see "Scope" below).
 
-## Ce qui existe déjà (à connaître avant de coder)
+## What already exists (know this before coding)
 
-Le rendu par paramètre est **entièrement centralisé** dans `frontend/src/components/ParamField.tsx` :
+Per-parameter rendering is **entirely centralized** in `frontend/src/components/ParamField.tsx`:
 
 ```tsx
 switch (meta.kind) {
@@ -19,56 +19,56 @@ switch (meta.kind) {
 }
 ```
 
-- **`bool` est déjà un `<select>` tri-état** (vide = hérite du défaut guacd, `true`, `false`) — jamais une checkbox. C'est ce `<select>` qu'il faut transformer en toggle visuel.
-- **`enum` est déjà un dropdown** avec le défaut en première option vide — rien à faire ici, c'est le modèle à suivre pour le reste.
-- **`int`/`string` (sans enum) affichent le défaut seulement en `placeholder`** — texte grisé qui disparaît dès que l'utilisateur tape, et qui ne distingue pas visuellement "champ vide = défaut appliqué" de "champ vide = rien n'a encore été saisi".
+- **`bool` is already a tri-state `<select>`** (empty = inherits the guacd default, `true`, `false`) — never a checkbox. It's this `<select>` that needs to become a visual toggle.
+- **`enum` is already a dropdown** with the default as the first, empty option — nothing to do here, it's the model to follow for the rest.
+- **`int`/`string` (without enum) only show the default as a `placeholder`** — grayed-out text that disappears as soon as the user types, and that doesn't visually distinguish "field empty = default applied" from "field empty = nothing typed yet".
 
-`ParamField` est appelé par `ProtocolParamsForm` (`frontend/src/components/ProtocolTabs.tsx:163-219`), lui-même utilisé par :
+`ParamField` is called by `ProtocolParamsForm` (`frontend/src/components/ProtocolTabs.tsx:163-219`), itself used by:
 
-- `ConnectionSettingsDialog.tsx` (la cible explicite de cette feature),
-- `CreateWorkspaceDialog.tsx` (section protocole à la création),
-- `RemoteWorkspaceDialog.tsx` (paramètres des machines distantes),
-- `TemplatesPage.tsx` (éditeur admin de template, avec en plus la case "user-overridable" par paramètre),
-- `SessionOverlay` (réglages en session).
+- `ConnectionSettingsDialog.tsx` (the explicit target of this feature),
+- `CreateWorkspaceDialog.tsx` (protocol section at creation),
+- `RemoteWorkspaceDialog.tsx` (remote machine parameters),
+- `TemplatesPage.tsx` (admin template editor, plus the "user-overridable" checkbox per parameter),
+- `SessionOverlay` (in-session settings).
 
-**Portée — décision à prendre en connaissance de cause :** la demande porte sur "les menus de connection Settings en rapport avec chaque protocole". Techniquement, `ParamField`/`ProtocolParamsForm` n'ont pas de variante par écran — modifier le rendu du `Kind` s'applique partout où le composant est monté. Notre recommandation : traiter ça comme une amélioration du composant partagé (donc visible partout), plutôt que de forker le rendu par écran — un paramètre `bool` a le même sens partout, il n'y a pas de raison qu'il soit une case à cocher ici et un select ailleurs. Si tu préfères limiter l'effet à Connection Settings uniquement, il faudra ajouter une prop de variante à `ParamField`/`ProtocolParamsForm` et l'assumer comme un choix explicite (documente-le).
+**Scope — a decision to make with full awareness:** the request is about "the connection settings menus related to each protocol." Technically, `ParamField`/`ProtocolParamsForm` have no per-screen variant — changing the rendering of `Kind` applies everywhere the component is mounted. Our recommendation: treat this as an improvement to the shared component (so visible everywhere) rather than forking the rendering per screen — a `bool` parameter means the same thing everywhere, there's no reason for it to be a checkbox here and a select elsewhere. If you prefer to limit the effect to Connection Settings only, you'll need to add a variant prop to `ParamField`/`ProtocolParamsForm` and own it as an explicit choice (document it).
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### A. Les paramètres booléens deviennent des toggles
+### A. Boolean parameters become toggles
 
-Remplace le rendu `case 'bool'` de `ParamField.tsx` par un composant toggle/switch visuel au lieu du `<select>` actuel.
+Replace the `case 'bool'` rendering in `ParamField.tsx` with a visual toggle/switch component instead of the current `<select>`.
 
-**Point d'attention non trivial** : le `<select>` actuel est **tri-état** (vide/true/false), pas binaire — "vide" signifie explicitement "pas de préférence, guacd applique son propre défaut" (ex. `read-only` par défaut `false`, `disable-copy` par défaut `false`, `ignore-cert` en RDP par défaut `true`). Un toggle classique est binaire (on/off) et ne peut pas représenter nativement ce troisième état "hérité". Deux directions possibles, à trancher toi-même :
+**Non-trivial point of attention**: the current `<select>` is **tri-state** (empty/true/false), not binary — "empty" explicitly means "no preference, guacd applies its own default" (e.g. `read-only` defaults to `false`, `disable-copy` defaults to `false`, `ignore-cert` on RDP defaults to `true`). A classic toggle is binary (on/off) and cannot natively represent this third "inherited" state. Two possible directions, for you to decide:
 
-1. **Toggle à 3 positions** (segmented control : "Défaut" / "Activé" / "Désactivé") — préserve exactement la sémantique actuelle, un peu plus de travail visuel., dans ce cas il vaut mieux considere ça comme un dropdown avec les bonnes valeurs, qu'en penses tu ?
-2. **Toggle binaire** dont l'état visuel initial reflète le `Default` du registre (ex. `disable-copy` par défaut `false` → toggle visuellement OFF quand la valeur est vide), plus un petit affordance "réinitialiser au défaut" à côté (cohérent avec le badge `live` déjà présent, `ParamField.tsx:85-89`) pour revenir explicitement à l'état vide/hérité plutôt que d'envoyer `"false"` en dur. C'est plus proche de l'intuition "toggle" mais demande de bien distinguer visuellement "hérité = false" de "explicitement réglé = false" (sinon on perd de l'information : un admin qui veut _forcer_ `false` sur un paramètre dont le défaut guacd est `true`, comme `ignore-cert`, doit pouvoir le faire explicitement).
+1. **3-position toggle** (segmented control: "Default" / "On" / "Off") — preserves the current semantics exactly, a bit more visual work. In that case it might be better to consider this a dropdown with the right values — what do you think?
+2. **Binary toggle** whose initial visual state reflects the registry's `Default` (e.g. `disable-copy` defaulting to `false` → toggle visually OFF when the value is empty), plus a small "reset to default" affordance next to it (consistent with the existing `live` badge, `ParamField.tsx:85-89`) to explicitly return to the empty/inherited state rather than sending a hardcoded `"false"`. This is closer to the "toggle" intuition but requires clearly distinguishing visually "inherited = false" from "explicitly set = false" (otherwise information is lost: an admin who wants to _force_ `false` on a parameter whose guacd default is `true`, like `ignore-cert`, must be able to do so explicitly).
 
-Dans les deux cas : ne change rien à la valeur envoyée au backend (toujours `""`/`"true"`/`"false")`, ni au contrat `ParamMeta`/`meta.kind === 'bool'` côté validation serveur (`operator/pkg/params`, webhook, `api-server` Connect) — c'est un changement de rendu uniquement.
+In both cases: change nothing about the value sent to the backend (always `""`/`"true"`/`"false"`), nor the `ParamMeta`/`meta.kind === 'bool'` contract on the server-side validation (`operator/pkg/params`, webhook, `api-server` Connect) — this is a rendering-only change.
 
-### B. Les paramètres avec un défaut deviennent des dropdowns
+### B. Parameters with a default become dropdowns
 
-Pour tout paramètre `kind !== 'enum'` dont `meta.default` est non vide, remplace l'`<input>`/`<input type="number">` actuel (placeholder seul) par un contrôle qui **liste le défaut comme une option explicitement sélectionnable**, sur le modèle de ce qui existe déjà pour `enum`/`bool` (`<option value="">({meta.default})</option>`).
+For every parameter with `kind !== 'enum'` whose `meta.default` is non-empty, replace the current `<input>`/`<input type="number">` (placeholder only) with a control that **lists the default as an explicitly selectable option**, following the model already used for `enum`/`bool` (`<option value="">({meta.default})</option>`).
 
-Paramètres réellement concernés aujourd'hui (extraits du registre, pour te donner la vraie portée avant de coder — ne les invente pas, relis `operator/pkg/params/params.go` si le registre a changé) :
+Parameters actually concerned today (extracted from the registry, to give you the real scope before coding — don't invent them, re-read `operator/pkg/params/params.go` if the registry has changed):
 
-- `int` avec défaut : `font-size` (6–48, défaut 12, SSH), `scrollback` (0–100000, défaut 1000, SSH avancé), `backspace` (1–255, défaut 127, SSH avancé).
-- `string` avec défaut : `terminal-type` (défaut `linux`, SSH avancé). `clipboard-encoding` a un défaut mais est déjà `enum`.
+- `int` with a default: `font-size` (6–48, default 12, SSH), `scrollback` (0–100000, default 1000, SSH advanced), `backspace` (1–255, default 127, SSH advanced).
+- `string` with a default: `terminal-type` (default `linux`, SSH advanced). `clipboard-encoding` has a default but is already `enum`.
 
-**Tension à arbitrer** : un `<select>` pur n'a de sens que sur un ensemble fini et raisonnable de valeurs. Pour `scrollback` (plage 0–100000), lister toutes les valeurs possibles en dropdown est absurde. Notre recommandation : dropdown **hybride** — une liste déroulante qui propose "(défaut : X)" comme premier choix sélectionnable et éventuellement quelques valeurs usuelles, PLUS la possibilité de taper une valeur libre dans les bornes `min`/`max` (par exemple un `<input list="...">` avec `<datalist>`, qui garde le clavier natif tout en donnant une liste déroulante réelle — ou un petit composant "select ou custom" avec une option "Personnalisé…" qui bascule vers l'input numérique). Pour `terminal-type` (string libre), une vraie liste déroulante de valeurs `TERM` courantes (`linux`, `xterm`, `xterm-256color`, `vt100`, `screen`) + une option "Personnalisé…" est raisonnable puisque guacd n'impose pas d'énumération mais l'usage réel est très concentré sur une poignée de valeurs.
+**Tension to arbitrate**: a pure `<select>` only makes sense over a finite, reasonable set of values. For `scrollback` (0–100000 range), listing every possible value in a dropdown is absurd. Our recommendation: **hybrid** dropdown — a dropdown that offers "(default: X)" as the first selectable choice and possibly a few common values, PLUS the ability to type a free value within the `min`/`max` bounds (for example an `<input list="...">` with a `<datalist>`, which keeps the native keyboard while providing a real dropdown list — or a small "select or custom" component with a "Custom…" option that switches to the numeric input). For `terminal-type` (free string), a real dropdown of common `TERM` values (`linux`, `xterm`, `xterm-256color`, `vt100`, `screen`) + a "Custom…" option is reasonable since guacd doesn't impose an enumeration but real-world usage is heavily concentrated on a handful of values.
 
-Documente ton choix dans le composant (commentaire au-dessus du switch `meta.kind`, à côté du commentaire existant qui explique déjà le mapping kind→widget).
+Document your choice in the component (comment above the `meta.kind` switch, next to the existing comment that already explains the kind→widget mapping).
 
-## Contraintes à respecter
+## Constraints to respect
 
-- Zéro changement de contrat côté Go (`operator/pkg/params`, validation webhook, validation `Connect` côté `api-server`) — cette feature est strictement une amélioration de rendu frontend sur des données déjà exposées par `GET /api/v1/meta/protocols`.
-- `tsc -b` sans erreur, `strict: true`, zéro `any` (contraintes déjà tenues sur tout le repo, `docs/studies/audit-2026-07.md` §Frontend).
-- Tests vitest sur le nouveau rendu (`ParamField.test.tsx` si le fichier existe déjà, sinon crée-le à côté de `ParamField.tsx` en suivant la convention des autres tests de composants du repo) — au minimum : un toggle bool reflète `value`/`meta.default` correctement dans les 3 états (hérité/true/false), un champ à défaut expose bien l'option "(défaut)" et retourne la bonne valeur au parent.
-- i18n : toute nouvelle chaîne (ex. "Personnalisé…", libellés du toggle 3 états) passe par `frontend/src/i18n/locales/{en,fr}.json`.
-- N'oublie pas `TemplatesPage.tsx` : l'éditeur admin ajoute un slot par paramètre (`renderParamExtra`, la case "user-overridable") — vérifie que ton nouveau rendu ne casse pas la mise en page à cet endroit (colonnes, alignement) puisque tu touches un composant partagé par cet écran aussi.
+- Zero contract change on the Go side (`operator/pkg/params`, webhook validation, `Connect` validation on `api-server`) — this feature is strictly a frontend rendering improvement on data already exposed by `GET /api/v1/meta/protocols`.
+- `tsc -b` with no errors, `strict: true`, zero `any` (constraints already held across the whole repo, `docs/studies/audit-2026-07.md` §Frontend).
+- Vitest tests on the new rendering (`ParamField.test.tsx` if the file already exists, otherwise create it next to `ParamField.tsx` following the convention of the repo's other component tests) — at minimum: a bool toggle correctly reflects `value`/`meta.default` in the 3 states (inherited/true/false), a field with a default properly exposes the "(default)" option and returns the right value to the parent.
+- i18n: every new string (e.g. "Custom…", the 3-state toggle labels) goes through `frontend/src/i18n/locales/{en,fr}.json`.
+- Don't forget `TemplatesPage.tsx`: the admin editor adds a slot per parameter (`renderParamExtra`, the "user-overridable" checkbox) — check that your new rendering doesn't break the layout there (columns, alignment) since you're touching a component shared by this screen too.
 
-## Points ouverts (ton arbitrage)
+## Open points (your call)
 
-- Toggle 3 états vs. toggle binaire + reset explicite pour les booléens (§A) — les deux sont défendables, tranche et documente.
-- Forme exacte du dropdown hybride pour `int`/`string` à défaut (§B) — `datalist`, select+"Personnalisé…", ou autre : choisis la solution la plus cohérente avec le reste du design system Tailwind déjà en place (`fieldClass` dans `ParamField.tsx:3-4`).
-- Portée (composant partagé vs. variante par écran) — recommandation ci-dessus, à confirmer ou à réviser si tu identifies un écran où le nouveau rendu serait réellement inapproprié (ex. `TemplatesPage.tsx` où l'admin veut peut-être forcer une vraie valeur libre sans dropdown).
+- 3-state toggle vs. binary toggle + explicit reset for booleans (§A) — both are defensible, decide and document.
+- Exact shape of the hybrid dropdown for `int`/`string` with a default (§B) — `datalist`, select+"Custom…", or other: choose the solution most consistent with the rest of the existing Tailwind design system (`fieldClass` in `ParamField.tsx:3-4`).
+- Scope (shared component vs. per-screen variant) — recommendation above, to confirm or revise if you identify a screen where the new rendering would genuinely be inappropriate (e.g. `TemplatesPage.tsx` where the admin might want to force a genuinely free value without a dropdown).

@@ -1,52 +1,52 @@
-# Prompt Fable 5 — Feature 5 : nettoyage resize-method (RDP) + alignement guacd 1.6 / guacamole-common-js
+# Fable 5 Prompt — Feature 5: cleanup of resize-method (RDP) + alignment of guacd 1.6 / guacamole-common-js
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du principe que tu (Fable 5) n'as aucun contexte de conversation préalable.
+Paste this document as-is as an implementation prompt. It assumes you (Fable 5) have no prior conversation context.
 
-## Contexte du repo — et une prémisse à corriger avant de coder
+## Repo context — and a premise to correct before coding
 
-La demande initiale de cette feature était "active le resize natif guacd 1.6 pour VNC comme pour RDP (Apache guacamole-server PR #469)". **Cette prémisse est fausse dans ce repo — vérifié avant d'écrire ce prompt.** Le mécanisme de resize de session, livré par le commit `906017f3272e feat(resize): real end-to-end VNC/RDP session resize via pod exec`, **ne passe pas du tout par le resize natif de guacd**. Il fonctionne déjà de façon strictement identique pour VNC et RDP, et ne dépend donc en rien de la version de guacd ni du PR #469.
+The initial request for this feature was "enable native guacd 1.6 resize for VNC as well as RDP (Apache guacamole-server PR #469)". **This premise is false in this repo — verified before writing this prompt.** The session resize mechanism, delivered by commit `906017f3272e feat(resize): real end-to-end VNC/RDP session resize via pod exec`, **does not go through guacd's native resize at all**. It already works in a strictly identical way for VNC and RDP, and therefore does not depend at all on the guacd version nor on PR #469.
 
-## Ce qui existe déjà (à connaître avant de coder)
+## What already exists (know this before coding)
 
-**Le mécanisme réel** : `api-server/internal/service/workspace_resize.go:52-88` (`Resize`, handler `api-server/internal/handler/workspace_handler.go:209`) exécute `waas-resize WxH` **dans le pod du workspace via `client-go`/SPDY exec** (`api-server/internal/k8s/exec.go`) — pas un message guacd. Côté frontend, `frontend/src/lib/sessionResize.ts:16-52` observe le conteneur via `ResizeObserver` (débounce, dédup) et appelle cet endpoint ; `DesktopPane.tsx:297-311` le branche sur le cycle de vie du composant.
+**The real mechanism**: `api-server/internal/service/workspace_resize.go:52-88` (`Resize`, handler `api-server/internal/handler/workspace_handler.go:209`) executes `waas-resize WxH` **in the workspace's pod via `client-go`/SPDY exec** (`api-server/internal/k8s/exec.go`) — not a guacd message. On the frontend side, `frontend/src/lib/sessionResize.ts:16-52` observes the container via `ResizeObserver` (debounce, dedup) and calls this endpoint; `DesktopPane.tsx:297-311` wires it into the component's lifecycle.
 
-**VNC est déjà au même niveau que RDP** : `sessionResize.ts:27` — `const active = kind === 'workspace' && (protocol === 'vnc' || protocol === 'rdp');`. Il n'y a **aucune restriction VNC-spécifique** dans le frontend, aucun toggle qui désactive le resize pour VNC — c'est déjà générique. Seuls `kasmvnc` et les workspaces distants (`kind === 'remote'`) en sont exclus (`DesktopPane.tsx:151-167` pour kasmvnc ; 400 explicite dans `workspace_resize.go:60-67` pour remote).
+**VNC is already at the same level as RDP**: `sessionResize.ts:27` — `const active = kind === 'workspace' && (protocol === 'vnc' || protocol === 'rdp');`. There is **no VNC-specific restriction** in the frontend, no toggle that disables resize for VNC — it's already generic. Only `kasmvnc` and remote workspaces (`kind === 'remote'`) are excluded from it (`DesktopPane.tsx:151-167` for kasmvnc; an explicit 400 in `workspace_resize.go:60-67` for remote).
 
-**Pourquoi ça marche déjà pour VNC sans le natif guacd** : `waas-images/base/ubuntu/rootfs/usr/local/bin/waas-resize:4-9` documente la vraie raison — "Guacamole's VNC client does not push browser-window resizes to the server... TigerVNC does support RandR SetDesktopSize... from inside the session... or by anything that can exec into the pod." VNC et RDP tournent tous les deux sur le même Xvnc sous-jacent dans les images WaaS (RDP = xrdp qui pont vers ce même Xvnc), donc le `xrandr`/RandR exécuté via pod-exec fonctionne identiquement des deux côtés — **indépendamment de guacd et de sa version**. Le PR #469 de guacamole-server (négociation native guacd↔serveur VNC compatible pour un resize serveur-initié) est un chemin totalement différent, non implémenté ici, et non nécessaire au fonctionnement actuel.
+**Why this already works for VNC without native guacd**: `waas-images/base/ubuntu/rootfs/usr/local/bin/waas-resize:4-9` documents the real reason — "Guacamole's VNC client does not push browser-window resizes to the server... TigerVNC does support RandR SetDesktopSize... from inside the session... or by anything that can exec into the pod." VNC and RDP both run on the same underlying Xvnc in the WaaS images (RDP = xrdp bridging to that same Xvnc), so the `xrandr`/RandR executed via pod-exec works identically on both sides — **independent of guacd and its version**. guacamole-server's PR #469 (native guacd↔VNC-server negotiation for a server-initiated resize) is a totally different path, not implemented here, and not needed for the current functionality.
 
-**Le seul reliquat concerné par guacd** : `resize-method` (`operator/pkg/params/params.go:145-148`, `Enum: ["display-update","reconnect"]`, RDP uniquement, `TierUI`). Le message du commit 906017f3272e le signale déjà comme "effectively dead" — VNC n'a d'ailleurs aucun paramètre `resize-method` dans le registre (aucune entrée n'existe pour ce protocole).
+**The only leftover concerned with guacd**: `resize-method` (`operator/pkg/params/params.go:145-148`, `Enum: ["display-update","reconnect"]`, RDP only, `TierUI`). The message of commit 906017f3272e already flags it as "effectively dead" — VNC, for that matter, has no `resize-method` parameter in the registry (no entry exists for that protocol).
 
-**Versions guacd/guacamole-common-js** : `helm/waas/values.yaml:145` → `guacamole/guacd:1.6.0` (déjà 1.6, déjà au-dessus du PR #469). `frontend/package.json:18` → `"guacamole-common-js": "^1.5.0"` — **en retard** par rapport à guacd. C'est l'écart réel identifié par l'audit (`docs/studies/audit-2026-07.md` §6 dette technique).
+**guacd/guacamole-common-js versions**: `helm/waas/values.yaml:145` → `guacamole/guacd:1.6.0` (already 1.6, already above PR #469). `frontend/package.json:18` → `"guacamole-common-js": "^1.5.0"` — **behind** guacd. This is the real gap identified by the audit (`docs/studies/audit-2026-07.md` §6 technical debt).
 
-**Tests existants** : `api-server/internal/service/workspace_resize_test.go` (auth, bounds, phase, remote-rejection, exec failure), `frontend/src/lib/sessionResize.test.ts` (debounce, gating incl. whitelist protocole, dedup, cancel).
+**Existing tests**: `api-server/internal/service/workspace_resize_test.go` (auth, bounds, phase, remote-rejection, exec failure), `frontend/src/lib/sessionResize.test.ts` (debounce, gating incl. protocol whitelist, dedup, cancel).
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-Cette feature est un **nettoyage de dette + une mise à jour de dépendance**, pas une nouvelle fonctionnalité de resize :
+This feature is a **debt cleanup + a dependency update**, not a new resize feature:
 
-### A. Trancher le sort de `resize-method`
+### A. Decide the fate of `resize-method`
 
-Deux options défendables, choisis-en une et documente :
+Two defensible options, pick one and document it:
 
-1. **Le supprimer** du registre (`operator/pkg/params/params.go:145-148`) puisqu'il n'a plus aucun effet réel sur le mécanisme de resize actuel (pod-exec le rend inutile), avec migration : vérifier qu'aucun template/CR en prod/dev ne le référence dans `Params`/`UserParams` avant suppression (grep `resize-method` dans `hack/dev/templates-dev.yaml`, `gitops/`).
-2. **Le garder** mais reformuler sa `Description` pour dire explicitement qu'il ne pilote plus le resize (WaaS gère le resize par exec, ce paramètre ne fait qu'influencer le comportement natif de guacd si jamais un client s'y appuyait hors WaaS) — seulement si tu identifies une raison de le garder (ex. compatibilité avec un client guacd tiers).
+1. **Remove it** from the registry (`operator/pkg/params/params.go:145-148`) since it no longer has any real effect on the current resize mechanism (pod-exec makes it useless), with migration: verify that no template/CR in prod/dev references it in `Params`/`UserParams` before removal (grep `resize-method` in `hack/dev/templates-dev.yaml`, `gitops/`).
+2. **Keep it** but rephrase its `Description` to explicitly say it no longer drives resize (WaaS handles resize via exec, this parameter only influences guacd's native behavior if a client outside WaaS ever relied on it) — only if you identify a reason to keep it (e.g. compatibility with a third-party guacd client).
 
-### B. Aligner `guacamole-common-js` sur guacd 1.6
+### B. Align `guacamole-common-js` with guacd 1.6
 
-Monte `guacamole-common-js` de `^1.5.0` à la dernière version compatible 1.6.x dans `frontend/package.json:18`. Vérifie le changelog de la lib pour toute breaking change d'API affectant `DesktopPane.tsx`/le rendu du canvas, et fais tourner la suite de tests frontend + un test manuel de connexion (via `make smoke` sur l'env k3d dev) après la montée de version.
+Bump `guacamole-common-js` from `^1.5.0` to the latest compatible 1.6.x version in `frontend/package.json:18`. Check the library's changelog for any breaking API change affecting `DesktopPane.tsx`/canvas rendering, and run the frontend test suite + a manual connection test (via `make smoke` on the k3d dev env) after the version bump.
 
-### C. Documenter l'architecture de resize (nouveau ou existant)
+### C. Document the resize architecture (new or existing)
 
-Si `docs/session-resize.md` existe déjà (le doc-comment de `Resize()` y renvoie, `workspace_resize.go:42-47`), vérifie qu'il explique clairement : (1) le mécanisme est pod-exec, pas guacd natif ; (2) c'est pourquoi VNC et RDP sont déjà symétriques ; (3) pourquoi le PR #469 de guacamole-server n'est pas pertinent pour ce mécanisme. Si ce doc n'existe pas ou n'aborde pas ces points, complète-le — c'est la confusion à l'origine de cette feature, éviter qu'elle se reproduise.
+If `docs/session-resize.md` already exists (the doc-comment of `Resize()` refers to it, `workspace_resize.go:42-47`), check that it clearly explains: (1) the mechanism is pod-exec, not native guacd; (2) that's why VNC and RDP are already symmetric; (3) why guacamole-server's PR #469 is not relevant to this mechanism. If this doc doesn't exist or doesn't address these points, complete it — this is the confusion at the root of this feature, avoid it recurring.
 
-## Contraintes à respecter
+## Constraints to respect
 
-- Zéro changement de comportement utilisateur attendu : le resize VNC/RDP fonctionne déjà, cette feature ne doit rien casser sur ce chemin (fais tourner `workspace_resize_test.go` et `sessionResize.test.ts` sans régression).
-- Si tu supprimes `resize-method` (option A.1), mets à jour `docs/guacd-parameters.md` (généré par `make docs-params`, ne l'édite jamais à la main) en relançant la génération.
-- `go test ./...` sur `operator`/`api-server`, `tsc -b` + tests vitest sur le frontend.
+- Zero expected user-facing behavior change: VNC/RDP resize already works, this feature must not break anything on that path (run `workspace_resize_test.go` and `sessionResize.test.ts` without regression).
+- If you remove `resize-method` (option A.1), update `docs/guacd-parameters.md` (generated by `make docs-params`, never edit it by hand) by re-running the generation.
+- `go test ./...` on `operator`/`api-server`, `tsc -b` + vitest tests on the frontend.
 
-## Points ouverts (ton arbitrage)
+## Open points (your call)
 
-- Suppression vs reformulation de `resize-method` (§A) — vérifie d'abord s'il existe un usage réel avant de trancher pour la suppression.
-  ARBITRAGE: reformulation car cela peut etre toujours utilisé pour du remote workspace.. donc ne pas supprimé
-- Si, après cette investigation, tu identifies un vrai bénéfice produit à implémenter le resize natif guacd↔VNC (PR #469) **en plus** du mécanisme pod-exec actuel (par exemple : réduire la latence par rapport à un exec, ou supporter un scénario où l'exec n'est pas possible) — ce serait un chantier **séparé et nettement plus lourd** (négociation côté guacd + support côté serveur VNC/TigerVNC), hors du périmètre "nettoyage" de cette feature. Ne l'entreprends pas ici ; note-le comme piste future si tu le juges pertinent.
+- Removal vs rephrasing of `resize-method` (§A) — first check whether there is a real usage before deciding to remove it.
+  DECISION: rephrasing, because it may still be used for remote workspaces.. so don't remove it
+- If, after this investigation, you identify a real product benefit to implementing native guacd↔VNC resize (PR #469) **in addition to** the current pod-exec mechanism (for example: reducing latency compared to an exec, or supporting a scenario where exec isn't possible) — this would be a **separate and significantly heavier** undertaking (guacd-side negotiation + VNC/TigerVNC server-side support), out of scope for this "cleanup" feature. Do not undertake it here; note it as a future direction if you judge it relevant.

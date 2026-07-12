@@ -1,14 +1,13 @@
-# Prompt Fable 5 — Fix : refléter l'exclusivité de `kasmvnc` côté frontend et api-server
+# Prompt Fable 5 — Fix: reflect `kasmvnc` exclusivity on the frontend and api-server
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context.
 
-## Contexte : la règle existe déjà dans l'opérateur, nulle part ailleurs
+## Context: the rule already exists in the operator, nowhere else
 
-Le webhook d'admission (`operator/internal/webhook/v1alpha1/workspacetemplate_webhook.go:93-98`)
-rejette désormais tout `WorkspaceTemplate` qui déclare `kasmvnc` en
-même temps qu'un autre protocole (`vnc`/`rdp`/`ssh`) :
+The admission webhook (`operator/internal/webhook/v1alpha1/workspacetemplate_webhook.go:93-98`)
+now rejects any `WorkspaceTemplate` that declares `kasmvnc` alongside
+another protocol (`vnc`/`rdp`/`ssh`):
 
 ```go
 // kasmvnc is exclusive: it bypasses guacd, and its generated-password
@@ -19,177 +18,175 @@ if seen[string(waasv1alpha1.ProtocolKasmVNC)] && len(seen) > 1 {
 }
 ```
 
-Cette règle **n'est répliquée nulle part côté API/UI** :
+This rule **is replicated nowhere on the API/UI side**:
 
-- `api-server/internal/service/template_service.go`, fonction
-  `specFromInput` (le pré-check qui existe précisément pour éviter
-  qu'une erreur d'admission k8s remonte comme un 500 brut à l'admin —
-  voir le commentaire ligne 285-287 sur `kasmvncConfig`) **rejoue déjà**
-  la plupart des gardes du webhook (params registry, audio port,
-  `defaults > 1`, `kasmvncConfig`) mais **pas** celle-ci, et **pas non
-  plus** le garde "protocole déclaré deux fois" (webhook lignes 58-61,
-  absent de `specFromInput`). Aujourd'hui, un admin qui déclenche l'un
-  ou l'autre cas via l'API reçoit donc le refus d'admission k8s brut au
-  lieu d'un `apierror.BadRequest` propre.
-- Le frontend (`frontend/src/pages/admin/TemplatesPage.tsx`) construit
-  déjà `unusedProtocols` (ligne 242) pour que le menu "+ Add a
-  protocol" (`ProtocolTabs.tsx:123-150`) n'offre jamais un protocole
-  déjà configuré — mais rien n'empêche aujourd'hui d'y ajouter
-  `kasmvnc` à côté de `vnc`, ni d'ajouter `vnc` à côté de `kasmvnc`. Le
-  seul filet de sécurité actuel est le message d'erreur brut du webhook
-  affiché tel quel en pied de dialog (`TemplatesPage.tsx:285` :
-  `{save.isError && <p ...>{save.error.message}</p>}`) — ça fonctionne
-  déjà comme filet de secours (aucun changement requis là), mais ce
-  prompt vise à éviter à l'admin de faire l'aller-retour serveur pour
-  découvrir la règle.
+- `api-server/internal/service/template_service.go`, function
+  `specFromInput` (the pre-check that exists precisely to prevent a
+  k8s admission error from surfacing as a raw 500 to the admin — see
+  the comment on line 285-287 about `kasmvncConfig`) **already
+  replays** most of the webhook's guards (params registry, audio
+  port, `defaults > 1`, `kasmvncConfig`) but **not** this one, and
+  **not** the "protocol declared twice" guard either (webhook lines
+  58-61, absent from `specFromInput`). Today, an admin who triggers
+  either case via the API gets the raw k8s admission refusal instead
+  of a clean `apierror.BadRequest`.
+- The frontend (`frontend/src/pages/admin/TemplatesPage.tsx`) already
+  builds `unusedProtocols` (line 242) so the "+ Add a protocol" menu
+  (`ProtocolTabs.tsx:123-150`) never offers a protocol that's already
+  configured — but nothing today prevents adding `kasmvnc` alongside
+  `vnc`, nor adding `vnc` alongside `kasmvnc`. The only current
+  safety net is the raw webhook error message displayed as-is at the
+  bottom of the dialog (`TemplatesPage.tsx:285`:
+  `{save.isError && <p ...>{save.error.message}</p>}`) — this already
+  works as a fallback (no change required there), but this prompt aims
+  to spare the admin the server round-trip needed to discover the
+  rule.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### 1. api-server — mirror des deux gardes manquants
+### 1. api-server — mirror the two missing guards
 
-Dans `api-server/internal/service/template_service.go`, fonction
-`specFromInput`, boucle sur `in.Protocols` (lignes 246-273) :
+In `api-server/internal/service/template_service.go`, function
+`specFromInput`, loop over `in.Protocols` (lines 246-273):
 
-- Ajoute le garde "déclaré deux fois", même schéma que le webhook
-  (`seen := map[string]bool{}`, `seen[p.Name]` avant l'ajout) :
+- Add the "declared twice" guard, same scheme as the webhook
+  (`seen := map[string]bool{}`, `seen[p.Name]` before adding):
   `apierror.BadRequest(fmt.Sprintf("protocol %q is declared twice", p.Name))`.
-- Après la boucle, au même endroit que le check `defaults > 1` (ligne
-  274-276) ou juste après, ajoute le garde d'exclusivité kasmvnc,
-  même condition et même texte de message que le webhook pour rester
-  cohérent sur toute la stack :
+- After the loop, at the same spot as the `defaults > 1` check (line
+  274-276) or right after, add the kasmvnc exclusivity guard, same
+  condition and same message text as the webhook to stay consistent
+  across the whole stack:
   `apierror.BadRequest("protocol kasmvnc cannot be combined with vnc/rdp/ssh: it bypasses guacd and must be the template's only protocol")`.
 
-Utilise `waasv1alpha1.ProtocolKasmVNC` (déjà importé, cf. usage ligne
-292) plutôt qu'un literal `"kasmvnc"` — suis la convention déjà en
-place dans ce fichier (voir ligne 261 `string(waasv1alpha1.ProtocolVNC)`,
-ligne 292 `string(waasv1alpha1.ProtocolKasmVNC)`).
+Use `waasv1alpha1.ProtocolKasmVNC` (already imported, cf. usage on
+line 292) rather than a `"kasmvnc"` literal — follow the convention
+already in place in this file (see line 261
+`string(waasv1alpha1.ProtocolVNC)`, line 292
+`string(waasv1alpha1.ProtocolKasmVNC)`).
 
-Complète le commentaire de la ligne 243-244 (« Protocols: same
-registry gate as the admission webhook ») si nécessaire pour que la
-liste des gardes reflétés reste correcte — ne le réécris pas
-entièrement.
+Complete the comment on lines 243-244 ("Protocols: same registry gate
+as the admission webhook") if needed so the list of mirrored guards
+stays accurate — don't rewrite it entirely.
 
-### 2. Frontend — empêcher la combinaison au niveau du picker
+### 2. Frontend — prevent the combination at the picker level
 
-Dans `frontend/src/pages/admin/TemplatesPage.tsx`, à côté du calcul de
-`unusedProtocols` (ligne 238-242) :
+In `frontend/src/pages/admin/TemplatesPage.tsx`, next to the
+`unusedProtocols` calculation (line 238-242):
 
-- Si `kasmvnc` fait déjà partie de `protocols`, `unusedProtocols` doit
-  être vide (aucun autre protocole n'est proposable).
-- Si `protocols` contient au moins un protocole autre que `kasmvnc`
-  (i.e. `vnc`/`rdp`/`ssh`), `kasmvnc` doit être retiré de
-  `unusedProtocols` même s'il est présent dans le registre
+- If `kasmvnc` is already part of `protocols`, `unusedProtocols` must
+  be empty (no other protocol can be offered).
+- If `protocols` contains at least one protocol other than `kasmvnc`
+  (i.e. `vnc`/`rdp`/`ssh`), `kasmvnc` must be removed from
+  `unusedProtocols` even if it's present in the registry
   (`availableProtocols`).
-- `vnc`+`rdp`+`ssh` doivent rester librement combinables entre eux,
-  sans aucun changement de comportement.
+- `vnc`+`rdp`+`ssh` must remain freely combinable with each other,
+  with no behavior change.
 
-Implémente ça comme un filtre supplémentaire sur `unusedProtocols`
-(pas une nouvelle fonction de validation séparée à appeler au submit —
-le pattern existant pour "un seul default" et "pas de doublon" est
-déjà structurel, fais pareil ici plutôt que d'ajouter un validateur
-appelé dans `onSubmit`). Garde le literal `'kasmvnc'` — c'est déjà le
-pattern du fichier (`DEFAULT_PORTS` ligne 58 l'exclut déjà de la même
-façon implicite, `protocols.some(p => p.name === 'kasmvnc')` ligne
-596-626) ; il n'existe pas de type TS listant les protocoles connus
-(confirmé : `WorkspaceProtocol.name` et `TemplateProtocolInput.name`
-sont de simples `string`, les protocoles sont pilotés par le registre
-`/api/v1/meta/protocols`), donc pas de nouvelle abstraction à
-introduire pour un seul cas spécial.
+Implement this as an additional filter on `unusedProtocols` (not a
+separate new validation function called on submit — the existing
+pattern for "only one default" and "no duplicate" is already
+structural, do the same here rather than adding a validator called in
+`onSubmit`). Keep the `'kasmvnc'` literal — it's already the pattern
+used in this file (`DEFAULT_PORTS` line 58 already excludes it the
+same implicit way, `protocols.some(p => p.name === 'kasmvnc')` line
+596-626); there's no TS type listing known protocols (confirmed:
+`WorkspaceProtocol.name` and `TemplateProtocolInput.name` are plain
+`string`s, protocols are driven by the `/api/v1/meta/protocols`
+registry), so no new abstraction to introduce for a single special
+case.
 
-Ne touche pas à `frontend/src/components/ProtocolTabs.tsx` : c'est un
-composant partagé (utilisé aussi par
+Don't touch `frontend/src/components/ProtocolTabs.tsx`: it's a shared
+component (also used by
 `frontend/src/dialogs/ConnectionSettingsDialog.tsx`,
-`RemoteWorkspaceDialog.tsx` et `CreateWorkspaceDialog.tsx`), et
-`kasmvnc` n'est de toute façon jamais proposé par
-`RemoteWorkspaceDialog.tsx` (sa liste `unused` est câblée en dur sur
-`['ssh', 'vnc', 'rdp']`, ligne 51 — les workspaces distants ne
-supportent pas kasmvnc, ça reste hors sujet ici). Le filtrage doit donc
-vivre uniquement dans `TemplatesPage.tsx`, propre au formulaire de
-template.
+`RemoteWorkspaceDialog.tsx` and `CreateWorkspaceDialog.tsx`), and
+`kasmvnc` is never offered by `RemoteWorkspaceDialog.tsx` anyway (its
+`unused` list is hard-wired to `['ssh', 'vnc', 'rdp']`, line 51 —
+remote workspaces don't support kasmvnc, that stays out of scope
+here). The filtering must therefore live only in `TemplatesPage.tsx`,
+specific to the template form.
 
-**Ne gère pas de cas de "template existant déjà en violation" côté
-UI** : un template pré-existant qui combine déjà `kasmvnc` et un
-protocole guacd (grandfathering, cf. le prompt opérateur précédent)
-s'affichera normalement en édition — le filtre ne s'applique qu'aux
-protocoles *ajoutables*, il ne retire rien de la liste déjà chargée. Si
-l'admin sauvegarde sans y toucher, le webhook le bloquera à
-`ValidateUpdate` et l'erreur brute remontera via `save.error.message`
-(`TemplatesPage.tsx:285`, déjà en place, rien à changer). C'est le
-comportement voulu, pas un bug à corriger.
+**Don't handle the "existing template already in violation" case on
+the UI side**: a pre-existing template that already combines
+`kasmvnc` and a guacd protocol (grandfathering, cf. the previous
+operator prompt) will display normally when edited — the filter only
+applies to *addable* protocols, it doesn't remove anything from the
+already-loaded list. If the admin saves without touching it, the
+webhook will block it at `ValidateUpdate` and the raw error will
+surface via `save.error.message` (`TemplatesPage.tsx:285`, already in
+place, nothing to change). That's the intended behavior, not a bug to
+fix.
 
-### 3. i18n — expliciter la règle dans le texte d'aide existant
+### 3. i18n — spell out the rule in the existing help text
 
-`frontend/src/i18n/locales/en.json:271` (clé `protocolsHint`, sous la
-légende "Protocols" du formulaire) et son miroir
-`frontend/src/i18n/locales/fr.json:271` : le texte actuel ne mentionne
-que le fonctionnement guacd-centrique. Ajoute une phrase indiquant que
-`kasmvnc` court-circuite guacd et ne peut cohabiter avec aucun autre
-protocole (rejeté à l'admission) — même angle que la doc déjà mise à
-jour dans `docs/templates-and-protocols.md` par le prompt opérateur
-précédent (vérifie sa formulation exacte pour rester cohérent, section
-« Protocols », lignes ~38-63).
+`frontend/src/i18n/locales/en.json:271` (`protocolsHint` key, under
+the form's "Protocols" legend) and its mirror
+`frontend/src/i18n/locales/fr.json:271`: the current text only
+mentions the guacd-centric behavior. Add a sentence stating that
+`kasmvnc` bypasses guacd and cannot coexist with any other protocol
+(rejected at admission) — same angle as the doc already updated in
+`docs/templates-and-protocols.md` by the previous operator prompt
+(check its exact wording to stay consistent, "Protocols" section,
+lines ~38-63).
 
-## Contraintes
+## Constraints
 
-- Ne duplique pas les gardes déjà corrects (`defaults > 1`, audio port,
-  `kasmvncConfig`) — ce prompt ajoute strictement les deux gardes
-  manquants côté api-server et le filtrage côté frontend, rien
-  d'autre.
-- Les messages d'erreur api-server doivent rester texte-identiques au
-  webhook (même substring `"cannot be combined with vnc/rdp/ssh"` /
-  `"is declared twice"`) pour qu'un test de cohérence inter-couches
-  reste possible plus tard et que l'admin voie le même vocabulaire
-  partout.
-- `vnc`+`rdp`+`ssh` combinés (sans `kasmvnc`) doivent continuer à
-  passer sans changement, aussi bien côté api-server que frontend —
-  vérifie qu'aucun test existant sur ce cas ne casse.
-- N'introduis pas de nouveau composant, hook ou type juste pour ce cas
-  — le fichier `TemplatesPage.tsx` a déjà le contexte (`protocols`,
-  `availableProtocols`) au bon endroit.
+- Don't duplicate guards that are already correct (`defaults > 1`,
+  audio port, `kasmvncConfig`) — this prompt strictly adds the two
+  missing api-server guards and the frontend filtering, nothing else.
+- api-server error messages must remain text-identical to the webhook
+  (same substring `"cannot be combined with vnc/rdp/ssh"` /
+  `"is declared twice"`) so a future cross-layer consistency test
+  remains possible and the admin sees the same vocabulary everywhere.
+- `vnc`+`rdp`+`ssh` combined (without `kasmvnc`) must continue to pass
+  unchanged, both on the api-server and frontend sides — check that no
+  existing test on this case breaks.
+- Don't introduce a new component, hook, or type just for this case —
+  the `TemplatesPage.tsx` file already has the right context
+  (`protocols`, `availableProtocols`) in the right place.
 
 ## Tests
 
-- `api-server/internal/service/template_service_test.go` : ajoute une
-  fonction de test dédiée (même style que
-  `TestTemplateInputValidatesExposeAudioPort` ligne 10 et
-  `TestTemplateInputValidatesKasmVNCConfig` ligne 61, avec le même
-  helper `base(...)` à réutiliser ou adapter) couvrant :
-  - `kasmvnc` + `vnc` → rejeté, message contenant `"cannot be combined"`.
-  - `kasmvnc` + `rdp` → rejeté.
-  - `kasmvnc` + `ssh` → rejeté.
-  - `kasmvnc` + `vnc` + `rdp` + `ssh` → rejeté.
-  - `kasmvnc` seul → accepté.
-  - `vnc` + `rdp` + `ssh` (sans kasmvnc) → accepté.
-  - un protocole déclaré deux fois (ex. `vnc` + `vnc`) → rejeté,
-    message contenant `"declared twice"`.
-- `frontend/src/pages/admin/TemplatesPage.test.tsx` : étends le fichier
-  (le helper `base(protocol, kasmvncConfig?)` ligne 23 ne construit
-  qu'un seul protocole — tu devras soit l'étendre pour accepter
-  plusieurs protocoles, soit construire l'input directement dans le
-  nouveau test) avec un nouveau `describe` couvrant :
-  - avec `kasmvnc` déjà configuré, le menu "+ Add a protocol" ne doit
-    proposer ni `vnc`, ni `rdp`, ni `ssh` (ou n'apparaît pas du tout si
-    c'était les seuls protocoles du registre mocké).
-  - avec `vnc` déjà configuré, le menu ne doit pas proposer `kasmvnc`
-    (mais peut proposer `rdp`/`ssh`).
-  - mock `/api/v1/meta/protocols` avec au moins `vnc`, `rdp`, `ssh`,
-    `kasmvnc` pour ces tests (le mock actuel ligne 12-16 renvoie `[]`
-    par défaut — passe une liste explicite dans les nouveaux tests
-    sans changer le mock global des autres tests du fichier).
+- `api-server/internal/service/template_service_test.go`: add a
+  dedicated test function (same style as
+  `TestTemplateInputValidatesExposeAudioPort` line 10 and
+  `TestTemplateInputValidatesKasmVNCConfig` line 61, reusing or
+  adapting the same `base(...)` helper) covering:
+  - `kasmvnc` + `vnc` → rejected, message containing `"cannot be combined"`.
+  - `kasmvnc` + `rdp` → rejected.
+  - `kasmvnc` + `ssh` → rejected.
+  - `kasmvnc` + `vnc` + `rdp` + `ssh` → rejected.
+  - `kasmvnc` alone → accepted.
+  - `vnc` + `rdp` + `ssh` (no kasmvnc) → accepted.
+  - a protocol declared twice (e.g. `vnc` + `vnc`) → rejected,
+    message containing `"declared twice"`.
+- `frontend/src/pages/admin/TemplatesPage.test.tsx`: extend the file
+  (the `base(protocol, kasmvncConfig?)` helper at line 23 only builds
+  a single protocol — you'll need to either extend it to accept
+  several protocols, or build the input directly in the new test)
+  with a new `describe` covering:
+  - with `kasmvnc` already configured, the "+ Add a protocol" menu
+    must offer neither `vnc`, `rdp`, nor `ssh` (or doesn't appear at
+    all if those were the only protocols in the mocked registry).
+  - with `vnc` already configured, the menu must not offer `kasmvnc`
+    (but may offer `rdp`/`ssh`).
+  - mock `/api/v1/meta/protocols` with at least `vnc`, `rdp`, `ssh`,
+    `kasmvnc` for these tests (the current mock at line 12-16 returns
+    `[]` by default — pass an explicit list in the new tests without
+    changing the file's global mock for the other tests).
 - `go build ./...`, `go test ./api-server/...`,
-  `cd frontend && npm test` (ou la commande vitest déjà en place dans
-  ce repo).
+  `cd frontend && npm test` (or whichever vitest command is already in
+  place in this repo).
 
-## Points ouverts (ton arbitrage)
+## Open points (your judgment call)
 
-- Si tu préfères exposer un tooltip explicatif sur le "+" quand
-  aucun protocole n'est proposable à cause de cette règle (plutôt que
-  le menu invisible silencieux actuel quand `unusedProtocols` est
-  vide, cf. `ProtocolTabs.tsx:123` `{onAdd && (addable?.length ?? 0) > 0 && ...}`),
-  documente ton choix — ce n'est pas demandé explicitement ici, la
-  phrase ajoutée à `protocolsHint` (point 3) est considérée suffisante
-  par défaut.
-- Emplacement exact du garde "declared twice" dans `specFromInput`
-  (dans la boucle vs. via une map construite avant) — les deux
-  marchent, choisis le plus lisible à côté du `defaults` déjà accumulé
-  dans la même boucle.
+- If you prefer exposing an explanatory tooltip on the "+" when no
+  protocol can be offered because of this rule (rather than the
+  currently silent, invisible menu when `unusedProtocols` is empty,
+  cf. `ProtocolTabs.tsx:123` `{onAdd && (addable?.length ?? 0) > 0 && ...}`),
+  document your choice — this isn't explicitly requested here, the
+  sentence added to `protocolsHint` (point 3) is considered sufficient
+  by default.
+- Exact location of the "declared twice" guard within `specFromInput`
+  (inside the loop vs. via a map built beforehand) — both work, pick
+  whichever reads best next to the `defaults` count already
+  accumulated in the same loop.

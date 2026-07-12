@@ -1,147 +1,139 @@
-# Prompt Fable 5 — Fix : le protocole `kasmvnc` doit être exclusif (rejet si combiné à vnc/rdp/ssh)
+# Prompt Fable 5 — Fix: the `kasmvnc` protocol must be exclusive (rejected if combined with vnc/rdp/ssh)
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context.
 
-## Contexte du repo : un choix laissé sans arbitrage explicite
+## Repo context: a choice left without an explicit decision
 
-`WorkspaceProtocol.Name` accepte `vnc`, `rdp`, `ssh` (brokerés par
-guacd) et `kasmvnc` (endpoint web natif de kasmweb/*, reverse-proxié
-par wwt, guacd hors jeu) —
-`operator/api/v1alpha1/workspacetemplate_types.go:207-213`. Un
-`WorkspaceTemplate.spec.protocols` est une **liste** : rien aujourd'hui
-n'empêche un admin de déclarer `kasmvnc` à côté de `vnc`/`rdp`/`ssh`
-sur le même template.
+`WorkspaceProtocol.Name` accepts `vnc`, `rdp`, `ssh` (brokered by
+guacd) and `kasmvnc` (kasmweb/*'s native web endpoint, reverse-proxied
+by wwt, guacd out of the picture) —
+`operator/api/v1alpha1/workspacetemplate_types.go:207-213`. A
+`WorkspaceTemplate.spec.protocols` is a **list**: nothing today
+prevents an admin from declaring `kasmvnc` alongside `vnc`/`rdp`/`ssh`
+on the same template.
 
-Une itération précédente (génération des credentials desktop) a
-découvert que ce cas de figure posait un problème concret : les deux
-mécanismes de mot de passe généré (`kasmPasswordGenerated`,
-`operator/internal/controller/kasm_credentials.go:49`, et
+A previous iteration (desktop credential generation) discovered that
+this case posed a concrete problem: the two generated-password
+mechanisms (`kasmPasswordGenerated`,
+`operator/internal/controller/kasm_credentials.go:49`, and
 `desktopPasswordGenerated`,
-`operator/internal/controller/desktop_credentials.go:44`) nomment tous
-les deux leur copie pod-namespace `computeName(ws)` (obligatoire pour
-que le sweep de teardown par nom la retrouve) et injectent toutes les
-deux `VNC_PW`. Un template `kasmvnc` + `vnc` aurait donc produit deux
-Secrets en collision. Le correctif de l'époque a été de rendre les
-deux mécanismes **mutuellement exclusifs au niveau runtime** :
-`desktopPasswordGenerated` cède la main si `kasmPasswordGenerated`
-répond vrai (kasm gagne) — testé par
+`operator/internal/controller/desktop_credentials.go:44`) both name
+their pod-namespace copy `computeName(ws)` (mandatory so the teardown
+sweep can find it by name) and both inject `VNC_PW`. A `kasmvnc` +
+`vnc` template would therefore have produced two colliding Secrets.
+The fix at the time was to make the two mechanisms **mutually
+exclusive at runtime**: `desktopPasswordGenerated` yields if
+`kasmPasswordGenerated` returns true (kasm wins) — tested by
 `TestDesktopCredentialsYieldToKasm`
 (`operator/internal/controller/desktop_credentials_test.go:153`).
 
-**C'était un pansement, pas un arbitrage produit.** Le repo continue
-d'accepter, à l'admission, un template qui mélange `kasmvnc` avec un
-protocole guacd — un cas qui n'a jamais de sens fonctionnellement
-(deux mécanismes de connexion radicalement différents sur le même
-poste de travail, dont un seul peut réellement gagner la bataille du
-mot de passe). L'arbitrage produit, maintenant tranché : **`kasmvnc`
-est exclusif**. Un template qui le déclare ne peut déclarer aucun
-autre protocole (`vnc`, `rdp`, `ssh`). `vnc`/`rdp`/`ssh` restent
-librement combinables entre eux, comme aujourd'hui (ex.
-`ubuntu-xfce`, commenté dans `desktop_credentials_test.go:14` : « serves
-vnc AND rdp »).
+**That was a patch, not a product decision.** The repo still accepts,
+at admission, a template that mixes `kasmvnc` with a guacd protocol —
+a case that never makes functional sense (two radically different
+connection mechanisms on the same desktop, only one of which can
+actually win the password battle). The product decision, now settled:
+**`kasmvnc` is exclusive**. A template declaring it may declare no
+other protocol (`vnc`, `rdp`, `ssh`). `vnc`/`rdp`/`ssh` remain freely
+combinable with each other, as today (e.g. `ubuntu-xfce`, commented in
+`desktop_credentials_test.go:14`: "serves vnc AND rdp").
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
 1. **Webhook** (`operator/internal/webhook/v1alpha1/workspacetemplate_webhook.go`,
-   fonction `validate`, autour de la boucle `for i := range
-   tpl.Spec.Protocols` qui alimente déjà `seen map[string]bool`) :
-   après la boucle (une fois `seen` complet), si `seen["kasmvnc"]` est
-   vrai et que `seen` contient au moins un autre nom, refuse la
-   création/mise à jour avec un message explicite, par exemple :
+   function `validate`, around the `for i := range
+   tpl.Spec.Protocols` loop that already feeds `seen map[string]bool`):
+   after the loop (once `seen` is complete), if `seen["kasmvnc"]` is
+   true and `seen` contains at least one other name, reject the
+   creation/update with an explicit message, e.g.:
    `protocol kasmvnc cannot be combined with vnc/rdp/ssh: it bypasses
-   guacd and must be the template's only protocol`. Suis le style des
-   refus existants (`v.deny(tpl, fmt.Sprintf(...))`, cf. les autres
-   `return nil, v.deny(...)` de la même fonction) plutôt que
-   d'introduire un nouveau schéma de message. Ça s'applique aussi bien
-   à `ValidateCreate` qu'à `ValidateUpdate` (les deux appellent déjà
-   `validate`).
-2. **GoDoc du type** (`workspacetemplate_types.go:207-213`, commentaire
-   de `WorkspaceProtocol.Name`) : ajoute une phrase qui documente
-   l'exclusivité (ex. « kasmvnc is exclusive: a template declaring it
-   may declare no other protocol, admission-enforced »). Regénère les
-   manifests dérivés du GoDoc si ton outillage le permet
-   (`make manifests`/`make generate` selon ce qu'expose le Makefile —
-   vérifie que ça retouche bien `helm/waas/crds/...` et
-   `operator/config/crd/bases/...`, déjà modifiés dans l'arbre de
-   travail courant par d'autres changements en cours ; ne les écrase
-   pas à l'aveugle, régénère par-dessus).
-3. **Doc utilisateur** (`docs/templates-and-protocols.md:38-63`,
-   section « Protocols ») : la phrase actuelle (« A template may
-   declare several protocols in guacd terms ») ne dit rien de
-   l'exclusivité. Ajoute une ligne claire : `vnc`/`rdp`/`ssh` sont
-   librement combinables entre eux, `kasmvnc` ne peut cohabiter avec
-   aucun autre protocole (rejeté à l'admission).
-4. **Nettoyage du commentaire runtime, sans supprimer le garde-fou** :
-   les commentaires de `kasm_credentials.go` et
-   `desktop_credentials.go` expliquent la mutuelle exclusion comme si
-   c'était la seule protection existante (« Mutually exclusive with
-   the kasm mechanism: both inject VNC_PW and share the pod-copy
-   Secret name, so only one may generate. »). Mets ces commentaires à
-   jour pour référencer le nouveau garde webhook comme protection
-   primaire, et explique pourquoi le garde runtime reste nécessaire
-   malgré ça (point 5 juste en dessous) — ne le supprime pas.
-   `TestDesktopCredentialsYieldToKasm` doit continuer de passer tel
-   quel : il teste une fonction Go pure, indépendante du webhook.
+   guacd and must be the template's only protocol`. Follow the style
+   of existing refusals (`v.deny(tpl, fmt.Sprintf(...))`, cf. the other
+   `return nil, v.deny(...)` calls in the same function) rather than
+   introducing a new message scheme. This applies to both
+   `ValidateCreate` and `ValidateUpdate` (both already call `validate`).
+2. **Type GoDoc** (`workspacetemplate_types.go:207-213`, the
+   `WorkspaceProtocol.Name` comment): add a sentence documenting the
+   exclusivity (e.g. "kasmvnc is exclusive: a template declaring it
+   may declare no other protocol, admission-enforced"). Regenerate the
+   manifests derived from the GoDoc if your tooling allows
+   (`make manifests`/`make generate` depending on what the Makefile
+   exposes — check that it does update `helm/waas/crds/...` and
+   `operator/config/crd/bases/...`, already modified in the current
+   working tree by other in-progress changes; don't blindly overwrite
+   them, regenerate on top).
+3. **User doc** (`docs/templates-and-protocols.md:38-63`, "Protocols"
+   section): the current sentence ("A template may declare several
+   protocols in guacd terms") says nothing about exclusivity. Add a
+   clear line: `vnc`/`rdp`/`ssh` are freely combinable with each
+   other, `kasmvnc` cannot coexist with any other protocol (rejected
+   at admission).
+4. **Clean up the runtime comment, without removing the safeguard**:
+   the comments in `kasm_credentials.go` and `desktop_credentials.go`
+   explain the mutual exclusion as if it were the only existing
+   protection ("Mutually exclusive with the kasm mechanism: both
+   inject VNC_PW and share the pod-copy Secret name, so only one may
+   generate."). Update these comments to reference the new webhook
+   guard as the primary protection, and explain why the runtime guard
+   is still needed despite that (point 5 right below) — don't remove
+   it. `TestDesktopCredentialsYieldToKasm` must continue to pass
+   as-is: it tests a pure Go function, independent of the webhook.
 
-## Contraintes
+## Constraints
 
-- **Le webhook admission ne protège que les créations/mises à jour, pas
-  les objets déjà en base.** Un `WorkspaceTemplate` existant qui
-  combine déjà `kasmvnc` et `vnc`/`rdp`/`ssh` (s'il en existe) ne sera
-  pas rejeté rétroactivement — il continuera de passer par le
-  contrôleur tel quel jusqu'à sa prochaine écriture (`ValidateUpdate`
-  s'appliquera alors et le bloquera, sauf s'il redevient conforme).
-  **C'est précisément pourquoi le garde runtime
-  (`desktopPasswordGenerated` cède à `kasmPasswordGenerated`) doit
-  rester en place** : defense-in-depth pour ce cas de grandfathering,
-  pas du code mort. Ne le retire pas sous prétexte que le webhook rend
-  la combinaison « normalement » impossible.
-- Ne touche pas au reste de `validate()` (params registry, audio port,
-  `kasmvncConfig`, schedule, placement, workload labels) — hors scope.
-- `vnc` + `rdp` + `ssh` combinés entre eux (sans `kasmvnc`) doivent
-  rester acceptés sans changement — vérifie qu'aucun test existant
-  couvrant ce cas ne casse.
-- Vérifie `hack/dev/templates-dev.yaml` et tout autre fixture YAML du
-  repo (`grep -rn "name: kasmvnc" -A2` autour de chaque `protocols:`) :
-  aucune ne doit aujourd'hui combiner `kasmvnc` avec un protocole
-  guacd (vérifié en amont de ce prompt, mais reconfirme après ton
-  changement — un fixture qui casserait la CI serait un signal que
-  quelque chose t'a échappé).
+- **The admission webhook only protects creations/updates, not objects
+  already in storage.** An existing `WorkspaceTemplate` that already
+  combines `kasmvnc` and `vnc`/`rdp`/`ssh` (if any exist) won't be
+  rejected retroactively — it will keep going through the controller
+  as-is until its next write (`ValidateUpdate` will then apply and
+  block it, unless it becomes compliant again). **This is precisely
+  why the runtime guard (`desktopPasswordGenerated` yields to
+  `kasmPasswordGenerated`) must stay in place**: defense-in-depth for
+  this grandfathering case, not dead code. Don't remove it on the
+  grounds that the webhook "normally" makes the combination
+  impossible.
+- Don't touch the rest of `validate()` (params registry, audio port,
+  `kasmvncConfig`, schedule, placement, workload labels) — out of
+  scope here.
+- `vnc` + `rdp` + `ssh` combined together (without `kasmvnc`) must
+  remain accepted unchanged — check that no existing test covering
+  this case breaks.
+- Check `hack/dev/templates-dev.yaml` and any other YAML fixture in
+  the repo (`grep -rn "name: kasmvnc" -A2` around each `protocols:`):
+  none should combine `kasmvnc` with a guacd protocol today (verified
+  ahead of this prompt, but reconfirm after your change — a fixture
+  breaking CI would be a signal something slipped past you).
 
 ## Tests
 
-- `operator/internal/webhook/v1alpha1/workspacetemplate_webhook_test.go` :
-  étends `TestTemplateWebhookValidatesParamsAgainstRegistry` (ou une
-  nouvelle fonction de test dédiée si tu préfères isoler ce cas) avec :
-  - `kasmvnc` + `vnc` → rejeté ;
-  - `kasmvnc` + `rdp` → rejeté ;
-  - `kasmvnc` + `ssh` → rejeté ;
-  - `kasmvnc` + `vnc` + `rdp` + `ssh` (les trois en même temps) →
-    rejeté, message mentionnant bien `kasmvnc` ;
-  - `kasmvnc` seul → toujours accepté (déjà couvert par le cas
-    existant « clean kasmvnc », `workspacetemplate_webhook_test.go:92`
-    — vérifie juste qu'il passe toujours) ;
-  - `vnc` + `rdp` + `ssh` sans `kasmvnc` → toujours accepté (ajoute le
-    cas s'il n'existe pas déjà).
-- `operator/test/envtest/webhook_admission_test.go` : si ce fichier
-  fait déjà tourner un scénario d'admission bout-en-bout sur des
-  templates `kasmvnc`, ajoute-y le cas de rejet en combinaison (sinon,
-  la couverture unitaire ci-dessus suffit — n'ajoute pas un test
-  envtest juste pour dupliquer le test unitaire).
+- `operator/internal/webhook/v1alpha1/workspacetemplate_webhook_test.go`:
+  extend `TestTemplateWebhookValidatesParamsAgainstRegistry` (or a new
+  dedicated test function if you prefer to isolate this case) with:
+  - `kasmvnc` + `vnc` → rejected;
+  - `kasmvnc` + `rdp` → rejected;
+  - `kasmvnc` + `ssh` → rejected;
+  - `kasmvnc` + `vnc` + `rdp` + `ssh` (all three at once) →
+    rejected, message clearly mentioning `kasmvnc`;
+  - `kasmvnc` alone → still accepted (already covered by the existing
+    "clean kasmvnc" case, `workspacetemplate_webhook_test.go:92` —
+    just check it still passes);
+  - `vnc` + `rdp` + `ssh` without `kasmvnc` → still accepted (add the
+    case if it doesn't already exist).
+- `operator/test/envtest/webhook_admission_test.go`: if this file
+  already runs an end-to-end admission scenario on `kasmvnc`
+  templates, add the combination rejection case there (otherwise, the
+  unit coverage above is enough — don't add an envtest just to
+  duplicate the unit test).
 - `go build ./...` + `go test ./operator/...`.
 
-## Points ouverts (ton arbitrage)
+## Open points (your judgment call)
 
-- Emplacement exact de la nouvelle vérification dans `validate()`
-  (dans la boucle principale vs. juste après, sur `seen`) — les deux
-  marchent, choisis celui qui te semble le plus lisible à côté du
-  check `defaults > 1` déjà présent juste après la boucle.
-- Si tu ajoutes une régénération CRD (`make manifests`/`make
-  generate`) et qu'elle touche des fichiers déjà modifiés dans l'arbre
-  de travail (`helm/waas/crds/...`,
+- Exact location of the new check inside `validate()` (inside the main
+  loop vs. right after, on `seen`) — both work, pick whichever reads
+  best next to the existing `defaults > 1` check right after the loop.
+- If you add a CRD regeneration (`make manifests`/`make generate`) and
+  it touches files already modified in the working tree
+  (`helm/waas/crds/...`,
   `operator/config/crd/bases/waas.xorhub.io_workspacetemplates.yaml`)
-  pour d'autres
-  raisons en cours, documente-le clairement dans le commit pour éviter
-  toute confusion sur l'origine du diff.
+  for other reasons in progress, document this clearly in the commit
+  to avoid any confusion about the diff's origin.

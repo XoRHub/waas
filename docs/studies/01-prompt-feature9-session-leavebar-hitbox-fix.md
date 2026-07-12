@@ -1,14 +1,14 @@
-# Prompt Fable 5 — Feature 9 : la barre "Leave Session" bloque le menu Applications XFCE en haut de l'écran
+# Fable 5 Prompt — Feature 9: the "Leave Session" bar blocks the XFCE Applications menu at the top of the screen
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du principe que tu (Fable 5) n'as aucun contexte de conversation préalable.
+Paste this document as-is as an implementation prompt. It assumes you (Fable 5) have no prior conversation context.
 
-## Contexte du repo
+## Repo context
 
-Dans un workspace VNC exécutant un bureau XFCE (image Ubuntu), le panneau XFCE affiche son menu "Applications" en haut à gauche de l'écran distant. Ce menu est actuellement impossible à cliquer : le rectangle de survol/clic de la barre "Leave Session" du frontend WaaS s'étend sur toute la largeur de l'écran en haut, et intercepte les clics même là où rien n'est visuellement affiché.
+In a VNC workspace running an XFCE desktop (Ubuntu image), the XFCE panel displays its "Applications" menu at the top left of the remote screen. This menu is currently impossible to click: the hover/click rectangle of the WaaS frontend's "Leave Session" bar spans the full width of the screen at the top, and intercepts clicks even where nothing is visually displayed.
 
-## Ce qui existe déjà (bug localisé précisément)
+## What already exists (bug precisely located)
 
-Le composant en cause n'est **pas** `SessionOverlay.tsx` (qui est le menu réglages en bas à droite, `absolute bottom-4 right-4`, un petit bouton 36×36 — sans rapport avec ce bug). Le vrai coupable est la barre "Leave Session" rendue inline dans `DesktopView`, `frontend/src/pages/ConnectPage.tsx:216-224` :
+The component at fault is **not** `SessionOverlay.tsx` (which is the settings menu at the bottom right, `absolute bottom-4 right-4`, a small 36×36 button — unrelated to this bug). The real culprit is the "Leave Session" bar rendered inline in `DesktopView`, `frontend/src/pages/ConnectPage.tsx:216-224`:
 
 ```tsx
 {state === 'connected' && (
@@ -23,28 +23,28 @@ Le composant en cause n'est **pas** `SessionOverlay.tsx` (qui est le menu régla
 )}
 ```
 
-**Cause racine** : le `<div>` externe a `absolute inset-x-0 top-0` — il s'étend donc sur **toute la largeur du viewport**, collé en haut. Son enfant (le label "Leave Session") n'est déplacé hors champ que par un `transform: translateY(-100%)` (`-translate-y-full`), qui est un effet **de peinture uniquement** — il ne retire pas l'élément du flux ni ne réduit la boîte de hit-test du parent. Résultat : le wrapper externe garde une zone cliquable pleine largeur, d'une hauteur ~36-40px (celle du label), collée en haut de l'écran, **même quand le label est visuellement hors champ et que seul le petit pull-tab centré (`w-40`, 160px) est visible**. Comme ce wrapper n'a pas `pointer-events-none`, il vaut `pointer-events: auto` par défaut et intercepte tous les clics sur toute cette bande — y compris le coin en haut à gauche où vit le menu Applications XFCE. `z-10` le place au-dessus de `DesktopPane` (aucun `z-index`/`pointer-events-none` contre-mesure trouvé dans ce composant).
+**Root cause**: the outer `<div>` has `absolute inset-x-0 top-0` — so it spans **the full width of the viewport**, pinned to the top. Its child (the "Leave Session" label) is only moved off-screen by a `transform: translateY(-100%)` (`-translate-y-full`), which is a **paint-only** effect — it does not remove the element from the flow nor shrink the parent's hit-test box. Result: the outer wrapper keeps a full-width clickable zone, about 36-40px tall (the label's height), pinned to the top of the screen, **even when the label is visually off-screen and only the small centered pull-tab (`w-40`, 160px) is visible**. Since this wrapper does not have `pointer-events-none`, it defaults to `pointer-events: auto` and intercepts all clicks across this entire band — including the top-left corner where the XFCE Applications menu lives. `z-10` places it above `DesktopPane` (no `z-index`/`pointer-events-none` counter-measure found in that component).
 
-**Historique** : cette structure (wrapper `absolute inset-x-0 top-0` + label caché par transform) a été introduite au commit `01496d16705a` ("split view, workspace folders, protocol settings and theme toggle") quand `ConnectPage` est devenu un wrapper léger autour du nouveau `DesktopPane`, et n'a jamais été retouchée depuis (`3f7f25053652`, `c99623d0e4ce`, `f8558abf685d`). Elle n'a jamais été scopée par type de session — elle s'applique identiquement à toutes les sessions in-cluster (kasmvnc/remote en sont exclus par ailleurs pour d'autres raisons, mais pas celle-ci).
+**History**: this structure (wrapper `absolute inset-x-0 top-0` + label hidden via transform) was introduced in commit `01496d16705a` ("split view, workspace folders, protocol settings and theme toggle") when `ConnectPage` became a thin wrapper around the new `DesktopPane`, and has never been touched since (`3f7f25053652`, `c99623d0e4ce`, `f8558abf685d`). It has never been scoped by session type — it applies identically to all in-cluster sessions (kasmvnc/remote are excluded elsewhere for other reasons, but not for this one).
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-Corrige la zone de hit-test pour qu'elle corresponde à la zone réellement visible/interactive :
+Fix the hit-test zone so it matches the actually visible/interactive area:
 
-1. Ajoute `pointer-events-none` sur le `<div>` externe (`absolute inset-x-0 top-0`, ligne 217).
-2. Ajoute `pointer-events-auto` explicitement sur le(s) élément(s) interne(s) réellement cliquables/survolables — a minima le petit pull-tab visuel (ligne 218) pour capter le survol qui déclenche `group-hover`, et le bloc label+bouton (ligne 219-223) pour que le bouton "Leave Session" reste cliquable une fois affiché.
-3. Vérifie après le fix que :
-   - le survol du pull-tab (les 160px centrés en haut) fait toujours apparaître le label et reste cliquable,
-   - le bouton "Leave Session" reste cliquable quand le label est visible,
-   - un clic n'importe où ailleurs sur la bande du haut (notamment le coin gauche et le coin droit) traverse désormais vers le contenu distant (XFCE, ou tout autre bureau) sans interception.
+1. Add `pointer-events-none` on the outer `<div>` (`absolute inset-x-0 top-0`, line 217).
+2. Explicitly add `pointer-events-auto` on the inner element(s) that are actually clickable/hoverable — at minimum the small visual pull-tab (line 218) to capture the hover that triggers `group-hover`, and the label+button block (line 219-223) so the "Leave Session" button stays clickable once shown.
+3. After the fix, verify that:
+   - hovering the pull-tab (the 160px centered at the top) still reveals the label and stays clickable,
+   - the "Leave Session" button stays clickable while the label is visible,
+   - a click anywhere else on the top band (particularly the left corner and the right corner) now passes through to the remote content (XFCE, or any other desktop) without interception.
 
-## Contraintes à respecter
+## Constraints to respect
 
-- Fix CSS/Tailwind ciblé sur ce composant (`ConnectPage.tsx:216-224`) — ne touche pas `SessionOverlay.tsx` (composant différent, sans rapport avec ce bug).
-- Le comportement de hover/transition existant (le pull-tab qui laisse apparaître le label au survol) doit rester identique après le fix — c'est une correction de zone de clic, pas un changement de design.
-- Ajoute un test (vitest + testing-library si la convention du repo le permet pour ce genre de layout, ou a minima un test qui vérifie la présence de `pointer-events-none` sur le wrapper externe et `pointer-events-auto` sur les éléments interactifs internes, pour éviter une régression silencieuse si quelqu'un retouche ce JSX plus tard).
-- Teste manuellement sur l'environnement de dev k3d (`make dev-up dev-build dev-load dev-deploy`, un workspace VNC XFCE réel) que le menu Applications en haut à gauche redevient cliquable — ce bug n'est pas détectable par un test unitaire seul puisqu'il dépend de la superposition avec un contenu distant réel affiché par le canvas Guacamole.
+- CSS/Tailwind fix targeted at this component (`ConnectPage.tsx:216-224`) — do not touch `SessionOverlay.tsx` (a different component, unrelated to this bug).
+- The existing hover/transition behavior (the pull-tab that reveals the label on hover) must remain identical after the fix — this is a click-zone fix, not a design change.
+- Add a test (vitest + testing-library if the repo's convention allows it for this kind of layout, or at minimum a test that checks for the presence of `pointer-events-none` on the outer wrapper and `pointer-events-auto` on the interactive inner elements, to avoid a silent regression if someone touches this JSX again later).
+- Manually test on the k3d dev environment (`make dev-up dev-build dev-load dev-deploy`, a real XFCE VNC workspace) that the Applications menu at the top left becomes clickable again — this bug is not detectable by a unit test alone since it depends on overlapping with real remote content displayed by the Guacamole canvas.
 
-## Points ouverts (ton arbitrage)
+## Open points (your call)
 
-- Faut-il aussi restreindre `w-40`/la largeur du pull-tab visuel lui-même, ou seulement corriger `pointer-events` sur le wrapper (ce qui suffit déjà à débloquer le clic ailleurs, sans changer le design visuel) — recommandation : ne change que `pointer-events`, le pull-tab visuel centré reste inchangé.
+- Should the `w-40`/the visual pull-tab width itself also be restricted, or is fixing only `pointer-events` on the wrapper enough (which already suffices to unblock clicks elsewhere, without changing the visual design) — recommendation: change only `pointer-events`, leave the centered visual pull-tab unchanged.

@@ -1,360 +1,350 @@
-# Prompt Fable 5 — Audit 2 : ordre 10 (C15, C17) + constats C16, C18
+# Prompt Fable 5 — Audit 2: order 10 (C15, C17) + findings C16, C18
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation préalable.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context.
 
 ## Source
 
-`docs/studies/20-report-audit2-organisation-doublons-securite.md` est le
-rapport d'audit complet (2026-07-11). Lis-le d'abord en entier,
-notamment le tableau des constats §4 (lignes du C15 au C20) et le plan
-d'action §5 — ce prompt t'évite de refaire la recherche fichier:ligne
-pour chaque constat, mais le §4 donne le contexte et le raisonnement
-complets derrière chacun.
+`docs/studies/20-report-audit2-organisation-doublons-securite.md` is
+the full audit report (2026-07-11). Read it first in its entirety,
+especially the §4 findings table (rows C15 through C20) and the §5
+action plan — this prompt saves you from redoing the file:line
+research for each finding, but §4 gives the full context and reasoning
+behind each one.
 
-Les numéros de ligne cités ci-dessous datent de la rédaction de ce
-prompt (2026-07-12) — vérifie-les avant d'éditer, ils ont pu bouger de
-quelques lignes depuis (`23-prompt-audit2-remediation-small-batch.md` a
-été implémenté juste avant celui-ci et a pu toucher des fichiers
-adjacents).
+Line numbers cited below date from when this prompt was written
+(2026-07-12) — check them before editing, they may have shifted by a
+few lines since (`23-prompt-audit2-remediation-small-batch.md` was
+implemented right before this one and may have touched adjacent
+files).
 
-## Périmètre de ce prompt
+## Scope of this prompt
 
-Le plan d'action (§5) place **C15 et C17 dans l'ordre 10** (« les deux
-vrais chantiers de test/refactor front, dans l'ordre du risque vécu »,
-effort M chacun) et range **C16 et C18** dans la dernière ligne du
-plan, « au fil de l'eau », avec verdict « Discutable » — pas de
-chantier dédié dans l'esprit initial du rapport. Ce prompt les regroupe
-quand même en un seul chantier explicite, mais **respecte la nuance que
-le rapport donne à C16 et C18** plutôt que de forcer un traitement
-uniforme :
+The action plan (§5) places **C15 and C17 in order 10** ("the two real
+frontend test/refactor efforts, in order of experienced risk", effort
+M each) and files **C16 and C18** under the plan's last line, "along
+the way", with a "Debatable" verdict — no dedicated effort in the
+report's original intent. This prompt groups them into one explicit
+effort anyway, but **respects the nuance the report gives C16 and
+C18** rather than forcing uniform treatment:
 
-- **C15** (`DesktopPane.tsx` en hooks testés) et **C17**
-  (`TemplatesPage.tsx` découpée) sont traités en entier, dans cet ordre
-  (le rapport le précise : « dans l'ordre du risque vécu »).
-- **C16** : seule `GovernancePage.tsx` est traitée ici — c'est
-  exactement ce que dit le rapport (« GovernancePage oui … les 3
-  autres après C15, au fil des retouches »). `SplitViewPage.tsx`,
-  `ProfilePage.tsx`, `UsersPage.tsx` restent hors périmètre de ce
-  prompt, volontairement — ne les touche pas.
-- **C18** : traité comme une extraction mécanique de responsabilité
-  (pas une refonte), suivant le pattern déjà établi dans le repo
-  (`workload.go`/`placement.go` côté opérateur,
-  `workspace_events.go`/`workspace_resize.go` côté api-server) — voir
-  section dédiée pour le périmètre exact.
-- **Hors périmètre** : C25 (a11y), C26 (doc guacamole-common-js), C27
-  (OIDC contre un IdP réel) — ce sont d'autres lignes « au fil de
-  l'eau » du plan, non demandées ici, ne les traite pas.
+- **C15** (`DesktopPane.tsx` into tested hooks) and **C17**
+  (`TemplatesPage.tsx` split up) are handled in full, in this order
+  (the report specifies it: "in order of experienced risk").
+- **C16**: only `GovernancePage.tsx` is handled here — that's exactly
+  what the report says ("GovernancePage yes … the other 3 after C15,
+  along the way of future edits"). `SplitViewPage.tsx`,
+  `ProfilePage.tsx`, `UsersPage.tsx` stay out of this prompt's scope,
+  deliberately — don't touch them.
+- **C18**: handled as a mechanical extraction of responsibility (not a
+  redesign), following the pattern already established in the repo
+  (`workload.go`/`placement.go` on the operator side,
+  `workspace_events.go`/`workspace_resize.go` on the api-server side)
+  — see the dedicated section for the exact scope.
+- **Out of scope**: C25 (a11y), C26 (guacamole-common-js doc), C27
+  (OIDC against a real IdP) — these are other "along the way" lines of
+  the plan, not requested here, don't handle them.
 
-Un commit par section (C15, C17, C16, C18), jamais un commit
-fourre-tout — ce sont des changements de nature différente (refactor
-frontend testable, découpage de page, tests ajoutés, extraction
-backend).
+One commit per section (C15, C17, C16, C18), never a catch-all commit
+— these are changes of a different nature (testable frontend refactor,
+page split, added tests, backend extraction).
 
 ---
 
-## C15 — `DesktopPane.tsx` : extraire la logique en hooks testables
+## C15 — `DesktopPane.tsx`: extract the logic into testable hooks
 
-`frontend/src/components/DesktopPane.tsx` fait 376 lignes, dont un
-**unique `useEffect` de ~240 lignes** (lignes 100-339) qui mélange :
-connexion Guacamole/tunnel WebSocket, branche KasmVNC iframe, clipboard
-desktop→browser (`client.onclipboard`, lignes 206-228), clipboard
-browser→desktop (paste/focus listeners, lignes 230-271), souris
-(276-299), clavier (301-305), et resize (`ResizeObserver` +
-`createSessionResizer`, lignes 307-315). C'est le fichier où les 3
-derniers fixes clipboard ont été vérifiés à la main faute de filet
-(mémoire du repo : fixes 13/14).
+`frontend/src/components/DesktopPane.tsx` is 376 lines, including a
+**single ~240-line `useEffect`** (lines 100-339) mixing: the
+Guacamole/WebSocket tunnel connection, the KasmVNC iframe branch,
+desktop→browser clipboard (`client.onclipboard`, lines 206-228),
+browser→desktop clipboard (paste/focus listeners, lines 230-271),
+mouse (276-299), keyboard (301-305), and resize (`ResizeObserver` +
+`createSessionResizer`, lines 307-315). This is the file where the
+last 3 clipboard fixes were manually verified for lack of a safety
+net (repo memory: fixes 13/14).
 
-Le pattern à suivre existe déjà partiellement dans le repo, mais
-seulement pour la logique *pure* :
+The pattern to follow already exists partially in the repo, but only
+for *pure* logic:
 
-- `frontend/src/lib/clipboard.ts` (56 lignes, testé par
-  `clipboard.test.ts`) exporte `ClipboardSync` — dédoublonnage
-  echo-guard entre ce que le client vient d'envoyer/recevoir. Le
-  câblage effectif (event listeners DOM, lecture/écriture
-  `navigator.clipboard`, branchement sur le `client` Guacamole) reste
-  inline dans le `useEffect`, pas testable isolément.
-- `frontend/src/lib/sessionResize.ts` (52 lignes, testé par
-  `sessionResize.test.ts`) exporte `createSessionResizer(...)` —
-  debounce + POST du resize. Le branchement React (`ResizeObserver`,
-  cycle de vie) reste inline (ligne 307-315).
+- `frontend/src/lib/clipboard.ts` (56 lines, tested by
+  `clipboard.test.ts`) exports `ClipboardSync` — echo-guard
+  deduplication between what the client just sent/received. The
+  actual wiring (DOM event listeners, `navigator.clipboard`
+  read/write, hookup to the Guacamole `client`) stays inline in the
+  `useEffect`, not testable in isolation.
+- `frontend/src/lib/sessionResize.ts` (52 lines, tested by
+  `sessionResize.test.ts`) exports `createSessionResizer(...)` —
+  debounce + resize POST. The React wiring (`ResizeObserver`,
+  lifecycle) stays inline (line 307-315).
 
-`frontend/src/hooks/` existe déjà (`useApi.ts`, `useEscape.ts`,
-`useEvents.ts`, `useProtocolSwitch.ts`) mais ne contient aucun hook lié
-au desktop pane.
+`frontend/src/hooks/` already exists (`useApi.ts`, `useEscape.ts`,
+`useEvents.ts`, `useProtocolSwitch.ts`) but contains no desktop-pane
+related hook.
 
-### Ce qui est attendu
+### What's expected
 
-Extrais deux hooks custom, exactement ceux nommés par le rapport :
+Extract two custom hooks, exactly as named by the report:
 
-1. **`frontend/src/hooks/useClipboardBridge.ts`** — encapsule la
-   logique des lignes 206-271 (les deux directions clipboard) en
-   s'appuyant sur `ClipboardSync` déjà existant plutôt qu'en le
-   redupliquant. Signature à toi de définir, mais elle doit a minima
-   prendre en entrée le client Guacamole (ou une interface minimale
-   couvrant `onclipboard`/`createClipboardStream` — n'expose pas tout
-   `Guacamole.Client`, juste ce dont le clipboard a besoin, pour rendre
-   le hook testable sans mocker l'objet entier) et retourner ce dont
-   `DesktopPane` a besoin pour continuer à fonctionner (ex. une
-   fonction `setClipboard`/`sendClipboard` si `useImperativeHandle`
-   (lignes 79-98) en dépend encore après extraction — vérifie ce que
-   `useImperativeHandle` expose aujourd'hui et préserve ce contrat
-   externe, ne casse pas l'API du `ref`).
-2. **`frontend/src/hooks/useSessionResize.ts`** — encapsule le
-   branchement lignes 307-315 (`ResizeObserver` + cycle de vie de
-   `createSessionResizer`) en réutilisant `createSessionResizer` de
-   `lib/sessionResize.ts` sans dupliquer sa logique de debounce.
+1. **`frontend/src/hooks/useClipboardBridge.ts`** — encapsulates the
+   logic of lines 206-271 (both clipboard directions) building on the
+   already-existing `ClipboardSync` rather than duplicating it.
+   Signature is up to you, but it must at minimum take the Guacamole
+   client as input (or a minimal interface covering
+   `onclipboard`/`createClipboardStream` — don't expose the whole
+   `Guacamole.Client`, just what clipboard needs, to keep the hook
+   testable without mocking the entire object) and return what
+   `DesktopPane` needs to keep working (e.g. a
+   `setClipboard`/`sendClipboard` function if `useImperativeHandle`
+   (lines 79-98) still depends on it after extraction — check what
+   `useImperativeHandle` exposes today and preserve that external
+   contract, don't break the `ref`'s API).
+2. **`frontend/src/hooks/useSessionResize.ts`** — encapsulates the
+   wiring at lines 307-315 (`ResizeObserver` + lifecycle of
+   `createSessionResizer`) reusing `createSessionResizer` from
+   `lib/sessionResize.ts` without duplicating its debounce logic.
 
-Pour chacun : écris un fichier de test (`*.test.ts` ou `.test.tsx`
-selon que le hook a besoin de DOM) avec `@testing-library/react`
-`renderHook` (vérifie que la dépendance est déjà utilisée ailleurs dans
-le repo — sinon regarde comment les hooks existants dans
-`frontend/src/hooks/` sont déjà testés, s'ils le sont, pour rester
-cohérent avec le pattern local). Teste au minimum : montage/démontage
-propre (cleanup appelé), et pour le clipboard le comportement
-echo-guard déjà couvert par `ClipboardSync` mais désormais exercé via
-le hook plutôt qu'en le retestant en double.
+For each: write a test file (`*.test.ts` or `.test.tsx` depending on
+whether the hook needs the DOM) using `@testing-library/react`
+`renderHook` (check that the dependency is already used elsewhere in
+the repo — otherwise look at how the existing hooks in
+`frontend/src/hooks/` are already tested, if they are, to stay
+consistent with the local pattern). Test at minimum: clean mount/
+unmount (cleanup called), and for clipboard the echo-guard behavior
+already covered by `ClipboardSync` but now exercised through the hook
+rather than re-testing it twice.
 
-**Ce que tu ne dois pas faire** : n'essaie pas d'extraire aussi la
-connexion (tunnel, `Guacamole.Client`, souris, clavier) dans un hook —
-le rapport ne nomme que `useClipboardBridge` et `useSessionResize`, et
-la connexion elle-même est plus risquée à isoler (état partagé avec
-tout le reste de l'effet). Garde-la inline dans `DesktopPane.tsx` pour
-ce prompt.
+**What you must NOT do**: don't try to also extract the connection
+(tunnel, `Guacamole.Client`, mouse, keyboard) into a hook — the report
+only names `useClipboardBridge` and `useSessionResize`, and the
+connection itself is riskier to isolate (state shared with the rest of
+the effect). Keep it inline in `DesktopPane.tsx` for this prompt.
 
-### Vérification
+### Verification
 
 - `cd frontend && npm run typecheck && npm test`.
-- Comportement observable inchangé : `DesktopPane` doit continuer à
-  exposer exactement la même API via `ref` (`disconnect`, `reconnect`,
+- Unchanged observable behavior: `DesktopPane` must keep exposing
+  exactly the same `ref` API (`disconnect`, `reconnect`,
   `setClipboard`, `sendClipboard`, `readRemoteClipboard`,
-  lignes 79-98) — si tu changes cette surface, documente pourquoi dans
-  le commit.
-- Si tu as un environnement de dev k3d disponible (`hack/dev/`), un
-  test manuel rapide clipboard + resize sur une session VNC/RDP réelle
-  est recommandé (le canvas Guacamole ne se vérifie pas bien en
-  screenshot headless — mémoire du repo sur les tentatives
-  précédentes) ; sinon les tests unitaires + `npm run typecheck` sont
-  suffisants pour ce prompt.
+  lines 79-98) — if you change this surface, document why in the
+  commit.
+- If you have a k3d dev environment available (`hack/dev/`), a quick
+  manual test of clipboard + resize on a real VNC/RDP session is
+  recommended (the Guacamole canvas doesn't verify well via headless
+  screenshot — repo memory of previous attempts); otherwise unit tests
+  + `npm run typecheck` are sufficient for this prompt.
 
 ---
 
-## C17 — `TemplatesPage.tsx` : découpage par section, sur le modèle PortalPage
+## C17 — `TemplatesPage.tsx`: split by section, on the PortalPage model
 
-`frontend/src/pages/admin/TemplatesPage.tsx` fait **896 lignes**. La
-liste (`TemplatesPage`, lignes 65-165) est raisonnable ; le gros du
-poids est `TemplateDialog` (lignes 205-795, **591 lignes**), un
-formulaire multi-`fieldset` : identité (314-380), description
-(382-392), ressources (394-424), protocoles (426-609, la section la
-plus dense, avec `ProtocolTabs`/`ProtocolParamsForm`), kasmvncConfig
-conditionnel (611-641), env vars (643-666, avec le sous-composant local
-`EnvRow` en fin de fichier, lignes 799-896), overrides utilisateur
-(668-707), placement (709-765), schedule (767-773), workload avancé en
-YAML (775-792).
+`frontend/src/pages/admin/TemplatesPage.tsx` is **896 lines**. The
+list (`TemplatesPage`, lines 65-165) is reasonable; most of the weight
+is `TemplateDialog` (lines 205-795, **591 lines**), a multi-`fieldset`
+form: identity (314-380), description (382-392), resources (394-424),
+protocols (426-609, the densest section, with
+`ProtocolTabs`/`ProtocolParamsForm`), conditional kasmvncConfig
+(611-641), env vars (643-666, with the local `EnvRow` sub-component at
+the end of the file, lines 799-896), user overrides (668-707),
+placement (709-765), schedule (767-773), advanced YAML workload
+(775-792).
 
-Le précédent à répliquer est `PortalPage` (juillet) : la page a été
-réduite de 1617 à **100 lignes**
-(`frontend/src/pages/PortalPage.tsx`), le reste extrait dans
+The precedent to replicate is `PortalPage` (July): the page was
+reduced from 1617 to **100 lines**
+(`frontend/src/pages/PortalPage.tsx`), the rest extracted into
 `frontend/src/sections/` (`QuotaBanner.tsx` 62 l.,
 `RemoteWorkspacesSection.tsx` 131 l., `VolumesSection.tsx` 75 l.,
-`WorkspacesSection.tsx` 182 l.) — PortalPage importe ces sections et
-leur passe ses props/callbacks, en gardant l'état "onglet actif"/"quel
-dialogue ouvert" au niveau page.
+`WorkspacesSection.tsx` 182 l.) — PortalPage imports these sections and
+passes them its props/callbacks, keeping the "active tab"/"which
+dialog is open" state at the page level.
 
-### Ce qui est attendu
+### What's expected
 
-Découpe `TemplateDialog` en sous-composants, un par `fieldset` (ou
-regroupement logique si deux `fieldset` sont trop couplés pour être
-séparés proprement — à ton jugement, documente si tu regroupes).
-Candidats évidents vu la structure ci-dessus : identité+description,
-ressources, protocoles (probablement la plus grosse, garde-la seule),
-kasmvncConfig, env vars (avec `EnvRow`), overrides, placement, schedule,
-workload avancé.
+Split `TemplateDialog` into sub-components, one per `fieldset` (or a
+logical grouping if two `fieldset`s are too coupled to separate
+cleanly — your judgment call, document it if you group them).
+Obvious candidates given the structure above: identity+description,
+resources, protocols (probably the biggest, keep it alone),
+kasmvncConfig, env vars (with `EnvRow`), overrides, placement,
+schedule, advanced workload.
 
-Emplacement : contrairement à `PortalPage`, `frontend/src/sections/`
-semble être un dossier dédié à la composition de la page portail
-(4 fichiers, tous nommés autour du domaine portail) — ne mélange pas
-les sections de `TemplatesPage` dedans. Crée un dossier local, par
-exemple `frontend/src/pages/admin/templates/` (à toi de choisir le nom
-exact, mais reste cohérent avec la convention de nommage déjà observée
-côté backend pour ce même type d'extraction — un fichier par
-responsabilité, nom explicite).
+Location: unlike `PortalPage`, `frontend/src/sections/` looks like a
+folder dedicated to composing the portal page (4 files, all named
+around the portal domain) — don't mix `TemplatesPage`'s sections into
+it. Create a local folder, e.g.
+`frontend/src/pages/admin/templates/` (your call on the exact name,
+but stay consistent with the naming convention already observed on
+the backend side for this same kind of extraction — one file per
+responsibility, explicit name).
 
-Contraintes :
+Constraints:
 
-- L'état (`input`, `workloadText`, `activeProto`, les helpers `set`/
-  `patchActive`/`addProtocol`/`removeProtocol`, lignes 222-269) reste
-  la source de vérité unique dans `TemplateDialog` — les sous-composants
-  reçoivent leurs valeurs et des callbacks en props, ils ne dupliquent
-  pas d'état local pour les mêmes données (même logique que
-  `WorkspacesSection`/`VolumesSection` recevant leurs callbacks de
+- The state (`input`, `workloadText`, `activeProto`, the
+  `set`/`patchActive`/`addProtocol`/`removeProtocol` helpers, lines
+  222-269) remains the single source of truth in `TemplateDialog` —
+  sub-components receive their values and callbacks as props, they
+  don't duplicate local state for the same data (same logic as
+  `WorkspacesSection`/`VolumesSection` receiving their callbacks from
   `PortalPage`).
-- `onSubmit` (271-284) et la validation (`validateWorkload`,
-  `validateKasmVNCConfig`, lignes 24-46) restent dans `TemplateDialog`
-  ou dans un module partagé si tu préfères, mais ne les déplace pas
-  dans un sous-composant qui rendrait le flux de soumission moins
-  lisible.
-- `TemplatesPage.test.tsx` (174 lignes) existe déjà — fais-le passer
-  sans le réécrire en profondeur si possible (il teste probablement le
-  comportement observable, pas la structure interne) ; ajoute des tests
-  unitaires ciblés sur au moins les 2-3 sous-composants les plus
-  complexes que tu extrais (protocoles, kasmvncConfig) en suivant le
-  même harnais que les tests de page existants
-  (`renderWithProviders`/`signIn`/`createApiMock`, voir
-  `FleetPage.test.tsx` ou `TemplatesPage.test.tsx` pour le pattern).
+- `onSubmit` (271-284) and validation (`validateWorkload`,
+  `validateKasmVNCConfig`, lines 24-46) stay in `TemplateDialog` or in
+  a shared module if you prefer, but don't move them into a
+  sub-component in a way that would make the submission flow less
+  readable.
+- `TemplatesPage.test.tsx` (174 lines) already exists — make it pass
+  without a deep rewrite if possible (it likely tests observable
+  behavior, not internal structure); add targeted unit tests on at
+  least the 2-3 most complex sub-components you extract (protocols,
+  kasmvncConfig) following the same harness as existing page tests
+  (`renderWithProviders`/`signIn`/`createApiMock`, see
+  `FleetPage.test.tsx` or `TemplatesPage.test.tsx` for the pattern).
 
-### Vérification
+### Verification
 
 - `cd frontend && npm run typecheck && npm test`.
-- Comportement du formulaire strictement identique (mêmes champs,
-  mêmes validations, même payload soumis) — c'est un découpage, pas une
-  réécriture fonctionnelle.
+- Strictly identical form behavior (same fields, same validations,
+  same submitted payload) — this is a split, not a functional
+  rewrite.
 
 ---
 
-## C16 — Tests `GovernancePage.tsx` (seule page traitée dans ce prompt)
+## C16 — Tests for `GovernancePage.tsx` (the only page handled in this prompt)
 
-`frontend/src/pages/admin/GovernancePage.tsx` fait 546 lignes, 0 %
-de couverture, aucun fichier `*.test.tsx`. Elle compose 3 sous-sections
-importées (lignes 55-57, noms exacts à vérifier dans le fichier au
-moment de l'exécution) : catalogue (activer/désactiver des images),
-policies (édition YAML brute), usage (consommation par utilisateur).
-C'est la seule des 4 pages 0 % que le rapport priorise explicitement :
-« elle édite la policy, une régression silencieuse touche la
-gouvernance » — les 3 autres (`SplitViewPage`, `ProfilePage`,
-`UsersPage`) sont **hors périmètre de ce prompt**, ne les touche pas.
+`frontend/src/pages/admin/GovernancePage.tsx` is 546 lines, 0%
+coverage, no `*.test.tsx` file. It composes 3 imported sub-sections
+(lines 55-57, exact names to check in the file at execution time):
+catalog (enable/disable images), policies (raw YAML editing), usage
+(per-user consumption). It's the only one of the 4 zero-coverage pages
+the report explicitly prioritizes: "it edits the policy, a silent
+regression touches governance" — the other 3 (`SplitViewPage`,
+`ProfilePage`, `UsersPage`) are **out of this prompt's scope**, don't
+touch them.
 
-### Ce qui est attendu
+### What's expected
 
-Écris `frontend/src/pages/admin/GovernancePage.test.tsx`, avec le même
-harnais que les tests de page admin déjà existants
-(`renderWithProviders`/`signIn`/`createApiMock`, modèle direct :
-`FleetPage.test.tsx` ou `TemplatesPage.test.tsx`). Avant d'écrire les
-tests, lis entièrement `GovernancePage.tsx` (et les 3 sous-composants
-qu'elle importe — vérifie s'ils vivent dans le même fichier ou sont
-déjà séparés) pour identifier les flux réels ; couvre au minimum :
+Write `frontend/src/pages/admin/GovernancePage.test.tsx`, with the
+same harness as the existing admin page tests
+(`renderWithProviders`/`signIn`/`createApiMock`, direct model:
+`FleetPage.test.tsx` or `TemplatesPage.test.tsx`). Before writing the
+tests, read `GovernancePage.tsx` in full (and the 3 sub-components it
+imports — check whether they live in the same file or are already
+separate) to identify the real flows; cover at minimum:
 
-- Rendu initial des 3 sections avec des données mockées via
+- Initial render of the 3 sections with data mocked via
   `createApiMock`.
-- Catalogue : activer/désactiver une image déclenche le bon appel API
-  mocké.
-- Policies : édition + soumission d'un YAML valide déclenche le bon
-  appel API ; soumission d'un YAML invalide affiche une erreur sans
-  appeler l'API (comportement à vérifier dans le code — ne suppose pas,
-  regarde comment `YamlEditor` gère déjà ce cas ailleurs, ex. dans
-  `TemplateDialog`/`TemplatesPage.tsx` pour le pattern de validation
-  YAML côté page).
-- Usage : rendu correct des données de consommation mockées.
+- Catalog: enabling/disabling an image triggers the right mocked API
+  call.
+- Policies: editing + submitting a valid YAML triggers the right API
+  call; submitting an invalid YAML shows an error without calling the
+  API (behavior to verify in the code — don't assume, look at how
+  `YamlEditor` already handles this case elsewhere, e.g. in
+  `TemplateDialog`/`TemplatesPage.tsx` for the YAML validation
+  pattern).
+- Usage: correct rendering of the mocked consumption data.
 
-### Vérification
+### Verification
 
-`cd frontend && npm run typecheck && npm test` ; vérifie que le
-fichier ajouté fait effectivement remonter la couverture de
-`GovernancePage.tsx` au-dessus de 0 % (`npm run test -- --coverage`
-avec les flags déjà en place depuis C14, ou équivalent — vérifie la
-commande exacte dans `package.json`/CI).
+`cd frontend && npm run typecheck && npm test`; check that the added
+file actually raises `GovernancePage.tsx`'s coverage above 0%
+(`npm run test -- --coverage` with the flags already in place since
+C14, or equivalent — check the exact command in
+`package.json`/CI).
 
 ---
 
-## C18 — Extraire les blocs lifecycle/status des fichiers fourre-tout
+## C18 — Extract the lifecycle/status blocks from the catch-all files
 
-`operator/internal/controller/workspace_controller.go` (1109 lignes) et
-`api-server/internal/service/workspace_service.go` (1188 lignes)
-grossissent malgré des voisins bien découpés. Le rapport propose « pas
-de chantier dédié » mais « imposer la règle + extraire au passage de
-la prochaine feature (lifecycle/status pour le contrôleur) » — ce
-prompt fait cette extraction maintenant, comme un **déplacement
-mécanique de code, pas une refonte** : mêmes signatures, même
-comportement, tests verts avant/après.
+`operator/internal/controller/workspace_controller.go` (1109 lines)
+and `api-server/internal/service/workspace_service.go` (1188 lines)
+keep growing despite well-split neighbors. The report proposes "no
+dedicated effort" but "impose the rule + extract along the way of the
+next feature (lifecycle/status for the controller)" — this prompt does
+this extraction now, as a **mechanical code move, not a redesign**:
+same signatures, same behavior, tests green before/after.
 
-`remote_workspace_service.go` (600 lignes) est **hors périmètre** :
-contrairement aux deux autres, sa structure lue est déjà cohérente
-autour d'une seule responsabilité (CRUD remote workspace + Wake-on-LAN)
-— pas de sous-groupe évident à en extraire, ne le touche pas dans ce
-prompt.
+`remote_workspace_service.go` (600 lines) is **out of scope**: unlike
+the other two, its read structure is already coherent around a single
+responsibility (remote workspace CRUD + Wake-on-LAN) — no obvious
+sub-group to extract from it, don't touch it in this prompt.
 
-### 18.1 — `operator/internal/controller/workspace_status.go` (nouveau)
+### 18.1 — `operator/internal/controller/workspace_status.go` (new)
 
-Le repo a déjà deux fichiers satellites de `workspace_controller.go`
-qui donnent le pattern exact à suivre — regarde en particulier
-l'en-tête de `placement.go` (lignes 3-8) : un commentaire de package en
-tête de fichier qui explique la responsabilité extraite. Réplique cette
+The repo already has two satellite files of `workspace_controller.go`
+giving the exact pattern to follow — look in particular at
+`placement.go`'s header (lines 3-8): a package comment at the top of
+the file explaining the extracted responsibility. Replicate this
 convention.
 
-Déplace dans `workspace_status.go` le bloc contigu de gestion
-status/conditions (`workspace_controller.go` lignes 894-969 au moment
-de la rédaction — vérifie les lignes exactes avant de couper/coller) :
-`patchStatus`, `setUnready`, `setCondition`, `setDriftCondition`,
-`hasDriftCondition`, `setTypedCondition`. Ajoute un commentaire de
-package en tête expliquant le rôle (ex. : « Status: this file owns
-patching WorkspaceStatus and its conditions. »), sur le modèle de
-`placement.go`.
+Move into `workspace_status.go` the contiguous status/conditions block
+(`workspace_controller.go` lines 894-969 at the time of writing —
+check the exact lines before cutting/pasting): `patchStatus`,
+`setUnready`, `setCondition`, `setDriftCondition`,
+`hasDriftCondition`, `setTypedCondition`. Add a package comment at the
+top explaining its role (e.g.: "Status: this file owns patching
+WorkspaceStatus and its conditions."), on the `placement.go` model.
 
-**Ne déplace pas** le calcul de phase inline dans `Reconcile` (les deux
-blocs symétriques down/running, lignes ~300-415) — c'est trop couplé
-au reste de `Reconcile` pour une extraction mécanique sûre ; laisse
-`Reconcile` continuer à appeler les helpers désormais dans
-`workspace_status.go`, ne touche pas à sa structure de contrôle.
+**Don't move** the inline phase computation within `Reconcile` (the
+two symmetric down/running blocks, lines ~300-415) — it's too coupled
+to the rest of `Reconcile` for a safe mechanical extraction; let
+`Reconcile` keep calling the helpers now in `workspace_status.go`,
+don't touch its control structure.
 
-### 18.2 — `api-server/internal/service/workspace_lifecycle.go` (nouveau)
+### 18.2 — `api-server/internal/service/workspace_lifecycle.go` (new)
 
-Le repo a déjà `workspace_events.go` (116 lignes, méthode `Events`) et
-`workspace_resize.go` (107 lignes, `WithPodExecutor`/`Resize`) comme
-satellites de `workspace_service.go`, nommés `workspace_<feature>.go`,
-méthodes sur `*WorkspaceService`. Suis cette convention.
+The repo already has `workspace_events.go` (116 lines, `Events`
+method) and `workspace_resize.go` (107 lines,
+`WithPodExecutor`/`Resize`) as satellites of `workspace_service.go`,
+named `workspace_<feature>.go`, methods on `*WorkspaceService`. Follow
+this convention.
 
-Déplace dans `workspace_lifecycle.go` le groupe cohérent d'actions de
-cycle de vie identifié par la recherche préalable à ce prompt :
-`SetPaused` (lignes 388-440), `UpdateOverrides` +
-`updateOverridesSummary` (441-531), `Reload` (532-556) — vérifie les
-lignes exactes avant de couper/coller, elles datent de la rédaction de
-ce prompt. Garde les signatures identiques (méthodes sur
-`*WorkspaceService`, mêmes noms, même visibilité).
+Move into `workspace_lifecycle.go` the coherent group of lifecycle
+actions identified by the research done ahead of this prompt:
+`SetPaused` (lines 388-440), `UpdateOverrides` +
+`updateOverridesSummary` (441-531), `Reload` (532-556) — check the
+exact lines before cutting/pasting, they date from when this prompt
+was written. Keep the signatures identical (methods on
+`*WorkspaceService`, same names, same visibility).
 
-Si `workspace_resize_test.go` existe pour `workspace_resize.go` mais
-qu'aucun test dédié n'existe pour `Events`/`SetPaused`/
-`UpdateOverrides`/`Reload` (vérifie), ne les ajoute pas dans ce
-prompt — le périmètre ici est l'extraction, pas l'ajout de couverture
-(ça relèverait d'un autre constat).
+If `workspace_resize_test.go` exists for `workspace_resize.go` but no
+dedicated test exists for `Events`/`SetPaused`/
+`UpdateOverrides`/`Reload` (check), don't add them in this prompt —
+the scope here is extraction, not added coverage (that would fall
+under a different finding).
 
-### 18.3 — La règle, documentée
+### 18.3 — The rule, documented
 
-Le rapport demande d'« imposer pas de nouvelle responsabilité dans ces
-fichiers ». Ajoute un commentaire de package en tête de
-`workspace_controller.go` et de `workspace_service.go` (même esprit que
-`placement.go`) indiquant que toute nouvelle responsabilité doit vivre
-dans un fichier satellite dédié (`workspace_<feature>.go` côté
-api-server, fichier nommé par responsabilité côté opérateur), pas être
-ajoutée à ces deux fichiers. Reste bref — une ou deux phrases, pas un
-essai.
+The report asks to "impose no new responsibility in these files". Add
+a package comment at the top of `workspace_controller.go` and
+`workspace_service.go` (same spirit as `placement.go`) stating that
+any new responsibility must live in a dedicated satellite file
+(`workspace_<feature>.go` on the api-server side, a file named by
+responsibility on the operator side), not be added to these two
+files. Keep it brief — one or two sentences, not an essay.
 
-### Vérification
+### Verification
 
 - `cd operator && go build ./... && go test ./...`.
 - `cd api-server && go build ./... && go test ./...`.
-- Diff attendu : essentiellement des déplacements de blocs de code
-  identiques entre fichiers (+ 2 nouveaux en-têtes de fichier, + 2
-  commentaires de règle) — si le diff montre des changements de
-  logique au-delà du déplacement, tu es sorti du périmètre de ce
-  prompt, reviens en arrière.
+- Expected diff: essentially moving identical code blocks between
+  files (+ 2 new file headers, + 2 rule comments) — if the diff shows
+  logic changes beyond the move, you've stepped outside this prompt's
+  scope, back out.
 
 ---
 
-## Contraintes générales
+## General constraints
 
-- N'affaiblis jamais un gate existant (seuils Trivy, ratchets de
-  couverture, gates de sécurité) pour faire passer la CI plus
-  facilement.
-- Chaque section (C15, C17, C16, C18) est indépendante des trois
-  autres — traite-les dans l'ordre du document si possible (c'est
-  l'ordre de risque du rapport), mais rien n'empêche un ordre différent
-  si tu as une bonne raison.
-- Un commit par section, jamais un commit fourre-tout.
-- Build/tests verts avant de considérer une section terminée :
-  `cd frontend && npm run typecheck && npm test` pour C15/C16/C17 ;
-  `go build ./... && go test ./...` dans `operator/` et `api-server/`
-  pour C18.
-- Si un fichier ou une ligne citée ici a déjà changé au point de rendre
-  une instruction obsolète, adapte-toi au code réel plutôt que de
-  suivre le prompt à la lettre — documente l'écart dans le message de
-  commit.
+- Never weaken an existing gate (Trivy thresholds, coverage ratchets,
+  security gates) to make CI pass more easily.
+- Each section (C15, C17, C16, C18) is independent of the other three
+  — handle them in the document's order if possible (it's the report's
+  risk order), but nothing stops a different order if you have a good
+  reason.
+- One commit per section, never a catch-all commit.
+- Green build/tests before considering a section done:
+  `cd frontend && npm run typecheck && npm test` for C15/C16/C17;
+  `go build ./... && go test ./...` in `operator/` and `api-server/`
+  for C18.
+- If a file or line cited here has already changed enough to make an
+  instruction obsolete, adapt to the real code rather than following
+  the prompt to the letter — document the discrepancy in the commit
+  message.

@@ -1,170 +1,169 @@
-# Cartographie clipboard : ordre de priorité actuel (analyse, pas un prompt)
+# Clipboard mapping: current precedence order (analysis, not a prompt)
 
-Document d'analyse, pas un prompt d'implémentation — objectif :
-documenter fidèlement l'état RÉEL du code (vérifié fichier par
-fichier, ligne par ligne) pour permettre un arbitrage sur "est-ce que
-`WorkspacePolicy.spec.clipboard`, `WorkspaceTemplate.spec.protocols[].params`,
-`.userParams` et le menu de session font doublon". Verdict à la fin,
-mais lis d'abord la cartographie : la réponse n'est pas la même selon
-la famille de protocole.
+Analysis document, not an implementation prompt — goal: faithfully
+document the REAL state of the code (verified file by file, line by
+line) to enable a decision on "does `WorkspacePolicy.spec.clipboard`,
+`WorkspaceTemplate.spec.protocols[].params`, `.userParams`, and the
+session menu duplicate each other". Verdict at the end, but read the
+mapping first: the answer isn't the same depending on the protocol
+family.
 
-## Constat central : DEUX mécanismes disjoints, pas un seul
+## Central finding: TWO disjoint mechanisms, not one
 
-Le clipboard n'est pas gouverné par UN chemin de résolution, mais par
-DEUX, sans aucun code partagé au-delà de `WorkspacePolicy.spec.clipboard`
-et `policy.ClipboardOf()` :
+The clipboard is not governed by ONE resolution path, but by TWO, with
+no shared code beyond `WorkspacePolicy.spec.clipboard` and
+`policy.ClipboardOf()`:
 
-- **guacd (`vnc`/`rdp`/`ssh`)** : 4 couches (policy, template `params`,
-  template `userParams`, override de connexion), résolues à CHAQUE
-  connexion, enforcées par le proxy wwt via le token de connexion.
-- **`kasmvnc`** : 1 seule couche (policy), résolue au RECONCILE (pas à
-  la connexion), bakée dans `~/.vnc/kasmvnc.yaml` par l'opérateur.
-  `params`/`userParams` du template n'ont **aucun effet** — vérifié :
-  `disable-copy`/`disable-paste` ne sont enregistrés que pour
+- **guacd (`vnc`/`rdp`/`ssh`)**: 4 layers (policy, template `params`,
+  template `userParams`, connection override), resolved on EVERY
+  connection, enforced by the wwt proxy via the connection token.
+- **`kasmvnc`**: a single layer (policy), resolved at RECONCILE time
+  (not at connection time), baked into `~/.vnc/kasmvnc.yaml` by the
+  operator. Template `params`/`userParams` have **no effect at all** —
+  verified: `disable-copy`/`disable-paste` are only registered for
   `vnc`/`rdp`/`ssh` (`operator/pkg/params/params.go:122-130`,
-  `Protocols: []string{"vnc", "rdp", "ssh"}`), et le webhook template
-  (`operator/internal/webhook/v1alpha1/workspacetemplate_webhook.go:68-69`,
-  `params.ValidateUserParamNames`) rejette dès la création un
-  `userParams` citant ces noms sur une entrée `kasmvnc` — de toute
-  façon impossible à combiner avec `vnc`/`rdp`/`ssh` sur le même
-  template (L93-97, `kasmvnc` est exclusif). Ce n'est donc pas un piège
-  silencieux : le webhook empêche déjà la configuration incohérente.
+  `Protocols: []string{"vnc", "rdp", "ssh"}`), and the template
+  webhook (`operator/internal/webhook/v1alpha1/workspacetemplate_webhook.go:68-69`,
+  `params.ValidateUserParamNames`) rejects, at creation time, a
+  `userParams` citing these names on a `kasmvnc` entry — which is
+  anyway impossible to combine with `vnc`/`rdp`/`ssh` on the same
+  template (L93-97, `kasmvnc` is exclusive). So this is not a silent
+  trap: the webhook already prevents the inconsistent configuration.
 
-## Cartographie des points de configuration
+## Mapping of configuration points
 
-| Champ | Qui l'édite | Portée protocole | Quand évalué | Rôle réel |
+| Field | Who edits it | Protocol scope | When evaluated | Real role |
 |---|---|---|---|---|
-| `WorkspacePolicy.spec.clipboard` (`CopyFromWorkspace`/`PasteToWorkspace`) | admin, CR | tous | à chaque connexion (guacd) / à chaque reconcile (kasmvnc) | **plafond de sécurité, seule autorité pour kasmvnc** |
-| `WorkspaceTemplate.spec.protocols[].params["disable-copy"/"disable-paste"]` | admin, CR template | `vnc`/`rdp`/`ssh` uniquement | à chaque connexion, template refetché | valeur par défaut appliquée si l'utilisateur ne soumet pas d'override |
-| `WorkspaceTemplate.spec.protocols[].userParams` | admin, CR template | `vnc`/`rdp`/`ssh` uniquement | à chaque connexion | **délégation de NOMS**, pas de valeurs : quels paramètres l'utilisateur peut soumettre en override |
-| `ConnectInput.Params` (dialog "paramètres de connexion", `ConnectionSettingsDialog.tsx`) | utilisateur connecté (ou owner du template / admin) | `vnc`/`rdp`/`ssh` uniquement, noms délégués seulement | à chaque connexion, éphémère — jamais persisté sur un CR | valeur effective demandée pour CETTE session |
-| Menu de session (`SessionOverlay.tsx`, overlay en session) | lecture seule | tous | affichage uniquement | reflète le résultat déjà clampé + explique QUI a bloqué (`ClipboardLockPolicy` vs `ClipboardLockParams`) |
+| `WorkspacePolicy.spec.clipboard` (`CopyFromWorkspace`/`PasteToWorkspace`) | admin, CR | all | on every connection (guacd) / on every reconcile (kasmvnc) | **security ceiling, sole authority for kasmvnc** |
+| `WorkspaceTemplate.spec.protocols[].params["disable-copy"/"disable-paste"]` | admin, template CR | `vnc`/`rdp`/`ssh` only | on every connection, template refetched | default value applied if the user doesn't submit an override |
+| `WorkspaceTemplate.spec.protocols[].userParams` | admin, template CR | `vnc`/`rdp`/`ssh` only | on every connection | **delegation of NAMES**, not values: which parameters the user is allowed to submit as an override |
+| `ConnectInput.Params` ("connection settings" dialog, `ConnectionSettingsDialog.tsx`) | connected user (or template owner / admin) | `vnc`/`rdp`/`ssh` only, delegated names only | on every connection, ephemeral — never persisted on a CR | effective value requested for THIS session |
+| Session menu (`SessionOverlay.tsx`, in-session overlay) | read-only | all | display only | mirrors the already-clamped result + explains WHO blocked it (`ClipboardLockPolicy` vs `ClipboardLockParams`) |
 
-Le "menu de session" **n'est jamais un point de décision** — c'est un
-miroir du résultat déjà calculé côté serveur (`clipboardCapabilities`,
-`api-server/internal/service/workspace_service.go:632-656`). Il n'y a
-donc pas 3 autorités qui pourraient se contredire, seulement 1 plafond
-(policy) et des restrictions en cascade.
+The "session menu" **is never a decision point** — it's a mirror of
+the result already computed server-side (`clipboardCapabilities`,
+`api-server/internal/service/workspace_service.go:632-656`). So there
+aren't 3 authorities that could contradict each other, only 1 ceiling
+(policy) and cascading restrictions.
 
-## Chaîne de résolution exacte — guacd (`vnc`/`rdp`/`ssh`)
+## Exact resolution chain — guacd (`vnc`/`rdp`/`ssh`)
 
-Code : `WorkspaceService.Connect`, `workspace_service.go:396-515`,
+Code: `WorkspaceService.Connect`, `workspace_service.go:396-515`,
 `clampClipboardGrant`/`mergeParams`/`clipboardCapabilities` L609-656.
 
 ```
-1. policyGrant = policy.ClipboardOf(policy résolue du CONNECTÉ)
-   → résolution échouée (pas de user, pas de policy matchée) = fail
+1. policyGrant = policy.ClipboardOf(resolved policy of the CONNECTED user)
+   → resolution failed (no user, no matched policy) = fail
      closed, (false, false)
 
-2. Pour chaque direction (copy / paste), valeur effective du param :
-   - si l'utilisateur a soumis une valeur dans ConnectInput.Params
-     ET que ce nom est autorisé
-       (nom ∈ params.ResolveUserParamNames(protocol, entry.UserParams)
-        OU acteur == admin OU acteur == owner déclaré du template)
-       ET la policy du connecté autorise le champ FieldProtocolParams
+2. For each direction (copy / paste), effective param value:
+   - if the user submitted a value in ConnectInput.Params
+     AND this name is authorized
+       (name ∈ params.ResolveUserParamNames(protocol, entry.UserParams)
+        OR actor == admin OR actor == declared owner of the template)
+       AND the connected user's policy allows the FieldProtocolParams field
        (intersection template.Overrides.AllowedFields × policy.Overrides.AllowedFields)
-     → cette valeur est utilisée (mergeParams : override ÉCRASE le défaut)
-   - sinon, valeur du template (entry.Spec.Params[name]) si présente
-   - sinon, absente (aucune restriction de cette couche)
+     → this value is used (mergeParams: override OVERWRITES the default)
+   - otherwise, the template's value (entry.Spec.Params[name]) if present
+   - otherwise, absent (no restriction from this layer)
 
 3. effectiveGrant.direction = policyGrant.direction
-                               AND NOT(valeur effective == true)
-   → un param ne peut QUE restreindre, jamais élargir au-delà de la
+                               AND NOT(effective value == true)
+   → a param can ONLY restrict, never widen beyond the
      policy (test "false params never override a policy denial",
      connect_clipboard_test.go)
 
-4. Le token de connexion signé embarque effectiveGrant — c'est lui que
-   wwt fait respecter par tunnel, pas les capabilities.
-   clipboardCapabilities(policyGrant, effectiveGrant) construit
-   UNIQUEMENT la vue d'affichage (menu de session) + le label de la
-   raison de blocage (policy gagne le label si les deux bloquent —
-   retirer le param ne changerait rien).
+4. The signed connection token embeds effectiveGrant — that's what
+   wwt enforces via the tunnel, not the capabilities.
+   clipboardCapabilities(policyGrant, effectiveGrant) builds
+   ONLY the display view (session menu) + the blocking-reason label
+   (policy wins the label if both block — removing the param would
+   change nothing).
 ```
 
-**Point clé** : `params` (verrouillé) et `userParams` (délégué) ne
-sont **pas mutuellement exclusifs dans le schéma** — un nom peut
-apparaître dans les deux à la fois (`params` fournit une valeur par
-défaut, `userParams` autorise l'utilisateur à la changer pour SA
-session). Un admin qui veut un vrai verrou (aucune négociation
-possible) doit simplement **omettre** le nom de `userParams` — le
-mettre dans `params` seul suffit à fixer la valeur pour tout le
-monde, sans qu'il soit nécessaire de le lister ailleurs pour que ce
-soit "verrouillé". Ce n'est pas un bug, mais le mot "locked" dans les
-commentaires du code peut prêter à confusion si on s'attend à ce que
-`params` et `userParams` soient une paire mutuellement exclusive
-(genre "soit fixé, soit délégué") — ce n'est pas le modèle réel.
+**Key point**: `params` (locked) and `userParams` (delegated) are
+**not mutually exclusive in the schema** — a name can appear in both
+at once (`params` supplies a default value, `userParams` allows the
+user to change it for THEIR session). An admin who wants a real lock
+(no negotiation possible) simply has to **omit** the name from
+`userParams` — putting it in `params` alone is enough to fix the value
+for everyone, without needing to list it anywhere else for it to be
+"locked". This is not a bug, but the word "locked" in the code
+comments can be confusing if you expect `params` and `userParams` to
+be a mutually exclusive pair (like "either fixed, or delegated") —
+that's not the actual model.
 
-## Chaîne de résolution exacte — `kasmvnc`
+## Exact resolution chain — `kasmvnc`
 
-Code : `WorkspaceReconciler.ensureKasmConfig`/`kasmClipboardGrant`/
+Code: `WorkspaceReconciler.ensureKasmConfig`/`kasmClipboardGrant`/
 `applyClipboardPolicy`, `operator/internal/controller/kasm_config.go:76-190`.
 
 ```
-1. Au RECONCILE (pas à la connexion) : policy.ClipboardOf(policy
-   résolue du PROPRIÉTAIRE du workspace, pas du connecté — commentaire
-   explicite : "Container-level DLP can only enforce ONE policy per
+1. At RECONCILE time (not at connection time): policy.ClipboardOf(resolved
+   policy of the workspace OWNER, not of the connected user — explicit
+   comment: "Container-level DLP can only enforce ONE policy per
    workload, so it follows the owner").
-   → résolution échouée = fail closed, (false, false).
+   → resolution failed = fail closed, (false, false).
 
-2. Ces deux booléens sont stampés dans le kasmvnc.yaml effectif
-   (admin's kasmvncConfig + ces clés en dernier, donc AUTORITAIRES) :
+2. These two booleans are stamped into the effective kasmvnc.yaml
+   (admin's kasmvncConfig + these keys last, so AUTHORITATIVE):
      data_loss_prevention.clipboard.server_to_client.enabled = copyAllowed
      data_loss_prevention.clipboard.client_to_server.enabled = pasteAllowed
-     allow_client_to_override_kasm_server_settings = false (toujours,
-       pour empêcher le client KasmVNC de rouvrir ce qui est fermé)
+     allow_client_to_override_kasm_server_settings = false (always,
+       to prevent the KasmVNC client from reopening what's closed)
 
-3. Le template `params`/`userParams` n'intervient JAMAIS ici — aucun
-   levier de restriction ou de délégation supplémentaire n'existe pour
-   kasmvnc, uniquement la policy.
+3. The template `params`/`userParams` NEVER come into play here — no
+   additional restriction or delegation lever exists for kasmvnc, only
+   the policy.
 
-4. Séparément, à la connexion, l'api-server calcule des `capabilities`
-   pour l'affichage (menu de session) — mais avec la policy du
-   CONNECTÉ, pas celle du propriétaire (`clipboardGrant` réutilise la
-   même fonction `resolveClipboardGrant` que le chemin guacd, sans
-   distinction propriétaire/connecté).
+4. Separately, at connection time, the api-server computes
+   `capabilities` for display (session menu) — but with the CONNECTED
+   user's policy, not the owner's (`clipboardGrant` reuses the same
+   `resolveClipboardGrant` function as the guacd path, with no
+   owner/connected-user distinction).
 ```
 
-**Point de vigilance repéré (documenté dans le code, pas un secret,
-mais à examiner si tu changes le modèle de partage)** : sur un
-workspace `kasmvnc` PARTAGÉ (RW/RO — voir
-[[waas-admin-workspace-scope-fix15]]), la policy réellement appliquée
-dans le conteneur est celle du **propriétaire**, alors que ce que
-l'utilisateur invité voit dans son menu de session (`capabilities`)
-reflète SA PROPRE policy à lui. Le commentaire du code l'assume
-explicitement : "The two agree on personal kasmvnc workspaces (owner
-== connecting user); the operator follows the workspace owner because
-container-level DLP is one-per-workload." Sur un partage entre deux
-utilisateurs à policies différentes, le menu de session d'un invité
-peut donc afficher un droit qui ne correspond pas à ce que le
-conteneur applique réellement. Pas un chemin d'exploitation (DLP reste
-fail-closed côté conteneur, donc jamais plus permissif que ce qui est
-affiché dans le pire cas où l'invité aurait une policy PLUS
-permissive que le propriétaire — dans ce cas le menu mentirait dans le
-sens "plus restrictif que réel" ; l'inverse — menu optimiste, DLP
-réel plus restrictif — est le cas gênant en UX, pas en sécurité).
+**Watch point identified (documented in the code, not a secret, but
+worth examining if you change the sharing model)**: on a SHARED
+`kasmvnc` workspace (RW/RO — see
+[[waas-admin-workspace-scope-fix15]]), the policy actually enforced
+inside the container is the **owner's**, whereas what the guest user
+sees in their session menu (`capabilities`) reflects THEIR OWN policy.
+The code comment explicitly assumes this: "The two agree on personal
+kasmvnc workspaces (owner == connecting user); the operator follows
+the workspace owner because container-level DLP is one-per-workload."
+On a share between two users with different policies, a guest's
+session menu can therefore display a right that doesn't match what the
+container actually enforces. Not an exploitation path (DLP remains
+fail-closed on the container side, so it's never more permissive than
+what's displayed in the worst case where the guest would have a
+policy MORE permissive than the owner's — in that case the menu would
+lie in the "more restrictive than reality" direction; the reverse —
+optimistic menu, real DLP more restrictive — is the annoying case for
+UX, not for security).
 
 ## Verdict
 
-**Pas un doublon** : dans les deux familles, `WorkspacePolicy.spec.clipboard`
-reste la seule autorité de sécurité. Le template ne peut jamais
-l'assouplir — côté guacd il peut seulement la restreindre davantage
-(AND logique, jamais OR), côté kasmvnc il n'a aucun levier du tout.
-Il n'y a pas 3 endroits qui "décident" indépendamment de la même
-chose : un seul plafond, des restrictions en cascade, un webhook qui
-empêche déjà la configuration incohérente (kasmvnc + userParams
-clipboard rejeté à la création).
+**Not a duplication**: in both families, `WorkspacePolicy.spec.clipboard`
+remains the sole security authority. The template can never relax it
+— on the guacd side it can only restrict it further (logical AND,
+never OR), on the kasmvnc side it has no lever at all. There aren't 3
+places that "decide" independently on the same thing: a single
+ceiling, cascading restrictions, a webhook that already prevents the
+inconsistent configuration (kasmvnc + clipboard userParams rejected at
+creation).
 
-**Ce qui mérite ton arbitrage, pas un bug mais un choix de design** :
-1. **Asymétrie structurelle assumée** entre guacd (4 couches
-   négociables) et kasmvnc (1 couche, tout-ou-rien) — cohérent avec le
-   fait que kasmvnc n'a pas de tunnel guacd à instrumenter en direct,
-   mais ça veut dire qu'un admin ne peut JAMAIS déléguer le clipboard
-   à l'utilisateur sur un workspace kasmvnc, même partiellement, alors
-   qu'il le peut sur vnc/rdp/ssh.
-2. **Divergence menu/réalité sur kasmvnc partagé** (ci-dessus) — à
-   corriger si le partage RW/RO de workspaces kasmvnc devient un
-   usage réel (aujourd'hui documenté comme acceptable parce que rare).
-3. **Sémantique `params`+`userParams` non mutuellement exclusive** —
-   fonctionne comme prévu mais le vocabulaire ("locked") peut induire
-   en erreur un admin qui lirait le schéma sans le code ; à clarifier
-   dans la doc CRD si tu gardes ce modèle tel quel.
+**What deserves your judgment call, not a bug but a design choice**:
+1. **Structural asymmetry, accepted as-is** between guacd (4
+   negotiable layers) and kasmvnc (1 layer, all-or-nothing) —
+   consistent with the fact that kasmvnc has no guacd tunnel to
+   instrument directly, but it means an admin can NEVER delegate the
+   clipboard to the user on a kasmvnc workspace, even partially,
+   whereas they can on vnc/rdp/ssh.
+2. **Menu/reality divergence on shared kasmvnc** (above) — to fix if
+   RW/RO sharing of kasmvnc workspaces becomes a real usage pattern
+   (today documented as acceptable because it's rare).
+3. **Non-mutually-exclusive `params`+`userParams` semantics** — works
+   as intended but the vocabulary ("locked") can mislead an admin who
+   reads the schema without the code; worth clarifying in the CRD docs
+   if you keep this model as-is.

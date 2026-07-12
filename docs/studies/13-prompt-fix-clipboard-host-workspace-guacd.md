@@ -1,188 +1,187 @@
-# Prompt Fable 5 — Fix : clipboard host↔workspace mort en dev (guacd) — HTTPS requis sur l'env de dev
+# Fable 5 Prompt — Fix: host↔workspace clipboard dead in dev (guacd) — HTTPS required on the dev env
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context.
 
-Le pendant kasmvnc de ce bug a déjà été traité (commit `afc081da`,
-prompt `docs/studies/14-prompt-fix-clipboard-host-workspace-kasmvnc.md`) :
-la conclusion là-bas était la même — le clipboard seamless exige un
-**contexte sécurisé** — et le fix kasmvnc ne peut donc lui non plus être
-vérifié en dev tant que l'env de dev reste en HTTP pur. Le HTTPS de dev
-livré ici sert les deux protocoles.
+The kasmvnc counterpart of this bug has already been handled (commit
+`afc081da`, prompt `docs/studies/14-prompt-fix-clipboard-host-workspace-kasmvnc.md`):
+the conclusion there was the same — seamless clipboard requires a
+**secure context** — and the kasmvnc fix therefore couldn't be
+verified in dev either as long as the dev env stayed on plain HTTP. The dev
+HTTPS delivered here serves both protocols.
 
-## Symptôme (corrigé — l'ancienne version de ce prompt était fausse)
+## Symptom (fixed — the old version of this prompt was wrong)
 
-- **À l'intérieur d'un workspace**, le copier-coller fonctionne
-  normalement (copier dans une appli du bureau distant, coller dans une
-  autre appli du même bureau).
-- **Entre le poste local (host) et un workspace**, le clipboard seamless
-  ne fonctionne dans **aucun des deux sens** : ni copier sur le host →
-  Ctrl+V dans le workspace, ni copier dans le workspace → coller sur le
+- **Inside a workspace**, copy-paste works
+  normally (copy in one remote-desktop app, paste into
+  another app of the same desktop).
+- **Between the local machine (host) and a workspace**, seamless clipboard
+  doesn't work in **either direction**: neither copy on the host →
+  Ctrl+V in the workspace, nor copy in the workspace → paste on the
   host.
-- Le fallback manuel de l'overlay (`SessionOverlay.tsx`, section
-  « clipboardManual », les deux `<textarea>`) fonctionne — le bug est
-  dégradant, pas bloquant.
+- The overlay's manual fallback (`SessionOverlay.tsx`, the
+  "clipboardManual" section, the two `<textarea>`s) works — the bug is
+  degrading, not blocking.
 
-## Cause racine (vérifiée sur code — à confirmer en navigateur)
+## Root cause (verified on code — to confirm in browser)
 
-L'environnement de dev est servi en **HTTP pur** sur
-`http://waas.127.0.0.1.nip.io:8080` (cf. `hack/dev/values-dev.yaml` :
-`ingress.tls.enabled: false` ; `hack/dev/k3d-config.yaml` : seul le port
-80 du loadbalancer est mappé). Or `waas.127.0.0.1.nip.io` n'est **pas**
-un contexte sécurisé : les navigateurs jugent l'origine sur son nom
-(`localhost`, `*.localhost`, IP littérale `127.0.0.1`), pas sur ce que
-le DNS résout — un sous-domaine nip.io en http ne compte pas, même s'il
-pointe sur la loopback (`window.isSecureContext === false`).
+The dev environment is served over **plain HTTP** on
+`http://waas.127.0.0.1.nip.io:8080` (cf. `hack/dev/values-dev.yaml`:
+`ingress.tls.enabled: false`; `hack/dev/k3d-config.yaml`: only port
+80 of the load balancer is mapped). Now `waas.127.0.0.1.nip.io` is **not**
+a secure context: browsers judge the origin by its name
+(`localhost`, `*.localhost`, literal IP `127.0.0.1`), not by what
+DNS resolves to — a nip.io subdomain over http doesn't count, even if it
+points to loopback (`window.isSecureContext === false`).
 
-Conséquence : `navigator.clipboard` **n'existe pas du tout** sur cette
-origine, et tout le pont clipboard du chemin guacd se désactive par ses
-propres gardes — comportement déjà documenté honnêtement dans
-`frontend/src/lib/clipboard.ts` (en-tête L9-15) :
+Consequence: `navigator.clipboard` **doesn't exist at all** on this
+origin, and the entire clipboard bridge on the guacd path disables itself
+through its own guards — behavior already honestly documented in
+`frontend/src/lib/clipboard.ts` (header L9-15):
 
-1. **remote→host mort** : `client.onclipboard`
-   (`frontend/src/components/DesktopPane.tsx:210-228`) ne tente
-   `writeText` que si `hasClipboardApi()` (L224) — faux ici.
-2. **host→remote seamless mort** : `syncFromSystem()` (L254-260,
-   déclenché sur `focus` et à la connexion) sort immédiatement sur
-   `canReadSystemClipboard()` — faux ici.
-3. **host→remote via l'event `paste` (L245-249) mort aussi**, mais pour
-   une raison indépendante du HTTPS : `Guacamole.Keyboard(container)`
-   (L298+) attache ses listeners en capture sur le même `container` et
-   appelle `e.preventDefault()` sur toute touche interprétée (Ctrl et V
-   compris — `onkeydown` renvoie `undefined` car `sendKeyEvent` ne
-   retourne rien, traité comme « bloquer le défaut »). Un keydown dont
-   le défaut est empêché ne déclenche jamais la commande d'édition
-   native → l'event DOM `paste` ne se produit pas pendant un Ctrl+V réel
-   dans le pane.
-4. **Pourquoi l'intérieur du workspace marche** : ce chemin ne passe
-   jamais par le navigateur — les frappes sont relayées au bureau
-   distant qui gère son propre presse-papiers. Cohérent avec le
-   symptôme.
+1. **remote→host dead**: `client.onclipboard`
+   (`frontend/src/components/DesktopPane.tsx:210-228`) only attempts
+   `writeText` if `hasClipboardApi()` (L224) — false here.
+2. **host→remote seamless dead**: `syncFromSystem()` (L254-260,
+   triggered on `focus` and on connection) exits immediately on
+   `canReadSystemClipboard()` — false here.
+3. **host→remote via the `paste` event (L245-249) also dead**, but for
+   a reason independent of HTTPS: `Guacamole.Keyboard(container)`
+   (L298+) attaches its listeners in capture phase on the same `container`
+   and calls `e.preventDefault()` on every interpreted key (Ctrl and V
+   included — `onkeydown` returns `undefined` since `sendKeyEvent` doesn't
+   return anything, treated as "block the default"). A keydown whose
+   default is prevented never triggers the native editing command → the DOM
+   `paste` event never fires during a real Ctrl+V
+   in the pane.
+4. **Why the inside-of-workspace case works**: this path never goes
+   through the browser — keystrokes are relayed to the remote desktop
+   which manages its own clipboard. Consistent with the
+   symptom.
 
-Le point 3 explique pourquoi même le « filet de sécurité » censé marcher
-sans HTTPS ne sauve pas la mise. Mais la cause dominante et le
-prérequis de tout le reste, c'est l'absence de contexte sécurisé : sans
-elle, rien n'est même testable.
+Point 3 explains why even the "safety net" that was supposed to work
+without HTTPS doesn't save the day. But the dominant cause and the
+prerequisite for everything else is the absence of a secure context: without
+it, nothing is even testable.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### 1. HTTPS sur l'environnement de dev (livrable principal)
+### 1. HTTPS on the dev environment (main deliverable)
 
-Objectif : `https://waas.127.0.0.1.nip.io:8443` fonctionnel avec un
-certificat auto-signé — l'avertissement navigateur est accepté
-manuellement une fois, c'est assumé. cert-manager est **déjà installé**
-par `make dev-up` et le chart supporte déjà le TLS d'ingress
-(`helm/waas/templates/ingress.yaml:9-27` : annotation
-`cert-manager.io/issuer` ou `cluster-issuer` selon `issuerRef.kind`,
-section `tls` avec `secretName: {{ .Release.Name }}-public-tls`).
+Goal: `https://waas.127.0.0.1.nip.io:8443` working with a
+self-signed certificate — the browser warning is manually accepted
+once, that's an accepted trade-off. cert-manager is **already installed**
+by `make dev-up` and the chart already supports ingress TLS
+(`helm/waas/templates/ingress.yaml:9-27`: `cert-manager.io/issuer`
+or `cluster-issuer` annotation depending on `issuerRef.kind`,
+`tls` section with `secretName: {{ .Release.Name }}-public-tls`).
 
-- **`hack/dev/k3d-config.yaml`** : ajouter le mapping
-  `- port: "8443:443"` avec `nodeFilters: ["loadbalancer"]`. Pour les
-  clusters existants (le fichier n'est lu qu'à la création) : documente
-  `k3d cluster edit waas-dev --port-add "8443:443@loadbalancer"` comme
-  alternative à `make dev-reset` (le edit recrée le conteneur
-  loadbalancer seulement, sans perdre le cluster).
-- **`hack/dev/values-dev.yaml`** : passer `ingress.tls.enabled: true`
-  avec `issuerRef: { kind: Issuer, name: waas-selfsigned }` pour
-  **réutiliser** l'Issuer self-signed que le chart crée déjà pour le
-  webhook de l'opérateur
+- **`hack/dev/k3d-config.yaml`**: add the mapping
+  `- port: "8443:443"` with `nodeFilters: ["loadbalancer"]`. For
+  existing clusters (the file is only read at creation time): document
+  `k3d cluster edit waas-dev --port-add "8443:443@loadbalancer"` as
+  an alternative to `make dev-reset` (the edit only recreates the
+  loadbalancer container, without losing the cluster).
+- **`hack/dev/values-dev.yaml`**: set `ingress.tls.enabled: true`
+  with `issuerRef: { kind: Issuer, name: waas-selfsigned }` to
+  **reuse** the self-signed Issuer that the chart already creates for
+  the operator's webhook
   (`helm/waas/templates/operator-webhook.yaml:5-11`,
-  `{{ .Release.Name }}-selfsigned`, release `waas` en dev → ingress et
-  Issuer dans le même namespace, l'annotation `cert-manager.io/issuer`
-  suffit). Attention : cet Issuer est gaté par
-  `operator.webhook.enabled` — vérifie qu'il est actif en dev (il l'est
-  par défaut, l'opérateur en a besoin). S'il s'avérait désactivable,
-  bascule sur un petit manifest dev-only
-  (`hack/dev/selfsigned-clusterissuer.yaml`, `kubectl apply` dans
-  `dev-deploy`) plutôt que de coupler.
-- **Traefik (bundled k3s)** : rien à installer — il expose `websecure`
-  (443) d'office et terminera le TLS avec le secret `waas-public-tls`
-  créé par l'ingress-shim de cert-manager. Vérifie après déploiement que
-  le `Certificate` est `Ready` et que le secret existe dans le namespace
-  de la release.
-- **HTTP doit continuer de marcher** : `http://waas.127.0.0.1.nip.io:8080`
-  reste le chemin des smoke tests (`WAAS_SMOKE_URL`, Makefile L192) et
-  de la vérif e2e Playwright — ne mets **aucune** redirection
-  HTTP→HTTPS. Avec l'ingress provider de Traefik, une section `tls`
-  n'éteint pas le routeur HTTP ; vérifie-le après coup (un `curl` sur
-  les deux ports).
-- **`Makefile` cible `dev-url`** : afficher les deux URLs, en signalant
-  que le clipboard seamless exige la variante https.
-- Si un doc de dev (README, `docs/`) mentionne l'URL de dev, mets-le à
-  jour.
+  `{{ .Release.Name }}-selfsigned`, release `waas` in dev → ingress and
+  Issuer in the same namespace, the `cert-manager.io/issuer` annotation
+  suffices). Watch out: this Issuer is gated by
+  `operator.webhook.enabled` — check that it's active in dev (it is
+  by default, the operator needs it). If it turns out to be disableable,
+  fall back to a small dev-only manifest
+  (`hack/dev/selfsigned-clusterissuer.yaml`, `kubectl apply` in
+  `dev-deploy`) rather than coupling it.
+- **Traefik (bundled with k3s)**: nothing to install — it exposes `websecure`
+  (443) out of the box and will terminate TLS with the `waas-public-tls`
+  secret created by cert-manager's ingress-shim. Verify after deployment that
+  the `Certificate` is `Ready` and that the secret exists in the
+  release's namespace.
+- **HTTP must keep working**: `http://waas.127.0.0.1.nip.io:8080`
+  stays the path for smoke tests (`WAAS_SMOKE_URL`, Makefile L192) and
+  for the Playwright e2e check — add **no** HTTP→HTTPS
+  redirect. With Traefik's ingress provider, a `tls`
+  section doesn't turn off the HTTP router; verify this afterward (a
+  `curl` on both ports).
+- **`Makefile` `dev-url` target**: display both URLs, noting
+  that seamless clipboard requires the https variant.
+- If a dev doc (README, `docs/`) mentions the dev URL, update it.
 
-### 2. Vérification en conditions réelles (fait partie du livrable)
+### 2. Verification under real conditions (part of the deliverable)
 
-Sous `https://waas.127.0.0.1.nip.io:8443` (Chromium, interstitiel de
-certificat accepté — le `wss://` du tunnel passe dès que l'exception
-d'origine est acceptée) :
+Under `https://waas.127.0.0.1.nip.io:8443` (Chromium, certificate
+interstitial accepted — the tunnel's `wss://` goes through as soon as
+the origin exception is accepted):
 
-- **remote→host** : copier un texte dans le bureau distant → il doit
-  arriver dans le presse-papiers du host (`writeText`, L224-226, ne
-  demande pas de permission en Chromium).
-- **host→remote** : copier un texte dans une appli **hors navigateur**
-  → revenir sur l'onglet → Ctrl+V dans le pane. C'est ici que le
-  diagnostic secondaire (ci-dessous) se départage — observe avant de
-  coder : log temporairement la promesse rejetée de `readText()` au
-  lieu de l'avaler (L259), et log si l'event `paste` se déclenche.
-- Documente le protocole et les résultats observés dans le commit ou
-  dans `docs/studies/` — c'est un comportement de modèle de permission
-  navigateur, non simulable en jsdom.
+- **remote→host**: copy text in the remote desktop → it must
+  land in the host's clipboard (`writeText`, L224-226, doesn't
+  ask for permission in Chromium).
+- **host→remote**: copy text in an app **outside the browser** →
+  come back to the tab → Ctrl+V in the pane. This is where the
+  secondary diagnostic (below) splits — observe before
+  coding: temporarily log the rejected promise of `readText()` instead
+  of swallowing it (L259), and log whether the `paste` event fires.
+- Document the protocol and the observed results in the commit or
+  in `docs/studies/` — this is a browser permission model
+  behavior, not simulable in jsdom.
 
-### 3. Seulement si host→remote reste cassé sous HTTPS
+### 3. Only if host→remote is still broken under HTTPS
 
-Le diagnostic hérité de l'ancienne version de ce prompt prévoit deux
-problèmes qui survivent au passage en HTTPS :
+The diagnostic inherited from the old version of this prompt anticipates two
+problems that would survive the move to HTTPS:
 
-- `readText()` sur l'event `focus` n'est pas dans une activation
-  utilisateur transitoire : si la permission `clipboard-read` n'est pas
-  déjà accordée, Chrome peut rejeter silencieusement sans jamais
-  afficher le prompt. Fix : tenter aussi la lecture dans un **vrai geste
-  utilisateur** — le point d'entrée naturel est le `mousedown` qui fait
-  déjà `container.focus()` (L289-292). Garde `focus`/connexion en plus
-  (couvre le cas permission déjà accordée).
-- L'event `paste` tué par `Guacamole.Keyboard` (point 3 du diagnostic) :
-  soit corrige honnêtement les commentaires qui le présentent comme
-  filet universel (`DesktopPane.tsx:243-244`, `lib/clipboard.ts:12-13`),
-  soit — seulement si c'est propre — laisse passer le défaut navigateur
-  sur la combinaison Ctrl+V sans retirer le relais de la frappe au
-  bureau distant. La correction de commentaire seule est un fix valide.
+- `readText()` on the `focus` event isn't within a transient user
+  activation: if the `clipboard-read` permission hasn't already
+  been granted, Chrome may silently reject without ever
+  showing the prompt. Fix: also attempt the read within a **real user
+  gesture** — the natural entry point is the `mousedown` that already
+  does `container.focus()` (L289-292). Keep `focus`/connection as well
+  (covers the case where permission is already granted).
+- The `paste` event killed by `Guacamole.Keyboard` (diagnostic point 3):
+  either honestly fix the comments that present it as a
+  universal safety net (`DesktopPane.tsx:243-244`, `lib/clipboard.ts:12-13`),
+  or — only if it's clean — let the browser default pass through on
+  Ctrl+V without removing the keystroke relay to the remote
+  desktop. The comment-only fix is a valid fix.
 
-**Ne retire jamais** le relais clavier (`keyboard.onkeydown`/`onkeyup`) :
-c'est lui qui permet à l'appli DANS le workspace d'exécuter son propre
-paste — c'est le comportement qui marche déjà.
+**Never remove** the keyboard relay (`keyboard.onkeydown`/`onkeyup`):
+it's what lets the app INSIDE the workspace run its own
+paste — that's the behavior that already works.
 
-## Contraintes
+## Constraints
 
-- Ne touche pas au chemin kasmvnc (déjà livré, cf. en-tête) — mais
-  profite du HTTPS pour vérifier que son clipboard marche désormais, et
-  note le résultat.
-- Ne régresse ni le fallback manuel de l'overlay (ultime recours
-  Firefox / permission refusée), ni la gestion du focus multi-pane (le
-  clic ne donne le clavier qu'à CE pane), ni les smoke tests HTTP.
-- Pas de nouvelle dépendance ; pas de cert à installer dans le trust
-  store du poste (l'avertissement navigateur accepté suffit).
-- Le chemin prod (`ingress.tls` avec un vrai issuer) ne doit pas changer
-  de comportement : tout se joue dans `hack/dev/` + Makefile.
+- Don't touch the kasmvnc path (already delivered, cf. header) — but
+  take advantage of HTTPS to verify that its clipboard now works, and
+  note the result.
+- Don't regress the overlay's manual fallback (last resort for
+  Firefox / permission refused), nor the multi-pane focus handling (a
+  click only gives the keyboard to THAT pane), nor the HTTP smoke tests.
+- No new dependency; no cert to install in the machine's
+  trust store (the accepted browser warning is enough).
+- The prod path (`ingress.tls` with a real issuer) must not change
+  behavior: everything happens within `hack/dev/` + Makefile.
 
 ## Tests
 
-- `make dev-reset && make dev-bootstrap` (ou cluster edit + dev-deploy)
-  passe et `dev-url` affiche les deux URLs ; `curl -k` répond en 200/302
-  sur les deux ports.
-- Protocole manuel du § 2 (les deux sens, Chromium) — documenté.
-- Non-régression : scénario intérieur-workspace intact ; smoke
-  (`make smoke`) toujours vert en HTTP ; Vitest existants
-  (`DesktopPane`/`SessionOverlay`) verts.
+- `make dev-reset && make dev-bootstrap` (or cluster edit + dev-deploy)
+  passes and `dev-url` shows both URLs; `curl -k` responds with 200/302
+  on both ports.
+- Manual protocol from § 2 (both directions, Chromium) — documented.
+- Non-regression: inside-workspace scenario intact; smoke
+  (`make smoke`) still green over HTTP; existing Vitest tests
+  (`DesktopPane`/`SessionOverlay`) green.
 
-## Points ouverts (ton arbitrage)
+## Open points (your arbitration)
 
-- Si le § 3 s'avère nécessaire : documenter les limites d'`onPaste` vs
-  le rendre réellement fonctionnel — tranche selon ce que tu observes.
-- `waas.localhost` en HTTP serait aussi un contexte sécurisé (zéro
-  cert, zéro warning) mais a été écarté : le HTTPS de dev est plus
-  proche de la prod, exerce `wss://` + terminaison TLS Traefik, et
-  reste utile pour tester depuis une autre machine. Ne rebascule pas
-  sur cette option sans raison forte — si tu en vois une, dis-le au
-  lieu de changer silencieusement.
+- If § 3 turns out to be necessary: document `onPaste`'s limits vs.
+  make it actually functional — decide based on what you observe.
+- `waas.localhost` over HTTP would also be a secure context (zero
+  cert, zero warning) but was ruled out: dev HTTPS is closer
+  to prod, exercises `wss://` + Traefik TLS termination, and
+  remains useful for testing from another machine. Don't fall back
+  to this option without a strong reason — if you see one, say
+  so instead of silently switching.
+</content>

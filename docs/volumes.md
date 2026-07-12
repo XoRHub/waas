@@ -1,88 +1,89 @@
-# Volumes home : rétention, réutilisation, quotas
+# Home volumes: retention, reuse, quotas
 
-## Modèle
+## Model
 
-**Le PVC est la source de vérité** — pas de table SQL, pas de CRD dédié.
-Un « volume conservé » est un PVC home géré par WaaS dont le workspace
-n'existe plus, identifié par ses labels :
+**The PVC is the source of truth** — no SQL table, no dedicated CRD.
+A "retained volume" is a WaaS-managed home PVC whose workspace
+no longer exists, identified by its labels:
 
-| Clé | Rôle |
+| Key | Role |
 |---|---|
-| `app.kubernetes.io/managed-by: waas-operator` | objet géré par la plateforme |
-| `waas.xorhub.io/owner: <uuid>` | propriété de l'utilisateur (clé quota + dashboards) |
-| `waas.xorhub.io/retained: "true"` | détaché d'un workspace supprimé |
-| annotation `waas.xorhub.io/origin-workspace` | provenance (nom d'affichage) |
-| annotation `waas.xorhub.io/retained-at` | date de détachement (RFC3339) |
+| `app.kubernetes.io/managed-by: waas-operator` | platform-managed object |
+| `waas.xorhub.io/owner: <uuid>` | user ownership (quota key + dashboards) |
+| `waas.xorhub.io/retained: "true"` | detached from a deleted workspace |
+| annotation `waas.xorhub.io/origin-workspace` | provenance (display name) |
+| annotation `waas.xorhub.io/retained-at` | detachment date (RFC3339) |
 
-Les labels par-workspace (`waas.xorhub.io/workspace`, `…/workspace-namespace`)
-sont retirés au détachement : ils pointeraient sur un CR mort.
+Per-workspace labels (`waas.xorhub.io/workspace`, `…/workspace-namespace`)
+are removed on detachment: they would point to a dead CR.
 
-## Cycle de vie
+## Lifecycle
 
 ```
-création ──► home PVC "<workload>-home" (labels live)
+creation ──► home PVC "<workload>-home" (live labels)
    │
-suppression du workspace (DELETE /workspaces/{id}?keepVolume=…)
+workspace deletion (DELETE /workspaces/{id}?keepVolume=…)
    │
-   ├── keepVolume=true (DÉFAUT) ── finalizer : DÉTACHE
-   │     retained=true + provenance ; le volume reste la propriété de
-   │     l'utilisateur et CONTINUE de compter dans son quota storage
+   ├── keepVolume=true (DEFAULT) ── finalizer: DETACH
+   │     retained=true + provenance; the volume remains the property
+   │     of the user and CONTINUES to count against their storage
+   │     quota
    │     │
-   │     ├── réutilisation : création avec spec.homeVolumeName
-   │     │     (« partir d'un volume existant ») — le webhook vérifie :
-   │     │     même owner, volume retained, même namespace de destination
-   │     │     (un PVC est namespacé : il n'est réattachable que là où il
-   │     │     a été laissé). L'operator ré-étiquette le volume live.
+   │     ├── reuse: creation with spec.homeVolumeName
+   │     │     ("start from an existing volume") — the webhook checks:
+   │     │     same owner, volume retained, same target namespace
+   │     │     (a PVC is namespaced: it can only be reattached where it
+   │     │     was left). The operator re-labels the volume as live.
    │     │
-   │     └── suppression : dashboard utilisateur (onglet Volumes) ou
-   │           vue admin (Fleet → Volumes) — auditée (volume.deleted,
-   │           via=admin pour l'admin), jamais sans confirmation.
+   │     └── deletion: user dashboard (Volumes tab) or
+   │           admin view (Fleet → Volumes) — audited (volume.deleted,
+   │           via=admin for the admin), never without confirmation.
    │
-   └── keepVolume=false (opt-in EXPLICITE du dialogue) ── finalizer :
-         supprime le PVC avec le workspace. L'annotation
-         waas.xorhub.io/delete-home="true" est le seul chemin de
-         suppression avec le workspace : sans elle, on conserve.
+   └── keepVolume=false (EXPLICIT opt-in from the dialog) ── finalizer:
+         deletes the PVC along with the workspace. The
+         waas.xorhub.io/delete-home="true" annotation is the only path
+         to deleting it with the workspace: without it, it is retained.
 ```
 
-Exception assumée : `lifecycle.maxLifetime` (policy) supprime le
-workspace **et** son volume à l'expiration — récupérer le stockage est
-précisément le contrat d'un TTL (comportement inchangé, documenté dans
+Accepted exception: `lifecycle.maxLifetime` (policy) deletes the
+workspace **and** its volume on expiry — reclaiming storage is
+precisely the contract of a TTL (unchanged behavior, documented in
 `docs/governance.md`).
 
-`cleanup: DeleteWhenEmpty` (placement) reste compatible : un namespace
-qui héberge un volume conservé n'est jamais supprimé (le PVC waas le
-retient). C'est le **namespace janitor** (reconciler interne de
-l'operator) qui réclame le namespace quand le volume est finalement
-supprimé — l'événement de suppression du PVC le re-déclenche, il n'y a
-pas besoin qu'un workspace existe encore (voir
+`cleanup: DeleteWhenEmpty` (placement) remains compatible: a namespace
+hosting a retained volume is never deleted (the waas PVC
+retains it). It's the **namespace janitor** (internal operator
+reconciler) that reclaims the namespace once the volume is finally
+deleted — the PVC deletion event re-triggers it, there's no
+need for a workspace to still exist (see
 `docs/workspace-deletion.md`).
 
 ## Quotas
 
-Les volumes conservés pèsent dans `limits.aggregate.storage` de la policy
-**exactement comme côté admission** : le webhook, le re-check du
-reconciler et `GET /me/quota` passent tous par `policy.RetainedVolumeLoads`
-(charges storage-only, `Detached=true` — jamais comptées dans
-`maxWorkspaces` ni dans le compute). La home affiche `used.storage /
-limits.storage` du serveur, avec le détail « dont X conservés ». Un
-volume adopté à la création est décompté à sa taille réelle (celle du
-PVC, pas le homeSize du template).
+Retained volumes count against the policy's `limits.aggregate.storage`
+**exactly as on the admission side**: the webhook, the reconciler
+re-check and `GET /me/quota` all go through `policy.RetainedVolumeLoads`
+(storage-only loads, `Detached=true` — never counted in
+`maxWorkspaces` nor in compute). The home page shows `used.storage /
+limits.storage` from the server, with a "of which X retained" breakdown. A
+volume adopted at creation is counted at its actual size (that of the
+PVC, not the template's homeSize).
 
 ## API
 
 - `DELETE /api/v1/workspaces/{id}?keepVolume=true|false` (absent = true)
 - `GET /api/v1/volumes` / `DELETE /api/v1/volumes/{ns}/{name}` (owner)
 - `GET /api/v1/admin/volumes` / `DELETE /api/v1/admin/volumes/{ns}/{name}`
-- `POST /api/v1/workspaces` accepte `homeVolumeName`
+- `POST /api/v1/workspaces` accepts `homeVolumeName`
 
-RBAC : l'operator détache/adopte (update PVC) ; l'api-server liste et
-supprime (ClusterRole `…-api-server-volumes`, get/list/delete uniquement).
+RBAC: the operator detaches/adopts (updates the PVC); the api-server
+lists and deletes (ClusterRole `…-api-server-volumes`, get/list/delete only).
 
-## Migration des volumes antérieurs
+## Migrating older volumes
 
-Les home PVC laissés par des workspaces supprimés AVANT cette
-fonctionnalité n'ont pas le label `retained` : invisibles des dashboards
-et du quota. Pour les intégrer :
+Home PVCs left behind by workspaces deleted BEFORE this
+feature don't carry the `retained` label: invisible to dashboards
+and quota. To onboard them:
 
 ```sh
 kubectl label pvc <name> -n <ns> waas.xorhub.io/retained=true
@@ -90,4 +91,4 @@ kubectl label pvc <name> -n <ns> waas.xorhub.io/workspace- waas.xorhub.io/worksp
 kubectl annotate pvc <name> -n <ns> waas.xorhub.io/retained-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 ```
 
-(le label `waas.xorhub.io/owner` existant fait foi pour la propriété).
+(the existing `waas.xorhub.io/owner` label is authoritative for ownership).

@@ -1,12 +1,12 @@
-# Prompt Fable 5 — Feature 8 : cible make de bootstrap complet + reload qui rebuild aussi les images workspace
+# Fable 5 Prompt — Feature 8: full bootstrap make target + reload that also rebuilds workspace images
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du principe que tu (Fable 5) n'as aucun contexte de conversation préalable.
+Paste this document as-is as an implementation prompt. It assumes you (Fable 5) have no prior conversation context.
 
-## Contexte du repo
+## Repo context
 
-L'environnement de dev local tourne sur k3d, piloté par le `Makefile` racine (`/Makefile`). Il existe déjà un jeu de cibles bien découpées, mais (1) aucune cible unique n'enchaîne tout le bootstrap de zéro (cluster → build → load → deploy → images workspace), il faut aujourd'hui invoquer 4-5 commandes `make` dans l'ordre documenté seulement en commentaire, et (2) `dev-reload`, la boucle de rechargement rapide en cours de dev, ne rebuild/recharge que les 4 images de service (operator/api-server/wwt/frontend) — jamais les images desktop de `waas-images/`.
+The local dev environment runs on k3d, driven by the root `Makefile` (`/Makefile`). There is already a set of well-broken-down targets, but (1) no single target chains the whole bootstrap from scratch (cluster → build → load → deploy → workspace images) — today you have to invoke 4-5 `make` commands in an order that is only documented in a comment, and (2) `dev-reload`, the fast reload loop used during dev, only rebuilds/reloads the 4 service images (operator/api-server/wwt/frontend) — never the desktop images from `waas-images/`.
 
-## Ce qui existe déjà (à connaître avant de coder — le Makefile actuel dans son intégralité pertinente)
+## What already exists (know this before coding — the full relevant current Makefile)
 
 ```
 GO_MODULES     := shared operator api-server wwt
@@ -14,46 +14,46 @@ CLUSTER_NAME   := waas-dev
 DEV_NAMESPACE  := waas
 IMAGE_TAG      := dev
 DEV_IMAGES     := operator api-server wwt frontend
-WORKSPACE_BASE_IMAGES := ubuntu-base-vnc ubuntu-base-rdp   # build-only, jamais importées
+WORKSPACE_BASE_IMAGES := ubuntu-base-vnc ubuntu-base-rdp   # build-only, never imported
 WORKSPACE_IMAGES      := ubuntu-xfce ubuntu-firefox dev-ssh
 ```
 
-- `all: build` (ligne 22) — build Go uniquement, sans rapport avec le dev k3d.
-- `dev-up` (75-83) : crée le cluster k3d (`hack/dev/k3d-config.yaml`) + installe cert-manager. Idempotent (`k3d cluster list ... || k3d cluster create ...`).
-- `dev-build` (90) = `docker-build` (61-65) : build les 4 images de service, tag `ghcr.io/xorhub/waas/<img>:dev`.
-- `dev-load` (92-96) : `k3d image import` en boucle sur `DEV_IMAGES`.
-- `dev-deploy` (98-110) : `kubectl apply -f helm/waas/crds/` (les CRDs ne sont jamais mises à jour par un `helm upgrade`, seulement à l'install — d'où cet apply explicite systématique) + `helm upgrade --install waas ...` + seed du secret ssh + `dev-url`.
-- `dev-reload` (112-119) : **déjà** `dev-build dev-load dev-deploy` + `kubectl rollout restart` sur les 4 deployments de service. Le commentaire au-dessus (112-116) explique que `dev-deploy` y est non-optionnel exprès : un incident réel (lockout netpol guacd) est arrivé parce qu'un restart seul réutilisait le rendu Helm précédent sans re-render du chart. **Donc le "reload qui rebuild les images" demandé existe déjà pour les 4 images de service** — le vrai manque est qu'il ne touche jamais aux images desktop.
-- `dev-build-images` (122-126) : boucle `$(MAKE) -C waas-images build IMAGE=$$img` sur `WORKSPACE_BASE_IMAGES` + `WORKSPACE_IMAGES`.
-- `dev-load-images` (128-142, dépend de `dev-build-images`) : `k3d image import waas-local/$$img:dev` sur `WORKSPACE_IMAGES` seulement (les images de base ne sont jamais importées, elles ne tournent jamais en pod) + reseed secret ssh + `kubectl apply` sur `images-dev.yaml`/`templates-dev.yaml`/`gitops/governance/policies.yaml`. Nécessite que le namespace existe déjà (donc après `dev-deploy`).
-- Le flux "typique" est documenté seulement en commentaire (68-73) :
+- `all: build` (line 22) — Go build only, unrelated to k3d dev.
+- `dev-up` (75-83): creates the k3d cluster (`hack/dev/k3d-config.yaml`) + installs cert-manager. Idempotent (`k3d cluster list ... || k3d cluster create ...`).
+- `dev-build` (90) = `docker-build` (61-65): builds the 4 service images, tagged `ghcr.io/xorhub/waas/<img>:dev`.
+- `dev-load` (92-96): `k3d image import` in a loop over `DEV_IMAGES`.
+- `dev-deploy` (98-110): `kubectl apply -f helm/waas/crds/` (CRDs are never updated by a `helm upgrade`, only on install — hence this systematic explicit apply) + `helm upgrade --install waas ...` + ssh secret seed + `dev-url`.
+- `dev-reload` (112-119): **already** `dev-build dev-load dev-deploy` + `kubectl rollout restart` on the 4 service deployments. The comment above it (112-116) explains that `dev-deploy` is intentionally non-optional there: a real incident (guacd netpol lockout) happened because a restart alone reused the previous Helm render without re-rendering the chart. **So the "reload that rebuilds images" requested here already exists for the 4 service images** — the real gap is that it never touches the desktop images.
+- `dev-build-images` (122-126): loops `$(MAKE) -C waas-images build IMAGE=$$img` over `WORKSPACE_BASE_IMAGES` + `WORKSPACE_IMAGES`.
+- `dev-load-images` (128-142, depends on `dev-build-images`): `k3d image import waas-local/$$img:dev` on `WORKSPACE_IMAGES` only (base images are never imported, they never run as a pod) + ssh secret reseed + `kubectl apply` on `images-dev.yaml`/`templates-dev.yaml`/`gitops/governance/policies.yaml`. Requires the namespace to already exist (hence after `dev-deploy`).
+- The "typical" flow is documented only as a comment (68-73):
   ```
   make dev-up
   make dev-build dev-load dev-deploy
   make dev-load-images
-  make dev-reload      # après modif de code
+  make dev-reload      # after a code change
   make dev-down
   ```
-- `smoke` (159-161) : lance `test/smoke/` contre l'URL dev (`WAAS_SMOKE_URL`, défaut `http://waas.127.0.0.1.nip.io:8080`).
+- `smoke` (159-161): runs `test/smoke/` against the dev URL (`WAAS_SMOKE_URL`, default `http://waas.127.0.0.1.nip.io:8080`).
 
-Le `README.md:38-51` décrit un flux "Quickstart" simplifié (mise/`k3d cluster create waas`/`helm install waas helm/waas`) qui **ne correspond déjà plus** au vrai flux Makefile (mauvais nom de cluster, pas de mention des cibles réelles) — c'est un doc à corriger en même temps si tu le touches, mais ce n'est pas le cœur de cette feature.
+`README.md:38-51` describes a simplified "Quickstart" flow (roughly `k3d cluster create waas`/`helm install waas helm/waas`) that **no longer matches** the real Makefile flow (wrong cluster name, no mention of the real targets) — this is a doc to fix at the same time if you touch it, but it's not the core of this feature.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### A. Une cible de bootstrap complet
+### A. A full bootstrap target
 
-Ajoute une cible (ex. `dev-bootstrap`) qui enchaîne tout, dans l'ordre correct découvert ci-dessus, en une seule invocation depuis un environnement totalement vierge :
+Add a target (e.g. `dev-bootstrap`) that chains everything, in the correct order discovered above, in a single invocation from a totally clean environment:
 
 ```
 dev-bootstrap: dev-up dev-build dev-load dev-deploy dev-load-images
-	@echo "==> environnement dev prêt : $$(make dev-url)"
+	@echo "==> dev environment ready: $$(make dev-url)"
 ```
 
-Vérifie que chaque cible listée est bien idempotente si la cible globale est relancée sur un environnement partiellement monté (c'est déjà globalement le cas — `dev-up` teste l'existence du cluster, `dev-deploy` fait un `upgrade --install`, `seed-ssh-secret.sh` est documenté idempotent) — ne dois rien réécrire dans les cibles existantes pour ça, juste vérifier que l'enchaînement ne casse rien. Ajoute-la à `.PHONY` (ligne 17-20) et au bloc de commentaire "Typical flow" (68-73) pour qu'il reste exact.
+Verify that each listed target is indeed idempotent if the global target is re-run on a partially set-up environment (this is already broadly the case — `dev-up` checks for the cluster's existence, `dev-deploy` does an `upgrade --install`, `seed-ssh-secret.sh` is documented as idempotent) — you shouldn't need to rewrite anything in the existing targets for this, just verify that the chaining doesn't break anything. Add it to `.PHONY` (line 17-20) and to the "Typical flow" comment block (68-73) so it stays accurate.
 
-### B. Un reload qui rebuild aussi les images workspace
+### B. A reload that also rebuilds workspace images
 
-`dev-reload` couvre déjà les 4 images de service (voir ci-dessus — ne duplique pas ce mécanisme). Ajoute une variante qui inclut aussi le rebuild/rechargement des images desktop, par exemple :
+`dev-reload` already covers the 4 service images (see above — don't duplicate this mechanism). Add a variant that also includes rebuilding/reloading the desktop images, for example:
 
 ```
 dev-reload-all: dev-build dev-load dev-deploy dev-build-images dev-load-images
@@ -61,16 +61,16 @@ dev-reload-all: dev-build dev-load dev-deploy dev-build-images dev-load-images
 		deploy/waas-operator deploy/waas-api-server deploy/waas-wwt deploy/waas-frontend
 ```
 
-Documente clairement la différence d'usage entre `dev-reload` (rapide, code des 4 services Go/frontend) et `dev-reload-all` (plus lent, inclut les images `waas-images/` — utile après une modif dans `waas-images/`) dans un commentaire au-dessus de chaque cible, sur le modèle du commentaire déjà présent pour `dev-reload` (112-116).
+Clearly document the difference in usage between `dev-reload` (fast, code of the 4 Go/frontend services) and `dev-reload-all` (slower, includes the `waas-images/` images — useful after a change in `waas-images/`) in a comment above each target, following the model of the comment already present for `dev-reload` (112-116).
 
-## Contraintes à respecter
+## Constraints to respect
 
-- N'invente pas de nouveau mécanisme de build/import : réutilise strictement les cibles atomiques existantes (`dev-build`, `dev-load`, `dev-deploy`, `dev-build-images`, `dev-load-images`) en dépendances `make`, ne duplique pas leur logique inline.
-- Corrige `README.md:38-51` pour qu'il pointe vers `make dev-bootstrap` plutôt que la séquence manuelle `k3d cluster create waas`/`helm install` qui ne correspond plus au Makefile réel (nom de cluster différent, cibles absentes).
-- Ajoute un test/vérification CI légère si le repo en a un pour le Makefile (vérifie `.github/workflows/ci.yml` — sinon, un simple `make -n dev-bootstrap` en CI pour vérifier que la cible résout sans erreur de dépendance circulaire/cible manquante suffit, pas besoin de faire tourner un vrai k3d en CI si ce n'est pas déjà le cas ailleurs).
-- Documente ces deux nouvelles cibles dans le bloc de commentaire "Typical flow" (lignes 68-73) et dans toute doc dev existante (`docs/*.md` mentionnant k3d/dev, si trouvée).
+- Don't invent a new build/import mechanism: strictly reuse the existing atomic targets (`dev-build`, `dev-load`, `dev-deploy`, `dev-build-images`, `dev-load-images`) as `make` dependencies, don't duplicate their logic inline.
+- Fix `README.md:38-51` so it points to `make dev-bootstrap` rather than the manual `k3d cluster create waas`/`helm install` sequence that no longer matches the real Makefile (different cluster name, missing targets).
+- Add a lightweight CI test/check if the repo has one for the Makefile (check `.github/workflows/ci.yml` — otherwise, a simple `make -n dev-bootstrap` in CI to verify the target resolves without a circular-dependency/missing-target error is enough, no need to run a real k3d in CI if that isn't already done elsewhere).
+- Document these two new targets in the "Typical flow" comment block (lines 68-73) and in any existing dev docs (`docs/*.md` mentioning k3d/dev, if found).
 
-## Points ouverts (ton arbitrage)
+## Open points (your call)
 
-- Nom des cibles (`dev-bootstrap`/`dev-reload-all` proposés) — choisis un nom cohérent avec les conventions déjà en place (`dev-*`) si tu préfères un autre nom, documente le choix.
-- Faut-il que `dev-bootstrap` appelle aussi `smoke` à la fin pour valider que l'environnement fonctionne réellement (connexion réelle par protocole), ou laisser ça comme étape manuelle séparée comme aujourd'hui — les deux sont défendables ; si tu l'ajoutes, rends-le opt-out (ex. variable `SKIP_SMOKE=1`) car `smoke` prend plusieurs minutes.
+- Target names (`dev-bootstrap`/`dev-reload-all` proposed) — pick a name consistent with the conventions already in place (`dev-*`) if you prefer a different name, document the choice.
+- Should `dev-bootstrap` also call `smoke` at the end to validate that the environment actually works (real per-protocol connection), or leave that as a separate manual step as today — both are defensible; if you add it, make it opt-out (e.g. `SKIP_SMOKE=1` variable) since `smoke` takes several minutes.

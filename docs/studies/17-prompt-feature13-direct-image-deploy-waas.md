@@ -1,114 +1,108 @@
-# Prompt Fable 5 — Feature 13 (volet waas-fable) : créer un workspace directement depuis un registre autorisé, sans WorkspaceTemplate
+# Prompt Fable 5 — Feature 13 (waas-fable side): create a workspace directly from an approved registry, without a WorkspaceTemplate
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable. Ce prompt couvre le repo `waas-fable` uniquement — le volet
-`waas-images` (génération et publication des deux catalogues) est un
-**prompt séparé et indépendant**, livré dans l'autre repo
-(`docs/studies/prompt-feature13-catalog-publishing.md`). Les deux
-volets se coordonnent uniquement via un format de fichier catalogue
-partagé, spécifié en entier ci-dessous (§ Format du catalogue) — tu
-n'as besoin de rien d'autre de l'autre repo pour livrer celui-ci : le
-reconciler peut être développé et testé contre un fichier catalogue
-fabriqué à la main respectant ce format, avant même que `waas-images`
-ne publie quoi que ce soit.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context. This prompt covers
+the `waas-fable` repo only — the `waas-images` side (generating and
+publishing the two catalogs) is a **separate, independent prompt**,
+delivered in the other repo
+(`docs/studies/prompt-feature13-catalog-publishing.md`). The two sides
+coordinate only via a shared catalog file format, fully specified
+below (§ Catalog format) — you don't need anything else from the other
+repo to deliver this one: the reconciler can be developed and tested
+against a hand-crafted catalog file that follows this format, even
+before `waas-images` publishes anything at all.
 
-## Contexte et objectif
+## Context and goal
 
-Aujourd'hui, un `Workspace` référence toujours un `WorkspaceTemplate`
-(`spec.templateRef`, obligatoire) admin-authored — c'est le seul
-chemin de provisioning. L'objectif : permettre à un utilisateur
-(si sa `WorkspacePolicy` l'y autorise) de créer un workspace en
-choisissant directement une image dans un registre que l'admin a
-approuvé **en entier** (`WorkspaceImage.spec.registry`, déjà
-existant), sans qu'un admin ait dû créer un template pour cette image
-précise au préalable. L'admin, lui, n'a besoin d'aucune autorisation
-de policy particulière pour faire la même chose — nuance importante,
-voir § Bypass admin ci-dessous.
+Today, a `Workspace` always references a `WorkspaceTemplate`
+(`spec.templateRef`, mandatory), admin-authored — it's the only
+provisioning path. The goal: let a user (if their `WorkspacePolicy`
+authorizes it) create a workspace by directly picking an image from a
+registry the admin has approved **in full**
+(`WorkspaceImage.spec.registry`, already existing), without an admin
+having had to create a template for that exact image beforehand. The
+admin, meanwhile, needs no particular policy authorization to do the
+same thing — an important nuance, see § Admin bypass below.
 
-En bonus, une routine périodique catalogue les images disponibles
-dans les registres approuvés (os/app/version/icône) pour afficher un
-logo à côté de chaque image dans le picker — réutilisable plus tard
-par `WorkspaceTemplate`.
+As a bonus, a periodic routine catalogs the images available in the
+approved registries (os/app/version/icon) to display a logo next to
+each image in the picker — reusable later by `WorkspaceTemplate`.
 
-**Registres dans le périmètre de cette feature** : `ghcr.io/xorhub/waas-images`
-et `docker.io/kasmweb` uniquement (les deux catalogues publiés par le
-volet `waas-images`). Les registres privés arbitraires restent hors
-périmètre — le mécanisme est générique (n'importe quelle
-`WorkspaceImage` en mode registre peut porter un `catalogURL`), mais
-rien n'exige de le documenter/promouvoir au-delà de ces deux registres
-pour l'instant.
+**Registries in scope for this feature**: `ghcr.io/xorhub/waas-images`
+and `docker.io/kasmweb` only (the two catalogs published by the
+`waas-images` side). Arbitrary private registries stay out of scope —
+the mechanism is generic (any `WorkspaceImage` in registry mode can
+carry a `catalogURL`), but nothing requires documenting/promoting it
+beyond these two registries for now.
 
-## Décision d'architecture centrale : synthétiser un WorkspaceTemplate, ne pas contourner l'enforcement existant
+## Central architecture decision: synthesize a WorkspaceTemplate, don't bypass existing enforcement
 
-**Ne crée PAS de nouveau champ sur `Workspace.Spec`** (pas de
-`imageRef`/`catalogImageRef`). `Workspace.Spec.TemplateRef` reste
-l'unique pointeur de provisioning.
+**Do NOT create a new field on `Workspace.Spec`** (no
+`imageRef`/`catalogImageRef`). `Workspace.Spec.TemplateRef` remains the
+single provisioning pointer.
 
-Raison : `enforce()` (`operator/internal/webhook/v1alpha1/workspace_webhook.go:354-424`),
+Reason: `enforce()` (`operator/internal/webhook/v1alpha1/workspace_webhook.go:354-424`),
 `policy.LoadOf`/`policy.PlacementValues`/`policy.ResolvedDefaultNamespace`
-(`operator/pkg/policy/policy.go`) et `buildPodTemplate`
-(`operator/internal/controller/workload.go`) prennent TOUS un
-`*WorkspaceTemplate` réel en paramètre et l'utilisent en profondeur
-(image, OS, protocoles, ressources, placement, homeSize...). Dupliquer
-ce chemin pour un provisioning "sans template" doublerait la
-maintenance et rouvrirait exactement le risque de divergence que
-`policy.OwnerLoads` documente déjà avoir corrigé une fois ("hand-copied
-loops whose vanished-template fallbacks had silently diverged").
+(`operator/pkg/policy/policy.go`) and `buildPodTemplate`
+(`operator/internal/controller/workload.go`) ALL take a real
+`*WorkspaceTemplate` as a parameter and use it in depth (image, OS,
+protocols, resources, placement, homeSize...). Duplicating this path
+for a "templateless" provisioning would double the maintenance burden
+and reopen exactly the divergence risk that `policy.OwnerLoads`
+already documents having fixed once ("hand-copied loops whose
+vanished-template fallbacks had silently diverged").
 
-**Solution retenue** : quand l'utilisateur crée un workspace "depuis le
-catalogue", l'api-server **synthétise un `WorkspaceTemplate` privé,
-à usage unique**, 1:1 avec le futur workspace — `spec.image` = la
-référence exacte choisie, `spec.protocols`/`spec.resources` dérivés du
-choix utilisateur borné par la `WorkspaceImage` — puis appelle le
-chemin de création de workspace **existant et inchangé** avec
-`templateRef` pointant sur ce template synthétique. Toute la chaîne
-d'enforcement/provisioning (webhook, quotas, `buildPodTemplate`,
-placement) s'applique alors mot pour mot, sans code dupliqué.
+**Chosen solution**: when the user creates a workspace "from the
+catalog", the api-server **synthesizes a private, single-use
+`WorkspaceTemplate`**, 1:1 with the future workspace — `spec.image` =
+the exact reference chosen, `spec.protocols`/`spec.resources` derived
+from the user's choice bounded by the `WorkspaceImage` — then calls
+the **existing, unchanged** workspace creation path with `templateRef`
+pointing at this synthetic template. The whole enforcement/provisioning
+chain (webhook, quotas, `buildPodTemplate`, placement) then applies
+word for word, with no duplicated code.
 
-Le template synthétique est marqué par un label (pas un nouveau champ
-de schéma) :
+The synthetic template is marked by a label (not a new schema field):
 - `waas.xorhub.io/synthetic-template: "true"`
-- `waas.xorhub.io/owner: <owner UUID>` (label déjà existant,
-  `operator/api/v1alpha1/identity.go:71`, réutilisé tel quel)
+- `waas.xorhub.io/owner: <owner UUID>` (already-existing label,
+  `operator/api/v1alpha1/identity.go:71`, reused as-is)
 
-Ce marqueur sert à deux choses : (1) le webhook exige une autorisation
-supplémentaire (`WorkspacePolicy.spec.directDeploy`) uniquement pour un
-template ainsi marqué ; (2) le nettoyage à la suppression du workspace
-(§ ci-dessous) sait quels templates supprimer.
+This marker serves two purposes: (1) the webhook requires additional
+authorization (`WorkspacePolicy.spec.directDeploy`) only for a
+template marked this way; (2) cleanup on workspace deletion (§ below)
+knows which templates to delete.
 
-## Bypass admin : pas de nouveau chemin de code
+## Admin bypass: no new code path
 
-Le projet a une doctrine explicite et déjà appliquée : "the bypass
+The project has an explicit, already-applied doctrine: "the bypass
 stays a VISIBLE, auditable WorkspacePolicy CR — never a code path"
-(`helm/waas/values.yaml`, bloc `adminPolicy`). **Ne code PAS** de
-bypass spécial "role admin ⇒ direct deploy autorisé" dans le webhook.
-À la place :
-- Le nouveau champ `WorkspacePolicy.spec.directDeploy` (booléen, voir
-  ci-dessous) est un champ de policy comme un autre.
-- La policy bootstrap tout-droits (`values.yaml` bloc `adminPolicy`,
-  et `gitops/governance/policies.yaml`) doit inclure
-  `directDeploy: true` — c'est la policy résolue pour l'admin qui porte
-  le droit, exactement comme elle porte déjà l'absence de limites et
-  le catalogue complet.
-- L'admin garde par ailleurs le bypass générique existant
-  (`operator.policyBypass`, groupes K8s type `system:masters`) pour les
-  accès kubectl directs — inchangé, hors sujet ici.
+(`helm/waas/values.yaml`, `adminPolicy` block). **Do NOT code** a
+special "admin role ⇒ direct deploy allowed" bypass in the webhook.
+Instead:
+- The new `WorkspacePolicy.spec.directDeploy` field (boolean, see
+  below) is a policy field like any other.
+- The bootstrap all-rights policy (`values.yaml` `adminPolicy` block,
+  and `gitops/governance/policies.yaml`) must include
+  `directDeploy: true` — it's the policy resolved for the admin that
+  carries the right, exactly as it already carries the absence of
+  limits and the full catalog.
+- The admin otherwise keeps the existing generic bypass
+  (`operator.policyBypass`, K8s groups such as `system:masters`) for
+  direct kubectl access — unchanged, out of scope here.
 
-Documente ce choix dans le commit/PR : c'est une clarification
-délibérée par rapport à une lecture naïve de "l'admin n'a besoin
-d'aucune autorisation" — dans ce système, TOUT le monde (admin inclus)
-passe par une `WorkspacePolicy` résolue ; "aucune autorisation
-particulière" se traduit par "la policy admin l'accorde par défaut",
-pas par un branchement de code.
+Document this choice in the commit/PR: it is a deliberate clarification
+against a naive reading of "the admin doesn't need any authorization"
+— in this system, EVERYONE (admin included) goes through a resolved
+`WorkspacePolicy`; "no particular authorization" translates to "the
+admin policy grants it by default", not a code branch.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### 1. `WorkspacePolicy` — nouveau droit `directDeploy`
+### 1. `WorkspacePolicy` — new `directDeploy` right
 
-`operator/api/v1alpha1/workspacepolicy_types.go` — nouveau champ sur
-`WorkspacePolicySpec`, juste après `RemoteWorkspaces` (même style,
-même défaut fail-closed) :
+`operator/api/v1alpha1/workspacepolicy_types.go` — new field on
+`WorkspacePolicySpec`, right after `RemoteWorkspaces` (same style,
+same fail-closed default):
 
 ```go
 // DirectDeploy opts the governed users into creating a workspace
@@ -122,8 +116,8 @@ même défaut fail-closed) :
 DirectDeploy bool `json:"directDeploy,omitempty"`
 ```
 
-`operator/pkg/policy/policy.go` — nouvelle fonction miroir de
-`RemoteWorkspacesAllowed` (L618-620) :
+`operator/pkg/policy/policy.go` — new function mirroring
+`RemoteWorkspacesAllowed` (L618-620):
 
 ```go
 // DirectDeployAllowed reports whether the resolved policy opts its
@@ -133,15 +127,15 @@ func DirectDeployAllowed(pol *waasv1alpha1.WorkspacePolicy) bool {
 }
 ```
 
-Nouveau `Reason` dans le bloc `const` (L61-79) :
+New `Reason` in the `const` block (L61-79):
 ```go
 ReasonDirectDeployNotAllowed Reason = "DirectDeployNotAllowed"
 ```
 
-### 2. `WorkspaceImage` — catalogue fetché, registres waas-images + kasm uniquement
+### 2. `WorkspaceImage` — fetched catalog, waas-images + kasm registries only
 
-`operator/api/v1alpha1/workspaceimage_types.go` — sur
-`WorkspaceImageSpec`, après `Resources` :
+`operator/api/v1alpha1/workspaceimage_types.go` — on
+`WorkspaceImageSpec`, after `Resources`:
 
 ```go
 // CatalogURL points at a published catalog manifest (format below)
@@ -155,7 +149,7 @@ ReasonDirectDeployNotAllowed Reason = "DirectDeployNotAllowed"
 CatalogURL string `json:"catalogURL,omitempty"`
 ```
 
-Nouveau statut :
+New status:
 
 ```go
 // DiscoveredImage is one entry surfaced by a registry-mode
@@ -215,10 +209,10 @@ assumes status is absent/unused on this type before wiring the
 subresource — grep `WorkspaceImage{}.Status` and `.Status =` across
 `operator/` and `api-server/` first).
 
-### 3. Format du catalogue (contrat partagé avec le repo waas-images)
+### 3. Catalog format (contract shared with the waas-images repo)
 
-Fichier YAML, une version de format explicite pour ne jamais
-mésinterpréter silencieusement un futur changement :
+YAML file, with an explicit format version so a future change is never
+silently misinterpreted:
 
 ```yaml
 apiVersion: waas.xorhub.io/catalog/v1
@@ -236,66 +230,61 @@ images:
     icon: firefox
 ```
 
-Un parseur tolérant : `apiVersion` inconnue ⇒ rejette proprement
-(erreur de sync, PAS un crash), champs optionnels absents ⇒ zéro
-valeur (`os` vide se traite comme `linux` côté frontend, pas une
-erreur).
+A tolerant parser: unknown `apiVersion` ⇒ rejects cleanly (a sync
+error, NOT a crash), absent optional fields ⇒ zero value (empty `os`
+is treated as `linux` on the frontend side, not an error).
 
-### 4. `WorkspaceImageReconciler` — nouveau controller
+### 4. `WorkspaceImageReconciler` — new controller
 
-`WorkspaceImage` n'a aujourd'hui AUCUN reconciler (objet passif, lu
-seulement par le webhook/policy) — c'est le premier. Fichier suggéré :
-`operator/internal/controller/workspaceimage_catalog.go`, modèle à
-suivre : `namespace_janitor.go` pour la forme d'un `Reconciler`
-indépendant + `workspace_controller.go` pour le pattern de self-requeue
+`WorkspaceImage` currently has NO reconciler at all (a passive object,
+only read by the webhook/policy) — this is the first one. Suggested
+file: `operator/internal/controller/workspaceimage_catalog.go`, model
+to follow: `namespace_janitor.go` for the shape of a standalone
+`Reconciler` + `workspace_controller.go` for the self-requeue pattern
 (`ctrl.Result{RequeueAfter: interval}`).
 
-Logique par `WorkspaceImage` dont `spec.registry != "" && spec.catalogURL != ""` :
-1. `GET` HTTP simple (`net/http`, pas de nouvelle dépendance — PAS
-   `crane`/`go-containerregistry`, le catalogue est un fichier statique,
-   pas un scan de registre) sur `spec.catalogURL`, timeout raisonnable
-   (5-10s).
-2. Succès + parse OK → `status.catalog` = le contenu parsé,
+Logic per `WorkspaceImage` where `spec.registry != "" && spec.catalogURL != ""`:
+1. Simple HTTP `GET` (`net/http`, no new dependency — NOT
+   `crane`/`go-containerregistry`, the catalog is a static file, not a
+   registry scan) on `spec.catalogURL`, reasonable timeout (5-10s).
+2. Success + parse OK → `status.catalog` = the parsed content,
    `status.catalogSource = "Fetched"`, `status.lastSyncTime = now`,
    `status.lastSyncError = ""`.
-3. Échec (réseau, HTTP non-200, parse) → **ne jamais vider un
-   `status.catalog` déjà peuplé** (stale-but-served) ; `status.lastSyncError`
-   mis à jour dans tous les cas. Si `status.catalog` est vide ET qu'un
-   snapshot embarqué existe pour ce nom d'entrée (§ 5) → seed depuis le
-   snapshot, `status.catalogSource = "Bundled"`.
-4. Requeue après `RequeueAfter: interval` (succès ou échec — même
-   cadence). `interval` vient d'une variable d'env opérateur (voir § 8).
-5. Watch sur `WorkspaceImage` : une édition de `spec.catalogURL`
-   retrigger immédiatement (pas besoin d'attendre le prochain requeue).
+3. Failure (network, non-200 HTTP, parse) → **never clear an
+   already-populated `status.catalog`** (stale-but-served);
+   `status.lastSyncError` updated in all cases. If `status.catalog` is
+   empty AND an embedded snapshot exists for this entry name (§ 5) →
+   seed from the snapshot, `status.catalogSource = "Bundled"`.
+4. Requeue after `RequeueAfter: interval` (success or failure — same
+   cadence). `interval` comes from an operator env variable (see § 8).
+5. Watch on `WorkspaceImage`: editing `spec.catalogURL` retriggers
+   immediately (no need to wait for the next requeue).
 
-Ce fetch ne bloque JAMAIS la création de workspace : c'est un
-reconciler séparé, purement cosmétique, `enforce()`/`FindImage` ne le
-lisent jamais.
+This fetch NEVER blocks workspace creation: it's a separate, purely
+cosmetic reconciler, `enforce()`/`FindImage` never read it.
 
-### 5. Fallback embarqué (airgap day-0)
+### 5. Embedded fallback (airgap day-0)
 
-Précédent direct à suivre : `kasmvnc_defaults.yaml` embarqué via
-`//go:embed` (`operator/internal/controller/kasm_config.go` — lis-le
-pour la convention exacte). Nouveau :
-`operator/internal/catalog/embedded/` avec deux fichiers au format
-§ 3 : `waas-images.yaml` et `kasmweb.yaml`, mis à jour à la main à
-chaque release de l'opérateur (pas d'automatisation ici — c'est un
-snapshot figé au moment du build, documenté comme tel dans un
-commentaire au sommet de chaque fichier). Le reconciler doit savoir
-associer une `WorkspaceImage` à SON snapshot embarqué — le plus simple
-est un mapping par `spec.registry` exact (`ghcr.io/xorhub/waas-images`
-→ `waas-images.yaml`, `docker.io/kasmweb` → `kasmweb.yaml`) codé en dur
-dans le reconciler ; une `WorkspaceImage` avec un autre registre +
-`catalogURL` n'a simplement pas de fallback (comportement : reste vide
-tant qu'aucun fetch ne réussit, ce qui est correct — le fallback
-embarqué n'a de sens que pour les deux registres que la plateforme
-connaît par construction).
+Direct precedent to follow: `kasmvnc_defaults.yaml` embedded via
+`//go:embed` (`operator/internal/controller/kasm_config.go` — read it
+for the exact convention). New:
+`operator/internal/catalog/embedded/` with two files in the § 3
+format: `waas-images.yaml` and `kasmweb.yaml`, updated by hand at each
+operator release (no automation here — it's a snapshot frozen at build
+time, documented as such in a comment at the top of each file). The
+reconciler must know how to associate a `WorkspaceImage` with ITS
+embedded snapshot — the simplest is an exact-`spec.registry` mapping
+(`ghcr.io/xorhub/waas-images` → `waas-images.yaml`,
+`docker.io/kasmweb` → `kasmweb.yaml`) hard-coded in the reconciler; a
+`WorkspaceImage` with another registry + `catalogURL` simply has no
+fallback (behavior: stays empty until a fetch succeeds, which is
+correct — the embedded fallback only makes sense for the two
+registries the platform knows about by construction).
 
-### 6. Webhook — nouveau gate pour template synthétique
+### 6. Webhook — new gate for synthetic template
 
-`operator/internal/webhook/v1alpha1/workspace_webhook.go`, fonction
-`enforce()` (L354) : juste avant ou après `policy.Resolve` (L370),
-ajoute :
+`operator/internal/webhook/v1alpha1/workspace_webhook.go`, function
+`enforce()` (L354): right before or after `policy.Resolve` (L370), add:
 
 ```go
 if tpl.Labels["waas.xorhub.io/synthetic-template"] == "true" && !policy.DirectDeployAllowed(pol) {
@@ -304,192 +293,189 @@ if tpl.Labels["waas.xorhub.io/synthetic-template"] == "true" && !policy.DirectDe
 }
 ```
 
-(Ajuste l'ordre exact selon où `pol` est disponible — `Resolve` doit
-avoir tourné avant.) Le reste de `enforce()` — `FindImage`,
-`ImageAllowed`, `CheckTagDiscipline`, `CheckProtocol`, `CheckOverrides`,
-`CheckLimits` — s'applique SANS modification : c'est tout le bénéfice
-du template synthétique réel.
+(Adjust the exact order depending on where `pol` is available —
+`Resolve` must have run before this.) The rest of `enforce()` —
+`FindImage`, `ImageAllowed`, `CheckTagDiscipline`, `CheckProtocol`,
+`CheckOverrides`, `CheckLimits` — applies WITHOUT modification: that's
+the whole benefit of the real synthetic template.
 
-Ajoute la constante de label dans `operator/api/v1alpha1/identity.go`
-(à côté de `LabelOwner`, `LabelRetained`, L71/L80) :
+Add the label constant in `operator/api/v1alpha1/identity.go` (next to
+`LabelOwner`, `LabelRetained`, L71/L80):
 ```go
 LabelSyntheticTemplate = "waas.xorhub.io/synthetic-template"
 ```
 
-### 7. api-server — synthèse du template + nouvel endpoint
+### 7. api-server — template synthesis + new endpoint
 
-Nouvelle route, `api-server/internal/server/router.go` (à côté de
-`/workspace-templates`, L126) :
+New route, `api-server/internal/server/router.go` (next to
+`/workspace-templates`, L126):
 
 ```go
 r.Post("/workspaces/direct", h.Workspaces.CreateDirect)
 ```
 
-`CreateWorkspaceInput`-like struct dédiée (nouveau type dans
-`api-server/internal/service/`), champs : `catalogImage string`
-(référence exacte choisie, doit apparaître dans
-`WorkspaceImage.status.catalog[].image` d'une entrée pour laquelle
-`DirectDeployAllowed` + `policy.Images` l'autorisent — le service DOIT
-revérifier ces deux points côté api-server aussi, en plus du webhook :
-message d'erreur clair avant même de tenter la création, cohérent avec
-comment `WorkspaceService.Create` valide déjà `templateRef` en amont,
-L184-196), `protocol string`, `resources *corev1.ResourceRequirements`,
-`displayName string`.
+Dedicated `CreateWorkspaceInput`-like struct (new type in
+`api-server/internal/service/`), fields: `catalogImage string` (the
+exact reference chosen, must appear in
+`WorkspaceImage.status.catalog[].image` of an entry for which
+`DirectDeployAllowed` + `policy.Images` allow it — the service MUST
+re-verify both points on the api-server side too, in addition to the
+webhook: a clear error message before even attempting creation,
+consistent with how `WorkspaceService.Create` already validates
+`templateRef` upstream, L184-196), `protocol string`,
+`resources *corev1.ResourceRequirements`, `displayName string`.
 
-Logique du nouveau `WorkspaceService.CreateDirect` :
-1. Résout la `WorkspaceImage` propriétaire de l'entrée catalogue
-   choisie (celle dont `status.catalog[].image == in.CatalogImage`).
-2. Construit un `*waasv1alpha1.WorkspaceTemplate` en mémoire :
-   `Name` généré (ex. `direct-<uuid court>`, même discipline que
-   `generateWorkspaceName` existant), `Labels: {synthetic-template: "true", owner: ownerID}`,
-   `Spec.OS` = celui de l'entrée catalogue (défaut `linux`),
-   `Spec.Image` = `in.CatalogImage`, `Spec.Protocols` dérivé de
-   `WorkspaceImage.Spec.Protocols` ∩ `in.Protocol`, `Spec.Resources`
-   = `in.Resources` ou le défaut de la `WorkspaceImage`.
-   **`Spec.Overrides` reste nil** : ce template n'est jamais réutilisé
-   ni partagé, la délégation d'override n'a pas de sens ici — tout ce
-   que l'utilisateur veut est écrit directement dans le spec synthétisé.
-3. `s.kube.Create` ce template (le SA api-server a déjà `create` sur
-   `workspacetemplates`, `helm/waas/templates/api-server.yaml:19` —
-   aucun nouveau RBAC).
-4. Appelle exactement le même chemin que `WorkspaceService.Create`
-   (L172+) avec `TemplateRef` = le nom généré — factorise plutôt que
-   dupliquer (extrait la partie "à partir d'un template déjà résolu"
-   de `Create` en fonction interne partagée par les deux entrypoints).
-5. Si la création du `Workspace` échoue APRÈS que le template ait été
-   créé, supprime le template synthétique avant de renvoyer l'erreur
-   (pas de résidu sur un échec).
+Logic of the new `WorkspaceService.CreateDirect`:
+1. Resolves the `WorkspaceImage` owning the chosen catalog entry (the
+   one whose `status.catalog[].image == in.CatalogImage`).
+2. Builds a `*waasv1alpha1.WorkspaceTemplate` in memory: `Name`
+   generated (e.g. `direct-<short uuid>`, same discipline as the
+   existing `generateWorkspaceName`), `Labels: {synthetic-template: "true", owner: ownerID}`,
+   `Spec.OS` = that of the catalog entry (default `linux`),
+   `Spec.Image` = `in.CatalogImage`, `Spec.Protocols` derived from
+   `WorkspaceImage.Spec.Protocols` ∩ `in.Protocol`, `Spec.Resources` =
+   `in.Resources` or the `WorkspaceImage`'s default.
+   **`Spec.Overrides` stays nil**: this template is never reused or
+   shared, override delegation makes no sense here — everything the
+   user wants is written directly into the synthesized spec.
+3. `s.kube.Create` this template (the api-server SA already has
+   `create` on `workspacetemplates`,
+   `helm/waas/templates/api-server.yaml:19` — no new RBAC).
+4. Calls exactly the same path as `WorkspaceService.Create` (L172+)
+   with `TemplateRef` = the generated name — factor rather than
+   duplicate (extract the "from an already-resolved template" part of
+   `Create` into an internal function shared by both entrypoints).
+5. If `Workspace` creation fails AFTER the template has been created,
+   delete the synthetic template before returning the error (no
+   leftover on failure).
 
-**Nettoyage à la suppression** : quand un `Workspace` est supprimé, si
-son `templateRef` pointe vers un template portant
-`labels[synthetic-template]=true`, supprime aussi ce template. Regarde
-`operator/internal/controller/workspace_teardown_test.go` pour le point
-d'accroche exact (reconciler operator, pas api-server — le workspace
-peut aussi être supprimé par kubectl/GitOps direct, donc le nettoyage
-DOIT vivre côté operator, pas seulement dans le endpoint API DELETE).
+**Cleanup on deletion**: when a `Workspace` is deleted, if its
+`templateRef` points at a template carrying
+`labels[synthetic-template]=true`, also delete that template. Look at
+`operator/internal/controller/workspace_teardown_test.go` for the
+exact hook point (operator reconciler, not api-server — the workspace
+can also be deleted directly via kubectl/GitOps, so the cleanup MUST
+live on the operator side, not just in the API DELETE endpoint).
 
-**Audit orphelins** : `hack/audit-orphans.sh` ne couvre aujourd'hui pas
-`WorkspaceTemplate` (recherche `grep -n workspacetemplate` — zéro
-résultat, confirmé). Étends-le : un template `synthetic-template=true`
-sans workspace vivant le référençant est un orphelin, à détecter comme
-le reste du sweep. Ne touche pas au comportement pour les templates
-admin-authored (jamais orphelins par construction).
+**Orphan audit**: `hack/audit-orphans.sh` today does not cover
+`WorkspaceTemplate` (search `grep -n workspacetemplate` — zero
+results, confirmed). Extend it: a `synthetic-template=true` template
+with no living workspace referencing it is an orphan, to be detected
+like the rest of the sweep. Don't touch the behavior for
+admin-authored templates (never orphans by construction).
 
-### 8. Helm — intervalle de sync, RBAC status
+### 8. Helm — sync interval, status RBAC
 
-`helm/waas/values.yaml` : nouvelle clé `operator.catalogSyncInterval`
-(défaut `6h`, même esprit que `apiServer.eventsPollInterval`). Câblée
-en variable d'env opérateur, lue par le nouveau reconciler.
+`helm/waas/values.yaml`: new key `operator.catalogSyncInterval`
+(default `6h`, same spirit as `apiServer.eventsPollInterval`). Wired
+into an operator env variable, read by the new reconciler.
 
-RBAC : `helm/waas/templates/operator.yaml:67` a déjà
-`workspacetemplates, workspaceimages, workspacepolicies` — ajoute
-`workspaceimages/status` en `update;patch` si pas déjà couvert par le
-verbe générique (vérifie ce que `+kubebuilder:rbac` génère une fois le
-marker de subresource status ajouté, régénère avec `make manifests`).
+RBAC: `helm/waas/templates/operator.yaml:67` already has
+`workspacetemplates, workspaceimages, workspacepolicies` — add
+`workspaceimages/status` with `update;patch` if not already covered by
+the generic verb (check what `+kubebuilder:rbac` generates once the
+status subresource marker is added, regenerate with `make manifests`).
 
 ### 9. Frontend
 
-- `GET /catalog` (`Governance.Catalog`, api-server) : ajoute
-  `directDeployAllowed bool` (dérivé de `policy.DirectDeployAllowed`
-  sur la policy résolue de l'appelant) + les entrées
-  `WorkspaceImage.status.catalog` des images de catalogue autorisées
-  (réutilise `policy.AllowedImages` pour le filtrage — même gate que
-  le reste).
-- `frontend/src/dialogs/CreateWorkspaceDialog.tsx` : second mode
-  "Depuis un catalogue", visible seulement si `directDeployAllowed`.
-  Sélection d'une entrée catalogue (image+logo), puis protocole +
-  taille dans les bornes de la `WorkspaceImage` — même esprit que le
-  picker de template existant (L62, L156, L268-271), pas un nouveau
-  design pattern.
-- Nouveau composant de résolution d'icône, ex.
-  `frontend/src/lib/icon.ts` : `resolveIcon(slug?: string, os?: string): string`
-  — retourne le chemin d'un asset vendoré localement
-  (`/icons/<slug>.svg`), fallback sur `/icons/os-<linux|windows>.svg`
-  si `slug` absent ou pas vendoré. **Aucun fetch réseau à l'exécution**
-  (même raisonnement airgap que le catalogue lui-même — un navigateur
-  en environnement isolé ne peut pas non plus taper une CDN externe).
-  Utilisé par `SessionCard`/`WorkspaceCard`
+- `GET /catalog` (`Governance.Catalog`, api-server): add
+  `directDeployAllowed bool` (derived from `policy.DirectDeployAllowed`
+  on the caller's resolved policy) + the
+  `WorkspaceImage.status.catalog` entries of the allowed catalog
+  images (reuse `policy.AllowedImages` for filtering — same gate as
+  the rest).
+- `frontend/src/dialogs/CreateWorkspaceDialog.tsx`: second mode "From
+  a catalog", visible only if `directDeployAllowed`. Selecting a
+  catalog entry (image+logo), then protocol + size within the
+  `WorkspaceImage`'s bounds — same spirit as the existing template
+  picker (L62, L156, L268-271), not a new design pattern.
+- New icon resolution component, e.g.
+  `frontend/src/lib/icon.ts`: `resolveIcon(slug?: string, os?: string): string`
+  — returns the path of a locally vendored asset
+  (`/icons/<slug>.svg`), falling back to `/icons/os-<linux|windows>.svg`
+  if `slug` is absent or not vendored. **No network fetch at runtime**
+  (same airgap reasoning as the catalog itself — a browser in an
+  isolated environment can't hit an external CDN either). Used by
+  `SessionCard`/`WorkspaceCard`
   (`frontend/src/components/SessionCard.tsx`,
-  `frontend/src/sections/WorkspacesSection.tsx:70-182`) et le nouveau
+  `frontend/src/sections/WorkspacesSection.tsx:70-182`) and the new
   picker.
-- Vendoring des icônes : `dashboard-icons`
-  (github.com/homarr-labs/dashboard-icons, Apache-2.0, structure
-  `svg/<slug>.svg`, licence compatible avec la simple copie + mention
-  d'attribution) — copie manuelle/scriptée d'un sous-ensemble
-  (uniquement les slugs référencés par les deux catalogues connus +
-  `linux`/`windows` en fallback) dans `frontend/public/icons/`, avec
-  un fichier `frontend/public/icons/ATTRIBUTION.md` citant la licence
-  Apache-2.0 et le repo source. Rafraîchi occasionnellement à la main
-  (pas de pipeline de sync automatique dans le périmètre de cette
-  feature) — ajoute un court script `hack/vendor-icons.sh` qui prend
-  une liste de slugs et les télécharge depuis le CDN jsDelivr
+- Icon vendoring: `dashboard-icons`
+  (github.com/homarr-labs/dashboard-icons, Apache-2.0, `svg/<slug>.svg`
+  structure, license compatible with plain copying + attribution
+  notice) — manual/scripted copy of a subset (only the slugs
+  referenced by the two known catalogs + `linux`/`windows` as
+  fallback) into `frontend/public/icons/`, with a
+  `frontend/public/icons/ATTRIBUTION.md` file citing the Apache-2.0
+  license and source repo. Refreshed occasionally by hand (no
+  automatic sync pipeline in scope for this feature) — add a short
+  script `hack/vendor-icons.sh` that takes a list of slugs and
+  downloads them from the jsDelivr CDN
   (`https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/<slug>.svg`)
-  pour faciliter les rafraîchissements futurs, mais NE l'exécute PAS à
-  l'exécution de l'app.
+  to make future refreshes easier, but do NOT run it at app runtime.
 
-### 10. Régénération
+### 10. Regeneration
 
 `make manifests generate docs-params generate-types` — CRD YAML
 (`helm/waas/crds/waas.xorhub.io_workspaceimages.yaml`,
-`waas.xorhub.io_workspacepolicies.yaml`), types TS générés
-(`frontend/src/types.gen.ts`), doc des paramètres si le registre de
-protocole est touché (probablement non ici).
+`waas.xorhub.io_workspacepolicies.yaml`), generated TS types
+(`frontend/src/types.gen.ts`), parameter docs if the protocol registry
+is touched (probably not here).
 
-## Contraintes
+## Constraints
 
-- [ADR 0002](../adr/0002-crd-evolution.md) : additif uniquement, aucun
-  champ renommé/retypé, `v1alpha1` reste `v1alpha1`.
-- Ne modifie AUCUNE ligne de `enforce()` au-delà du gate § 6 —
+- [ADR 0002](../adr/0002-crd-evolution.md): additive only, no
+  renamed/retyped field, `v1alpha1` stays `v1alpha1`.
+- Don't modify ANY line of `enforce()` beyond the § 6 gate —
   `FindImage`/`ImageAllowed`/`CheckTagDiscipline`/`CheckProtocol`/
-  `CheckOverrides`/`CheckLimits` doivent rester des fonctions à un seul
-  chemin, partagées, inchangées dans leur signature.
-- Pas de bypass de code pour l'admin (§ Bypass admin) — seule la policy
-  bootstrap change.
-- Le fetch catalogue ne doit JAMAIS pouvoir bloquer ou retarder la
-  création/l'usage d'un workspace — c'est un reconciler séparé, pas un
-  appel synchrone dans `enforce()` ou `buildPodTemplate`.
-- Aucune nouvelle dépendance Go pour le fetch (pas de
-  `go-containerregistry`/`crane` — un `GET` HTTP suffit, le catalogue
-  est un fichier statique publié par CI, pas un registre à scanner).
+  `CheckOverrides`/`CheckLimits` must remain single-path, shared
+  functions, unchanged in their signature.
+- No code bypass for the admin (§ Admin bypass) — only the bootstrap
+  policy changes.
+- The catalog fetch must NEVER be able to block or delay creating/using
+  a workspace — it's a separate reconciler, not a synchronous call in
+  `enforce()` or `buildPodTemplate`.
+- No new Go dependency for the fetch (no
+  `go-containerregistry`/`crane` — an HTTP `GET` is enough, the
+  catalog is a static file published by CI, not a registry to scan).
 
 ## Tests
 
-- `operator/pkg/policy` : tests unitaires `DirectDeployAllowed` (nil,
+- `operator/pkg/policy`: unit tests for `DirectDeployAllowed` (nil,
   false, true).
-- `operator/internal/webhook/v1alpha1` : cas envtest — template
-  synthétique + policy sans `directDeploy` ⇒ deny
-  `DirectDeployNotAllowed` ; avec `directDeploy: true` ⇒ passe les
-  gates habituels normalement (catalogue/quota s'appliquent toujours).
-- Nouveau reconciler : fetch OK, fetch KO avec catalogue déjà peuplé
-  (stale-but-served), fetch KO day-0 avec/sans snapshot embarqué
-  (bundled vs vide), parse d'un `apiVersion` inconnue (rejet propre).
-- api-server : `CreateDirect` — image hors catalogue autorisé ⇒ 400
-  avant toute création CR ; policy sans `directDeploy` ⇒ 403 ; succès
-  ⇒ template + workspace créés, template supprimé si la création du
-  workspace échoue ensuite.
-- Suppression : workspace direct supprimé ⇒ son template synthétique
-  disparaît (test operator, pas juste api-server, pour couvrir le
-  chemin kubectl/GitOps direct).
-- `hack/audit-orphans.sh` : cas template synthétique orphelin détecté.
-- Frontend : Vitest sur `resolveIcon` (slug connu, slug inconnu,
-  absent, fallback OS) ; test du nouveau mode du dialog masqué/affiché
-  selon `directDeployAllowed`.
-- `/verify` (skill du repo) sur le parcours complet si possible :
-  policy `directDeploy: true` + `WorkspaceImage` registre avec
-  `catalogURL` pointant un fichier de test local (ex. servi par un
-  petit serveur HTTP dans le test, ou un fichier `file://` si le
-  reconciler le supporte — sinon un serveur `httptest.Server` suffit
-  pour les tests Go, la vérification manuelle en dev peut pointer vers
-  un fichier hébergé temporairement).
+- `operator/internal/webhook/v1alpha1`: envtest cases — synthetic
+  template + policy without `directDeploy` ⇒ deny
+  `DirectDeployNotAllowed`; with `directDeploy: true` ⇒ passes the
+  usual gates normally (catalog/quota still apply).
+- New reconciler: successful fetch, failed fetch with an
+  already-populated catalog (stale-but-served), failed fetch day-0
+  with/without embedded snapshot (bundled vs. empty), parsing an
+  unknown `apiVersion` (clean rejection).
+- api-server: `CreateDirect` — image outside the allowed catalog ⇒ 400
+  before any CR creation; policy without `directDeploy` ⇒ 403; success
+  ⇒ template + workspace created, template deleted if workspace
+  creation fails afterward.
+- Deletion: a deleted direct workspace ⇒ its synthetic template
+  disappears (operator test, not just api-server, to cover the
+  direct kubectl/GitOps path).
+- `hack/audit-orphans.sh`: orphaned synthetic template case detected.
+- Frontend: Vitest on `resolveIcon` (known slug, unknown slug, absent,
+  OS fallback); test of the new dialog mode hidden/shown depending on
+  `directDeployAllowed`.
+- `/verify` (repo skill) on the full journey if possible: policy
+  `directDeploy: true` + registry `WorkspaceImage` with `catalogURL`
+  pointing at a local test file (e.g. served by a small HTTP server in
+  the test, or a `file://` file if the reconciler supports it —
+  otherwise an `httptest.Server` is enough for Go tests, manual dev
+  verification can point at a temporarily hosted file).
 
-## Points ouverts (ton arbitrage)
+## Open points (your judgment call)
 
-- Nom exact de la route/du endpoint (`/workspaces/direct` proposé,
-  libre de changer si un nom plus clair s'impose une fois le code sous
-  les yeux).
-- Faut-il exposer `WorkspaceImage.status.catalogSource`/`lastSyncError`
-  dans `kubectl get workspaceimage -o wide` via un printcolumn ? Utile
-  pour le debug admin, pas strictement nécessaire — à ta discrétion.
-- Le script `hack/vendor-icons.sh` : niveau de sophistication libre
-  (liste de slugs en dur vs argument CLI) — ce n'est pas un chemin
-  d'exécution runtime, la barre est basse.
+- Exact route/endpoint name (`/workspaces/direct` proposed, free to
+  change if a clearer name emerges once the code is in front of you).
+- Should `WorkspaceImage.status.catalogSource`/`lastSyncError` be
+  exposed in `kubectl get workspaceimage -o wide` via a printcolumn?
+  Useful for admin debugging, not strictly necessary — your call.
+- The `hack/vendor-icons.sh` script: sophistication level is free
+  (hard-coded slug list vs. CLI argument) — it's not a runtime
+  execution path, the bar is low.

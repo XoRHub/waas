@@ -1,118 +1,120 @@
-# Fix — Boot loop kasmvnc : `self.pem` Permission denied dans `~/.vnc`
+# Fix — kasmvnc boot loop: `self.pem` Permission denied in `~/.vnc`
 
-*2026-07-10 — diagnostic confirmé par reproduction live sur le cluster
-dev (k3d, local-path), corrigé dans l'opérateur, vérifié e2e (home neuf
-ET volume existant déjà cassé).*
+*2026-07-10 — diagnosis confirmed by live reproduction on the dev
+cluster (k3d, local-path), fixed in the operator, verified e2e (fresh
+home AND already-broken existing volume).*
 
-## Symptôme
+## Symptom
 
-Au démarrage d'un pod kasmvnc, `vnc_startup.sh` échoue avec :
+On startup of a kasmvnc pod, `vnc_startup.sh` fails with:
 
 ```
 req: Can't open "/home/kasm-user/.vnc/self.pem" for writing, Permission denied
 kill: usage: kill [-s sigspec | -n signum | -sigspec] pid | jobspec ...
 ```
 
-puis le pod boucle en CrashLoopBackOff. Les symlinks Downloads/Uploads
-avaient pourtant été créés sans problème par le même utilisateur
-`kasm-user` juste avant : les droits manquent **uniquement** sous `.vnc`.
+then the pod loops in CrashLoopBackOff. Yet the Downloads/Uploads
+symlinks had just been created without any issue by the same
+`kasm-user` user right before: permissions are missing **only** under
+`.vnc`.
 
-## Diagnostic — cause réelle confirmée
+## Diagnosis — confirmed root cause
 
-Deux hypothèses étaient sur la table : absence de `fsGroup` par défaut
-(`buildPodTemplate` ne force rien), ou auto-création de `.vnc` par le
-mount subPath de `kasmvnc.yaml`. **La seconde est la cause réelle**,
-reproduite pas à pas sur le cluster dev :
+Two hypotheses were on the table: absence of a default `fsGroup`
+(`buildPodTemplate` doesn't force anything), or auto-creation of `.vnc`
+by the `kasmvnc.yaml` subPath mount. **The second is the real cause**,
+reproduced step by step on the dev cluster:
 
-1. `ensureKasmConfig` matérialise la config effective dans une ConfigMap,
-   et `buildPodTemplate` la montait en subPath à
-   `<home>/.vnc/kasmvnc.yaml` — en supposant (commentaire explicite dans
-   `kasm_config.go`) que `.vnc` « reste writable » pour les artefacts
-   runtime.
-2. Sur un home neuf, le répertoire parent du subPath n'existe pas : **le
-   kubelet le crée lui-même, en root:root 0755**, pendant la préparation
-   des mounts du conteneur. Constaté sur le PV :
+1. `ensureKasmConfig` materializes the effective config into a
+   ConfigMap, and `buildPodTemplate` mounted it as a subPath at
+   `<home>/.vnc/kasmvnc.yaml` — assuming (explicit comment in
+   `kasm_config.go`) that `.vnc` "stays writable" for runtime
+   artifacts.
+2. On a fresh home, the subPath's parent directory doesn't exist: **the
+   kubelet creates it itself, as root:root 0755**, while preparing the
+   container's mounts. Observed on the PV:
 
    ```
-   drwxrwxrwx 9    0    0  .          ← racine du volume (0777, local-path)
-   drwxrwxrwx 2 1000 1000 Desktop     ← créé par kasm-user, OK
-   drwxr-xr-x 2    0    0  .vnc       ← créé par le kubelet, root, 0755
+   drwxrwxrwx 9    0    0  .          ← volume root (0777, local-path)
+   drwxrwxrwx 2 1000 1000 Desktop     ← created by kasm-user, OK
+   drwxr-xr-x 2    0    0  .vnc       ← created by the kubelet, root, 0755
    ```
 
-3. Le conteneur tourne en `kasm-user` (uid 1000, `runAsNonRoot: true`,
-   pas de capability chown) : il écrit partout dans le home (racine
-   0777) **sauf** dans `.vnc` → `self.pem` échoue → boot loop. Le chown
-   « premier boot » de l'image kasmweb supposé par `placement.go` ne
-   peut rien faire : le process n'est pas root.
+3. The container runs as `kasm-user` (uid 1000, `runAsNonRoot: true`,
+   no chown capability): it writes everywhere in the home (root 0777)
+   **except** in `.vnc` → `self.pem` fails → boot loop. The "first
+   boot" chown of the kasmweb image assumed by `placement.go` can't do
+   anything: the process isn't root.
 
-### Pourquoi pas le fsGroup par défaut
+### Why not the default fsGroup
 
-- **Il ne corrigerait pas le cluster dev** : les PV de
-  local-path-provisioner sont de type hostPath/local, auxquels le
-  kubelet n'applique **pas** la gestion fsGroup.
-- Même sur un CSI qui l'applique, `SetVolumeOwnership` opère au montage
-  du volume, **avant** la création des parents de subPath : le `.vnc`
-  créé par le kubelet resterait root:root 0755 au premier démarrage
-  (celui qui casse).
-- Imposer un gid par défaut à toutes les images (le champ est un
-  passthrough template/overrides) serait un changement de contrat bien
-  plus large que le bug.
+- **It wouldn't fix the dev cluster**: local-path-provisioner PVs are
+  of type hostPath/local, to which the kubelet does **not** apply
+  fsGroup management.
+- Even on a CSI that does apply it, `SetVolumeOwnership` operates at
+  volume mount time, **before** the subPath parents are created: the
+  `.vnc` created by the kubelet would remain root:root 0755 on the
+  first startup (the one that breaks).
+- Imposing a default gid on all images (the field is a
+  template/overrides passthrough) would be a much broader contract
+  change than the bug warrants.
 
-### Pourquoi pas déplacer la config vers `/etc/kasmvnc/kasmvnc.yaml`
+### Why not move the config to `/etc/kasmvnc/kasmvnc.yaml`
 
-KasmVNC merge `defaults < /etc/kasmvnc < ~/.vnc` : au niveau `/etc`, un
-utilisateur pourrait écrire son propre `~/.vnc/kasmvnc.yaml` persistant
-dans son home et **écraser la couche DLP clipboard** (Feature 11). La
-config doit rester au niveau utilisateur, montée read-only par-dessus.
+KasmVNC merges `defaults < /etc/kasmvnc < ~/.vnc`: at the `/etc` level,
+a user could write their own `~/.vnc/kasmvnc.yaml` persisted in their
+home and **override the clipboard DLP layer** (Feature 11). The config
+must stay at the user level, mounted read-only on top.
 
-## Correctif retenu
+## Fix adopted
 
-`workload.go` : quand le template est kasmvnc, `.vnc` devient un
-**emptyDir dédié** (`kasmvnc-dir`) monté à `<home>/.vnc`, et le fichier
-`kasmvnc.yaml` reste un subPath read-only monté **par-dessus** (mount
-imbriqué, le répertoire déclaré avant le fichier). Propriétés :
+`workload.go`: when the template is kasmvnc, `.vnc` becomes a
+**dedicated emptyDir** (`kasmvnc-dir`) mounted at `<home>/.vnc`, and the
+`kasmvnc.yaml` file remains a read-only subPath mounted **on top**
+(nested mount, the directory declared before the file). Properties:
 
-- le kubelet n'a plus jamais à créer `.vnc` sur le PVC : le parent du
-  subPath est le point de montage emptyDir ;
-- les emptyDir sont world-writable (0777) par conception → **aucune
-  hypothèse d'uid** : n'importe quelle image non-root écrit ses
-  artefacts (`self.pem`, `passwd`, logs, `xstartup`) ;
-- tout le contenu de `.vnc` est régénéré au boot par les scripts kasm —
-  rien n'y nécessite la persistance du home (cert self-signed, pid,
-  logs) ;
-- **propriété curative** : un volume déjà cassé (`.vnc` root-owned
-  persisté sur le PVC) est masqué par le mount emptyDir — vérifié live,
-  le workspace en CrashLoop est reparti sain après un cycle
-  pause/resume ;
-- gouvernance intacte : le `kasmvnc.yaml` monté reste immuable pour
-  l'utilisateur (bind read-only, `rm`/écriture refusés — vérifié), et
-  `.vnc` éphémère supprime même la possibilité d'un shadow persistant.
+- the kubelet never again has to create `.vnc` on the PVC: the
+  subPath's parent is the emptyDir mount point;
+- emptyDirs are world-writable (0777) by design → **no uid assumption**:
+  any non-root image writes its artifacts (`self.pem`, `passwd`, logs,
+  `xstartup`);
+- the entire content of `.vnc` is regenerated at boot by the kasm
+  scripts — nothing there needs home persistence (self-signed cert,
+  pid, logs);
+- **curative property**: an already-broken volume (`.vnc` root-owned
+  persisted on the PVC) is masked by the emptyDir mount — verified
+  live, the workspace stuck in CrashLoop came back healthy after a
+  pause/resume cycle;
+- governance intact: the mounted `kasmvnc.yaml` remains immutable to
+  the user (read-only bind, `rm`/write refused — verified), and the
+  ephemeral `.vnc` even removes the possibility of a persistent shadow
+  copy.
 
-`hack/dev/templates-dev.yaml` reste inchangé : aucun `fsGroup` requis.
+`hack/dev/templates-dev.yaml` remains unchanged: no `fsGroup` required.
 
-## Vérification
+## Verification
 
-- Repro avant fix : workspace neuf sur `kasm-terminal`
-  (`homeMountPath: /home/kasm-user`, pas de fsGroup) → CrashLoopBackOff
-  avec le log exact du rapport ; `.vnc` root:root 0755 constaté sur le
-  PV.
-- Après fix : même scénario → pod `1/1 Running`, `self.pem` écrit par
-  uid 1000, ConfigMap montée (couche DLP incluse) ; idem sur le volume
-  déjà cassé (guérison) ; test de mutation du fichier refusé.
-- Test unitaire : `TestKasmVncDirNeverAutoCreatedOnHome`
-  (`kasm_config_test.go`) fige le volume emptyDir, son mount writable à
-  `<home>/.vnc`, et l'ordre répertoire-avant-fichier ;
-  `TestKasmConfigAbsentForNonKasmWorkspace` vérifie qu'un template guacd
-  n'embarque aucun des deux volumes.
+- Repro before the fix: fresh workspace on `kasm-terminal`
+  (`homeMountPath: /home/kasm-user`, no fsGroup) → CrashLoopBackOff
+  with the exact log from the report; `.vnc` root:root 0755 observed on
+  the PV.
+- After the fix: same scenario → pod `1/1 Running`, `self.pem` written
+  by uid 1000, ConfigMap mounted (DLP layer included); same for the
+  already-broken volume (healed); file mutation test refused.
+- Unit test: `TestKasmVncDirNeverAutoCreatedOnHome`
+  (`kasm_config_test.go`) pins down the emptyDir volume, its writable
+  mount at `<home>/.vnc`, and the directory-before-file ordering;
+  `TestKasmConfigAbsentForNonKasmWorkspace` verifies that a guacd
+  template carries neither of the two volumes.
 
-## Observé en marge (hors périmètre, préexistant)
+## Observed on the side (out of scope, pre-existing)
 
-Sur un home **totalement vierge**, le tout premier boot de l'image
-kasmweb échoue une fois : `cp -rp /home/kasm-default-profile/. →
-'preserving times for /home/kasm-user/.': Operation not permitted` (la
-racine du PV local-path appartient à root, uid 1000 ne peut pas en
-modifier les timestamps ; `set -e` tue le script). Auto-réparé au
-restart suivant : `.bashrc` existe alors et la copie de profil est
-sautée. Indépendant du bug `.vnc` (c'est même lui qui masquait ce
-premier échec dans les logs rapportés) ; à traiter séparément si le
-restart cosmétique du premier démarrage gêne.
+On a **totally blank** home, the very first boot of the kasmweb image
+fails once: `cp -rp /home/kasm-default-profile/. →
+'preserving times for /home/kasm-user/.': Operation not permitted` (the
+root of the local-path PV is owned by root, uid 1000 cannot change its
+timestamps; `set -e` kills the script). Self-healed on the next
+restart: `.bashrc` then exists and the profile copy is skipped.
+Independent of the `.vnc` bug (it's actually what was masking this
+first failure in the reported logs); to be handled separately if the
+cosmetic restart on first boot becomes a problem.

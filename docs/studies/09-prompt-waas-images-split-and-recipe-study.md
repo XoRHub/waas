@@ -1,274 +1,277 @@
-# Prompt Fable 5 — waas-images : split en repo dédié + étude de simplification (recette d'images, nouveaux OS/apps, variante hardened/dev)
+# Fable 5 Prompt — waas-images: split into a dedicated repo + simplification study (image recipe, new OS/apps, hardened/dev variant)
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable. Ce prompt a deux natures différentes — **traite-les comme
-telles** :
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context. This prompt has two
+different natures — **treat them as such**:
 
-- **Partie A (split)** : une action mécanique, bien spécifiée, à
-  livrer entièrement dans cette session.
-- **Partie B (étude)** : une livraison **documentaire uniquement**.
-  N'implémente rien de ce qu'elle propose — pas de nouveau Dockerfile,
-  pas de nouvelle CI, pas de variante hardened. Le repo a déjà un
-  précédent pour ce découpage (`docs/studies/prompt-etude1-protocol-feature-matrix.md`
-  a produit une étude pure ; chaque item arbitré est devenu son propre
-  prompt numéroté 01 à 08 ensuite) — suis le même schéma. Une fois
-  l'étude livrée et ses points ouverts tranchés par l'utilisateur, un
-  **prompt de suivi séparé** pilotera l'implémentation retenue — ce
-  n'est pas à toi de la déclencher ici.
+- **Part A (split)**: a mechanical, well-specified action, to be
+  delivered entirely in this session.
+- **Part B (study)**: a **documentation-only** deliverable.
+  Don't implement anything it proposes — no new Dockerfile,
+  no new CI, no hardened variant. The repo already has a
+  precedent for this kind of breakdown (`docs/studies/prompt-etude1-protocol-feature-matrix.md`
+  produced a pure study; each arbitrated item then became its own
+  prompt numbered 01 to 08) — follow the same pattern. Once the
+  study is delivered and its open points arbitrated by the user, a
+  **separate follow-up prompt** will drive the implementation of the
+  chosen option — it is not up to you to trigger it here.
 
-## Contexte du repo
+## Repo context
 
-`waas-images/` (racine du monorepo) n'est **pas un point de départ
-vierge** : c'est déjà un système de build d'images OCI layered et
-fonctionnel, livré et itéré sur plusieurs commits (`d7c2b0996802`
-initial, puis `b98a6dd9d`, `d49ebfd07`, `61c8b29d1`, `6326b0c24`
-jusqu'à aujourd'hui). Avant de proposer quoi que ce soit en partie B,
-lis en entier :
+`waas-images/` (root of the monorepo) is **not a blank slate**:
+it's already a functional, layered OCI image build system, delivered
+and iterated over several commits (`d7c2b0996802`
+initial, then `b98a6dd9d`, `d49ebfd07`, `61c8b29d1`, `6326b0c24`
+up to today). Before proposing anything in part B,
+read in full:
 
-- `waas-images/README.md` — contrat avec le Workspace CR, matrice de
-  build, procédure « Adding an app image » (§ 4 étapes, lignes
+- `waas-images/README.md` — contract with the Workspace CR, build
+  matrix, "Adding an app image" procedure (§ 4 steps, lines
   113-141).
-- `waas-images/images.yaml` — config globale (matrice OS, archs par
-  défaut, gate trivy).
-- `waas-images/HARDENING.md` — checklist vérifiable point par point
-  (build-time / runtime / côté plateforme) + threat model + gaps
-  acceptés documentés.
-- `waas-images/ci/generate_pipeline.py` — découvre les `manifest.yaml`
-  sous `base/`, `desktop/`, `apps/`, trie topologiquement sur `from`,
-  génère un pipeline enfant GitLab (un job de build natif par image ×
-  arch + un job de merge de manifest-list).
-- Un `manifest.yaml` existant (`waas-images/apps/firefox/manifest.yaml`
-  par ex.) pour voir le format de recette actuel.
+- `waas-images/images.yaml` — global config (OS matrix, default
+  archs, trivy gate).
+- `waas-images/HARDENING.md` — a checklist verifiable point by point
+  (build-time / runtime / platform side) + threat model + documented
+  accepted gaps.
+- `waas-images/ci/generate_pipeline.py` — discovers the `manifest.yaml`
+  files under `base/`, `desktop/`, `apps/`, topologically sorts them on `from`,
+  generates a GitLab child pipeline (one native build job per image ×
+  arch + one manifest-list merge job).
+- An existing `manifest.yaml` (`waas-images/apps/firefox/manifest.yaml`
+  for instance) to see the current recipe format.
 
-## Ce qui existe déjà (à connaître avant de proposer quoi que ce soit)
+## What already exists (to know before proposing anything)
 
-- **Le format « recette » existe déjà**, sous deux fichiers : un
-  `manifest.yaml` par image (nom, version, `from:` le parent, variants,
-  attentes de smoke) + `images.yaml` global (matrice OS, archs,
-  sévérité trivy). Ajouter une image = un nouveau dossier + Dockerfile
-  - manifest, aucune modification du générateur. Ce n'est **pas** un
-    vide à combler par un système entièrement nouveau — l'étude doit
-    juger si ce format suffit déjà à la barre « recette de cuisine »
-    demandée, ou identifie précisément ce qui manque (un Dockerfile
-    reste requis pour chaque nœud de la couche `apps/` — voir § B.1).
-- **supervisord est déjà l'orchestrateur runtime** (`tini + supervisord`,
-  README.md:24) ; **cloud-init n'apparaît nulle part** dans le repo —
-  c'est un outil de provisioning de VM/instance cloud, pas d'image
-  conteneur ; ne le propose pas par réflexe simplement parce qu'il est
-  cité dans la demande, vérifie s'il a un rôle réel à ce build-time là.
-- **La CI matricielle existe déjà, mais GitLab seulement.**
-  `docs/ci-github.md:90` documente explicitement ce trou : « waas-images/ :
-  pipeline enfant GitLab généré, pas d'équivalent GitHub. » —
-  `docs/ci-github.md:36` idem. Ce n'est pas une supposition, c'est déjà
-  écrit noir sur blanc comme gap connu.
-- **Un gap de catalogue déjà documenté, pas à inventer** :
-  `gitops/governance/images.yaml:53-70` référence une image
-  `ubuntu-devtools` (« Dev Tools (VS Code, toolchains) », restreinte au
-  groupe IdP `nymphe:dev` via `allowedGroups`) — mais **aucun
-  `waas-images/apps/devtools/` n'existe** dans l'arbre. `hack/dev/images-dev.yaml:5`
-  le confirme explicitement : « ubuntu-devtools in the real catalog has
-  no local manifest yet ». C'est le candidat naturel pour un des « une
-  ou deux apps en plus » demandés — il ferme un trou déjà annoncé au
-  lieu d'en inventer un nouveau.
-- **Le hardening actuel est incompatible avec un usage sudo/dev en
-  l'état**, par construction et pas par oubli : `HARDENING.md` impose
-  « No setuid/setgid binaries: all `+s` bits stripped » et
-  « Read-only rootfs compatible », vérifiées par le smoke test CI
+- **The "recipe" format already exists**, across two files: a
+  `manifest.yaml` per image (name, version, `from:` the parent, variants,
+  smoke expectations) + a global `images.yaml` (OS matrix, archs,
+  trivy severity). Adding an image = a new folder + Dockerfile
+  + manifest, no modification of the generator. This is **not** a
+  gap to be filled with an entirely new system — the study must
+  judge whether this format is already sufficient for the requested
+  "cooking recipe" bar, or precisely identify what's missing (a Dockerfile
+  is still required for every node in the `apps/` layer — see § B.1).
+- **supervisord is already the runtime orchestrator** (`tini + supervisord`,
+  README.md:24); **cloud-init appears nowhere** in the repo —
+  it's a VM/cloud instance provisioning tool, not a container image
+  tool; don't propose it reflexively just because it's
+  mentioned in the request, check whether it has a real role at that
+  build-time.
+- **The matrix CI already exists, but GitLab only.**
+  `docs/ci-github.md:90` explicitly documents this gap: "waas-images/:
+  generated GitLab child pipeline, no GitHub equivalent." —
+  `docs/ci-github.md:36` likewise. This isn't an assumption, it's already
+  written in black and white as a known gap.
+- **An already-documented catalog gap, not to invent**:
+  `gitops/governance/images.yaml:53-70` references an image
+  `ubuntu-devtools` ("Dev Tools (VS Code, toolchains)", restricted to
+  the `nymphe:dev` IdP group via `allowedGroups`) — but **no
+  `waas-images/apps/devtools/` exists** in the tree. `hack/dev/images-dev.yaml:5`
+  explicitly confirms this: "ubuntu-devtools in the real catalog has
+  no local manifest yet." This is the natural candidate for one of the
+  "one or two additional apps" requested — it closes an already-announced gap
+  instead of inventing a new one.
+- **The current hardening is incompatible with sudo/dev usage as-is**,
+  by design and not by oversight: `HARDENING.md` mandates
+  "No setuid/setgid binaries: all `+s` bits stripped" and
+  "Read-only rootfs compatible," verified by the CI smoke test
   (`--read-only --cap-drop ALL --security-opt no-new-privileges`,
-  README.md:109-111). `sudo` est un binaire setuid par nature et a
-  besoin d'écrire (apt) hors de `/home/user`/`/tmp`/`/run` — la piste
-  déjà utilisée ailleurs (`RDP_AUTH_ENABLED`, un flag **runtime** qui
-  relâche une posture) ne s'applique pas ici : on ne peut pas activer
-  sudo après coup sur une image sans le binaire setuid ni un rootfs
-  inscriptible. Une variante « moins durcie » est nécessairement un
-  **choix de build**, pas un flag d'environnement — à documenter comme
-  tel en partie B.
-- **Le split touche des points d'ancrage réels dans le monorepo**,
-  recensés ici pour éviter un audit répété en partie A :
-  - Root `.gitlab-ci.yml` : job `waas-images:` (`trigger: include:
-waas-images/.gitlab-ci.yml`, stage `build`, déclenché sur
+  README.md:109-111). `sudo` is a setuid binary by nature and needs
+  to write (apt) outside `/home/user`/`/tmp`/`/run` — the approach
+  already used elsewhere (`RDP_AUTH_ENABLED`, a **runtime** flag that
+  loosens a posture) doesn't apply here: you can't enable
+  sudo after the fact on an image without the setuid binary or a
+  writable rootfs. A "less hardened" variant is necessarily a
+  **build-time choice**, not an environment flag — to be documented as
+  such in part B.
+- **The split touches real anchor points in the monorepo**,
+  listed here to avoid a repeated audit in part A:
+  - Root `.gitlab-ci.yml`: job `waas-images:` (`trigger: include:
+waas-images/.gitlab-ci.yml`, stage `build`, triggered on
     `changes: [waas-images/**/*]`).
-  - Root `Makefile:140-145` (`dev-build-images`) : `$(MAKE) -C
-waas-images build IMAGE=$$img` — c'est le cœur de la boucle
-    `dev-bootstrap`/`dev-reload-all` livrée par
-    `docs/studies/02-prompt-feature8-makefile-dev-bootstrap.md`. Un
-    split naïf **casse cette boucle silencieusement**.
-  - `release-please-config.json:7` anticipe déjà la sortie de
-    `waas-images/` du monorepo (« waas-images/ is out of scope (own
-    per-image versioning) ») — la mention doit être mise à jour une
-    fois le dossier physiquement parti, pas juste laissée telle quelle.
-  - Docs à jour : `docs/ci.md` (lignes 23, 57, 99, 143, 145),
+  - Root `Makefile:140-145` (`dev-build-images`): `$(MAKE) -C
+waas-images build IMAGE=$$img` — this is the core of the
+    `dev-bootstrap`/`dev-reload-all` loop delivered by
+    `docs/studies/02-prompt-feature8-makefile-dev-bootstrap.md`. A
+    naive split **silently breaks this loop**.
+  - `release-please-config.json:7` already anticipates `waas-images/`
+    leaving the monorepo ("waas-images/ is out of scope (own
+    per-image versioning)") — the mention must be updated once
+    the folder has physically left, not just left as-is.
+  - Docs to update: `docs/ci.md` (lines 23, 57, 99, 143, 145),
     `docs/ci-github.md` (36, 90), `docs/governance.md:199`,
-    `README.md:51` (racine), `hack/dev/images-dev.yaml:4-5`.
-  - Commentaires de code pointant `waas-images` comme convention (pas
-    de lien fonctionnel, à laisser tels quels ou reformuler sans les
-    faire disparaître) :
+    root `README.md:51`, `hack/dev/images-dev.yaml:4-5`.
+  - Code comments pointing to `waas-images` as a convention (no
+    functional link, leave as-is or rephrase without removing them):
     `operator/api/v1alpha1/workspacetemplate_types.go:198,319,381`,
     `operator/api/v1alpha1/workspaceimage_types.go:54`.
-  - **Ce qu'il NE FAUT PAS toucher** : les coordonnées d'image publiées
-    dans `gitops/governance/images.yaml` (`registry.xorhub.io/waas/waas-images/ubuntu-xfce:1.0.0`,
-    etc.) — c'est l'adresse d'un artefact déjà publié, indépendante de
-    l'emplacement de l'arbre source. Les renommer est une décision
-    séparée, plus risquée (tags pinnés), hors scope de ce prompt.
+  - **What must NOT be touched**: the image coordinates published
+    in `gitops/governance/images.yaml` (`registry.xorhub.io/waas/waas-images/ubuntu-xfce:1.0.0`,
+    etc.) — this is the address of an already-published artifact, independent
+    of where the source tree lives. Renaming them is a separate,
+    riskier decision (pinned tags), out of scope for this prompt.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### A. Split — à exécuter entièrement (obligatoire, en premier)
+### A. Split — to be executed in full (mandatory, first)
 
-1. **Préserve l'historique.** Utilise `git filter-repo` (pas `git
-subtree split`, plus lent et moins fiable sur un monorepo de cette
-   taille) sur un **clone jetable** du repo courant, filtré sur
-   `waas-images/` avec un `path-rename` qui remonte son contenu à la
-   racine. Ne touche jamais le clone de travail de l'utilisateur pour
-   cette étape — opère dans un répertoire temporaire, puis initialise
-   le nouveau repo à l'emplacement final.
-2. **Emplacement** : le nouveau repo doit se retrouver dans
-   `../waas-image` — un répertoire frère de la racine de ce monorepo
-   (chemin littéral demandé par l'utilisateur, au singulier, alors que
-   l'arbre interne et toute la documentation continuent de s'appeler
-   `waas-images` partout ailleurs : titres, chemins de registre déjà
-   publiés, commentaires). **Ne renomme rien à l'intérieur** de l'arbre
-   déplacé sur cette seule base — documente le choix (dossier externe
-   au singulier, convention interne inchangée) comme point ouvert
-   plutôt que de trancher silencieusement dans un sens ou l'autre.
-3. **Retire `waas-images/` du monorepo** avec un commit simple
-   (`git rm -r waas-images`), **sans réécrire l'historique du
-   monorepo** — celui-ci garde la mémoire du dossier, seul le futur
-   change.
-4. **Répare chaque point d'ancrage** listé ci-dessus dans « Ce qui
-   existe déjà » :
-   - `.gitlab-ci.yml` racine : décide et implémente (voir « Points
-     ouverts ») soit la suppression pure du job `waas-images:`, soit un
-     trigger cross-repo (`include: project:, file:` / pipeline
-     multi-projet GitLab) qui pointe vers le nouveau repo.
-   - `Makefile` racine : `dev-build-images` doit résoudre le nouveau
-     repo à un chemin configurable (`WAAS_IMAGES_DIR ?= ../waas-image`)
-     et **échouer avec un message actionnable** (pas une erreur make
-     cryptique) si le répertoire est absent — indique la commande de
-     clone attendue dans le message d'erreur plutôt que de cloner tout
-     seul (un clone déclenche du réseau et de l'écriture disque non
-     demandés explicitement).
-   - Toute la doc listée ci-dessus (`docs/ci.md`, `docs/ci-github.md`,
-     `docs/governance.md`, `README.md` racine,
+1. **Preserve history.** Use `git filter-repo` (not `git
+subtree split`, slower and less reliable on a monorepo of this
+   size) on a **throwaway clone** of the current repo, filtered on
+   `waas-images/` with a `path-rename` that moves its content up to the
+   root. Never touch the user's working clone for
+   this step — operate in a temporary directory, then initialize
+   the new repo at its final location.
+2. **Location**: the new repo must end up at
+   `../waas-image` — a directory sibling to the root of this monorepo
+   (literal path requested by the user, singular, while
+   the internal tree and all the documentation keep being called
+   `waas-images` everywhere else: titles, already-published registry
+   paths, comments). **Don't rename anything inside** the moved tree
+   on this basis alone — document the choice (external
+   singular folder, unchanged internal convention) as an open point
+   rather than silently deciding one way or the other.
+3. **Remove `waas-images/` from the monorepo** with a simple commit
+   (`git rm -r waas-images`), **without rewriting the monorepo's
+   history** — it keeps the memory of the folder, only the future
+   changes.
+4. **Fix every anchor point** listed above in "What already
+   exists":
+   - Root `.gitlab-ci.yml`: decide and implement (see "Open points")
+     either the pure removal of the `waas-images:` job, or a
+     cross-repo trigger (`include: project:, file:` / GitLab
+     multi-project pipeline) pointing to the new repo.
+   - Root `Makefile`: `dev-build-images` must resolve the new
+     repo to a configurable path (`WAAS_IMAGES_DIR ?= ../waas-image`)
+     and **fail with an actionable message** (not a cryptic make
+     error) if the directory is absent — indicate the expected clone
+     command in the error message rather than cloning on its
+     own (a clone triggers network and disk writes not
+     explicitly requested).
+   - All the docs listed above (`docs/ci.md`, `docs/ci-github.md`,
+     `docs/governance.md`, root `README.md`,
      `hack/dev/images-dev.yaml`, `release-please-config.json`).
-5. **Bootstrap du nouveau repo** : README/CI/Makefile existants
-   suffisent tels quels au démarrage (ils sont déjà autonomes — le
-   Makefile de `waas-images/` ne dépend de rien hors de son propre
-   dossier). Ajoute une licence si la racine du monorepo en a une et
-   que son type doit se propager — vérifie avant de supposer.
-6. **Ne pousse aucun remote nouveau sans confirmation explicite** :
-   crée le répertoire local `../waas-image` et son commit initial, mais
-   arrête-toi avant tout `git remote add` / `git push` vers une forge
-   — l'espace de nommage cible (même org GitLab, nouveau projet GitHub,
-   double publication) est un point ouvert, pas une évidence
-   technique.
+5. **Bootstrap the new repo**: the existing README/CI/Makefile are
+   sufficient as-is to get started (they're already self-contained —
+   the `waas-images/` Makefile doesn't depend on anything outside its
+   own folder). Add a license if the monorepo root has one and
+   its type should propagate — verify before assuming.
+6. **Don't push any new remote without explicit confirmation**:
+   create the local `../waas-image` directory and its initial commit, but
+   stop before any `git remote add` / `git push` to a forge
+   — the target namespace (same GitLab org, new GitHub project,
+   dual publication) is an open point, not a
+   technical given.
 
-### B. Étude — livrable documentaire uniquement (dans le nouveau repo, `../waas-image/docs/RECIPE-STUDY.md`)
+### B. Study — documentation-only deliverable (in the new repo, `../waas-image/docs/RECIPE-STUDY.md`)
 
-Écris une étude au même niveau d'exigence que
-`docs/studies/kasm-images-feasibility.md` ou
-`docs/studies/protocol-feature-matrix-2026-07-10.md` de ce monorepo
-(constats vérifiés, sources citées, recommandation assumée mais pas
-imposée — les décisions finales reviennent à l'utilisateur). Couvre,
-dans cet ordre :
+Write a study at the same level of rigor as
+`docs/studies/kasm-images-feasibility.md` or
+`docs/studies/protocol-feature-matrix-2026-07-10.md` in this monorepo
+(verified findings, cited sources, an assumed but not
+imposed recommendation — the final decisions belong to the user). Cover,
+in this order:
 
-1. **Simplification du format recette.** Le système actuel
-   (`images.yaml` + `manifest.yaml` + Dockerfile à la main par nœud)
-   couvre-t-il déjà le besoin « recette de cuisine OS/applications/app
-   seule en YAML » ou manque-t-il un compilateur déclaratif
-   (`recipe.yaml` → Dockerfile généré) au-dessus de la couche `apps/` ?
-   Si tu proposes ce compilateur, évalue explicitement, sans réflexe
-   d'ajout de dépendance :
-   - **cloud-init** — juge s'il a un rôle réel à un build-time
-     d'image conteneur (probablement non : c'est un outil de
-     provisioning VM/instance, pas de build OCI) ; documente le
-     verdict au lieu de l'écarter sans preuve ni l'ajouter sans
+1. **Recipe format simplification.** Does the current system
+   (`images.yaml` + `manifest.yaml` + hand-written Dockerfile per node)
+   already cover the "OS/applications/single-app cooking recipe in YAML"
+   need, or is a declarative compiler
+   (`recipe.yaml` → generated Dockerfile) missing on top of the `apps/` layer?
+   If you propose this compiler, explicitly evaluate, without a
+   reflexive dependency addition:
+   - **cloud-init** — judge whether it has a real role at container
+     image build-time (probably not: it's a VM/instance
+     provisioning tool, not an OCI build tool); document the
+     verdict instead of dismissing it without proof or adding it without
      justification.
-   - **supervisord** — déjà l'orchestrateur runtime du repo ; un
-     fragment de conf supervisord par app pourrait-il remplacer le
-     Dockerfile pour le cas « app seule, pas de desktop » ?
-   - **script maison** — cohérent avec la philosophie déjà en place
-     (pas de dépendance nouvelle si évitable, cf. HARDENING.md) : un
-     petit générateur Dockerfile-from-YAML fait-il mieux que les 4
-     étapes manuelles actuelles (README.md:113-141) sans réintroduire
-     de la complexité que le système actuel évite déjà ?
-     Recommande une option, avec compromis assumés — pas une liste
-     neutre de possibilités.
-2. **CI GitHub Actions matricielle**, en miroir du pipeline GitLab
-   généré par `ci/generate_pipeline.py` (même tri topologique
-   base→desktop→apps, mêmes gates smoke/trivy/cosign par image × arch).
-   Comble le gap déjà documenté en `docs/ci-github.md:90` de ce
-   monorepo — vérifie s'il faut le dupliquer/adapter dans le nouveau
-   repo une fois séparé. Propose le design (jobs, matrix, réutilisation
-   ou non de `generate_pipeline.py`) ; n'écris pas le YAML final dans
-   cette étude, ce sera livré dans le prompt de suivi arbitré.
-3. **Nouveaux OS/applications**, un ou deux suffisent, un nouvel OS de
-   base au minimum :
-   - **`ubuntu-devtools`** en priorité — ferme un gap déjà annoncé côté
-     gouvernance (`gitops/governance/images.yaml:53-70`, restriction
-     `allowedGroups: [nymphe:dev]` déjà écrite) et déjà signalé manquant
-     (`hack/dev/images-dev.yaml:5`), plutôt qu'une proposition
-     spéculative.
-   - Une application supplémentaire de ton choix (justifie : utilité
-     réelle pour un poste WaaS, complexité d'ajout raisonnable —
-     code-server/VS Code web et un second navigateur sont des pistes
-     plausibles, sans obligation).
-   - Un nouvel OS de base : évalue le delta réel depuis
-     `base/ubuntu/Dockerfile` pour le candidat proposé (Debian étant le
-     plus proche techniquement, apt-based comme Ubuntu) — ne le propose
-     que si le coût de maintenance réel (paquets équivalents, xrdp,
-     TigerVNC packagés) a été vérifié, pas supposé.
-4. **Variante hardened/moins-hardened au build time**, pour les
-   environnements dédiés au développement où l'utilisateur a besoin de
-   `apt install`/sudo en session. Comme établi ci-dessus, ça ne peut
-   pas être un flag runtime — propose le mécanisme de build (nouveau
-   build-arg type `INSTALL_SUDO=1`, tag distinct `-dev`, sudoers
-   NOPASSWD pour l'UID 1000, rootfs non read-only pour ce tag
-   spécifiquement) et son inscription dans `HARDENING.md` comme profil
-   de sécurité **réduit et documenté**, pas une régression silencieuse
-   de la checklist actuelle. Propose aussi comment l'empêcher de fuiter
-   par accident vers la population générale — le repo a déjà un
-   précédent utilisable (`allowedGroups` sur `ubuntu-devtools`,
+   - **supervisord** — already the repo's runtime orchestrator; could
+     a supervisord config fragment per app replace the Dockerfile for
+     the "single app, no desktop" case?
+   - **home-grown script** — consistent with the philosophy already in
+     place (no new dependency if avoidable, cf. HARDENING.md): does a
+     small Dockerfile-from-YAML generator do better than the 4
+     manual steps currently in place (README.md:113-141) without
+     reintroducing complexity that the current system already avoids?
+     Recommend one option, with acknowledged trade-offs — not a neutral
+     list of possibilities.
+2. **GitHub Actions matrix CI**, mirroring the GitLab pipeline
+   generated by `ci/generate_pipeline.py` (same topological sort
+   base→desktop→apps, same smoke/trivy/cosign gates per image × arch).
+   Close the gap already documented at `docs/ci-github.md:90` of this
+   monorepo — check whether it needs to be duplicated/adapted in the new
+   repo once separated. Propose the design (jobs, matrix, reuse
+   or not of `generate_pipeline.py`); don't write the final YAML in
+   this study, it will be delivered in the arbitrated follow-up prompt.
+3. **New OS/applications**, one or two are enough, at least one new
+   base OS:
+   - **`ubuntu-devtools`** as priority — closes a gap already announced
+     on the governance side (`gitops/governance/images.yaml:53-70`,
+     `allowedGroups: [nymphe:dev]` restriction already written) and already
+     flagged as missing (`hack/dev/images-dev.yaml:5`), rather than a
+     speculative proposal.
+   - One additional application of your choice (justify it: real
+     usefulness for a WaaS workstation, reasonable addition complexity —
+     code-server/VS Code web and a second browser are plausible
+     leads, no obligation).
+   - A new base OS: evaluate the real delta from
+     `base/ubuntu/Dockerfile` for the proposed candidate (Debian being the
+     technically closest, apt-based like Ubuntu) — only propose it
+     if the real maintenance cost (equivalent packages, xrdp,
+     packaged TigerVNC) has been verified, not assumed.
+4. **Hardened/less-hardened build-time variant**, for
+   development-dedicated environments where the user needs
+   `apt install`/sudo in-session. As established above, this can't
+   be a runtime flag — propose the build mechanism (new
+   build-arg like `INSTALL_SUDO=1`, distinct `-dev` tag, sudoers
+   NOPASSWD for UID 1000, non-read-only rootfs for that specific
+   tag) and its registration in `HARDENING.md` as a **reduced and
+   documented** security profile, not a silent regression
+   of the current checklist. Also propose how to prevent it from accidentally
+   leaking to the general population — the repo already has a usable
+   precedent (`allowedGroups` on `ubuntu-devtools`,
    `gitops/governance/images.yaml:64-66`).
 
-Termine l'étude par une section **« Points ouverts »** qui reprend,
-sous forme de liste tranchable, chacun des choix ci-dessus (format
-recette, inclusion cloud-init, cible GitHub Actions, OS candidat,
-2ᵉ app candidate, mécanisme exact de la variante dev) — c'est ce que
-l'utilisateur arbitrera avant le prompt de suivi.
+End the study with an **"Open points"** section that restates,
+as an arbitrable list, each of the choices above (recipe
+format, cloud-init inclusion, GitHub Actions target, candidate OS,
+2nd candidate app, exact mechanism of the dev variant) — this is what
+the user will arbitrate before the follow-up prompt.
 
-## Contraintes à respecter
+## Constraints to respect
 
-- Partie A doit laisser le monorepo et le nouveau repo tous les deux
-  dans un état qui build/lint sans erreur : pas de job CI cassé par un
-  `include` pointant vers un chemin qui n'existe plus, pas de cible
-  Makefile qui échoue silencieusement (`No rule to make target`).
-- Partie B ne modifie ni Dockerfile, ni manifest, ni pipeline CI — texte
-  seulement. Résiste à la tentation d'implémenter une proposition « pendant
-  que tu y es » : ce n'est pas arbitré.
-- Ne renomme ni ne déplace les coordonnées de registre déjà publiées
-  (`gitops/governance/images.yaml`) dans ce prompt.
-- Aucun `git push` vers un nouveau remote sans confirmation explicite
-  de l'utilisateur.
-- Toute décision de la partie A qui a une alternative raisonnable
-  (suppression vs trigger cross-repo du job GitLab ; nommage singulier
-  du dossier externe vs convention interne) doit être documentée dans
-  le message de commit ou l'étude, pas juste tranchée en silence.
+- Part A must leave both the monorepo and the new repo
+  in a state that builds/lints without error: no CI job broken by an
+  `include` pointing to a path that no longer exists, no Makefile
+  target that fails silently (`No rule to make target`).
+- Part B modifies no Dockerfile, no manifest, no CI pipeline — text
+  only. Resist the temptation to implement a proposal "while you're
+  at it" — it isn't arbitrated.
+- Don't rename or move the already-published registry coordinates
+  (`gitops/governance/images.yaml`) in this prompt.
+- No `git push` to a new remote without explicit confirmation
+  from the user.
+- Any part A decision that has a reasonable alternative
+  (removal vs. cross-repo trigger of the GitLab job; singular
+  naming of the external folder vs. internal convention) must be
+  documented in the commit message or the study, not just silently
+  decided.
 
-## Points ouverts (ton arbitrage)
+## Open points (your arbitration)
 
-- Suppression pure du job `waas-images:` dans le `.gitlab-ci.yml`
-  racine vs. trigger cross-repo vers `../waas-image` désormais externe
-  — dépend de la forge/organisation cible, à confirmer avant de coder.
-- Espace de nommage du nouveau remote (même org GitLab, nouveau projet
-  GitHub, double publication) — condition la réponse à la question CI
-  GitHub Actions de la partie B.
-- Nom du dossier externe (`waas-image` singulier, demandé tel quel) vs.
-  convention interne inchangée (`waas-images` partout dans le code/doc
-  de l'arbre déplacé) — à assumer explicitement, pas à uniformiser
-  sans le dire. arbitrage le dossier waas-images existe deja et a deja un git init d'effetuer au chemin ~/Documents/Personal/Projects/XorHub/waas-images/
-- Compilateur de recette (cloud-init/supervisord/script maison) — ton
-  jugement en étude B.1, pas une évidence technique.
-- Mécanisme exact de la variante dev/moins-hardened (build-arg précis,
-  nom de tag, gating catalogue) — ton jugement en étude B.4.
+- Pure removal of the `waas-images:` job in the root
+  `.gitlab-ci.yml` vs. cross-repo trigger to the now-external
+  `../waas-image` — depends on the target forge/organization, to be confirmed
+  before coding.
+- Namespace of the new remote (same GitLab org, new GitHub project,
+  dual publication) — conditions the answer to part B's GitHub
+  Actions CI question.
+- Name of the external folder (`waas-image` singular, requested as-is) vs.
+  unchanged internal convention (`waas-images` everywhere in the code/doc
+  of the moved tree) — to be assumed explicitly, not standardized
+  without saying so. Arbitration: the waas-images folder already exists and
+  already has a git init done at the path ~/Documents/Personal/Projects/XorHub/waas-images/
+- Recipe compiler (cloud-init/supervisord/home-grown script) — your
+  judgment in study B.1, not a technical given.
+- Exact mechanism of the dev/less-hardened variant (precise build-arg,
+  tag name, catalog gating) — your judgment in study B.4.
+</content>

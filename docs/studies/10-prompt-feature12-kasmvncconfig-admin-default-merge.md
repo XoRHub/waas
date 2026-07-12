@@ -1,265 +1,266 @@
-# Prompt Fable 5 — Feature 12 : `kasmvncConfig` éditable depuis le panel admin, avec défaut plateforme fusionné (l'explicite gagne)
+# Fable 5 Prompt — Feature 12: `kasmvncConfig` editable from the admin panel, with a merged platform default (explicit wins)
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context.
 
-## Contexte du repo
+## Repo context
 
 `WorkspaceTemplate.spec.kasmvncConfig` (`operator/api/v1alpha1/workspacetemplate_types.go:327-339`)
-est une chaîne YAML opaque, jamais parsée comme schéma — matérialisée
-en ConfigMap et montée en lecture seule à
+is an opaque YAML string, never parsed against a schema — materialized
+as a ConfigMap and mounted read-only at
 `<homeMountPath>/.vnc/kasmvnc.yaml`
-(`operator/internal/controller/kasm_config.go`). La Feature 11
-(`docs/studies/08-prompt-feature11-kasmvnc-governance-gap.md`, livrée
-2026-07-10) a ajouté une fusion partielle : le contrôleur stamp
-inconditionnellement 3 clés DLP clipboard dérivées de
-`WorkspacePolicy.Clipboard` par-dessus le `kasmvncConfig` de l'admin
-(`applyClipboardPolicy`, `kasm_config.go:80-104`), et le webhook de
-validation refuse qu'un admin écrive ces 3 clés lui-même
+(`operator/internal/controller/kasm_config.go`). Feature 11
+(`docs/studies/08-prompt-feature11-kasmvnc-governance-gap.md`, delivered
+2026-07-10) added a partial merge: the controller unconditionally stamps
+3 clipboard DLP keys derived from
+`WorkspacePolicy.Clipboard` over the admin's `kasmvncConfig`
+(`applyClipboardPolicy`, `kasm_config.go:80-104`), and the validation
+webhook refuses to let an admin write these 3 keys themselves
 (`workspacetemplate_webhook.go:93-113,146-167`).
 
-Ce prompt corrige deux écarts non traités par la Feature 11 :
+This prompt fixes two gaps not addressed by Feature 11:
 
-1. **Aucun formulaire admin n'existe pour ce champ.** Le plumbing
-   backend est complet de bout en bout — CRD → `TemplateInput`
+1. **No admin form exists for this field.** The backend plumbing is
+   complete end to end — CRD → `TemplateInput`
    (`api-server/internal/service/template_service.go:53-55,220,364`) →
    `model.WorkspaceTemplate` (`api-server/internal/model/model.go:307-308`)
-   → `types.gen.ts:357-359` — mais `frontend/src/pages/admin/TemplatesPage.tsx`
-   ne référence `kasmvncConfig` **nulle part** : c'est un champ
-   gitops/kubectl only aujourd'hui (confirmé dans
-   `kasm-images-feasibility.md` ligne ~236, note de la Feature 11).
-2. **Il n'existe aucun défaut plateforme.** Si l'admin laisse
-   `kasmvncConfig` vide, le ConfigMap effectif ne contient QUE le bloc
-   DLP clipboard des 3 clés stampées — aucune configuration de base
-   (résolution, nom, etc.) n'est jamais appliquée. Le commentaire du
-   champ CRD ment déjà sur ce point : *« Empty = no mount, the image
-   default applies »* (`workspacetemplate_types.go:336`) — c'est faux
-   depuis la Feature 11, le mount est **inconditionnel** dès qu'un
-   protocole `kasmvnc` est déclaré (`workload.go:94-121`,
-   `kasmConfig` n'est jamais `""` pour un template kasmvnc puisque le
-   bloc clipboard y est toujours stampé). Ce prompt rend ce commentaire
-   vrai en lui donnant un vrai contenu, au lieu de simplement le corriger.
+   → `types.gen.ts:357-359` — but `frontend/src/pages/admin/TemplatesPage.tsx`
+   references `kasmvncConfig` **nowhere**: today it's a gitops/kubectl-only
+   field (confirmed in `kasm-images-feasibility.md` line ~236, Feature 11
+   note).
+2. **No platform default exists.** If the admin leaves
+   `kasmvncConfig` empty, the effective ConfigMap contains ONLY the
+   3-key clipboard DLP block — no baseline configuration
+   (resolution, name, etc.) is ever applied. The CRD field comment
+   already lies about this: *"Empty = no mount, the image
+   default applies"* (`workspacetemplate_types.go:336`) — this has been false
+   since Feature 11, the mount is **unconditional** as soon as a
+   `kasmvnc` protocol is declared (`workload.go:94-121`,
+   `kasmConfig` is never `""` for a kasmvnc template since the
+   clipboard block is always stamped onto it). This prompt makes this comment
+   true by giving it real content, instead of simply fixing it.
 
-## Ce qui existe déjà (à connaître avant de coder)
+## What already exists (to know before coding)
 
 - **`applyClipboardPolicy(rawConfig, copyAllowed, pasteAllowed)`**
-  (`kasm_config.go:85-104`) : parse `rawConfig` en `map[string]any`,
-  stampe 3 chemins via `setNested` (`kasm_config.go:110-121`, écrase
-  toute valeur non-map rencontrée sur le chemin), remarshal. Deux
-  points d'appel indépendants font exactement le même calcul :
-  `ensureKasmConfig` (`kasm_config.go:126-173`, produit le ConfigMap)
-  et la construction du volume dans `workload.go:94-121` (calcule le
-  hash qui roule le pod). Garde cette duplication en tête — la fusion à
-  3 couches que tu introduis doit rester identique aux deux endroits.
-- **Webhook** : `tpl.Spec.KasmVNCConfig != "" && !seen[kasmvnc]` → refus
-  (`workspacetemplate_webhook.go:95-96`) ; `policyManagedClipboardKeys`
-  (`:150-167`) refuse que l'admin écrive lui-même les 3 clés
-  clipboard-DLP ou `runtime_configuration.allow_client_to_override_kasm_server_settings`.
-  **Ne change pas cette logique** — le défaut plateforme introduit ici
-  ne doit jamais, lui non plus, écrire ces clés autrement qu'à travers
-  `applyClipboardPolicy` (sinon le webhook et le contrôleur divergent).
-- **Montage utilisateur déjà read-only** : `workload.go`, le
-  `VolumeMount` du ConfigMap a `ReadOnly: true` (subPath sur le volume
-  home). C'est déjà l'état voulu par la demande *« côté utilisateur la
-  ConfigMap n'est que RO, informative »* — ne le régresse pas, il n'y a
-  rien à ajouter ici, juste à vérifier qu'aucune tâche ci-dessous n'introduit
-  une écriture utilisateur (API ou UI) sur ce champ.
-- **Pattern de champ protocole-conditionnel dans l'éditeur admin** :
-  `exposeAudioPort` est déjà un champ conditionné à un protocole précis
-  dans `TemplatesPage.tsx` (`currentProto.exposeAudioPort`,
-  ligne ~491-492, passé à `ProtocolParamsForm`). `kasmvncConfig` est en
-  revanche un champ **de template**, pas par-protocole (une seule
-  chaîne dans `WorkspaceTemplateSpec`, pas dans `WorkspaceProtocol`) —
-  le pattern à reprendre est donc la garde côté validation
-  (`kasmvncConfig requires a kasmvnc protocol entry`), pas le mécanisme
-  de state per-protocole d'`exposeAudioPort`.
+  (`kasm_config.go:85-104`): parses `rawConfig` into a `map[string]any`,
+  stamps 3 paths via `setNested` (`kasm_config.go:110-121`, overwrites
+  any non-map value encountered on the path), remarshals. Two
+  independent call sites do exactly the same computation:
+  `ensureKasmConfig` (`kasm_config.go:126-173`, produces the ConfigMap)
+  and the volume construction in `workload.go:94-121` (computes the
+  hash that rolls the pod). Keep this duplication in mind — the 3-layer
+  merge you're introducing must remain identical in both places.
+- **Webhook**: `tpl.Spec.KasmVNCConfig != "" && !seen[kasmvnc]` → refusal
+  (`workspacetemplate_webhook.go:95-96`); `policyManagedClipboardKeys`
+  (`:150-167`) refuses to let the admin write the 3 clipboard-DLP keys
+  or `runtime_configuration.allow_client_to_override_kasm_server_settings`
+  themselves.
+  **Don't change this logic** — the platform default introduced here
+  must also never write these keys other than through
+  `applyClipboardPolicy` (otherwise the webhook and the controller diverge).
+- **User-facing mount is already read-only**: in `workload.go`, the
+  ConfigMap's `VolumeMount` has `ReadOnly: true` (subPath on the home
+  volume). This is already the state requested by *"on the user side
+  the ConfigMap is RO only, informational"* — don't regress it, there's
+  nothing to add here, just verify that none of the tasks below introduces
+  a user write (API or UI) on this field.
+- **Protocol-conditional field pattern in the admin editor**:
+  `exposeAudioPort` is already a field conditioned on a specific protocol
+  in `TemplatesPage.tsx` (`currentProto.exposeAudioPort`,
+  line ~491-492, passed to `ProtocolParamsForm`). `kasmvncConfig` is instead
+  a **template-level** field, not per-protocol (a single
+  string in `WorkspaceTemplateSpec`, not in `WorkspaceProtocol`) —
+  the pattern to reuse is therefore the validation-side guard
+  (`kasmvncConfig requires a kasmvnc protocol entry`), not the
+  per-protocol state mechanism of `exposeAudioPort`.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### A. Une couche de défaut plateforme, fusionnée au reconcile — PAS persistée dans le CR
+### A. A platform default layer, merged at reconcile time — NOT persisted in the CR
 
-**Décidé** : le défaut vit comme une **constante Go**, appliquée
-uniquement au moment où le contrôleur calcule le contenu effectif
-(même endroit que le stamp clipboard actuel) — ni schéma CRD
-(`+kubebuilder:default`), ni webhook mutant qui écrirait le défaut dans
-`spec.KasmVNCConfig` à la création. Raison à documenter dans le commit :
-un défaut matérialisé dans le CR (CRD ou webhook mutant) se fige dans
-chaque template au moment de sa création — une évolution ultérieure du
-défaut plateforme ne toucherait plus jamais les templates déjà créés,
-et chaque template GitOps porterait le blob complet du défaut même
-quand l'admin n'a rien à y redire, ce qui casse le modèle « le CR ne
-porte que ce qui dévie ». La fusion au reconcile, elle, propage un
-changement de défaut à tous les templates qui n'ont pas surchargé la
-clé concernée, via le même mécanisme de hash/rollout qui existe déjà
-(`annotationKasmConfigHash`).
+**Decided**: the default lives as a **Go constant**, applied
+only at the moment the controller computes the effective content
+(same place as the current clipboard stamp) — neither a CRD schema
+default (`+kubebuilder:default`), nor a mutating webhook that would write
+the default into `spec.KasmVNCConfig` at creation time. Reason to document in
+the commit: a default materialized in the CR (CRD or mutating webhook)
+freezes into each template at the time of its creation — a later
+change to the platform default would never again reach templates
+already created, and every GitOps template would carry the full default
+blob even when the admin has nothing to override, which breaks the
+"the CR only carries what deviates" model. The merge at reconcile time, on the
+other hand, propagates a default change to every template that hasn't
+overridden the key in question, via the same hash/rollout mechanism that
+already exists (`annotationKasmConfigHash`).
 
-1. **Décidé — source du contenu** : `defaultKasmVNCConfig` doit
-   reproduire le `kasmvnc.yaml` par défaut **tel que livré par l'image
-   kasmweb/\* elle-même**, pas une sélection inventée de directives. En
-   session live (k3d dev, cf.
-   `docs/studies/02-prompt-feature8-makefile-dev-bootstrap.md` pour le
-   bootstrap), démarre un workspace kasmvnc et récupère le fichier de
-   config par défaut du conteneur (probablement `/etc/kasmvnc/kasmvnc.yaml`
-   et/ou `~/.vnc/kasmvnc.yaml` avant tout montage WaaS — vérifie lequel
-   fait foi, la doc officielle citée en Feature 11
-   (`kasmweb.com/kasmvnc/docs/latest/configuration.html`) documente la
-   hiérarchie de fichiers si ambiguïté). Copie-le verbatim comme
-   constante Go plutôt que de deviner ou de le réduire à un sous-ensemble
-   « minimal » — c'est un fichier déjà validé par l'éditeur amont, le
-   reproduire fidèlement est moins risqué que d'en extraire un extrait
-   partiel. Le bloc clipboard-DLP qu'il contient éventuellement n'a pas
-   besoin d'être retiré à la main : la couche 3 (policy) l'écrase de
-   toute façon sur les 3 clés gérées (§2 ci-dessous), quel que soit son
-   contenu dans la couche 1.
-2. Remplace `applyClipboardPolicy` par une fusion à **3 couches**, dans
-   cet ordre de priorité croissante :
-   `defaultKasmVNCConfig` (base) → `tpl.Spec.KasmVNCConfig` de l'admin
-   (surcharge **clé par clé**, pas un remplacement du document entier —
-   une clé absente du template hérite du défaut, une clé présente dans
-   les deux gagne côté template) → les 3 clés clipboard-DLP dérivées de
-   la policy (toujours forcées en dernier, comportement inchangé).
-3. Écris la fusion comme une fonction récursive générique sur
-   `map[string]any` (deux maps en entrée, la seconde gagnant clé par
-   clé en descendant dans les sous-maps ; toute valeur non-map — scalaire
-   ou liste — dans la couche prioritaire remplace entièrement la valeur
-   correspondante de la couche de base, pas de fusion de listes). Garde
-   le style explicite déjà en place (`setNested`, pas de bibliothèque de
-   deep-merge externe). Renomme/réorganise `applyClipboardPolicy` comme
-   tu veux tant que les deux points d'appel (`kasm_config.go:143`,
-   `workload.go:104`) utilisent la même fonction avec les 3 couches
-   dans le même ordre.
-4. Vérifie qu'un template dont `kasmvncConfig` est vide obtient
-   désormais un ConfigMap contenant le défaut + le bloc clipboard (pas
-   seulement le bloc clipboard comme aujourd'hui), et qu'un template
-   qui ne surcharge qu'une seule clé du défaut (ex. juste la résolution)
-   garde le reste du défaut intact — c'est le comportement que le
-   commentaire actuel du champ CRD prétend déjà à tort.
+1. **Decided — content source**: `defaultKasmVNCConfig` must
+   reproduce the default `kasmvnc.yaml` **exactly as shipped by the
+   kasmweb/\* image itself**, not a made-up selection of directives. In
+   a live session (k3d dev, cf.
+   `docs/studies/02-prompt-feature8-makefile-dev-bootstrap.md` for the
+   bootstrap), start a kasmvnc workspace and fetch the container's default
+   config file (likely `/etc/kasmvnc/kasmvnc.yaml`
+   and/or `~/.vnc/kasmvnc.yaml` before any WaaS mount — check which one
+   is authoritative; the official doc cited in Feature 11
+   (`kasmweb.com/kasmvnc/docs/latest/configuration.html`) documents the
+   file hierarchy in case of ambiguity). Copy it verbatim as a Go
+   constant rather than guessing or reducing it to a "minimal"
+   subset — it's a file already validated by the upstream editor, reproducing
+   it faithfully is less risky than extracting a partial
+   excerpt. The clipboard-DLP block it may contain doesn't
+   need to be manually removed: layer 3 (policy) overwrites it anyway
+   on the 3 managed keys (§2 below), regardless of its
+   content in layer 1.
+2. Replace `applyClipboardPolicy` with a **3-layer** merge, in
+   this increasing priority order:
+   `defaultKasmVNCConfig` (base) → the admin's `tpl.Spec.KasmVNCConfig`
+   (overrides **key by key**, not a replacement of the entire document —
+   a key absent from the template inherits the default, a key present in
+   both wins on the template side) → the 3 clipboard-DLP keys derived from
+   the policy (always forced last, unchanged behavior).
+3. Write the merge as a generic recursive function over
+   `map[string]any` (two input maps, the second winning key by key
+   when descending into sub-maps; any non-map value — scalar
+   or list — in the priority layer entirely replaces the corresponding
+   value in the base layer, no list merging). Keep the
+   explicit style already in place (`setNested`, no external
+   deep-merge library). Rename/reorganize `applyClipboardPolicy` as
+   you like as long as the two call sites (`kasm_config.go:143`,
+   `workload.go:104`) use the same function with the 3 layers
+   in the same order.
+4. Verify that a template whose `kasmvncConfig` is empty now
+   gets a ConfigMap containing the default + the clipboard block (not
+   just the clipboard block as today), and that a template
+   that only overrides a single default key (e.g. just the resolution)
+   keeps the rest of the default intact — this is the behavior that
+   the current CRD field comment already wrongly claims.
 
-### B. Le rollout doit suivre la routine de reload déjà en place — pas de nouveau mécanisme
+### B. The rollout must follow the reload routine already in place — no new mechanism
 
-Un changement de `kasmvncConfig` (ou du défaut plateforme introduit en
-§A) doit rouler les pods concernés en suivant **exactement** le circuit
-déjà câblé, sans en ajouter un parallèle :
+A change to `kasmvncConfig` (or to the platform default introduced in
+§A) must roll the affected pods following **exactly** the
+already-wired circuit, without adding a parallel one:
 
-1. `WorkspaceReconciler.SetupWithManager` regarde déjà
+1. `WorkspaceReconciler.SetupWithManager` already watches
    `WorkspaceTemplate` (`workspace_controller.go:1040-1041`,
-   `Watches(&waasv1alpha1.WorkspaceTemplate{}, ...mapTemplateToWorkspaces)`) :
-   toute édition de template (donc de `kasmvncConfig`) réenqueue déjà
-   chaque workspace qui en dérive (`mapTemplateToWorkspaces`,
-   `workspace_controller.go:1057-1073`, filtre sur `spec.templateRef`).
-2. Le contenu fusionné (§A) alimente déjà `annotationKasmConfigHash`
-   sur le pod template (`workload.go`, juste après le calcul de
-   `kasmConfig`) — un contenu différent change le hash, change
-   l'annotation, donc change le pod template, donc déclenche le rollout
-   du Deployment/StatefulSet par le mécanisme générique déjà en place
-   (pas spécifique à kasmvnc).
-3. **Ta tâche ici n'est donc PAS d'ajouter un watch ou un trigger** :
-   c'est de vérifier, avec un test d'intégration/reconcile (ou en
-   session live), que le passage à 3 couches (§A) n'a rien cassé dans
-   cette chaîne — en particulier que le hash change bien quand seule la
-   couche défaut change (ex. un bump futur de `defaultKasmVNCConfig`)
-   ET quand seule la couche admin change, pas seulement quand la
-   couche policy change (le seul cas déjà testé aujourd'hui). Si tu
-   trouves que la fusion à 3 couches introduit un cas où le hash ne
-   bouge pas alors que le contenu effectif a changé (ex. bug d'ordre
-   des clés dans le YAML remarshalé produisant un hash instable), c'est
-   un bug à corriger dans cette tâche, pas un nouveau mécanisme à
-   construire.
+   `Watches(&waasv1alpha1.WorkspaceTemplate{}, ...mapTemplateToWorkspaces)`):
+   any template edit (hence any `kasmvncConfig` edit) already re-enqueues
+   every workspace derived from it (`mapTemplateToWorkspaces`,
+   `workspace_controller.go:1057-1073`, filters on `spec.templateRef`).
+2. The merged content (§A) already feeds `annotationKasmConfigHash`
+   on the pod template (`workload.go`, right after computing
+   `kasmConfig`) — different content changes the hash, changes
+   the annotation, hence changes the pod template, hence triggers the rollout
+   of the Deployment/StatefulSet via the generic mechanism already in place
+   (not specific to kasmvnc).
+3. **Your task here is therefore NOT to add a watch or a trigger**:
+   it's to verify, with an integration/reconcile test (or in a
+   live session), that moving to 3 layers (§A) hasn't broken anything in
+   this chain — in particular that the hash does change when only the
+   default layer changes (e.g. a future bump of `defaultKasmVNCConfig`)
+   AND when only the admin layer changes, not just when the
+   policy layer changes (the only case already tested today). If you
+   find that the 3-layer merge introduces a case where the hash doesn't
+   move even though the effective content has changed (e.g. a key-ordering
+   bug in the remarshaled YAML producing an unstable hash), that's
+   a bug to fix within this task, not a new mechanism to
+   build.
 
-### D. Champ éditable dans le panel admin (`TemplatesPage.tsx`)
+### D. Editable field in the admin panel (`TemplatesPage.tsx`)
 
-1. Ajoute un `<textarea>` pour `kasmvncConfig` dans le formulaire de
-   template, désactivé/masqué tant qu'aucun protocole `kasmvnc` n'est
-   présent dans `protocols` (même garde que le webhook — ne dépend pas
-   de `activeProto`, c'est un test sur la liste entière des protocoles
-   du template, pas sur l'onglet actif).
-2. **Décidé — contenu du texte d'aide** (i18n, `en.json`/`fr.json`,
-   clés sous `admin.templatesPage.*` comme le reste du fichier). Il
-   doit couvrir deux points, pas plus :
-   - **Propagation** : ce champ est fusionné (clé par clé, le template
-     gagne sur le défaut plateforme) puis propagé tel quel dans le
-     workspace de l'utilisateur — matérialisé en ConfigMap et monté en
-     lecture seule dans le conteneur ; les 3 clés clipboard-DLP restent
-     refusées ici et dérivées de la policy (le webhook renvoie déjà un
-     message explicite en cas de tentative — pas de validation
-     dupliquée côté client, juste ne pas surprendre l'admin sur le
-     retour d'erreur).
-   - **Lien vers la doc** : référence la doc officielle KasmVNC des
-     directives disponibles (`kasmweb.com/kasmvnc/docs/latest/configuration.html`,
-     déjà citée en Feature 11) directement dans le texte d'aide ou en
-     lien à côté du textarea, pour que l'admin sache où chercher les
-     noms de clés valides sans deviner.
-3. **Décidé — pas d'aperçu de fusion dans l'UI.** Le textarea reste
-   l'édition de la couche de surcharge brute, pas un rendu de l'état
-   fusionné final ; ce n'est pas demandé et ajouterait une surface (il
-   faudrait appeler le contrôleur ou dupliquer la fusion côté
-   api-server/frontend). Si tu identifies que c'est trivial une fois §A
-   fait (ex. un endpoint qui expose juste le YAML fusionné en lecture),
-   documente-le comme option plutôt que de l'implémenter sans qu'on te
-   l'ait demandé.
+1. Add a `<textarea>` for `kasmvncConfig` in the template
+   form, disabled/hidden as long as no `kasmvnc` protocol is
+   present in `protocols` (same guard as the webhook — doesn't depend
+   on `activeProto`, it's a test on the entire list of protocols
+   of the template, not on the active tab).
+2. **Decided — help text content** (i18n, `en.json`/`fr.json`,
+   keys under `admin.templatesPage.*` like the rest of the file). It
+   must cover two points, no more:
+   - **Propagation**: this field is merged (key by key, the template
+     wins over the platform default) then propagated as-is into the
+     user's workspace — materialized as a ConfigMap and mounted
+     read-only in the container; the 3 clipboard-DLP keys remain
+     refused here and derived from the policy (the webhook already
+     returns an explicit message on any attempt — no client-side
+     duplicated validation, just don't surprise the admin about the
+     error response).
+   - **Link to the docs**: reference the official KasmVNC documentation
+     of available directives (`kasmweb.com/kasmvnc/docs/latest/configuration.html`,
+     already cited in Feature 11) directly in the help text or in a
+     link next to the textarea, so the admin knows where to look for
+     valid key names without guessing.
+3. **Decided — no merge preview in the UI.** The textarea remains
+   the editor of the raw override layer, not a rendering of the
+   final merged state; this isn't requested and would add a surface (it
+   would require calling the controller or duplicating the merge on the
+   api-server/frontend side). If you find it's trivial once §A
+   is done (e.g. an endpoint that just exposes the merged YAML read-only),
+   document it as an option rather than implementing it without being
+   asked to.
 
-### E. Corriger les commentaires devenus faux
+### E. Fix comments that became false
 
-- `workspacetemplate_types.go:336` : remplace *« Empty = no mount, the
-  image default applies »* par une description fidèle à la fusion à 3
-  couches introduite en §A (empty = le défaut plateforme + le stamp
-  policy s'appliquent ; non-empty = surcharge clé par clé par-dessus le
-  même défaut).
-- `kasm_config.go:20-39` (commentaire de package en tête de fichier) :
-  mentionne la 3ᵉ couche (défaut plateforme) en plus des deux déjà
-  documentées (config admin + policy clipboard).
+- `workspacetemplate_types.go:336`: replace *"Empty = no mount, the
+  image default applies"* with a description faithful to the 3-layer
+  merge introduced in §A (empty = the platform default + the policy
+  stamp apply; non-empty = key-by-key override on top of the
+  same default).
+- `kasm_config.go:20-39` (package comment at the top of the file):
+  mention the 3rd layer (platform default) in addition to the two
+  already documented (admin config + clipboard policy).
 
 ### F. Tests
 
-- Go, sur la fonction de fusion : admin vide → défaut + clipboard
-  seuls ; admin ne surchargeant qu'une clé → reste du défaut préservé ;
-  admin définissant une clé absente du défaut → conservée telle quelle ;
-  ordre de priorité vérifié sur un cas où défaut ET admin définissent la
-  même clé (l'admin gagne) puis où policy ET admin visent la même clé
-  clipboard (déjà interdit à l'admission par le webhook — teste que la
-  fusion au reconcile reste défensivement correcte si jamais un objet
-  invalide existait déjà en base avant un durcissement du webhook,
-  sans en faire une garantie API nouvelle).
-- Go : les deux points d'appel (`ensureKasmConfig`,
-  construction du volume dans `workload.go`) produisent un contenu
-  identique pour les mêmes entrées (évite la régression de duplication
-  citée en “Ce qui existe déjà”).
-- Go, sur §B (rollout) : un changement de `defaultKasmVNCConfig` seul
-  (simulable en test en injectant une variante) et un changement de
-  `tpl.Spec.KasmVNCConfig` seul produisent chacun un
-  `annotationKasmConfigHash` différent — pas seulement un changement de
-  policy clipboard, seul cas déjà couvert avant ce prompt.
-- Vitest : le textarea `kasmvncConfig` apparaît/disparaît selon la
-  présence du protocole `kasmvnc` dans la liste ; round-trip
-  save/reload du champ ; clés i18n présentes dans les deux locales.
+- Go, on the merge function: empty admin → default + clipboard
+  only; admin overriding just one key → rest of the default preserved;
+  admin defining a key absent from the default → kept as-is;
+  priority order verified on a case where both default AND admin define the
+  same key (admin wins) then where both policy AND admin target the same
+  clipboard key (already forbidden at admission by the webhook — test that the
+  merge at reconcile stays defensively correct should an
+  invalid object already exist in storage prior to a webhook hardening,
+  without making it a new API guarantee).
+- Go: both call sites (`ensureKasmConfig`,
+  volume construction in `workload.go`) produce identical content
+  for the same inputs (avoids the duplication regression
+  mentioned in "What already exists").
+- Go, on §B (rollout): a change to `defaultKasmVNCConfig` alone
+  (simulable in a test by injecting a variant) and a change to
+  `tpl.Spec.KasmVNCConfig` alone each produce a different
+  `annotationKasmConfigHash` — not just a clipboard policy
+  change, the only case covered before this prompt.
+- Vitest: the `kasmvncConfig` textarea appears/disappears depending on the
+  presence of the `kasmvnc` protocol in the list; round-trip
+  save/reload of the field; i18n keys present in both locales.
 
-## Contraintes à respecter
+## Constraints to respect
 
-- Le défaut plateforme n'est **jamais** persisté dans
-  `spec.KasmVNCConfig` — ni par un webhook mutant, ni par un défaut de
-  schéma CRD. C'est l'arbitrage central de ce prompt, ne le relitige pas.
-- Les 3 clés clipboard-DLP restent interdites à l'admin dans
-  `kasmvncConfig` (webhook inchangé) et restent stampées en dernier,
-  après le défaut ET après la surcharge admin.
-- Ne touche pas au chemin guacd — ce prompt est strictement kasmvnc.
-- `go build ./...` + tests Go sur `operator` (et `api-server` si tu
-  touches au DTO, ce qui ne devrait pas être nécessaire — le plumbing
-  y est déjà complet) ; `tsc -b` + tests vitest sur le frontend.
-- i18n complet (`en.json` et `fr.json`) pour toute nouvelle chaîne.
-- Régénère `docs/guacd-parameters.md` seulement si tu y touches
-  (a priori non concerné par ce prompt, `kasmvncConfig` reste hors du
-  registre `params.go`).
+- The platform default is **never** persisted into
+  `spec.KasmVNCConfig` — neither via a mutating webhook, nor via a CRD
+  schema default. This is the central arbitration of this prompt, don't relitigate it.
+- The 3 clipboard-DLP keys remain forbidden to the admin in
+  `kasmvncConfig` (webhook unchanged) and remain stamped last,
+  after the default AND after the admin override.
+- Don't touch the guacd path — this prompt is strictly kasmvnc.
+- `go build ./...` + Go tests on `operator` (and `api-server` if you
+  touch the DTO, which shouldn't be necessary — the plumbing
+  is already complete there); `tsc -b` + vitest tests on the frontend.
+- Complete i18n (`en.json` and `fr.json`) for any new string.
+- Regenerate `docs/guacd-parameters.md` only if you touch it
+  (a priori not concerned by this prompt, `kasmvncConfig` stays outside the
+  `params.go` registry).
 
-## Points ouverts (ton arbitrage)
+## Open points (your arbitration)
 
-Les arbitrages de fond sont tranchés ci-dessus (source du défaut,
-priorité de fusion, non-persistance dans le CR, routine de rollout
-réutilisée, contenu du texte d'aide). Il ne reste qu'un choix
-d'implémentation sans enjeu de comportement :
-- Nom exact de la fonction de fusion à 3 couches et emplacement du
-  fichier (`kasm_config.go` vs nouveau `kasm_defaults.go`) — choisis ce
-  qui te semble le plus cohérent avec l'organisation actuelle du
-  package `controller` (a priori : nouveau fichier si la constante
-  `defaultKasmVNCConfig` est volumineuse, sinon reste dans
-  `kasm_config.go` à côté de la fonction qu'elle nourrit).
+The substantive arbitrations are settled above (default source,
+merge priority, non-persistence in the CR, reused rollout
+routine, help text content). Only one implementation choice
+with no behavioral impact remains:
+- Exact name of the 3-layer merge function and file location
+  (`kasm_config.go` vs. new `kasm_defaults.go`) — choose whatever
+  seems most consistent with the current organization of the
+  `controller` package (a priori: a new file if the
+  `defaultKasmVNCConfig` constant is large, otherwise stay in
+  `kasm_config.go` next to the function it feeds).
+</content>

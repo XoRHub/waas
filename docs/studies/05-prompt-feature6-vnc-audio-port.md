@@ -1,55 +1,55 @@
-# Prompt Fable 5 — Feature 6 : exposer le port audio (PulseAudio) quand server-audio est activé
+# Fable 5 Prompt — Feature 6: expose the audio port (PulseAudio) when server-audio is enabled
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du principe que tu (Fable 5) n'as aucun contexte de conversation préalable.
+Paste this document as-is as an implementation prompt. It assumes you (Fable 5) have no prior conversation context.
 
-## Contexte du repo
+## Repo context
 
-Le commit `61c8b29d184a feat(images): VNC audio via une PulseAudio non privilégiée` a ajouté le support audio serveur pour les sessions VNC. Le paramètre guacd `enable-audio` (`operator/pkg/params/params.go:116`, bool, VNC, `TierUI`) et `audio-servername` (ligne 121, string, VNC, `TierAdvanced`) existent déjà dans le registre — mais **rien n'ouvre le port réseau que PulseAudio écoute**, ni côté Pod (`ContainerPort`) ni côté `Service` Kubernetes, ni dans l'UI, ni dans le CR. Le paramètre guacd peut donc être activé sans que le port applicatif associé soit jamais joignable.
+Commit `61c8b29d184a feat(images): VNC audio via a non-privileged PulseAudio` added server-side audio support for VNC sessions. The guacd parameter `enable-audio` (`operator/pkg/params/params.go:116`, bool, VNC, `TierUI`) and `audio-servername` (line 121, string, VNC, `TierAdvanced`) already exist in the registry — but **nothing opens the network port that PulseAudio listens on**, neither on the Pod side (`ContainerPort`) nor on the Kubernetes `Service` side, nor in the UI, nor in the CR. So the guacd parameter can be enabled without the associated application port ever being reachable.
 
-## Ce qui existe déjà (à connaître avant de coder)
+## What already exists (know this before coding)
 
-**Le port PulseAudio est fixe, câblé dans l'image, jamais exposé côté cluster** :
-- `waas-images/base/ubuntu/rootfs/etc/waas/pulse/default.pa.tpl:16` : `load-module module-native-protocol-tcp port=4713 auth-anonymous=1` — port **4713**, en dur, pas configurable par variable d'environnement.
-- `waas-images/base/ubuntu/Dockerfile:23` (`EXPOSE ... 4713`) et `:120` (`WAAS_AUDIO_ENABLED=1`) : toute la stack PulseAudio est on/off via `WAAS_AUDIO_ENABLED`, mais `EXPOSE` dans un Dockerfile ne fait que documenter — ça n'ouvre rien côté Kubernetes.
-- `waas-images/base/ubuntu/rootfs/usr/local/bin/waas-entrypoint:98-121` : démarre le programme supervisord PulseAudio seulement si l'audio est activé.
+**The PulseAudio port is fixed, wired into the image, never exposed on the cluster side**:
+- `waas-images/base/ubuntu/rootfs/etc/waas/pulse/default.pa.tpl:16`: `load-module module-native-protocol-tcp port=4713 auth-anonymous=1` — port **4713**, hardcoded, not configurable via an environment variable.
+- `waas-images/base/ubuntu/Dockerfile:23` (`EXPOSE ... 4713`) and `:120` (`WAAS_AUDIO_ENABLED=1`): the whole PulseAudio stack is on/off via `WAAS_AUDIO_ENABLED`, but `EXPOSE` in a Dockerfile is only documentation — it opens nothing on the Kubernetes side.
+- `waas-images/base/ubuntu/rootfs/usr/local/bin/waas-entrypoint:98-121`: starts the PulseAudio supervisord program only if audio is enabled.
 
-**Le CRD n'a qu'un seul port par protocole, pas de liste** : `WorkspaceProtocol` (`operator/api/v1alpha1/workspacetemplate_types.go:198-242`) a exactement un champ `Port int32` (lignes 210-213). Aucun champ `extraPorts`/`additionalPorts` n'existe nulle part dans `workspace_types.go` ni `workspacetemplate_types.go`.
+**The CRD has only a single port per protocol, no list**: `WorkspaceProtocol` (`operator/api/v1alpha1/workspacetemplate_types.go:198-242`) has exactly one `Port int32` field (lines 210-213). No `extraPorts`/`additionalPorts` field exists anywhere in `workspace_types.go` or `workspacetemplate_types.go`.
 
-**L'opérateur construit les ports 1:1 depuis cette unique valeur** :
-- Conteneur : `operator/internal/controller/workload.go:69-73` — `ports = append(ports, corev1.ContainerPort{Name: p.Name, ContainerPort: p.Port})` pour chaque protocole de `EffectiveProtocols()`. Le port 4713 n'est jamais ajouté.
-- Service : `operator/internal/controller/workspace_controller.go:813-821` (`ensureService`) — même logique, un `ServicePort` par protocole déclaré, même source.
+**The operator builds ports 1:1 from this single value**:
+- Container: `operator/internal/controller/workload.go:69-73` — `ports = append(ports, corev1.ContainerPort{Name: p.Name, ContainerPort: p.Port})` for each protocol in `EffectiveProtocols()`. Port 4713 is never added.
+- Service: `operator/internal/controller/workspace_controller.go:813-821` (`ensureService`) — same logic, one `ServicePort` per declared protocol, same source.
 
-**Point d'attention critique, à connaître avant de toucher au Service** : `ensureService` **ne crée le `Service` qu'une seule fois** — `if err == nil { return nil }` (`workspace_controller.go:806-808`) : si le Service existe déjà, il n'est **jamais mis à jour**, même si la liste de ports change ensuite. C'est cohérent avec un écart déjà documenté par l'audit sur le `podTemplate` (`create-only`, `docs/studies/audit-2026-07.md` §Operator) — mais pour cette feature, ça veut dire qu'ajouter le port audio dans le code ne suffira pas à le faire apparaître sur un workspace **déjà existant** tant que le Service create-only n'est pas aussi corrigé (au moins pour les ports), sinon l'admin devra recréer le workspace pour que le port apparaisse.
+**Critical point to know before touching the Service**: `ensureService` **only creates the `Service` once** — `if err == nil { return nil }` (`workspace_controller.go:806-808`): if the Service already exists, it is **never updated**, even if the port list changes afterward. This is consistent with a gap already documented by the audit regarding `podTemplate` (`create-only`, `docs/studies/audit-2026-07.md` §Operator) — but for this feature, it means adding the audio port in the code will not be enough to make it appear on an **already existing** workspace unless the create-only Service is also fixed (at least for ports), otherwise the admin will have to recreate the workspace for the port to appear.
 
-**Environnement de dev** : `hack/dev/templates-dev.yaml` ne référence l'audio nulle part ; tous les templates n'ont qu'un port par protocole (`vnc:5901`, `rdp:3389`, `ssh:2222`, `kasmvnc:6901`).
+**Dev environment**: `hack/dev/templates-dev.yaml` doesn't reference audio anywhere; all templates have only one port per protocol (`vnc:5901`, `rdp:3389`, `ssh:2222`, `kasmvnc:6901`).
 
-**Smoke tests** : `test/smoke/smoke_test.go` (`TestProtocolConnections`, ~ligne 47) pilote `WAAS_SMOKE_PROTOCOLS` (défaut `vnc,rdp,ssh,kasmvnc`), un sous-test `t.Run(protocol, ...)` par protocole via `connectOnce` (~ligne 78-128) : create → poll Running → `POST .../connect` → établissement WS guacd. C'est le squelette à étendre, pas un nouveau pattern à inventer.
+**Smoke tests**: `test/smoke/smoke_test.go` (`TestProtocolConnections`, ~line 47) drives `WAAS_SMOKE_PROTOCOLS` (default `vnc,rdp,ssh,kasmvnc`), one `t.Run(protocol, ...)` sub-test per protocol via `connectOnce` (~lines 78-128): create → poll Running → `POST .../connect` → guacd WS establishment. This is the skeleton to extend, not a new pattern to invent.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-### A. Exposer le port dans le CRD, l'opérateur, le Service
+### A. Expose the port in the CRD, the operator, the Service
 
-Ajoute la notion de port auxiliaire côté `WorkspaceProtocol` (`workspacetemplate_types.go`) — recommandation : un champ simple lié à l'audio plutôt qu'un mécanisme générique `extraPorts[]` (le port PulseAudio est fixe à 4713, pas configurable ; sur-généraliser maintenant pour un seul cas d'usage n'est pas justifié — voir "Points ouverts" si tu identifies un vrai besoin de généricité). Câble ce champ dans :
-- `workload.go:69-73` : ajoute le `ContainerPort` 4713 quand le port audio est demandé pour le protocole VNC.
-- `ensureService` (`workspace_controller.go:813-821`) : ajoute le `ServicePort` correspondant, **et corrige le create-only au moins pour la convergence des ports** (un `Service` existant doit voir ses `Spec.Ports` mis à jour si la liste attendue change) — sinon cette feature ne fonctionnera jamais sur un workspace déjà provisionné avant l'activation de l'audio.
+Add the notion of an auxiliary port on the `WorkspaceProtocol` side (`workspacetemplate_types.go`) — recommendation: a simple field tied to audio rather than a generic `extraPorts[]` mechanism (the PulseAudio port is fixed at 4713, not configurable; over-generalizing now for a single use case isn't justified — see "Open points" if you identify a real need for genericity). Wire this field into:
+- `workload.go:69-73`: add the `ContainerPort` 4713 when the audio port is requested for the VNC protocol.
+- `ensureService` (`workspace_controller.go:813-821`): add the corresponding `ServicePort`, **and fix the create-only issue at least for port convergence** (an existing `Service` must have its `Spec.Ports` updated if the expected list changes) — otherwise this feature will never work on a workspace already provisioned before audio was enabled.
 
-### B. UI : le menu d'ajout du port apparaît quand `enable-audio` est activé
+### B. UI: the port-add menu appears when `enable-audio` is turned on
 
-`ParamField.tsx`/`ProtocolTabs.tsx` rendent aujourd'hui les params de façon générique, sans logique conditionnelle inter-champs (aucune UI n'affiche/masque un champ selon la valeur d'un autre). Ajoute ce comportement conditionnel : quand `enable-audio` est réglé sur `true` dans le formulaire (`CreateWorkspaceDialog`, `TemplatesPage`, `ConnectionSettingsDialog` — tous consomment `ProtocolParamsForm`), fait apparaître une section/case à cocher explicite "Exposer le port audio (4713)" qui pilote le nouveau champ du CRD. Documente dans `ParamField.tsx`/`ProtocolTabs.tsx` (commentaire) ce premier cas de rendu conditionnel, en gardant à l'esprit que d'autres features à venir pourraient vouloir grouper/lier des champs entre eux (voir Feature 7 de cette série) — ne construis pas un mécanisme générique de dépendances entre champs si un simple `enable-audio && <Champ port />` suffit ici.
+`ParamField.tsx`/`ProtocolTabs.tsx` today render params generically, with no cross-field conditional logic (no UI shows/hides a field based on the value of another). Add this conditional behavior: when `enable-audio` is set to `true` in the form (`CreateWorkspaceDialog`, `TemplatesPage`, `ConnectionSettingsDialog` — all consume `ProtocolParamsForm`), show an explicit section/checkbox "Expose the audio port (4713)" that drives the new CRD field. Document in `ParamField.tsx`/`ProtocolTabs.tsx` (comment) this first case of conditional rendering, keeping in mind that other upcoming features may want to group/link fields together (see Feature 7 of this series) — don't build a generic inter-field dependency mechanism if a simple `enable-audio && <Port field />` suffices here.
 
-### C. Environnement de DEV : un CR dédié + smoke
+### C. DEV environment: a dedicated CR + smoke test
 
-- Ajoute dans `hack/dev/templates-dev.yaml` un template (ou une variante d'un template VNC existant) avec `enable-audio: true` et le port exposé, pour pouvoir tester manuellement en dev.
-- Étends `test/smoke/` : un sous-test qui, pour un template audio-enabled, vérifie que le port 4713 est effectivement joignable après connexion (dial TCP direct, ou via un client PulseAudio minimal type `pactl`) — même structure que les sous-tests protocole existants dans `connectOnce`.
+- Add to `hack/dev/templates-dev.yaml` a template (or a variant of an existing VNC template) with `enable-audio: true` and the port exposed, so it can be tested manually in dev.
+- Extend `test/smoke/`: a sub-test that, for an audio-enabled template, checks that port 4713 is actually reachable after connecting (direct TCP dial, or via a minimal PulseAudio client like `pactl`) — same structure as the existing protocol sub-tests in `connectOnce`.
 
-## Contraintes à respecter
+## Constraints to respect
 
-- N'élargis pas l'exposition du port au-delà du cluster : comme les autres ports de session, il ne doit être accessible qu'en interne (Service ClusterIP), jamais via l'Ingress public (`helm/waas/templates/ingress.yaml`/`httproute.yaml` n'allow-listent que des chemins explicites — ne les touche pas).
-- Le fix du Service create-only doit rester scopé à la convergence des ports pour cette feature — ne te lance pas dans un refactor général de convergence du `podTemplate` (écart déjà documenté séparément par l'audit, hors périmètre ici).
-- Tests Go sur le nouveau champ CRD (validation webhook si applicable), sur `workload.go`/`ensureService`. Test vitest sur le nouveau rendu conditionnel du champ port dans `ParamField.tsx`/`ProtocolTabs.tsx`.
-- i18n pour toute nouvelle chaîne UI.
+- Don't widen the port's exposure beyond the cluster: like other session ports, it must only be reachable internally (ClusterIP Service), never via the public Ingress (`helm/waas/templates/ingress.yaml`/`httproute.yaml` only allow-list explicit paths — don't touch them).
+- The Service create-only fix must stay scoped to port convergence for this feature — don't launch into a general `podTemplate` convergence refactor (a gap already documented separately by the audit, out of scope here).
+- Go tests on the new CRD field (webhook validation if applicable), on `workload.go`/`ensureService`. Vitest test on the new conditional rendering of the port field in `ParamField.tsx`/`ProtocolTabs.tsx`.
+- i18n for any new UI string.
 
-## Points ouverts (ton arbitrage)
+## Open points (your call)
 
-- Champ CRD dédié (`AudioPort`/booléen "exposer le port audio") vs mécanisme générique `extraPorts []PortSpec` réutilisable pour de futurs besoins similaires — recommandation ci-dessus va vers le champ dédié (YAGNI), à réviser seulement si tu vois un second cas d'usage concret dans le repo qui justifierait la généralisation.
-- Portée du fix "Service create-only" : le corriger uniquement pour les ports (minimal, scope de cette feature) vs pour l'ensemble de `Spec` (le vrai chantier déjà identifié par l'audit, plus risqué et hors périmètre) — reste sur le minimal sauf si tu juges qu'un correctif partiel introduirait une incohérence pire que le statu quo.
+- Dedicated CRD field (`AudioPort`/boolean "expose the audio port") vs a generic reusable `extraPorts []PortSpec` mechanism for future similar needs — the recommendation above leans toward the dedicated field (YAGNI), to be revisited only if you see a second concrete use case in the repo that would justify generalization.
+- Scope of the "Service create-only" fix: fixing it only for ports (minimal, scope of this feature) vs for the whole `Spec` (the real undertaking already identified by the audit, riskier and out of scope) — stick to the minimal fix unless you judge that a partial fix would introduce an inconsistency worse than the status quo.

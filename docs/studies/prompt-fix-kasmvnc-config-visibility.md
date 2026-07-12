@@ -1,82 +1,81 @@
-# Fix — Visibilité read-only du kasmvncConfig côté utilisateur
+# Fix — read-only visibility of kasmvncConfig on the user side
 
-*2026-07-10 — implémenté. L'utilisateur VOIT la config KasmVNC qui
-s'applique à son workspace ; l'édition reste strictement admin (page
-Templates), aucun nouveau chemin d'écriture n'est ouvert.*
+*2026-07-10 — implemented. The user SEES the KasmVNC config that
+applies to their workspace; editing remains strictly admin-only
+(Templates page), no new write path is opened.*
 
-## Problème
+## Problem
 
-Pour un protocole kasmvnc, le registre de paramètres
-(`operator/pkg/params`) est volontairement vide — la config ne transite
-pas par userParams/guacd. Résultat : le dialogue de création
-(`CreateWorkspaceDialog`), les réglages de connexion
-(`ConnectionSettingsDialog`) et l'overlay de session affichaient le
-message générique `portal.noTunableParams` (« aucun paramètre modifiable
-sur ce modèle »). Trompeur : une config existe, s'applique réellement au
-conteneur (readOnly, résolution, DLP…), elle est juste invisible.
+For a kasmvnc protocol, the parameter registry (`operator/pkg/params`)
+is deliberately empty — the config doesn't go through
+userParams/guacd. As a result: the creation dialog
+(`CreateWorkspaceDialog`), the connection settings
+(`ConnectionSettingsDialog`), and the session overlay displayed the
+generic `portal.noTunableParams` message ("no tunable parameters on
+this template"). Misleading: a config does exist, and really applies to
+the container (readOnly, resolution, DLP…), it's just invisible.
 
-## Deux valeurs différentes selon le contexte
+## Two different values depending on context
 
-1. **Création (workspace pas encore né)** : la seule valeur qui existe
-   est le **texte brut de l'admin** (`template.kasmvncConfig`). Elle
-   arrivait déjà au frontend sans filtrage (TemplateService.List ne
-   prend pas d'Actor) — manque purement d'affichage.
-2. **Workspace existant** : la valeur qui compte est le **contenu
-   effectif fusionné** que l'opérateur matérialise dans la ConfigMap
-   par-workspace (admin + couche clipboard dérivée de la
-   WorkspacePolicy, `ensureKasmConfig`/`applyClipboardPolicy`). C'est ce
-   fichier qui est monté dans le pod, pas le champ brut du template.
+1. **Creation (workspace not yet born)**: the only value that exists is
+   the admin's **raw text** (`template.kasmvncConfig`). It already
+   reached the frontend unfiltered (TemplateService.List doesn't take
+   an Actor) — purely a display gap.
+2. **Existing workspace**: the value that matters is the **effective
+   merged content** that the operator materializes in the
+   per-workspace ConfigMap (admin config + clipboard layer derived from
+   the WorkspacePolicy, `ensureKasmConfig`/`applyClipboardPolicy`).
+   That's the file mounted in the pod, not the template's raw field.
 
-## Implémentation
+## Implementation
 
-### api-server — lecture de la ConfigMap effective
+### api-server — reading the effective ConfigMap
 
-- `WorkspaceService.EffectiveKasmVNCConfig(ctx, actor, id)` : passe par
-  `fetchByID` (même périmètre que `Get` : owner ou admin, 404 sans fuite
-  d'existence), puis lit la ConfigMap à
+- `WorkspaceService.EffectiveKasmVNCConfig(ctx, actor, id)`: goes
+  through `fetchByID` (same scope as `Get`: owner or admin, 404 with no
+  existence leak), then reads the ConfigMap at
   `{ns: ws.EffectiveTargetNamespace(), name: ws.EffectiveWorkloadName()}`,
-  clé `kasmvnc.yaml`. **Aucune convention de nommage re-dérivée** : ce
-  sont les mêmes méthodes exportées du CRD que l'opérateur utilise via
-  `computeName`/`computeNamespace`. ConfigMap absente (template non
-  kasmvnc, ou pas encore réconcilié) → 404 propre.
-- Endpoint `GET /api/v1/workspaces/{id}/kasmvnc-config` → `{config}`.
-  Un endpoint dédié plutôt qu'un champ sur la réponse workspace : la
-  lecture de ConfigMap ne se paie que quand l'UI en a besoin, pas à
-  chaque List/Get (polling 3–15 s du portail).
-- Pas de mutation symétrique, volontairement.
+  key `kasmvnc.yaml`. **No naming convention re-derived**: these are the
+  same exported CRD methods that the operator uses via
+  `computeName`/`computeNamespace`. Missing ConfigMap (non-kasmvnc
+  template, or not yet reconciled) → clean 404.
+- Endpoint `GET /api/v1/workspaces/{id}/kasmvnc-config` → `{config}`. A
+  dedicated endpoint rather than a field on the workspace response: the
+  ConfigMap read only costs something when the UI actually needs it,
+  not on every List/Get (3–15s portal polling).
+- No symmetric mutation, deliberately.
 
-### frontend — affichage read-only, jamais d'édition
+### frontend — read-only display, never editing
 
-- `KasmVNCConfigView` (ProtocolTabs.tsx) : bloc lecture seule (`<pre>`,
-  couleurs à base d'opacité pour fonctionner dans les dialogs clairs ET
-  l'overlay sombre), deux variantes de sous-titre : `template` (« votre
-  policy s'y superposera au démarrage ») et `effective` (« la config
-  réellement appliquée : modèle + policy »). Config vide → « les valeurs
-  par défaut de l'image s'appliquent » (KasmVNC merge la config user
-  par-dessus ses défauts, cf. Feature 12).
-- `ProtocolParamsForm` : nouvelle prop `kasmvncConfig?: {content,
-  variant}`. Si protocole kasmvnc **et** prop fournie → le viewer
-  remplace `noTunableParams`. Prop absente → comportement inchangé
-  (les machines distantes kasmvnc, RemoteWorkspaceDialog, gardent le
-  message : leur config n'est pas gérée par WaaS). La clé i18n
-  `noTunableParams` n'est pas réutilisée : nouvelles clés
-  `portal.kasmvncManagedConfig*` (en/fr).
-- Branchements :
-  - `CreateWorkspaceDialog` → `template.kasmvncConfig` (brut, variant
-    `template`) ;
-  - `ConnectionSettingsDialog` → nouveau hook
-    `useWorkspaceKasmVNCConfig` (effectif, variant `effective`) ;
-  - `SessionOverlay` → même hook, fetch uniquement quand le panneau est
-    ouvert sur une session kasmvnc in-cluster ; section dédiée au-dessus
-    des paramètres de reconnexion.
+- `KasmVNCConfigView` (ProtocolTabs.tsx): read-only block (`<pre>`,
+  opacity-based colors to work in both light dialogs AND the dark
+  overlay), two subtitle variants: `template` ("your policy will be
+  layered on top at startup") and `effective` ("the config actually
+  applied: template + policy"). Empty config → "the image's default
+  values apply" (KasmVNC merges the user config on top of its defaults,
+  cf. Feature 12).
+- `ProtocolParamsForm`: new prop `kasmvncConfig?: {content, variant}`.
+  If protocol is kasmvnc **and** the prop is supplied → the viewer
+  replaces `noTunableParams`. Prop absent → unchanged behavior (remote
+  kasmvnc machines, RemoteWorkspaceDialog, keep the message: their
+  config isn't managed by WaaS). The `noTunableParams` i18n key isn't
+  reused: new keys `portal.kasmvncManagedConfig*` (en/fr).
+- Wiring:
+  - `CreateWorkspaceDialog` → `template.kasmvncConfig` (raw, variant
+    `template`);
+  - `ConnectionSettingsDialog` → new hook `useWorkspaceKasmVNCConfig`
+    (effective, variant `effective`);
+  - `SessionOverlay` → same hook, fetched only when the panel is open
+    on an in-cluster kasmvnc session; dedicated section above the
+    reconnection parameters.
 
 ## Tests
 
-- api-server : `TestEffectiveKasmVNCConfig` — owner OK, admin OK, autre
-  utilisateur = 404 (pas de fuite), workspace sans ConfigMap = 404
-  propre, adressage par les helpers CRD.
-- frontend : `ProtocolParamsForm.test.tsx` (contenu affiché à la place
-  de `noTunableParams`, variante effective, état vide, cas remote
-  inchangé) ; `SessionOverlay.test.tsx` (section affichée avec le
-  contenu de l'endpoint sur kasmvnc, ni fetch ni section sur les
-  protocoles guacd).
+- api-server: `TestEffectiveKasmVNCConfig` — owner OK, admin OK, other
+  user = 404 (no leak), workspace with no ConfigMap = clean 404,
+  addressing via the CRD helpers.
+- frontend: `ProtocolParamsForm.test.tsx` (content shown in place of
+  `noTunableParams`, effective variant, empty state, remote case
+  unchanged); `SessionOverlay.test.tsx` (section shown with the
+  endpoint's content on kasmvnc, neither fetch nor section on guacd
+  protocols).

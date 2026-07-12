@@ -1,173 +1,175 @@
-# CI/CD — pipeline GitLab et procédure de release
+# CI/CD — GitLab pipeline and release procedure
 
-Un seul point d'entrée : `.gitlab-ci.yml` (racine), factorisé en templates
-locaux sous `.gitlab/ci/`. La CI ne déploie **jamais** sur le cluster :
-elle produit des artefacts versionnés (images + tag Git portant le chart)
-qu'ArgoCD consomme.
+A single entry point: `.gitlab-ci.yml` (root), factored into local
+templates under `.gitlab/ci/`. CI **never** deploys to the cluster:
+it produces versioned artifacts (images + a Git tag carrying the chart)
+that ArgoCD consumes.
 
-## Vue d'ensemble
+## Overview
 
 ```
-MR (merge_request_event) — builds sélectifs par rules:changes
+MR (merge_request_event) — selective builds via rules:changes
 ├─ lint      go-lint ×5 (golangci-lint) · frontend-typecheck (tsc -b)
 │            helm-render (lint+template) · crd-schemas → kubeconform
-│            go-generated-drift (controller-gen/CRDs/docs regénérés == commit)
+│            go-generated-drift (controller-gen/CRDs/docs regenerated == commit)
 │            hadolint · shellcheck
-├─ test      go-test ×4 (-race, couverture cobertura dans la MR)
-│            frontend-test (vitest + couverture)
-├─ security  gitleaks (secrets) · trivy-deps (go.mod + package-lock) — BLOQUANTS
-├─ build     par composant modifié : build-<c>-amd64 (runner `amd`)
+├─ test      go-test ×4 (-race, cobertura coverage in the MR)
+│            frontend-test (vitest + coverage)
+├─ security  gitleaks (secrets) · trivy-deps (go.mod + package-lock) — BLOCKING
+├─ build     per modified component: build-<c>-amd64 (runner `amd`)
 │            + build-<c>-arm64 (runner `arm`) → merge-<c> (manifest list)
-│            tags poussés : mr-<iid>-<short-sha>
-├─ scan      scan-<c> : trivy image sur le manifest mergé — BLOQUANT
-└─ validate  smoke-connections (k3d + session guacd réelle par protocole)
-             manuel en MR mais allow_failure:false → gate de merge
+│            tags pushed: mr-<iid>-<short-sha>
+├─ scan      scan-<c>: trivy image on the merged manifest — BLOCKING
+└─ validate  smoke-connections (k3d + real guacd session per protocol)
+             manual in MR but allow_failure:false → merge gate
 
-main — mêmes gates, build de TOUS les composants (tags <short-sha> + main)
-       smoke-connections automatique. Chaque SHA de main est releasable.
-       chart-oci-main : push OCI du chart, version `X.Y.Z-main.<short-sha>`
-       (SemVer prerelease, ne collisionne jamais avec un tag vX.Y.Z).
+main — same gates, build of ALL components (tags <short-sha> + main)
+       automatic smoke-connections. Every main SHA is releasable.
+       chart-oci-main: OCI push of the chart, version `X.Y.Z-main.<short-sha>`
+       (SemVer prerelease, never collides with a vX.Y.Z tag).
 
-tag vX.Y.Z — PROMOTION, zéro rebuild
-├─ release-verify   Chart.yaml bumpé (version=X.Y.Z, appVersion="vX.Y.Z"),
-│                   images <short-sha> présentes, tags vX.Y.Z encore libres
-├─ release-images   imagetools create <short-sha> → vX.Y.Z (digests identiques
-│                   à ce qui a été testé/scanné) + signature cosign obligatoire
-├─ release-chart    helm package + push OCI du chart (Chart.yaml du SHA taggé,
-│                   déjà vérifié == vX.Y.Z par release-verify)
-├─ release-notes    git-cliff (cliff.toml) + table des digests
-└─ release-create   GitLab Release sur le tag (needs: release-notes, release-chart)
+tag vX.Y.Z — PROMOTION, zero rebuild
+├─ release-verify   Chart.yaml bumped (version=X.Y.Z, appVersion="vX.Y.Z"),
+│                   <short-sha> images present, vX.Y.Z tags still free
+├─ release-images   imagetools create <short-sha> → vX.Y.Z (digests identical
+│                   to what was tested/scanned) + mandatory cosign signature
+├─ release-chart    helm package + OCI push of the chart (Chart.yaml of the tagged
+│                   SHA, already verified == vX.Y.Z by release-verify)
+├─ release-notes    git-cliff (cliff.toml) + digest table
+└─ release-create   GitLab Release on the tag (needs: release-notes, release-chart)
 ```
 
-`workflow:rules` : pipeline MR prioritaire (jamais de doublon branche+MR),
-branche par défaut, tags `v*` uniquement. Tous les jobs sont en DAG
-(`needs`), les stages ne servent qu'à la lisibilité.
+`workflow:rules`: MR pipeline takes priority (never a branch+MR
+duplicate), default branch, `v*` tags only. All jobs are in a DAG
+(`needs`), stages are only there for readability.
 
-## Chart Helm en OCI
+## Helm chart as OCI
 
-Pas de registre Helm dédié (pas de ChartMuseum/Harbor) : le chart est
-poussé comme artefact OCI dans **le même Container Registry que les
-images**, sous-chemin `charts/` (`$CI_REGISTRY_IMAGE/charts/waas:<version>`).
-Deux jobs, `alpine/helm:3.17.3`, `helm registry login` avec les
-`CI_REGISTRY_*` prédéfinies :
+No dedicated Helm registry (no ChartMuseum/Harbor): the chart is
+pushed as an OCI artifact into **the same Container Registry as the
+images**, under the `charts/` subpath (`$CI_REGISTRY_IMAGE/charts/waas:<version>`).
+Two jobs, `alpine/helm:3.17.3`, `helm registry login` with the
+predefined `CI_REGISTRY_*` variables:
 
-- `chart-oci-main` (stage `build`, main uniquement) : `helm package
-  --version X.Y.Z-main.<short-sha>` — SemVer prerelease, ne collisionne
-  jamais avec un tag release, mirroir du tag mobile `main` des images.
-- `release-chart` (stage `release`, tag `vX.Y.Z`) : `helm package` **sans
-  override** — le `Chart.yaml` du commit taggé porte déjà `version: X.Y.Z`
-  (vérifié par `release-verify`), donc packager ce fichier tel quel EST
-  la release, pas un rebuild.
+- `chart-oci-main` (stage `build`, main only): `helm package
+  --version X.Y.Z-main.<short-sha>` — SemVer prerelease, never
+  collides with a release tag, mirrors the images' mobile `main` tag.
+- `release-chart` (stage `release`, tag `vX.Y.Z`): `helm package`
+  **without override** — the `Chart.yaml` of the tagged commit already
+  carries `version: X.Y.Z` (verified by `release-verify`), so packaging
+  this file as-is IS the release, not a rebuild.
 
-ArgoCD continue de déployer depuis le tag Git (`path: helm/waas`) ; ce
-chart OCI est pour les consommateurs `helm pull`/`helm install --version`
-externes.
+ArgoCD continues to deploy from the Git tag (`path: helm/waas`); this
+OCI chart is for external `helm pull`/`helm install --version`
+consumers.
 
 ## Multi-arch (amd64/arm64)
 
-Builds **natifs par architecture** : les runners amd64 portent le tag
-`amd`, les runners arm64 (Turing RK1) le tag `arm`. Chaque job pousse
-`<tag>-amd64` / `<tag>-arm64` (cache buildx registry par composant et par
-arch : `<registry>/cache:<composant>-<arch>`), puis `merge-<c>` assemble
-la manifest list finale via `docker buildx imagetools create`. Aucun
-QEMU : les Dockerfiles Go cross-compilent depuis `$BUILDPLATFORM` et le
-frontend builde nativement des deux côtés.
+**Native per-architecture builds**: amd64 runners carry the `amd`
+tag, arm64 runners (Turing RK1) the `arm` tag. Each job pushes
+`<tag>-amd64` / `<tag>-arm64` (buildx registry cache per component and
+per arch: `<registry>/cache:<component>-<arch>`), then `merge-<c>`
+assembles the final manifest list via `docker buildx imagetools create`.
+No QEMU: the Go Dockerfiles cross-compile from `$BUILDPLATFORM` and the
+frontend builds natively on both sides.
 
-Prérequis runners : executor Docker avec dind (privileged), tags `amd` et
-`arm` posés. Les jobs sans besoin d'arch spécifique vont sur `amd` (flotte
-la plus puissante) via `default:tags`.
+Runner prerequisites: Docker executor with dind (privileged), `amd` and
+`arm` tags set. Jobs with no specific arch need go on `amd` (the most
+powerful fleet) via `default:tags`.
 
-Les images desktop (repo `waas-images`, **séparé du monorepo depuis le
-2026-07-10**) suivent la même stratégie dans leur propre pipeline : un
-job de build natif par arch (smoke + scan Trivy sur **chaque** arch,
-avant push) puis un job de merge qui assemble la manifest list, publie
-le tag `<version>` immuable (main) et signe. Le job trigger
-`waas-images:` du pipeline racine a été supprimé avec le split — aucun
-changement de ce repo ne peut plus affecter ces images.
+The desktop images (repo `waas-images`, **split from the monorepo since
+2026-07-10**) follow the same strategy in their own pipeline: a native
+build job per arch (smoke + Trivy scan on **each** arch, before push)
+then a merge job that assembles the manifest list, publishes the
+immutable `<version>` tag (main) and signs it. The `waas-images:`
+trigger job of the root pipeline was removed with the split — no change
+to that repo can affect these images anymore.
 
-## Couper une release
+## Cutting a release
 
-1. **Bumper le chart** (c'est le tag Git qu'ArgoCD déploie, le chart au
-   tag doit se référencer lui-même) :
+1. **Bump the chart** (it's the Git tag that ArgoCD deploys, the chart at
+   the tag must reference itself):
    ```yaml
    # helm/waas/Chart.yaml
    version: 1.2.0        # X.Y.Z
-   appVersion: "v1.2.0"  # vX.Y.Z — devient le tag d'image par défaut
+   appVersion: "v1.2.0"  # vX.Y.Z — becomes the default image tag
    ```
-   Commit via MR (`release: v1.2.0`), merge, **attendre le pipeline main
-   vert** (il produit les images `<short-sha>` qui seront promues).
-2. **Tagger le commit de merge** :
+   Commit via MR (`release: v1.2.0`), merge, **wait for the main
+   pipeline to go green** (it produces the `<short-sha>` images that will
+   be promoted).
+2. **Tag the merge commit**:
    ```sh
-   git tag v1.2.0 <sha-du-merge> && git push origin v1.2.0
+   git tag v1.2.0 <merge-sha> && git push origin v1.2.0
    ```
-3. Le pipeline de tag promeut, signe, génère changelog + Release. S'il
-   échoue en `release-verify`, rien n'a été poussé : corriger et re-tagger
-   (nouvelle version — jamais réutiliser un tag).
-4. **Côté ArgoCD** : bump `targetRevision: v1.2.0` (Application pointant
-   ce repo, path `helm/waas`) — seul geste GitOps nécessaire.
+3. The tag pipeline promotes, signs, generates the changelog + Release. If
+   it fails at `release-verify`, nothing was pushed: fix and re-tag
+   (a new version — never reuse a tag).
+4. **On the ArgoCD side**: bump `targetRevision: v1.2.0` (Application
+   pointing at this repo, path `helm/waas`) — the only GitOps action
+   needed.
 
-### Immutabilité des tags
+### Tag immutability
 
-- `release-verify` échoue si `vX.Y.Z` existe déjà dans la registry.
-- À configurer côté GitLab (une fois) : **Settings → Repository →
-  Protected tags → `v*`** (création réservée aux Maintainers, pas de
-  suppression) ; la registry GitLab ne protège pas les tags d'image en
-  écrasement, c'est le couple verify + tag Git protégé qui garantit
-  l'immutabilité.
+- `release-verify` fails if `vX.Y.Z` already exists in the registry.
+- To configure on the GitLab side (once): **Settings → Repository →
+  Protected tags → `v*`** (creation restricted to Maintainers, no
+  deletion); the GitLab registry does not protect image tags against
+  overwriting — it's the verify + protected Git tag pair that guarantees
+  immutability.
 
-## Variables CI/CD requises (Settings → CI/CD → Variables)
+## Required CI/CD variables (Settings → CI/CD → Variables)
 
 | Variable | Type | Usage |
 |---|---|---|
-| `COSIGN_PRIVATE_KEY` | masked | clé de signature (la même que le repo waas-images) — la release **échoue** sans elle |
-| `COSIGN_PASSWORD` | masked | passphrase de la clé |
+| `COSIGN_PRIVATE_KEY` | masked | signing key (same as the waas-images repo) — release **fails** without it |
+| `COSIGN_PASSWORD` | masked | key passphrase |
 
-Tout le reste (registry, tokens) passe par les variables prédéfinies
-`CI_REGISTRY_*`. `TRIVY_SEVERITY` / `TRIVY_EXIT_CODE` existent pour la
-réponse à incident (ex. passer un scan en report-only le temps d'un fix
-upstream) — jamais à poser en permanence.
+Everything else (registry, tokens) goes through the predefined
+`CI_REGISTRY_*` variables. `TRIVY_SEVERITY` / `TRIVY_EXIT_CODE` exist for
+incident response (e.g. switching a scan to report-only while waiting
+for an upstream fix) — never to be set permanently.
 
-## Nettoyage des images éphémères
+## Cleaning up ephemeral images
 
-Les tags `mr-<iid>-<sha>`, `<sha>` et `<sha>-{amd64,arm64}` sont
-éphémères. À configurer (une fois) : **Settings → Packages and
-registries → Container registry → Cleanup policies** :
+The `mr-<iid>-<sha>`, `<sha>` and `<sha>-{amd64,arm64}` tags are
+ephemeral. To configure (once): **Settings → Packages and
+registries → Container registry → Cleanup policies**:
 
-- run : toutes les semaines ;
-- **keep** : regex `^(v\d+\.\d+\.\d+|main|\d+\.\d+\.\d+.*)$` + 5 tags
-  les plus récents par image ;
-- **remove** : regex `.*`, plus vieux que 14 jours.
+- run: every week;
+- **keep**: regex `^(v\d+\.\d+\.\d+|main|\d+\.\d+\.\d+.*)$` + the 5 most
+  recent tags per image;
+- **remove**: regex `.*`, older than 14 days.
 
-Les policies ne suppriment que les tags ; la récupération des blobs est
-la garbage collection de l'instance GitLab (`registry-garbage-collect`,
-côté admin). Le repo de cache buildx (`<registry>/cache`) s'écrase en
-continu et ne grossit pas indéfiniment.
+Policies only delete tags; blob garbage collection is the GitLab
+instance's job (`registry-garbage-collect`, admin side). The buildx
+cache repo (`<registry>/cache`) overwrites itself continuously and does
+not grow indefinitely.
 
-## Débugger un job
+## Debugging a job
 
-- **Reproduire en local** : chaque job est une image + un script courts.
-  `go-lint` ≈ `cd <module> && golangci-lint run` ; `kubeconform` ≈
+- **Reproduce locally**: each job is an image + a short script.
+  `go-lint` ≈ `cd <module> && golangci-lint run`; `kubeconform` ≈
   `python3 hack/ci/crd_to_jsonschema.py helm/waas/crds /tmp/s && helm
-  template waas helm/waas | kubeconform -strict …` ; les builds ≈
-  `sh .gitlab/ci/build-app-image.sh` avec `COMPONENT/ARCH/BUILD_CONTEXT/
-  APP_TAG` posés.
-- **Tester une MR sur un cluster** : les images `mr-<iid>-<short-sha>`
-  sont dans la registry du projet ; `helm upgrade --install waas
+  template waas helm/waas | kubeconform -strict …`; builds ≈
+  `sh .gitlab/ci/build-app-image.sh` with `COMPONENT/ARCH/BUILD_CONTEXT/
+  APP_TAG` set.
+- **Testing an MR on a cluster**: the `mr-<iid>-<short-sha>` images
+  are in the project's registry; `helm upgrade --install waas
   helm/waas --set image.registry=$CI_REGISTRY_IMAGE --set image.tag=mr-…`.
-- **`go-generated-drift` rouge** : lancer `make generate manifests
-  docs-params` et committer le résultat.
-- **`release-verify` rouge** : le message dit quoi corriger (Chart.yaml
-  pas bumpé, tag posé sur un SHA sans pipeline main vert, ou tag d'image
-  déjà existant).
-- **Smoke** : voir `docs/smoke-connections.md`.
+- **Red `go-generated-drift`**: run `make generate manifests
+  docs-params` and commit the result.
+- **Red `release-verify`**: the message says what to fix (Chart.yaml
+  not bumped, tag placed on a SHA without a green main pipeline, or an
+  image tag that already exists).
+- **Smoke**: see `docs/smoke-connections.md`.
 
 ## Renovate
 
-`renovate.json` (racine) couvre : `FROM` des Dockerfiles, images de jobs
-dans `.gitlab-ci.yml` + `.gitlab/ci/*.yml`, pins d'outils dans les
+`renovate.json` (root) covers: `FROM` in Dockerfiles, job images
+in `.gitlab-ci.yml` + `.gitlab/ci/*.yml`, tool pins in
 scripts (`buildkit`, `trivy`, `cosign`, `binfmt`), `go run tool@vX`,
-`CONTROLLER_GEN_VERSION`, `git-cliff`. Depuis le split du 2026-07-10, le
-repo `waas-images` porte à nouveau son propre `renovate.json` (le config
-racine l'avait absorbé à l'époque du monorepo). Règle d'hygiène :
-**aucun `latest`** — toute nouvelle image de job doit être pinnée (tag
-exact, digest ajouté par Renovate via `docker:pinDigests`).
+`CONTROLLER_GEN_VERSION`, `git-cliff`. Since the 2026-07-10 split, the
+`waas-images` repo again has its own `renovate.json` (the root config
+had absorbed it in the monorepo era). Hygiene rule:
+**no `latest`** — every new job image must be pinned (exact tag,
+digest added by Renovate via `docker:pinDigests`).

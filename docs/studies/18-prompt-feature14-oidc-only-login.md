@@ -1,110 +1,106 @@
-# Prompt Fable 5 — Feature 14 : pouvoir désactiver le login local quand l'OIDC est configuré (`WAAS_LOGIN_OIDC_ONLY`)
+# Prompt Fable 5 — Feature 14: be able to disable local login when OIDC is configured (`WAAS_LOGIN_OIDC_ONLY`)
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable.
+Paste this document as-is as an implementation prompt. It assumes that
+you (Fable 5) have no prior conversation context.
 
-## Contexte du repo
+## Repo context
 
-Aujourd'hui, le login local (username/password) et le login OIDC/SSO
-coexistent **sans aucun moyen de désactiver le premier**, même quand un
-IdP est correctement configuré :
+Today, local login (username/password) and OIDC/SSO login coexist
+**with no way to disable the former**, even when an IdP is properly
+configured:
 
-- **Login local** — route publique `POST /api/v1/auth/login`
-  (`api-server/internal/server/router.go:58`, hors du groupe
-  `middleware.Auth`, commentaire explicite en tête de `New()`,
-  `router.go:31-32` : _"Every /api/v1 route except login sits behind
+- **Local login** — public route `POST /api/v1/auth/login`
+  (`api-server/internal/server/router.go:58`, outside the
+  `middleware.Auth` group, explicit comment at the top of `New()`,
+  `router.go:31-32`: _"Every /api/v1 route except login sits behind
   the JWT middleware — no bypass routes."_). Handler
   `AuthHandler.Login` (`api-server/internal/handler/auth_handler.go:37-49`)
-  délègue à `AuthService.Login` (`api-server/internal/service/auth_service.go:38-80`) :
-  lookup par username, refus générique si `user.PasswordHash == ""`
-  (compte SSO-only, ligne 46-51 — volontairement le même message
-  d'erreur qu'un mauvais mot de passe, anti-énumération), vérif bcrypt,
-  puis signature JWT via `auth.NewAccessClaims` + `s.signer.Sign`
-  (ligne 61-65).
-- **Login OIDC** — entièrement optionnel : `OIDCConfig.Enabled()`
+  delegates to `AuthService.Login` (`api-server/internal/service/auth_service.go:38-80`):
+  lookup by username, generic refusal if `user.PasswordHash == ""`
+  (SSO-only account, line 46-51 — deliberately the same error message
+  as a wrong password, anti-enumeration), bcrypt check, then JWT
+  signing via `auth.NewAccessClaims` + `s.signer.Sign`
+  (line 61-65).
+- **OIDC login** — entirely optional: `OIDCConfig.Enabled()`
   (`api-server/internal/config/config.go:122-123`) ⇔ `IssuerURL != "" && ClientID != ""`.
-  Dans `cmd/api-server/main.go:82-87`, `oidcSvc` reste `nil` si non
-  configuré ; `AuthHandler` porte ce nil (`oidc *service.OIDCService`,
-  `auth_handler.go:22`) et l'utilise déjà comme garde pour
+  In `cmd/api-server/main.go:82-87`, `oidcSvc` stays `nil` if not
+  configured; `AuthHandler` carries this nil (`oidc *service.OIDCService`,
+  `auth_handler.go:22`) and already uses it as a guard for
   `OIDCStart`/`OIDCCallback` (404 `apierror.NotFound("SSO login is not
-configured")`, lignes 84-87 et 109-112). `OIDCService.Callback`
-  (`oidc_service.go:101-139`) rejoint **exactement le même chemin de
-  délivrance de token** que le login local (`auth.NewAccessClaims` +
-  `s.signer.Sign`, ligne 133-137) et retourne le même type
-  `LoginResult`.
-- **Le contrat frontend a DÉJÀ le champ qu'il faut, juste jamais
-  branché.** `GET /api/v1/auth/providers` (`AuthHandler.Providers`,
-  `auth_handler.go:63-77`) renvoie
-  `{ local: bool, oidc: { enabled, name?, startUrl? } }` — mais `Local`
-  est codé en dur à `true` (ligne 72 : `payload := struct{...}{Local: true}`).
-  Côté frontend, `AuthProviders.local: boolean` existe déjà
-  (`frontend/src/types.ts:325-333`) et `useAuthProviders()`
-  (`frontend/src/hooks/useApi.ts:100-106`) le récupère, mais
-  `LoginPage.tsx` (`frontend/src/pages/LoginPage.tsx:17`) ne
-  déstructure que `providers.data?.data.oidc` — `local` n'est lu nulle
-  part. Le formulaire username/password (lignes 34-74) est rendu
-  **inconditionnellement** ; le bouton SSO (lignes 75-92) est seul à
-  être conditionné, sur `oidc?.enabled && oidc.startUrl`.
-- **Documentation d'invariant à réviser sciemment** :
-  `OIDCService` porte un commentaire de conception explicite
+configured")`, lines 84-87 and 109-112). `OIDCService.Callback`
+  (`oidc_service.go:101-139`) joins **exactly the same token-issuance
+  path** as local login (`auth.NewAccessClaims` + `s.signer.Sign`,
+  line 133-137) and returns the same `LoginResult` type.
+- **The frontend contract ALREADY has the field needed, just never
+  wired up.** `GET /api/v1/auth/providers` (`AuthHandler.Providers`,
+  `auth_handler.go:63-77`) returns
+  `{ local: bool, oidc: { enabled, name?, startUrl? } }` — but `Local`
+  is hard-coded to `true` (line 72:
+  `payload := struct{...}{Local: true}`). On the frontend side,
+  `AuthProviders.local: boolean` already exists
+  (`frontend/src/types.ts:325-333`) and `useAuthProviders()`
+  (`frontend/src/hooks/useApi.ts:100-106`) fetches it, but
+  `LoginPage.tsx` (`frontend/src/pages/LoginPage.tsx:17`) only
+  destructures `providers.data?.data.oidc` — `local` is read nowhere.
+  The username/password form (lines 34-74) is rendered
+  **unconditionally**; the SSO button (lines 75-92) is the only thing
+  conditioned, on `oidc?.enabled && oidc.startUrl`.
+- **Invariant documentation that needs deliberate revisiting**:
+  `OIDCService` carries an explicit design comment
   (`oidc_service.go:24-34`) — _"It exists NEXT TO local auth, never
   instead of it: local login stays available for the bootstrap admin
-  and as break-glass when the IdP is down."_ — répété dans
-  `config.go:68-71` (doc de `Config.OIDC`) et dans
-  `helm/waas/values.yaml:93-96` (commentaire au-dessus du bloc `oidc:`).
-  Cette feature contredit délibérément cet invariant pour les
-  déploiements qui le demandent explicitement (`opt-in`, jamais le
-  comportement par défaut) — voir § Tension bootstrap/break-glass,
-  à traiter, pas à ignorer.
-- **Bootstrap admin, sans rapport avec OIDC** :
+  and as break-glass when the IdP is down."_ — repeated in
+  `config.go:68-71` (doc of `Config.OIDC`) and in
+  `helm/waas/values.yaml:93-96` (comment above the `oidc:` block).
+  This feature deliberately contradicts this invariant for deployments
+  that explicitly ask for it (`opt-in`, never the default behavior) —
+  see § Bootstrap/break-glass tension, to be addressed, not ignored.
+- **Bootstrap admin, unrelated to OIDC**:
   `UserService.EnsureBootstrapAdmin` (`api-server/internal/service/user_service.go:234-266`),
-  appelé inconditionnellement à chaque démarrage
-  (`cmd/api-server/main.go:120`) tant que la table `users` est vide,
-  crée toujours un admin **avec mot de passe** (`cfg.AdminUsername`/
-  `cfg.AdminPassword`, génération aléatoire + log si absent). Ce
-  mécanisme ne regarde jamais l'OIDC et continuera de créer ce compte
-  même quand le login local est désactivé pour tout le monde — c'est le
-  cœur de la tension à trancher (§ ci-dessous).
-- **Le mapping groupe OIDC → rôle admin existe DÉJÀ, séparément de
-  cette feature** : `OIDCConfig.AdminGroups []string`
+  called unconditionally on every startup
+  (`cmd/api-server/main.go:120`) as long as the `users` table is
+  empty, always creates an admin **with a password**
+  (`cfg.AdminUsername`/`cfg.AdminPassword`, random generation + log if
+  absent). This mechanism never looks at OIDC and will keep creating
+  this account even when local login is disabled for everyone — it's
+  the core of the tension to settle (§ below).
+- **The OIDC group → admin role mapping ALREADY exists, separately
+  from this feature**: `OIDCConfig.AdminGroups []string`
   (`config.go:108-114`, `WAAS_OIDC_ADMIN_GROUPS`) + `GroupsClaim`
-  (`config.go:109-110`, `WAAS_OIDC_GROUPS_CLAIM`, défaut `"groups"`).
-  Dans `oidc_service.go`, `syncUser` (lignes 176-232) assigne
-  `auth.RoleAdmin` à la création **et à chaque login suivant** si
-  l'utilisateur appartient à un groupe listé dans `AdminGroups`
-  (`adminByGroups`, lignes 234-241) — mais **seulement si `AdminGroups`
-  est configuré** (`oidc_service.go:219-221` :
-  `if len(s.cfg.AdminGroups) > 0 { user.Role = role }`). Si
-  `AdminGroups` est vide, tout nouvel utilisateur OIDC reçoit
-  `auth.RoleUser` à la création et n'est plus jamais retouché — "roles
-  stay admin-managed" (commentaire existant, `config.go:114`). Cette
-  feature (§ Tension ci-dessous) doit composer avec ce mécanisme
-  existant, pas l'ignorer.
-- **Aucune trace existante** de cette feature : recherche
+  (`config.go:109-110`, `WAAS_OIDC_GROUPS_CLAIM`, default `"groups"`).
+  In `oidc_service.go`, `syncUser` (lines 176-232) assigns
+  `auth.RoleAdmin` at creation **and on every subsequent login** if
+  the user belongs to a group listed in `AdminGroups`
+  (`adminByGroups`, lines 234-241) — but **only if `AdminGroups` is
+  configured** (`oidc_service.go:219-221`:
+  `if len(s.cfg.AdminGroups) > 0 { user.Role = role }`). If
+  `AdminGroups` is empty, every new OIDC user gets `auth.RoleUser` at
+  creation and is never touched again — "roles stay admin-managed"
+  (existing comment, `config.go:114`). This feature (§ Tension below)
+  must work with this existing mechanism, not ignore it.
+- **No existing trace** of this feature: searching
   `OIDC_ONLY|LoginMethod|AuthMethod|local_login|disableLocalLogin|OidcOnly`
-  sur tout le repo → zéro résultat. Pas d'ADR sur l'auth
-  (`docs/adr/` ne contient que 0001 template-boundary et 0002
-  crd-evolution, aucun des deux ne mentionne l'auth).
-- **Précédent de flag booléen à suivre** (env → Go → Helm) :
+  across the whole repo → zero results. No ADR on auth
+  (`docs/adr/` only contains 0001 template-boundary and 0002
+  crd-evolution, neither mentions auth).
+- **Boolean-flag precedent to follow** (env → Go → Helm):
   `WAAS_METRICS_ENABLED`. Struct (`config.go:66`,
-  `MetricsEnabled bool`), parsing inline dans `Load()`
-  (`config.go:145`, `os.Getenv("WAAS_METRICS_ENABLED") == "true"` — pas
-  de helper `envBool`, c'est l'idiome du fichier), consommation dans
-  `main.go:72-74` et **deux** points dans `router.go` (middleware
-  ligne 38-40, montage conditionnel de la route ligne 53-55). Côté
-  Helm : `values.yaml:160` (`metrics.enabled: false`), variable émise
-  **seulement si true** (jamais `value: "false"`) dans
-  `templates/api-server.yaml:162-167` — le même idiome existe pour le
-  bloc `oidc` (`{{- with .Values.apiServer.oidc }}{{- if .issuerURL }}`,
+  `MetricsEnabled bool`), inline parsing in `Load()`
+  (`config.go:145`, `os.Getenv("WAAS_METRICS_ENABLED") == "true"` — no
+  `envBool` helper, that's the file's idiom), consumed in
+  `main.go:72-74` and at **two** points in `router.go` (middleware
+  line 38-40, conditional route mounting line 53-55). On the Helm
+  side: `values.yaml:160` (`metrics.enabled: false`), variable emitted
+  **only if true** (never `value: "false"`) in
+  `templates/api-server.yaml:162-167` — the same idiom already exists
+  for the `oidc` block (`{{- with .Values.apiServer.oidc }}{{- if .issuerURL }}`,
   `api-server.yaml:189-223`).
 
-## Décision d'architecture
+## Architecture decision
 
-1. **Le nouveau champ vit dans `OIDCConfig`**, pas au niveau racine de
-   `Config` — sémantiquement c'est une politique de login _à propos_
-   de l'OIDC, et ça garde `Enabled()` et la nouvelle validation
-   co-localisées :
+1. **The new field lives in `OIDCConfig`**, not at the root level of
+   `Config` — semantically it's a login policy _about_ OIDC, and it
+   keeps `Enabled()` and the new validation co-located:
 
    ```go
    // OIDCOnly disables local username/password login entirely once
@@ -117,15 +113,14 @@ configured")`, lignes 84-87 et 109-112). `OIDCService.Callback`
    OIDCOnly bool
    ```
 
-   Parsing dans `Load()`, à côté du reste du bloc OIDC
-   (`config.go:151-162`) : `os.Getenv("WAAS_LOGIN_OIDC_ONLY") == "true"`
-   — nom de variable délibérément **hors** du préfixe `WAAS_OIDC_*`
-   (c'est une politique de login globale, pas un paramètre du
-   provider), garde le préfixe `WAAS_LOGIN_` proposé par la demande
-   initiale.
+   Parsing in `Load()`, next to the rest of the OIDC block
+   (`config.go:151-162`): `os.Getenv("WAAS_LOGIN_OIDC_ONLY") == "true"`
+   — variable name deliberately **outside** the `WAAS_OIDC_*` prefix
+   (it's a global login policy, not a provider parameter), keeping the
+   `WAAS_LOGIN_` prefix suggested by the original request.
 
-2. **Validation fail-closed au démarrage**, à côté du bloc existant
-   `config.go:168-175` :
+2. **Fail-closed validation at startup**, next to the existing block
+   `config.go:168-175`:
 
    ```go
    if cfg.OIDC.OIDCOnly && !cfg.OIDC.Enabled() {
@@ -133,52 +128,51 @@ configured")`, lignes 84-87 et 109-112). `OIDCService.Callback`
    }
    ```
 
-   Ça empêche le cas dangereux "flag mis à true par erreur, OIDC pas
-   configuré ⇒ plus personne ne peut jamais se connecter" — le serveur
-   refuse de démarrer plutôt que de silencieusement locker tout le
-   monde dehors.
+   This prevents the dangerous case "flag set to true by mistake, OIDC
+   not configured ⇒ nobody can ever log in again" — the server refuses
+   to start rather than silently locking everyone out.
 
-3. **`AuthHandler` porte déjà `oidcCfg config.OIDCConfig`**
-   (`auth_handler.go:23`, injecté par `NewAuthHandler`,
-   `auth_handler.go:27-29`) — **aucun changement de signature de
-   constructeur nécessaire**. Utilise `h.oidcCfg.OIDCOnly` directement :
-   - `Login` (`auth_handler.go:37-49`) : si `h.oidcCfg.OIDCOnly`, retourne
+3. **`AuthHandler` already carries `oidcCfg config.OIDCConfig`**
+   (`auth_handler.go:23`, injected by `NewAuthHandler`,
+   `auth_handler.go:27-29`) — **no constructor signature change
+   needed**. Use `h.oidcCfg.OIDCOnly` directly:
+   - `Login` (`auth_handler.go:37-49`): if `h.oidcCfg.OIDCOnly`, return
      `apierror.NotFound("local login is disabled — sign in via SSO")`
-     avant même de décoder le body (même style que la garde
-     `h.oidc == nil` de `OIDCStart`/`OIDCCallback`, lignes 84-87/109-112).
-     Ça protège l'API même contre un appel direct qui court-circuite le
+     even before decoding the body (same style as the `h.oidc == nil`
+     guard of `OIDCStart`/`OIDCCallback`, lines 84-87/109-112). This
+     protects the API even against a direct call that bypasses the
      frontend.
-   - `Providers` (`auth_handler.go:63-77`) : `payload.Local = !h.oidcCfg.OIDCOnly`
-     au lieu du `Local: true` en dur (ligne 72).
-   - Garde le routing tel quel (`router.go:57-61`) — pas de montage
-     conditionnel de route façon `/metrics` : le pattern déjà en place
-     dans ce fichier pour "fonctionnalité optionnelle non configurée"
-     est une garde en tête de handler + 404, pas une route absente
-     (`OIDCStart`/`OIDCCallback` le font déjà pour le cas symétrique).
-     Documente ce choix si tu préfères l'autre pattern, mais reste
-     cohérent avec l'existant.
+   - `Providers` (`auth_handler.go:63-77`): `payload.Local = !h.oidcCfg.OIDCOnly`
+     instead of the hard-coded `Local: true` (line 72).
+   - Keep the routing as-is (`router.go:57-61`) — no conditional route
+     mounting like `/metrics`: the pattern already in place in this
+     file for "optional feature not configured" is a guard at the top
+     of the handler + 404, not a missing route
+     (`OIDCStart`/`OIDCCallback` already do this for the symmetric
+     case). Document this choice if you prefer the other pattern, but
+     stay consistent with the existing code.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-1. `api-server/internal/config/config.go` : champ `OIDCOnly bool` sur
-   `OIDCConfig`, parsing `WAAS_LOGIN_OIDC_ONLY`, validation fail-closed
-   décrite ci-dessus.
-2. `api-server/internal/handler/auth_handler.go` : garde dans `Login`,
-   `payload.Local` dynamique dans `Providers` — voir § Décision.
-3. `frontend/src/pages/LoginPage.tsx` : quand
-   `providers.data?.data.local === false`, ne rend PAS le formulaire
-   username/password (lignes 39-59) ni son bouton submit (lignes
-   68-74) — seulement le bloc OIDC (lignes 75-92, retire la condition
-   du séparateur "ou" qui n'a plus de sens sans formulaire à côté).
-   Gère aussi l'état de chargement de `useAuthProviders()` : ne flashe
-   pas le formulaire pendant que la requête est en vol puis ne le
-   fait pas disparaître d'un coup — un état "chargement" minimal
-   (spinner ou simplement rien) le temps que `providers.isSuccess`
-   soit vrai, avant de décider quoi afficher.
-4. `frontend/src/types.ts` : aucun changement — `AuthProviders.local`
-   existe déjà.
-5. Helm — `helm/waas/values.yaml`, dans le bloc `apiServer.oidc:`
-   (lignes 93-115), nouvelle clé après `providerName` :
+1. `api-server/internal/config/config.go`: `OIDCOnly bool` field on
+   `OIDCConfig`, `WAAS_LOGIN_OIDC_ONLY` parsing, fail-closed validation
+   described above.
+2. `api-server/internal/handler/auth_handler.go`: guard in `Login`,
+   dynamic `payload.Local` in `Providers` — see § Decision.
+3. `frontend/src/pages/LoginPage.tsx`: when
+   `providers.data?.data.local === false`, do NOT render the
+   username/password form (lines 39-59) nor its submit button (lines
+   68-74) — only the OIDC block (lines 75-92, remove the "or"
+   separator's condition which no longer makes sense without a form
+   next to it). Also handle the `useAuthProviders()` loading state:
+   don't flash the form while the request is in flight then abruptly
+   make it disappear — a minimal "loading" state (spinner or simply
+   nothing) until `providers.isSuccess` is true, before deciding what
+   to render.
+4. `frontend/src/types.ts`: no change — `AuthProviders.local` already
+   exists.
+5. Helm — `helm/waas/values.yaml`, in the `apiServer.oidc:` block
+   (lines 93-115), new key after `providerName`:
 
    ```yaml
    oidc:
@@ -198,15 +192,15 @@ configured")`, lignes 84-87 et 109-112). `OIDCService.Callback`
      disableLocalLogin: false
    ```
 
-   `helm/waas/templates/api-server.yaml` : **n'émets PAS** cette
-   variable à l'intérieur du bloc `{{- if .issuerURL }}` existant
-   (lignes 190-221) — si tu le fais, un admin qui active
-   `disableLocalLogin: true` en oubliant `issuerURL` verrait la
-   variable silencieusement disparaître au lieu de déclencher l'erreur
-   de démarrage du § Décision point 2. Émets-la juste après le bloc
-   `{{- with .Values.apiServer.oidc }}` (donc au même niveau que le
-   `{{- if .issuerURL }}`, pas dedans), seulement si `true` (même
-   idiome que `WAAS_METRICS_ENABLED`, `api-server.yaml:162-167`) :
+   `helm/waas/templates/api-server.yaml`: **do NOT emit** this
+   variable inside the existing `{{- if .issuerURL }}` block (lines
+   190-221) — if you do, an admin who enables
+   `disableLocalLogin: true` while forgetting `issuerURL` would see
+   the variable silently disappear instead of triggering the startup
+   error from § Decision point 2. Emit it right after the
+   `{{- with .Values.apiServer.oidc }}` block (i.e. at the same level
+   as `{{- if .issuerURL }}`, not inside it), only if `true` (same
+   idiom as `WAAS_METRICS_ENABLED`, `api-server.yaml:162-167`):
 
    ```yaml
    {{- with .Values.apiServer.oidc }}
@@ -215,146 +209,143 @@ configured")`, lignes 84-87 et 109-112). `OIDCService.Callback`
      value: "true"
    {{- end }}
    {{- if .issuerURL }}
-   ...bloc existant inchangé...
+   ...existing block unchanged...
    {{- end }}
    {{- end }}
    ```
 
-6. `helm/waas/values.yaml` (ou `docs/` équivalent) : si le repo a un
-   doc de paramètres généré (`make docs-params` mentionné dans
-   d'autres études) régénère-le pour que la nouvelle clé y apparaisse.
+6. `helm/waas/values.yaml` (or the `docs/` equivalent): if the repo has
+   a generated parameters doc (`make docs-params`, mentioned in other
+   studies) regenerate it so the new key shows up there.
 
-## Tension bootstrap admin / break-glass — à trancher explicitement
+## Bootstrap admin / break-glass tension — to be explicitly settled
 
-Le commentaire de conception existant dit que le login local doit
-_toujours_ rester disponible pour le bootstrap admin et comme
-break-glass si l'IdP tombe. Cette feature le contredit délibérément,
-mais **de façon opt-in et documentée**, pas silencieusement. Ne code
-PAS de bypass caché (par ex. "sauf pour `cfg.AdminUsername`") — ce
-serait une porte dérobée non documentée dans le payload `Providers`
-(le frontend afficherait "local désactivé" alors que l'admin, lui,
-pourrait quand même). Le choix retenu :
+The existing design comment says local login should _always_ stay
+available for the bootstrap admin and as break-glass if the IdP goes
+down. This feature deliberately contradicts that, but **in an opt-in
+and documented way**, not silently. Do NOT code a hidden bypass (e.g.
+"except for `cfg.AdminUsername`") — that would be an undocumented
+backdoor in the `Providers` payload (the frontend would show "local
+disabled" while the admin could still log in anyway). The chosen
+approach:
 
-- `EnsureBootstrapAdmin` reste inchangé et inconditionnel — le compte
-  admin est toujours créé au premier démarrage, flag ou pas.
-- Le flag coupe le login local pour **tout le monde sans exception**,
-  admin compris — cohérence avec le payload `Providers` que voit le
-  frontend.
-- Le **break-glass documenté** devient : redéployer temporairement
-  avec `disableLocalLogin: false` (ou `WAAS_LOGIN_OIDC_ONLY` absent)
-  pour rouvrir le login local, se connecter avec le compte admin,
-  corriger l'IdP, puis remettre le flag à `true`. C'est un acte
-  d'admin de cluster (accès Helm/kubectl), pas un contournement de
-  code — dans le même esprit que la doctrine déjà appliquée ailleurs
-  dans ce repo pour les bypass admin ("reste une policy visible et
-  auditable, jamais un chemin de code caché", voir
-  `docs/studies/17-prompt-feature13-direct-image-deploy-waas.md` § Bypass
-  admin pour le précédent).
-- Documente ce compromis dans le commit/PR **et** dans le commentaire
-  Helm du champ `disableLocalLogin` (déjà rédigé ci-dessus) — un futur
-  lecteur qui active ce flag doit comprendre immédiatement la procédure
-  de secours avant d'en avoir besoin en urgence.
+- `EnsureBootstrapAdmin` stays unchanged and unconditional — the admin
+  account is always created on first startup, flag or not.
+- The flag cuts off local login for **everyone without exception**,
+  admin included — consistency with the `Providers` payload the
+  frontend sees.
+- The **documented break-glass** becomes: temporarily redeploy with
+  `disableLocalLogin: false` (or `WAAS_LOGIN_OIDC_ONLY` absent) to
+  reopen local login, sign in with the admin account, fix the IdP,
+  then set the flag back to `true`. It's a cluster-admin act
+  (Helm/kubectl access), not a code workaround — in the same spirit as
+  the doctrine already applied elsewhere in this repo for admin
+  bypasses ("stays a visible, auditable policy, never a hidden code
+  path", see
+  `docs/studies/17-prompt-feature13-direct-image-deploy-waas.md` § Admin
+  bypass for the precedent).
+- Document this trade-off in the commit/PR **and** in the Helm comment
+  of the `disableLocalLogin` field (already drafted above) — a future
+  reader who enables this flag must immediately understand the
+  emergency procedure before needing it urgently.
 
-### Cas de verrouillage total : `disableLocalLogin=true` sans `AdminGroups`
+### Total lockout case: `disableLocalLogin=true` without `AdminGroups`
 
-Le break-glass ci-dessus suppose qu'il existe *un* chemin pour obtenir
-un rôle admin après coup. Ce n'est vrai que si `WAAS_OIDC_ADMIN_GROUPS`
-est configuré (§ Contexte, mapping groupe→rôle). Si un opérateur active
-`disableLocalLogin: true` **sans** configurer `AdminGroups` :
+The break-glass above assumes there is *a* path to obtaining an admin
+role afterward. That's only true if `WAAS_OIDC_ADMIN_GROUPS` is
+configured (§ Context, group→role mapping). If an operator enables
+`disableLocalLogin: true` **without** configuring `AdminGroups`:
 
-- le compte bootstrap créé par `EnsureBootstrapAdmin` est inatteignable
-  (login local coupé) ;
-- tout utilisateur qui se connecte via OIDC reçoit `auth.RoleUser` à la
-  création et n'est **jamais** promu automatiquement (`AdminGroups`
-  vide ⇒ pas de sync de rôle, `oidc_service.go:219-221`) ;
-- résultat : **aucun compte admin n'est atteignable au quotidien**. Le
-  break-glass décrit ci-dessus (rouvrir le login local) reste
-  techniquement possible pour se connecter avec le compte bootstrap —
-  mais uniquement parce qu'`EnsureBootstrapAdmin` continue de le créer
-  en silence ; rien dans l'UI/API ne signale ce piège avant qu'un
-  opérateur ne s'y cogne.
+- the bootstrap account created by `EnsureBootstrapAdmin` is
+  unreachable (local login cut off);
+- any user logging in via OIDC gets `auth.RoleUser` at creation and is
+  **never** automatically promoted (empty `AdminGroups` ⇒ no role
+  sync, `oidc_service.go:219-221`);
+- result: **no admin account is reachable day to day**. The
+  break-glass described above (reopening local login) remains
+  technically possible to log in with the bootstrap account — but only
+  because `EnsureBootstrapAdmin` keeps silently creating it; nothing
+  in the UI/API flags this trap before an operator stumbles into it.
 
-Ce n'est pas un cas exotique : c'est le résultat probable d'une
-première mise en service où l'opérateur active `disableLocalLogin`
-pour "faire propre" sans avoir encore mappé les groupes IdP. Livre au
-minimum :
+This isn't an exotic case: it's the likely outcome of a first go-live
+where the operator enables `disableLocalLogin` to "clean things up"
+without having mapped the IdP groups yet. Deliver at minimum:
 
-- Dans le commentaire Helm de `disableLocalLogin` (§ Ce qu'il faut
-  livrer, point 5) : mentionner explicitement qu'il faut configurer
-  `adminGroups`/`groupsClaim` en même temps, sinon personne ne peut
-  jamais obtenir le rôle admin par ce biais.
-- Un log d'avertissement au démarrage (pas une erreur fatale — ça reste
-  démarrable via le break-glass bootstrap admin) quand
-  `cfg.OIDC.OIDCOnly && len(cfg.OIDC.AdminGroups) == 0` : un message
-  clair du type `"WAAS_LOGIN_OIDC_ONLY is set but WAAS_OIDC_ADMIN_GROUPS
+- In the Helm comment of `disableLocalLogin` (§ What needs to be
+  delivered, point 5): explicitly mention that `adminGroups`/
+  `groupsClaim` must be configured at the same time, or nobody can
+  ever get the admin role through this path.
+- A startup warning log (not a fatal error — it stays startable via
+  the bootstrap admin break-glass) when
+  `cfg.OIDC.OIDCOnly && len(cfg.OIDC.AdminGroups) == 0`: a clear
+  message such as `"WAAS_LOGIN_OIDC_ONLY is set but WAAS_OIDC_ADMIN_GROUPS
   is empty — no account can become admin via SSO; only the bootstrap
   admin (currently unreachable while this flag is set) has the admin
-  role"`. Décide toi-même de l'emplacement (à côté de la validation
-  fail-closed existante, `config.go:168-175`, ou dans `main.go` après
-  `Load()`) et documente ce choix — voir aussi § Points ouverts.
+  role"`. Decide yourself where to place it (next to the existing
+  fail-closed validation, `config.go:168-175`, or in `main.go` after
+  `Load()`) and document this choice — see also § Open points.
 
-## Contraintes
+## Constraints
 
-- Le flag doit être fail-closed au démarrage (§ Décision point 2) — ne
-  laisse jamais un déploiement dans un état où `OIDCOnly=true` et
-  `Enabled()=false` cohabitent silencieusement.
-- Ne touche pas à `OIDCService`/`OIDCStart`/`OIDCCallback` — le chemin
-  SSO est déjà correct et hors scope de ce fix, à l'exception du
-  commentaire de conception (`oidc_service.go:24-34`) à nuancer pour
-  refléter que le "never instead of it" a maintenant une exception
-  opt-in documentée.
-- Ne crée pas de bypass caché pour le bootstrap admin (§ Tension
-  ci-dessus) — le flag coupe le login local pour tout le monde ou pour
-  personne.
-- Le montage de la route `/auth/login` (`router.go:58`) ne change pas
-  — la garde vit dans le handler, pas dans le router (cohérence avec
+- The flag must be fail-closed at startup (§ Decision point 2) — never
+  let a deployment sit in a state where `OIDCOnly=true` and
+  `Enabled()=false` silently coexist.
+- Don't touch `OIDCService`/`OIDCStart`/`OIDCCallback` — the SSO path
+  is already correct and out of scope for this fix, except for the
+  design comment (`oidc_service.go:24-34`) which needs nuancing to
+  reflect that the "never instead of it" now has a documented opt-in
+  exception.
+- Don't create a hidden bypass for the bootstrap admin (§ Tension
+  above) — the flag cuts off local login for everyone or for nobody.
+- The `/auth/login` route mounting (`router.go:58`) doesn't change —
+  the guard lives in the handler, not the router (consistency with
   `OIDCStart`/`OIDCCallback`).
-- `frontend/src/pages/LoginPage.tsx` ne doit jamais afficher un
-  formulaire vide/cassé pendant le chargement de `useAuthProviders()`
-  ni un flash formulaire→disparition.
+- `frontend/src/pages/LoginPage.tsx` must never show an empty/broken
+  form while `useAuthProviders()` is loading, nor a form→disappear
+  flash.
 
 ## Tests
 
-- Go, `api-server/internal/config` : `Load()` avec
-  `WAAS_LOGIN_OIDC_ONLY=true` seul (sans issuer/clientID) → erreur ;
-  avec issuer+clientID+secret+redirectURL → OK,
+- Go, `api-server/internal/config`: `Load()` with
+  `WAAS_LOGIN_OIDC_ONLY=true` alone (no issuer/clientID) → error; with
+  issuer+clientID+secret+redirectURL → OK,
   `cfg.OIDC.OIDCOnly == true`.
-- Go, `api-server/internal/handler` (ou test d'intégration existant
-  sur `auth_handler`) : `Login` avec `oidcCfg.OIDCOnly=true` → 404,
-  quel que soit le couple username/password (même valide) ; `Providers`
-  renvoie `local: false` dans ce cas, `local: true` sinon (cas par
-  défaut actuel, non régressé).
-- Vitest, `LoginPage.tsx` : `providers.data.local === false` ⇒ pas de
-  `<form>`/champs username-password dans le DOM, bouton SSO présent ;
-  `local === true` (ou absent, valeur par défaut avant fetch) ⇒
-  comportement actuel inchangé ; état de chargement ne montre pas le
-  formulaire puis ne le fait pas disparaître (pas de flash).
-- `go build ./...` + tests Go sur `api-server` ; `tsc -b` + vitest sur
-  `frontend` ; `helm template` sur le chart avec
-  `apiServer.oidc.disableLocalLogin=true` sans `issuerURL` pour
-  vérifier que la variable `WAAS_LOGIN_OIDC_ONLY` est bien émise même
-  dans ce cas (c'est `config.go` qui doit refuser de démarrer, pas
-  Helm qui doit la cacher).
+- Go, `api-server/internal/handler` (or the existing `auth_handler`
+  integration test): `Login` with `oidcCfg.OIDCOnly=true` → 404,
+  regardless of the username/password pair (even a valid one);
+  `Providers` returns `local: false` in this case, `local: true`
+  otherwise (current default case, not regressed).
+- Vitest, `LoginPage.tsx`: `providers.data.local === false` ⇒ no
+  `<form>`/username-password fields in the DOM, SSO button present;
+  `local === true` (or absent, default value before fetch) ⇒
+  unchanged current behavior; loading state doesn't show the form then
+  make it disappear (no flash).
+- `go build ./...` + Go tests on `api-server`; `tsc -b` + vitest on
+  `frontend`; `helm template` on the chart with
+  `apiServer.oidc.disableLocalLogin=true` without `issuerURL` to
+  verify that the `WAAS_LOGIN_OIDC_ONLY` variable is indeed emitted
+  even in that case (it's `config.go` that must refuse to start, not
+  Helm that should hide it).
 
-## Points ouverts (ton arbitrage)
+## Open points (your judgment call)
 
-- Nom exact de la clé Helm (`disableLocalLogin` proposé, dans le bloc
-  `oidc:` existant) — libre de renommer si tu trouves plus clair,
-  documente le choix. => arbitrage ok avec ça
-- Faut-il un message dédié sur `LoginPage.tsx` expliquant pourquoi le
-  formulaire a disparu (ex. "Cette organisation exige une connexion
-  SSO") plutôt que de simplement l'omettre ? Pas strictement
-  nécessaire pour la feature, mais améliore l'UX si un utilisateur
-  arrive avec un ancien favori/bookmark. Ajoute une clé i18n dans
-  `frontend/src/i18n/locales/{en,fr}.json` (section `login.*`, => "non pas besoin"
-  lignes 17-27 des deux fichiers) si tu choisis de l'implémenter.
-- Le commentaire de conception `oidc_service.go:24-34` — reformulation
-  libre tant que l'exception opt-in est mentionnée explicitement.
-- Warning de démarrage pour `OIDCOnly=true && AdminGroups vide` (§
-  Tension bootstrap admin / break-glass, sous-section "Cas de
-  verrouillage total") : log d'avertissement au démarrage (recommandé,
-  non fatal — le déploiement reste utilisable via bootstrap admin +
-  break-glass) vs. rien de plus que le commentaire Helm/doc. Si tu
-  choisis de ne rien coder, justifie-le explicitement dans le commit —
-  ne laisse pas ce silence implicite comme dans la version initiale de
-  cette étude.
+- Exact Helm key name (`disableLocalLogin` proposed, in the existing
+  `oidc:` block) — free to rename if you find something clearer,
+  document the choice. => judgment call: fine as is.
+- Should there be a dedicated message on `LoginPage.tsx` explaining
+  why the form disappeared (e.g. "This organization requires SSO
+  sign-in") instead of simply omitting it? Not strictly necessary for
+  the feature, but improves UX if a user arrives via an old
+  bookmark/favorite. Add an i18n key in
+  `frontend/src/i18n/locales/{en,fr}.json` (`login.*` section, => "no,
+  not needed" lines 17-27 of both files) if you choose to implement
+  it.
+- The design comment `oidc_service.go:24-34` — free rewording as long
+  as the opt-in exception is explicitly mentioned.
+- Startup warning for `OIDCOnly=true && AdminGroups empty` (§
+  Bootstrap admin / break-glass tension, "Total lockout case"
+  subsection): startup warning log (recommended, non-fatal — the
+  deployment stays usable via bootstrap admin + break-glass) vs.
+  nothing more than the Helm/doc comment. If you choose to code
+  nothing, justify it explicitly in the commit — don't leave this
+  silence implicit as in the initial version of this study.

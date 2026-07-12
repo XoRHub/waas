@@ -1,117 +1,190 @@
-# Prompt Fable 5 — Feature 11 : combler le trou de gouvernance kasmvnc (API exposée + clipboard)
+# Fable 5 Prompt — Feature 11: close the kasmvnc governance gap (exposed API + clipboard)
 
-Colle ce document tel quel comme prompt d'implémentation. Il part du
-principe que tu (Fable 5) n'as aucun contexte de conversation
-préalable. **Priorité : c'est la prochaine feature kasmvnc à
-implémenter**, avant toute nouvelle fonctionnalité sur ce protocole —
-elle remplace et absorbe `docs/studies/04-prompt-feature4-kasmvnc-clipboard-enforcement.md`,
-resté inachevé (seul un correctif d'affichage a été livré, commit
-`87464e8a7865` — aucun enforcement réel).
+Paste this document as-is as an implementation prompt. It assumes you
+(Fable 5) have no prior conversation context. **Priority: this is the
+next kasmvnc feature to implement**, before any new functionality on
+this protocol — it replaces and absorbs
+`docs/studies/04-prompt-feature4-kasmvnc-clipboard-enforcement.md`,
+which was left unfinished (only a display fix was delivered, commit
+`87464e8a7865` — no real enforcement).
 
-## Contexte du repo
+## Repo context
 
-WaaS pilote KasmVNC via un chemin séparé de guacd :
-`wwt/internal/kasm/kasm.go` fait un reverse-proxy HTTP/WebSocket brut
-vers le pod KasmVNC (`proxyTo`, `kasm.go:167-202`), sans filtrage de
-chemin — toute requête sous `/kasm/{sid}/…` est relayée telle quelle,
-avec des identifiants Basic Auth injectés côté serveur (`kasm.go:187`,
-`pr.Out.SetBasicAuth(username, info.Password)`, `username` par défaut
-`"kasm_user"`).
+WaaS drives KasmVNC via a path separate from guacd:
+`wwt/internal/kasm/kasm.go` does a raw HTTP/WebSocket reverse proxy
+to the KasmVNC pod (`proxyTo`, `kasm.go:167-202`), with no path
+filtering — every request under `/kasm/{sid}/…` is relayed as-is,
+with Basic Auth credentials injected server-side (`kasm.go:187`,
+`pr.Out.SetBasicAuth(username, info.Password)`, `username` defaulting
+to `"kasm_user"`).
 
-**Ce que ce prompt corrige** : une recherche externe (doc officielle
-KasmVNC + deux issues GitHub tranchées par un mainteneur upstream) a
-mis à jour deux choses documentées dans
-`docs/studies/kasm-images-feasibility.md` §« Mise à jour 2026-07-10 »
-— lis cette section avant de commencer, elle contient les sources
-exactes :
+**What this prompt fixes**: external research (official KasmVNC docs
++ two GitHub issues settled by an upstream maintainer) has updated
+two things documented in
+`docs/studies/kasm-images-feasibility.md` §"2026-07-10 update"
+— read that section before starting, it contains the exact sources:
 
-1. KasmVNC standalone expose une **API HTTP `/api/…` de neuf
-   endpoints** (liste et détail dans la section citée ci-dessus),
-   tous documentés « require owner credentials ». Le proxy wwt ne
-   distingue pas ces endpoints du reste du trafic : si `kasm_user` a
-   le rôle `owner` de sa propre session (à confirmer, voir tâche A),
-   n'importe quel utilisateur WaaS y a accès aujourd'hui sans qu'aucun
-   code du repo n'ait décidé de l'exposer.
-2. Parmi ces neuf, un seul recoupe une capacité que WaaS gouverne
-   explicitement ailleurs : `/api/downloads` (téléchargement de
-   fichiers session → navigateur). Sur les protocoles guacd,
-   l'équivalent (`enable-sftp`, `enable-drive`) est bloqué
-   `TierPlatform` « until the file-transfer feature ships with its own
-   policy gate » (`operator/pkg/params/params.go:365-371`). Rien
-   d'équivalent n'existe côté kasmvnc — pas par choix documenté, par
-   angle mort.
-3. Le clipboard kasmvnc reste, comme documenté par la Feature 4
-   d'origine, **affiché honnêtement mais toujours pas gouverné** :
+1. KasmVNC standalone exposes an **HTTP API `/api/…` with nine
+   endpoints** (listed and detailed in the section cited above),
+   all documented as "require owner credentials". The wwt proxy does
+   not distinguish these endpoints from the rest of the traffic: if
+   `kasm_user` holds the `owner` role on its own session (to confirm,
+   see task A), any WaaS user has access to it today without any code
+   in the repo ever having decided to expose it.
+2. Of these nine, only one overlaps with a capability WaaS explicitly
+   governs elsewhere: `/api/downloads` (session file download →
+   browser). On guacd protocols, the equivalent (`enable-sftp`,
+   `enable-drive`) is blocked `TierPlatform` "until the file-transfer
+   feature ships with its own policy gate"
+   (`operator/pkg/params/params.go:365-371`). Nothing equivalent
+   exists on the kasmvnc side — not by documented choice, but a blind
+   spot.
+3. The kasmvnc clipboard remains, as documented by the original
+   Feature 4, **honestly displayed but still not governed**:
    `resolveClipboardGrant` (`api-server/internal/service/workspace_service.go:608-647`)
-   ne prend toujours aucun paramètre de protocole — vérifié à la date
-   de ce prompt. `SessionOverlay.tsx:251-256` affiche un texte statique
-   pour `protocol === 'kasmvnc'` au lieu de lire `capabilities`.
+   still takes no protocol parameter — verified as of this prompt.
+   `SessionOverlay.tsx:251-256` shows a static text for
+   `protocol === 'kasmvnc'` instead of reading `capabilities`.
 
-## Ce qui existe déjà (à connaître avant de coder)
+## What already exists (know this before coding)
 
-- **Grant clipboard protocol-agnostic partout dans la chaîne** :
-  CRD `WorkspacePolicySpec.Clipboard` sans champ protocole
+- **Protocol-agnostic clipboard grant everywhere in the chain**:
+  CRD `WorkspacePolicySpec.Clipboard` with no protocol field
   (`operator/api/v1alpha1/workspacepolicy_types.go:63-68`),
-  `policy.ClipboardOf` sans paramètre protocole
-  (`operator/pkg/policy/policy.go:161-174`), consommé identiquement par
-  `workspace_service.go:607` et `remote_workspace_service.go:437`
-  (kasmvnc est de toute façon banni des remote workspaces depuis
-  `5e1e737d9a00`, donc seul le premier appel compte ici).
-- **`kasmvncConfig`** (`WorkspaceTemplate.spec.kasmvncConfig`) est
-  aujourd'hui le seul canal de configuration KasmVNC : une chaîne YAML
-  opaque, jamais parsée par le repo, matérialisée en ConfigMap et
-  montée à `<homeMountPath>/.vnc/kasmvnc.yaml`
-  (`operator/internal/controller/kasm_config.go`). Un admin peut déjà y
-  écrire à la main des directives DLP KasmVNC (clipboard, etc.) — rien
-  ne les dérive automatiquement de `WorkspacePolicySpec.Clipboard`
-  aujourd'hui.
-- **Aucun point d'accroche existant** pour piloter dynamiquement le
-  clipboard ou l'API kasmvnc depuis l'opérateur : contrairement aux
-  autres injections (Secret `VNC_PW`, `kasm_credentials.go`), il n'y a
-  pas de mécanisme qui recalcule une config kasmvnc à partir de la
-  policy au reconcile.
-- **Tests existants** : aucun test ne couvre le comportement
-  protocole-spécifique de `resolveClipboardGrant`, ni l'exposition (ou
-  non) des endpoints `/api/…` par le proxy wwt.
+  `policy.ClipboardOf` with no protocol parameter
+  (`operator/pkg/policy/policy.go:161-174`), consumed identically by
+  `workspace_service.go:607` and `remote_workspace_service.go:437`
+  (kasmvnc is banned from remote workspaces anyway since
+  `5e1e737d9a00`, so only the first call matters here).
+- **`kasmvncConfig`** (`WorkspaceTemplate.spec.kasmvncConfig`) is
+  today the only KasmVNC configuration channel: an opaque YAML
+  string, never parsed by the repo, materialized into a ConfigMap and
+  mounted at `<homeMountPath>/.vnc/kasmvnc.yaml`
+  (`operator/internal/controller/kasm_config.go`). An admin can
+  already write KasmVNC DLP directives (clipboard, etc.) into it by
+  hand — nothing derives them automatically from
+  `WorkspacePolicySpec.Clipboard` today.
+- **No existing hook** to dynamically drive the clipboard or the
+  kasmvnc API from the operator: unlike other injections (`VNC_PW`
+  Secret, `kasm_credentials.go`), there is no mechanism that
+  recomputes a kasmvnc config from the policy on reconcile.
+- **Existing tests**: no test covers the protocol-specific behavior
+  of `resolveClipboardGrant`, nor the exposure (or not) of the
+  `/api/…` endpoints by the wwt proxy.
 
-## Ce qu'il faut livrer
+## What needs to be delivered
 
-Traite dans cet ordre — B et C dépendent du choix arbitré en A.
+Handle in this order — B and C depend on the choice made in A.
 
-### A. Auditer et trancher l'exposition de l'API kasmvnc (obligatoire, en premier)
+### A. Audit and decide on kasmvnc API exposure (mandatory, first)
 
-1. En session live (k3d dev, `make` — vérifie `docs/studies/02-prompt-feature8-makefile-dev-bootstrap.md` pour le bootstrap si besoin), confirme concrètement : quel rôle porte `kasm_user` sur sa propre session (owner ? autre ?), et lesquels des neuf endpoints `/api/…` répondent réellement à travers le proxy wwt (`/kasm/{sid}/api/downloads`, etc.) avec le cookie de session standard. Ne suppose rien — l'inventaire dans `kasm-images-feasibility.md` vient de la doc développeur upstream, pas d'un test contre l'image réellement utilisée par WaaS.
-2. Sur cette base, tranche : `wwt/internal/kasm/kasm.go` doit-il continuer à tout proxifier sans filtrage, ou introduire un allowlist/denylist de chemins pour les huit endpoints sans équivalent de gouvernance ailleurs (`get_screenshot`, `create_user`/`update_user`/`remove_user`, `send_full_frame`, `get_bottleneck_stats`, `get_frame_stats`, `clear_clipboard`) ? Pour une session mono-utilisateur qui s'administre elle-même, la plupart sont probablement sans conséquence (l'utilisateur a déjà le clavier et l'écran) — documente ce raisonnement plutôt que de bloquer par réflexe. `/api/downloads` est le seul qui a un traitement obligatoire, voir B.
+1. In a live session (k3d dev, `make` — check
+   `docs/studies/02-prompt-feature8-makefile-dev-bootstrap.md` for
+   bootstrap if needed), concretely confirm: which role `kasm_user`
+   holds on its own session (owner? other?), and which of the nine
+   `/api/…` endpoints actually respond through the wwt proxy
+   (`/kasm/{sid}/api/downloads`, etc.) with the standard session
+   cookie. Don't assume anything — the inventory in
+   `kasm-images-feasibility.md` comes from upstream developer docs,
+   not from a test against the image actually used by WaaS.
+2. Based on this, decide: should `wwt/internal/kasm/kasm.go` continue
+   proxying everything unfiltered, or introduce a path allowlist/
+   denylist for the eight endpoints with no governance equivalent
+   elsewhere (`get_screenshot`, `create_user`/`update_user`/
+   `remove_user`, `send_full_frame`, `get_bottleneck_stats`,
+   `get_frame_stats`, `clear_clipboard`)? For a single-user session
+   that administers itself, most are probably inconsequential (the
+   user already has the keyboard and the screen) — document this
+   reasoning rather than blocking reflexively. `/api/downloads` is the
+   only one with mandatory handling, see B.
 
-### B. Gouverner `/api/downloads` comme le reste du transfert de fichiers
+### B. Govern `/api/downloads` like the rest of file transfer
 
-1. Décide et implémente un des deux traitements, cohérent avec la raison déjà actée pour `enable-sftp`/`enable-drive` (`params.go:365-371`, « until the file-transfer feature ships with its own policy gate ») :
-   - soit **bloquer** `/api/downloads` au niveau du proxy wwt tant qu'aucune policy de transfert de fichiers n'existe (cohérence avec guacd : aucune fuite de fichiers par aucun chemin, pas d'exception pour kasmvnc) ;
-   - soit le **conditionner** à un grant explicite si tu identifies qu'une policy de transfert existe déjà ou est en cours ailleurs dans le repo (vérifie avant de choisir cette option — à la date de ce prompt, `TierPlatform` est un blocage inconditionnel, pas un gate configurable).
-2. Implémente le choix dans `wwt/internal/kasm/kasm.go` (c'est le seul point qui voit chaque requête proxifiée) — reste cohérent avec le style du fichier (pas de dépendance nouvelle si évitable, gestion d'erreur explicite plutôt que silencieuse).
-3. Test Go : une requête vers `/kasm/{sid}/api/downloads` doit être rejetée (ou grantée selon ton choix) de façon déterministe et testée, pas seulement documentée.
+1. Decide and implement one of two treatments, consistent with the
+   reasoning already established for `enable-sftp`/`enable-drive`
+   (`params.go:365-371`, "until the file-transfer feature ships with
+   its own policy gate"):
+   - either **block** `/api/downloads` at the wwt proxy level as long
+     as no file-transfer policy exists (consistency with guacd: no
+     file leak via any path, no exception for kasmvnc);
+   - or **condition** it on an explicit grant if you identify that a
+     transfer policy already exists or is in progress elsewhere in
+     the repo (verify before choosing this option — as of this
+     prompt, `TierPlatform` is an unconditional block, not a
+     configurable gate).
+2. Implement the choice in `wwt/internal/kasm/kasm.go` (it's the only
+   place that sees every proxied request) — stay consistent with the
+   file's style (no new dependency if avoidable, explicit rather than
+   silent error handling).
+3. Go test: a request to `/kasm/{sid}/api/downloads` must be rejected
+   (or granted, depending on your choice) deterministically and
+   tested, not just documented.
 
-### C. Finir le clipboard (reprise de la Feature 4 d'origine)
+### C. Finish the clipboard (resuming the original Feature 4)
 
-1. **Grant honnête** : rends `resolveClipboardGrant` protocole-conscient pour kasmvnc — soit il force `false`/`false` tant que l'enforcement réel n'existe pas, soit tu introduis un état explicite distinct de `true`/`false` (`ungoverned`) remonté dans `SessionCapabilities` (`api-server/internal/model/model.go`) pour que le frontend affiche un état fidèle plutôt qu'un texte statique déconnecté de `capabilities`.
-2. **Enforcement réel** : investigue la configuration DLP de KasmVNC (doc officielle `kasmweb.com/kasmvnc/docs/latest/configuration.html` — ne l'invente pas, les noms de directives n'ont pas été vérifiés dans cette étude) pour déterminer comment désactiver le clipboard depuis `kasmvnc.yaml` ou via l'API `/api/clear_clipboard` (qui, elle, EST inventoriée — voir si elle peut servir de mécanisme de contrainte plutôt que de simple action ponctuelle). Câble : quand `policy.ClipboardOf` renvoie `(false, false)` pour un workspace kasmvnc, la configuration effective du conteneur doit réellement désactiver le copier/coller — pas juste cacher un bouton. Passe par l'opérateur (`kasm_config.go`, même mécanisme que `ensureKasmConfig`), pas par une logique ad hoc côté wwt.
-3. **UI fidèle** : remplace le texte statique de `SessionOverlay.tsx:251-256` par un rendu qui lit `capabilities.clipboardCopy`/`clipboardPaste` comme les autres protocoles, avec une mention « clipboard KasmVNC natif » si utile pour distinguer du mécanisme guacd.
+1. **Honest grant**: make `resolveClipboardGrant` protocol-aware for
+   kasmvnc — either it forces `false`/`false` as long as real
+   enforcement doesn't exist, or you introduce an explicit state
+   distinct from `true`/`false` (`ungoverned`) surfaced in
+   `SessionCapabilities` (`api-server/internal/model/model.go`) so the
+   frontend displays a faithful state rather than a static text
+   disconnected from `capabilities`.
+2. **Real enforcement**: investigate KasmVNC's DLP configuration
+   (official docs `kasmweb.com/kasmvnc/docs/latest/configuration.html`
+   — don't make it up, the directive names haven't been verified in
+   this study) to determine how to disable the clipboard from
+   `kasmvnc.yaml` or via the `/api/clear_clipboard` API (which, unlike
+   the others, IS inventoried — check whether it can serve as an
+   ongoing constraint mechanism rather than a one-off action). Wire
+   it up: when `policy.ClipboardOf` returns `(false, false)` for a
+   kasmvnc workspace, the container's effective configuration must
+   actually disable copy/paste — not just hide a button. Go through
+   the operator (`kasm_config.go`, the same mechanism as
+   `ensureKasmConfig`), not ad-hoc logic on the wwt side.
+3. **Faithful UI**: replace the static text in
+   `SessionOverlay.tsx:251-256` with a render that reads
+   `capabilities.clipboardCopy`/`clipboardPaste` like other protocols,
+   with a "native KasmVNC clipboard" note if useful to distinguish it
+   from the guacd mechanism.
 
 ### D. Documentation
 
-- Une fois A/B/C tranchés et livrés, mets à jour `kasm-images-feasibility.md` (les ❓ de la section « Mise à jour 2026-07-10 » doivent devenir des faits vérifiés) et `protocol-feature-matrix-2026-07-10.md` (note 7, ajoutée pour pointer ici — remplace-la par l'état final une fois ce prompt terminé).
+- Once A/B/C are decided and delivered, update
+  `kasm-images-feasibility.md` (the ❓ marks in the "2026-07-10
+  update" section must become verified facts) and
+  `protocol-feature-matrix-2026-07-10.md` (note 7, added to point
+  here — replace it with the final state once this prompt is
+  complete).
 
-## Contraintes à respecter
+## Constraints to respect
 
-- Ne touche pas au chemin guacd (`ClipboardFilter`, `disable-copy`/`disable-paste`) — ce prompt est strictement le chemin kasmvnc.
-- `go build ./...` + tests Go sur `wwt`, `operator`, `api-server` ; `tsc -b` + tests vitest sur le frontend.
-- i18n : toute nouvelle chaîne passe par `frontend/src/i18n/locales/{en,fr}.json`.
-- Ce prompt touche la surface de sécurité du proxy kasmvnc (filtrage de requêtes vers un pod utilisateur) : passe le diff final par `/security-review` avant de le considérer terminé, indépendamment des tests unitaires.
-- Chaque tâche (A, B, C) est livrable seule, mais **B et C ne peuvent pas être arbitrées sans A** — ne saute pas l'audit live pour aller directement au code.
+- Don't touch the guacd path (`ClipboardFilter`, `disable-copy`/
+  `disable-paste`) — this prompt is strictly the kasmvnc path.
+- `go build ./...` + Go tests on `wwt`, `operator`, `api-server`;
+  `tsc -b` + vitest tests on the frontend.
+- i18n: any new string goes through
+  `frontend/src/i18n/locales/{en,fr}.json`.
+- This prompt touches the kasmvnc proxy's security surface (filtering
+  requests toward a user pod): run the final diff through
+  `/security-review` before considering it done, independent of unit
+  tests.
+- Each task (A, B, C) is independently shippable, but **B and C
+  cannot be decided without A** — don't skip the live audit to jump
+  straight to code.
 
-## Points ouverts (ton arbitrage)
+## Open points (your call)
 
-- Rôle réel de `kasm_user` sur sa propre session (owner ou non) — determine toute la suite de la tâche A, à vérifier en premier.
-- Allowlist stricte des huit endpoints non liés au transfert de fichiers, vs. statu quo documenté (laisser passer, avec la justification « session mono-utilisateur, pas de tiers à protéger contre l'utilisateur lui-même ») — ton jugement produit après l'audit A.2, pas une évidence technique.
-- Noms exacts des directives DLP clipboard dans `kasmvnc.yaml` — à vérifier sur la doc officielle avant de coder, pas à deviner.
-- État triple (`granted`/`denied`/`ungoverned`) vs bool simple pour `SessionCapabilities.ClipboardCopy/Paste` — change le contrat, documente le choix si tu introduis ce triple état (même point ouvert que dans la Feature 4 d'origine).
+- The real role of `kasm_user` on its own session (owner or not) —
+  determines the entirety of task A's follow-up, to be verified
+  first.
+- Strict allowlist of the eight endpoints unrelated to file transfer,
+  vs. the documented status quo (let them pass, with the
+  justification "single-user session, no third party to protect
+  against the user themself") — your judgment call, to be made after
+  the A.2 audit, not a technical given.
+- Exact names of the clipboard DLP directives in `kasmvnc.yaml` — to
+  be verified against the official docs before coding, not guessed.
+- Triple state (`granted`/`denied`/`ungoverned`) vs a plain bool for
+  `SessionCapabilities.ClipboardCopy/Paste` — changes the contract,
+  document the choice if you introduce this triple state (same open
+  point as in the original Feature 4).

@@ -1,12 +1,12 @@
-# Frontend — « un composant, des capacités »
+# Frontend — "one component, capabilities"
 
-Modèle cible issu de l'itération de convergence : les workspaces
-in-cluster et les remote workspaces partagent **les mêmes composants**,
-paramétrés par un descripteur commun. Le frontend ne branche jamais sur
-le type ; ce qui diffère légitimement est déclaré **une fois** comme
-capacité.
+Target model resulting from the convergence iteration: in-cluster
+workspaces and remote workspaces share **the same components**,
+parameterized by a common descriptor. The frontend never branches on
+the type; whatever legitimately differs is declared **once** as a
+capability.
 
-## Le descripteur : `SessionTarget` (`lib/target.ts`)
+## The descriptor: `SessionTarget` (`lib/target.ts`)
 
 ```ts
 SessionTarget = {
@@ -18,73 +18,72 @@ SessionTarget = {
 }
 ```
 
-Deux adaptateurs — `targetFromWorkspace` / `targetFromRemote` — sont les
-SEULS endroits qui connaissent la forme des deux modèles API. Côté API,
-les deux kinds exposent la même shape `protocols[]` (les remote sont
-multi-endpoints depuis la migration `add_remote_protocols` ; les lignes
-legacy synthétisent leur endpoint unique à la lecture).
+Two adapters — `targetFromWorkspace` / `targetFromRemote` — are the
+ONLY places that know the shape of the two API models. On the API
+side, both kinds expose the same `protocols[]` shape (remotes are
+multi-endpoint since the `add_remote_protocols` migration; legacy rows
+synthesize their single endpoint on read).
 
-## Les composants uniques et leurs contextes
+## The unique components and their contexts
 
-| Composant | Contextes | Différences portées par |
+| Component | Contexts | Differences carried by |
 |---|---|---|
-| `SessionCard` + `FolderedGrid` | cards in-cluster **et** remote | capacités (badge si `hasPhase`, WoL si `wake`, badge de dérive cliquable → reload si `reload` et phase Running) + slots d'actions |
-| `useProtocolSwitch` | chips de card + overlay, les deux kinds | préférence `workspaceSettings[id].protocol`, confirmée en session |
-| `ProtocolTabs` + `ProtocolParamsForm` | création, connection settings, dialog remote, éditeur de template admin | `allowList` (userParams vs admin/owner), `placeholders` (valeurs verrouillées), `renderParamExtra` (checkbox admin) |
-| `SessionOverlay` | session in-cluster **et** remote | capacités (split view), stockage des params (prefs vs endpoint serveur) |
-| `Dialog`, `useEscape` | tous les dialogs/menus | — |
-| `lib/lifecycle` | badge/boutons/polling | dérive Pausing…/Resuming… de l'écart spec/status |
+| `SessionCard` + `FolderedGrid` | in-cluster **and** remote cards | capabilities (badge if `hasPhase`, WoL if `wake`, clickable drift badge → reload if `reload` and phase Running) + action slots |
+| `useProtocolSwitch` | card chips + overlay, both kinds | preference `workspaceSettings[id].protocol`, confirmed in-session |
+| `ProtocolTabs` + `ProtocolParamsForm` | creation, connection settings, remote dialog, admin template editor | `allowList` (userParams vs admin/owner), `placeholders` (locked values), `renderParamExtra` (admin checkbox) |
+| `SessionOverlay` | in-cluster **and** remote session | capabilities (split view), param storage (prefs vs server endpoint) |
+| `Dialog`, `useEscape` | all dialogs/menus | — |
+| `lib/lifecycle` | badge/buttons/polling | Pausing…/Resuming… drift from the spec/status gap |
 
-**Règle pour les prochaines évolutions** : une fonctionnalité de card,
-d'overlay ou de formulaire de protocole s'écrit UNE fois contre
-`SessionTarget`/`ProtocolParamsForm`. Un besoin spécifique à un type =
-un nouveau flag dans `TargetCapabilities` + un rendu conditionnel dans le
-composant unique — jamais un composant parallèle. Ce qui reste
-volontairement séparé : WoL, credentials machine, édition d'endpoint
-(remote) ; pause/resume, settings de connexion, split view, reload de
-configuration en attente (in-cluster — une machine remote n'a pas de
-template dont dériver).
+**Rule for future evolutions**: a card, overlay or protocol form
+feature is written ONCE against `SessionTarget`/`ProtocolParamsForm`. A
+need specific to one type = a new flag in `TargetCapabilities` +
+conditional rendering in the unique component — never a parallel
+component. What deliberately stays separate: WoL, machine credentials,
+endpoint editing (remote); pause/resume, connection settings, split
+view, pending-configuration reload (in-cluster — a remote machine has
+no template to drift from).
 
-Les contrôles restent **côté serveur** : le webhook/policy filtre les
-protocoles et paramètres, `Connect` valide le protocole choisi contre ce
-que la cible déclare — l'unification frontend n'a déplacé aucun
-enforcement vers le client.
+Controls stay **server-side**: the webhook/policy filters protocols
+and params, `Connect` validates the chosen protocol against what the
+target declares — the frontend unification has not moved any
+enforcement to the client.
 
-## Rafraîchissement d'état
+## State refresh
 
-- **Source de vérité** : le `status` du CR (projeté par l'api-server, qui
-  force `Terminating` pendant un teardown). L'UI n'invente pas d'état :
-  elle étiquette l'écart intent/réalité (`Pausing…`, `Resuming…`) et
-  converge.
-- **SSE** `GET /api/v1/events` : un watch Kubernetes partagé côté
-  api-server relaie chaque changement de Workspace ; les mutations remote
-  (DB, écrivain unique) notifient directement. Les messages ne portent
-  que des *kinds* — le client ré-interroge l'API autorisée, rien ne fuit.
-  Auth : même access token en query (`EventSource` ne pose pas de
-  headers), même vérification middleware. Heartbeat 25 s,
-  `X-Accel-Buffering: no` pour nginx (traefik streame nativement).
-- **Polling conservé en fallback** : 3 s pendant la convergence, 15 s
-  sinon (workspaces), 30 s (remote).
+- **Source of truth**: the CR's `status` (projected by the api-server,
+  which forces `Terminating` during teardown). The UI doesn't invent
+  state: it labels the intent/reality gap (`Pausing…`, `Resuming…`) and
+  converges.
+- **SSE** `GET /api/v1/events`: a shared Kubernetes watch on the
+  api-server side relays every Workspace change; remote mutations
+  (DB, single writer) notify directly. Messages only carry *kinds* —
+  the client re-queries the authorized API, nothing leaks.
+  Auth: same access token in the query string (`EventSource` can't set
+  headers), same middleware check. 25s heartbeat,
+  `X-Accel-Buffering: no` for nginx (traefik streams natively).
+- **Polling kept as fallback**: 3s during convergence, 15s
+  otherwise (workspaces), 30s (remote).
 
-## Matrice de validation protocole (livrable 6)
+## Protocol validation matrix (deliverable 6)
 
 | Surface | In-cluster | Remote |
 |---|---|---|
-| Création | tabs + params/protocole + radio « se connecter avec » (verrouillée si non overridable) | tabs + port/endpoint + défaut + « add protocol » |
-| Card | chips de switch (si >1 protocole servi) + badge de dérive cliquable (reload confirmé, si Running) | chips de switch (si >1 endpoint) ; pas de badge de dérive |
-| Connection settings | deux niveaux : onglet « Connexion » (tabs protocole + params, allow-list userParams, admin bypass) + onglet « Workspace » (env / placement / ressources, gating template ∩ policy via `lib/overrides`) | via le dialog d'édition (mêmes tabs protocole) ; pas d'onglet Workspace (rien d'instancié) |
-| Session (overlay) | switch confirmé + params reconnect (prefs) | switch confirmé + params reconnect (endpoint serveur) |
-| Admin template | tabs + params + checkbox user-overridable | n/a (pas de template) |
+| Creation | tabs + params/protocol + "connect with" radio (locked if not overridable) | tabs + port/endpoint + default + "add protocol" |
+| Card | switch chips (if >1 protocol served) + clickable drift badge (confirmed reload, if Running) | switch chips (if >1 endpoint); no drift badge |
+| Connection settings | two levels: "Connection" tab (protocol tabs + params, userParams allow-list, admin bypass) + "Workspace" tab (env / placement / resources, template ∩ policy gating via `lib/overrides`) | via the edit dialog (same protocol tabs); no Workspace tab (nothing instantiated) |
+| Session (overlay) | confirmed switch + reconnect params (prefs) | confirmed switch + reconnect params (server endpoint) |
+| Admin template | tabs + params + user-overridable checkbox | n/a (no template) |
 
-Couverture automatique : `lib/target.test.ts` (adaptateurs, synthèse
-legacy, capacités), `lib/lifecycle.test.ts` (états dérivés),
-`lib/overrides.test.ts` (gating template ∩ policy),
-`components/SessionCard.test.tsx` (badge de dérive : reload confirmé,
-gating capacité/phase), `dialogs/ConnectionSettingsDialog.test.tsx`
-(onglet Workspace : gating par groupe, PATCH des seuls champs modifiés),
-`remote_workspace_service_test.go` (multi-protocoles : round-trip,
-connect sur endpoint non-défaut, résolution port/params, refus des
-non-déclarés, compat entrée legacy), `event_hub_test.go` (fan-out par
-owner/admin, relais du watch). Passe manuelle : dérouler la matrice
-ci-dessus sur k3d (`make dev-reload`), plus pause/resume/suppression et
-une transition cron pour vérifier la convergence sans recharger la page.
+Automated coverage: `lib/target.test.ts` (adapters, legacy synthesis,
+capabilities), `lib/lifecycle.test.ts` (derived states),
+`lib/overrides.test.ts` (template ∩ policy gating),
+`components/SessionCard.test.tsx` (drift badge: confirmed reload,
+capability/phase gating), `dialogs/ConnectionSettingsDialog.test.tsx`
+(Workspace tab: per-group gating, PATCH of only changed fields),
+`remote_workspace_service_test.go` (multi-protocol: round-trip,
+connect on a non-default endpoint, port/param resolution, rejection of
+undeclared ones, legacy entry compat), `event_hub_test.go` (fan-out by
+owner/admin, watch relay). Manual pass: run through the matrix
+above on k3d (`make dev-reload`), plus pause/resume/deletion and
+a cron transition to verify convergence without reloading the page.

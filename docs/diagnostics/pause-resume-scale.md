@@ -1,65 +1,65 @@
-# Diagnostic — pause/resume ne scale pas les workloads
+# Diagnostic — pause/resume doesn't scale the workloads
 
-Constat utilisateur : mettre un workspace en pause (ou le reprendre) ne
-scale pas le pod à 0/1. Les crons d'uptime/downtime étaient suspectés du
-même mal — à raison : ils passent par le même mécanisme.
+User report: pausing a workspace (or resuming it) doesn't
+scale the pod to 0/1. The uptime/downtime crons were suspected of
+the same ailment — rightly so: they go through the same mechanism.
 
-## Chaîne vérifiée
+## Verified chain
 
-1. **UI → api-server** : `POST /pause|/resume` → `SetPaused`
-   (`api-server/internal/service/workspace_service.go`) écrit bien
-   `spec.paused` + l'annotation `waas.xorhub.io/manual-state-at` sur le CR.
-   Le Role namespace de l'api-server a `update` sur `workspaces`. ✅
-2. **Déclenchement du reconcile** : `spec.paused` change → la génération
-   du CR est incrémentée → le `GenerationChangedPredicate` laisse passer
-   l'événement. ✅
-3. **Logique de scale** : `ensureDeployment`/`ensureStatefulSet`
-   (`operator/internal/controller/workload.go`) calculent
-   `spec.replicas = 0|1` et appellent `r.Update(ctx, existing)`. La logique
-   est correcte. ✅
-4. **RBAC de l'operator** : ❌ **cause racine**. Le ClusterRole (généré
-   *et* chart Helm) n'accordait que
-   `create, delete, get, list, watch` sur `deployments`/`statefulsets`
-   (idem `virtualmachines` pour le toggle `spec.running` des VM Windows).
-   Le `r.Update()` du scale était rejeté **Forbidden** ; le reconcile
-   sortait en erreur avant `patchStatus`, donc retry en backoff à l'infini
-   et statut affiché inchangé.
+1. **UI → api-server**: `POST /pause|/resume` → `SetPaused`
+   (`api-server/internal/service/workspace_service.go`) does correctly
+   write `spec.paused` + the `waas.xorhub.io/manual-state-at` annotation on the CR.
+   The api-server's namespace Role has `update` on `workspaces`. ✅
+2. **Reconcile trigger**: `spec.paused` changes → the CR's generation
+   is incremented → the `GenerationChangedPredicate` lets the event
+   through. ✅
+3. **Scale logic**: `ensureDeployment`/`ensureStatefulSet`
+   (`operator/internal/controller/workload.go`) compute
+   `spec.replicas = 0|1` and call `r.Update(ctx, existing)`. The logic
+   is correct. ✅
+4. **Operator RBAC**: ❌ **root cause**. The ClusterRole (generated
+   *and* Helm chart) only granted
+   `create, delete, get, list, watch` on `deployments`/`statefulsets`
+   (same for `virtualmachines` for the `spec.running` toggle on Windows VMs).
+   The scale's `r.Update()` was rejected **Forbidden**; the reconcile
+   exited with an error before `patchStatus`, so it retried in
+   backoff forever with the displayed status unchanged.
 
-Les crons d'uptime/downtime aboutissent au même `ensureWorkload(down)` :
-même verbe manquant, même panne. Un seul correctif couvre les deux bugs.
+The uptime/downtime crons end up at the same `ensureWorkload(down)`:
+same missing verb, same failure. A single fix covers both bugs.
 
-## Pourquoi les tests ne l'ont pas vu
+## Why the tests didn't catch it
 
-Les tests du controller utilisent le client *fake* de controller-runtime,
-qui n'applique aucun RBAC : `TestReconcilePausedScalesToZero…` passait
-alors que le cluster réel refusait l'update. Le chart Helm reproduit à la
-main les marqueurs kubebuilder — aucune vérification ne liait les deux.
+The controller tests use controller-runtime's *fake* client,
+which enforces no RBAC at all: `TestReconcilePausedScalesToZero…` passed
+while the real cluster refused the update. The Helm chart reproduces
+the kubebuilder markers by hand — nothing tied the two together.
 
-## Correctif
+## Fix
 
-- `update` ajouté aux marqueurs `+kubebuilder:rbac` sur
-  `deployments;statefulsets` et `virtualmachines`
-  (`workspace_controller.go`), `config/rbac/role.yaml` régénéré
-  (`make manifests`), ClusterRole du chart aligné
+- `update` added to the `+kubebuilder:rbac` markers on
+  `deployments;statefulsets` and `virtualmachines`
+  (`workspace_controller.go`), `config/rbac/role.yaml` regenerated
+  (`make manifests`), the chart's ClusterRole aligned
   (`helm/waas/templates/operator.yaml`).
-- **Garde anti-régression** (`internal/controller/rbac_test.go`) :
-  - chaque `(group, resource, verb)` du role généré doit être couvert par
-    le ClusterRole du chart — le miroir manuel ne peut plus dériver ;
-  - `update` sur les trois kinds de workload est vérifié explicitement.
-- **Preuve du scale par les crons**
-  (`internal/controller/workspace_schedule_test.go`, horloge injectée via
-  `WorkspaceReconciler.Now`) : edge downtime → replicas 0 + phase
-  `Stopped` + requeue exactement à l'edge suivant ; edge uptime →
-  replicas 1 ; **tick raté** (controller éteint à l'heure de l'edge)
-  rattrapé au reconcile suivant — l'état dérive du dernier edge, pas de
-  l'observation du tick ; pause manuelle pendant une plage d'uptime
-  (règle B : elle gagne jusqu'au prochain edge opposé) ; resume manuel en
-  plage de downtime ; timezone du schedule respectée quelle que soit
-  l'horloge du controller ; override de schedule prioritaire sur le
+- **Anti-regression guard** (`internal/controller/rbac_test.go`):
+  - every `(group, resource, verb)` of the generated role must be covered by
+    the chart's ClusterRole — the manual mirror can no longer drift;
+  - `update` on all three workload kinds is explicitly checked.
+- **Proof of scale via the crons**
+  (`internal/controller/workspace_schedule_test.go`, clock injected via
+  `WorkspaceReconciler.Now`): downtime edge → replicas 0 + phase
+  `Stopped` + requeue exactly at the next edge; uptime edge →
+  replicas 1; a **missed tick** (controller down at the edge's time)
+  caught up at the next reconcile — state derives from the last edge,
+  not from tick observation; manual pause during an uptime
+  window (rule B: it wins until the next opposite edge); manual resume during
+  a downtime window; schedule timezone respected regardless of the
+  controller's clock; schedule override takes priority over the
   template.
 
-## À déployer
+## Rollout
 
-Le fix est purement RBAC : `helm upgrade` (ou sync ArgoCD) suffit, aucun
-redémarrage de workspace nécessaire. Les workspaces coincés en
-pause/reprise convergent au premier reconcile après l'upgrade.
+The fix is purely RBAC: `helm upgrade` (or ArgoCD sync) is enough, no
+workspace restart needed. Workspaces stuck in
+pause/resume converge on the first reconcile after the upgrade.

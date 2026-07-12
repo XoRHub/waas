@@ -1,197 +1,196 @@
-# Placement des workloads — namespaces, naming, labels
+# Workload placement — namespaces, naming, labels
 
-Architecture validée : **les CR Workspace (et toute la gouvernance :
-templates, policies, catalog, webhooks) restent dans le namespace
-plateforme** ; seuls les workloads (Deployment/StatefulSet/Pod, Service,
-PVC home, VM) partent dans un namespace cible.
+Validated architecture: **the Workspace CRs (and all governance:
+templates, policies, catalog, webhooks) stay in the platform
+namespace**; only the workloads (Deployment/StatefulSet/Pod, Service,
+home PVC, VM) go into a target namespace.
 
-Le namespace des CR (`workspaces.namespace`, Helm) est **vide par
-défaut** : il résout alors sur le namespace de release, c'est-à-dire le
-même namespace que celui où tournent l'operator/api-server/wwt/frontend.
-Un admin qui veut isoler les CR dans leur propre namespace fixe
-`workspaces.namespace` explicitement.
+The CR namespace (`workspaces.namespace`, Helm) is **empty by
+default**: it then resolves to the release namespace, i.e. the
+same namespace where the operator/api-server/wwt/frontend run.
+An admin who wants to isolate the CRs in their own namespace sets
+`workspaces.namespace` explicitly.
 
-## Chaîne de précédence du pattern
+## Pattern precedence chain
 
-Du plus prioritaire au moins prioritaire — **enforcée côté serveur**
-(l'api-server résout, le webhook re-vérifie la même chaîne, l'UI ne fait
-qu'afficher le résultat) :
+From highest to lowest priority — **enforced server-side**
+(the api-server resolves, the webhook re-checks the same chain, the UI
+only displays the result):
 
-1. **`spec.placement.namespace` du template** (overridable à
-   l'instanciation si le champ `placement` est délégué) ;
-2. **`WAAS_DEFAULT_NAMESPACE_PATTERN`** — variable d'environnement
-   commune à l'operator et à l'api-server (**une seule clé Helm** :
-   `workspaces.defaultNamespacePattern`, pilotable en GitOps). Un pattern
-   invalide (placeholder inconnu, pas de place pour l'expansion) fait
-   **refuser le démarrage** des deux composants — jamais de fallback
-   silencieux, un placement différent de ce que Git déclare serait une
-   dérive invisible ;
-3. **built-in `waas-workspaces`** : un namespace partagé unique.
+1. **`spec.placement.namespace` of the template** (overridable at
+   instantiation if the `placement` field is delegated);
+2. **`WAAS_DEFAULT_NAMESPACE_PATTERN`** — environment variable
+   shared by the operator and the api-server (**a single Helm key**:
+   `workspaces.defaultNamespacePattern`, GitOps-driveable). An
+   invalid pattern (unknown placeholder, no room for expansion) makes
+   both components **refuse to start** — never a silent fallback,
+   a placement different from what Git declares would be an invisible
+   drift;
+3. **built-in `waas-workspaces`**: a single shared namespace.
 
-⚠️ **Changer le pattern (variable ou template) ne concerne que les
-NOUVEAUX workspaces** : la valeur résolue est gelée dans
-`spec.targetNamespace` à la création et immuable ensuite. Les workspaces
-existants gardent leur namespace — c'est voulu, pas un bug.
+⚠️ **Changing the pattern (variable or template) only affects
+NEW workspaces**: the resolved value is frozen into
+`spec.targetNamespace` at creation and immutable afterward. Existing
+workspaces keep their namespace — this is intended, not a bug.
 
 ## Placeholders
 
-Liste servie par `GET /api/v1/meta/placeholders` (source unique :
-`pkg/naming`) et affichée en aide contextuelle dans l'éditeur de
-template ; le namespace **résolu** est montré à la création
-(`GET /api/v1/workspaces/namespace-preview`) et dans la fleet admin.
+List served by `GET /api/v1/meta/placeholders` (single source:
+`pkg/naming`) and shown as contextual help in the template editor; the
+**resolved** namespace is displayed at creation time
+(`GET /api/v1/workspaces/namespace-preview`) and in the admin fleet view.
 
 | Token | Source | Absence |
 |---|---|---|
-| `{user}` | username IdP OIDC (identité de confiance) | jamais absent (identité requise) |
-| `{workspace}` | displayName du workspace | vide → `x` (sanitization) |
-| `{templateName}` | `metadata.name` du template | jamais absent |
-| `{os}` | `template.spec.os` — le chemin de provisioning réel (pod vs VM), requis et validé par enum | jamais absent |
+| `{user}` | OIDC IdP username (trusted identity) | never absent (identity required) |
+| `{workspace}` | workspace displayName | empty → `x` (sanitization) |
+| `{templateName}` | template `metadata.name` | never absent |
+| `{os}` | `template.spec.os` — the actual provisioning path (pod vs VM), required and enum-validated | never absent |
 
-Règles transverses :
-- **sanitization systématique** de chaque valeur (NFKD, lowercase,
-  runs → `-`, DNS-1123) — aucune valeur brute n'entre dans un nom ;
-- **placeholder inconnu = rejet** (webhook template, 400 API, refus de
-  démarrage pour la variable globale) — jamais résolu en chaîne vide ;
-- **troncature anti-collision** : budget 63 réparti entre tokens après
-  les littéraux ; une valeur qui déborde son budget est tronquée **et**
-  suffixée d'un hash court déterministe de la valeur brute — deux valeurs
-  longues distinctes ne peuvent pas fusionner silencieusement, et la
-  même valeur retombe toujours dans le même namespace. Les valeurs
-  courtes restent lisibles (pas de hash).
+Cross-cutting rules:
+- **systematic sanitization** of each value (NFKD, lowercase,
+  runs → `-`, DNS-1123) — no raw value ever enters a name;
+- **unknown placeholder = rejection** (template webhook, 400 API, refusal
+  to start for the global variable) — never resolved to an empty string;
+- **anti-collision truncation**: a budget of 63 is split between tokens
+  after the literals; a value that overflows its budget is truncated **and**
+  suffixed with a short deterministic hash of the raw value — two distinct
+  long values can never silently merge, and the same value always lands
+  in the same namespace. Short values stay readable (no hash).
 
-## Namespace cible (`spec.targetNamespace`)
+## Target namespace (`spec.targetNamespace`)
 
-- L'api-server **résout le pattern une fois à la création** et écrit la
-  valeur explicite dans `workspace.spec.targetNamespace`. Le webhook la
-  rend **immuable** (comme `owner`) : déplacer un workspace = recréer.
-- Vide (workspaces créés avant la fonctionnalité, ou via kubectl sans
-  valeur) = comportement historique : workloads à côté du CR.
-- Override à la création : `targetNamespace` explicite dans le payload,
-  gated par le champ overridable **`placement`** (template ∩ policy,
-  admins exempts).
-- **Namespaces partagés** : le défaut résolu peut être partagé (built-in
-  `waas-workspaces`, patterns `{os}`/`{templateName}`). Le webhook admet
-  toujours le défaut résolu côté serveur ; la règle de préfixe
-  `waas-<user>` ne s'applique qu'aux déviations. Un namespace partagé ne
-  reçoit **ni** label d'ownership **ni** ResourceQuota auto (elle
-  capperait l'équipe au budget d'une personne) — le webhook reste
-  l'enforcement par utilisateur, l'admin pose un quota namespace s'il en
-  veut un.
+- The api-server **resolves the pattern once at creation** and writes
+  the explicit value into `workspace.spec.targetNamespace`. The webhook makes it
+  **immutable** (like `owner`): moving a workspace means recreating it.
+- Empty (workspaces created before the feature, or via kubectl without
+  a value) = historical behavior: workloads next to the CR.
+- Override at creation: explicit `targetNamespace` in the payload,
+  gated by the overridable field **`placement`** (template ∩ policy,
+  admins exempt).
+- **Shared namespaces**: the server-resolved default may be shared
+  (built-in `waas-workspaces`, `{os}`/`{templateName}` patterns). The webhook
+  always admits the server-resolved default; the `waas-<user>` prefix
+  rule only applies to deviations. A shared namespace receives
+  **neither** an ownership label **nor** an auto ResourceQuota (it
+  would cap the whole team at one person's budget) — the webhook remains
+  the per-user enforcement, the admin sets a namespace quota if they want
+  one.
 
-### Sanitization (operator/pkg/naming — partagé api-server/webhook/operator)
+### Sanitization (operator/pkg/naming — shared api-server/webhook/operator)
 
-1. décomposition NFKD, marques combinantes supprimées (`é`→`e`) ;
-2. lowercase ;
-3. toute suite hors `[a-z0-9]` → un seul `-` ;
-4. trim des `-` ; résultat vide → `x` ;
-5. troncature ≤ 63 (DNS-1123), jamais sur un `-`.
+1. NFKD decomposition, combining marks removed (`é`→`e`);
+2. lowercase;
+3. any run outside `[a-z0-9]` → a single `-`;
+4. trim `-`; empty result → `x`;
+5. truncation ≤ 63 (DNS-1123), never on a `-`.
 
-La normalisation est lossy (`Zoé` et `zoe` collident) : les collisions
-sont départagées par un **suffixe déterministe** `-xxxxx` (5 hex de
-sha256 de la valeur brute), appliqué uniquement quand la collision est
-constatée à la création, puis figé dans le spec.
+Normalization is lossy (`Zoé` and `zoe` collide): collisions
+are broken by a **deterministic suffix** `-xxxxx` (5 hex chars of
+sha256 of the raw value), applied only when the collision is
+detected at creation, then frozen in the spec.
 
-### Enforcement anti-usurpation (webhook, fail-closed)
+### Anti-spoofing enforcement (webhook, fail-closed)
 
-- Namespaces système/plateforme refusés pour tous (`kube-*`, le
-  namespace des CR), bypass compris.
-- Pour un non-admin, `targetNamespace` doit soit matcher le préfixe
-  `waas-<sanitize(username)>` **recalculé depuis l'identité de confiance**
-  (annotations gelées / userInfo — jamais une valeur fournie), soit
-  désigner un namespace existant portant `waas.xorhub.io/owner=<owner>`.
-- Deuxième ligne : le reconciler re-vérifie via `policy.CheckOverrides`
-  avant de créer du compute (workspaces appliqués par GitOps).
+- System/platform namespaces refused for everyone (`kube-*`, the
+  CR namespace), bypass included.
+- For a non-admin, `targetNamespace` must either match the
+  `waas-<sanitize(username)>` prefix **recomputed from the trusted
+  identity** (frozen annotations / userInfo — never a supplied value),
+  or designate an existing namespace carrying `waas.xorhub.io/owner=<owner>`.
+- Second line: the reconciler re-checks via `policy.CheckOverrides`
+  before creating any compute (workspaces applied via GitOps).
 
-### Bootstrap du namespace (operator, create-only)
+### Namespace bootstrap (operator, create-only)
 
-Créé au premier workload s'il n'existe pas — jamais modifié ensuite (les
-réglages admin ne sont pas écrasés) :
+Created on first workload if it doesn't exist — never modified
+afterward (admin settings are not overwritten):
 
-- **Labels** : `app.kubernetes.io/managed-by=waas-operator`,
+- **Labels**: `app.kubernetes.io/managed-by=waas-operator`,
   `waas.xorhub.io/owner=<owner>`, Pod Security
-  `enforce=baseline` / `warn=restricted` (les desktops tournent non-root
-  mais peuvent exiger baseline ; warn fait remonter les candidats au
-  durcissement) ; + labels/annotations du template
-  (`placement.namespaceLabels/Annotations`, denylist appliquée, les clés
-  plateforme gagnent toujours).
-- **ResourceQuota `waas-quota`** dérivée des caps agrégés de la policy du
-  propriétaire (`limits.aggregate` → requests/limits cpu/mémoire,
-  requests.storage). Défense en profondeur : le webhook reste
-  l'enforcement primaire.
-- **NetworkPolicy `waas-default-ingress`** : ingress refusé sauf depuis
-  le namespace des CR **et** le namespace release (`WAAS_PLATFORM_NAMESPACE`,
-  injecté par le chart via la downward API) — c'est là que guacd/wwt
-  tournent réellement et ils doivent joindre les desktops. Egress libre.
-- **Pas de RBAC utilisateur** : les utilisateurs ne parlent jamais à
-  l'API Kubernetes (tout passe par le portail) ; en créer serait de la
-  surface d'attaque gratuite.
+  `enforce=baseline` / `warn=restricted` (desktops run non-root
+  but may require baseline; warn surfaces hardening candidates) +
+  template labels/annotations
+  (`placement.namespaceLabels/Annotations`, denylist applied, platform
+  keys always win).
+- **`waas-quota` ResourceQuota** derived from the owner policy's
+  aggregate caps (`limits.aggregate` → requests/limits cpu/memory,
+  requests.storage). Defense in depth: the webhook remains the
+  primary enforcement.
+- **`waas-default-ingress` NetworkPolicy**: ingress denied except from
+  the CR namespace **and** the release namespace (`WAAS_PLATFORM_NAMESPACE`,
+  injected by the chart via the downward API) — that's where
+  guacd/wwt actually run and they need to reach the desktops. Egress open.
+- **No user RBAC**: users never talk directly to the Kubernetes
+  API (everything goes through the portal); creating any would be
+  gratuitous attack surface.
 
-⚠️ **Contrainte secretKeyRef** : les `env.valueFrom.secretKeyRef` d'un
-template se résolvent dans le namespace **du pod**, donc dans le
-namespace cible. Un template placé qui référence un Secret du namespace
-plateforme (ex. `dev-ssh-credentials`) casse au démarrage
-(`CreateContainerConfigError`) : provisionner le Secret dans les
-namespaces cibles (External Secrets/Vault) ou ne pas placer ce template.
-Les `credentialsSecretRef` des protocoles ne sont PAS concernés : ils
-sont résolus côté api-server dans le namespace plateforme.
+⚠️ **secretKeyRef constraint**: a template's `env.valueFrom.secretKeyRef`
+resolves in the **pod's** namespace, i.e. the target
+namespace. A placed template referencing a Secret in the platform
+namespace (e.g. `dev-ssh-credentials`) breaks at startup
+(`CreateContainerConfigError`): provision the Secret in the target
+namespaces (External Secrets/Vault) or don't place that template.
+Protocol `credentialsSecretRef`s are NOT affected: they are
+resolved on the api-server side in the platform namespace.
 
-### GC et cleanup
+### GC and cleanup
 
-- Les ownerReferences ne traversent pas les namespaces : les workspaces
-  placés portent le **finalizer `waas.xorhub.io/teardown`** ; à la
-  suppression, l'operator supprime compute + service dans le namespace
-  cible (le PVC home est conservé — contrat inchangé). Les watches sont
-  remappées par labels (`waas.xorhub.io/workspace` +
+- ownerReferences don't cross namespaces: placed workspaces carry
+  the **`waas.xorhub.io/teardown` finalizer**; on deletion, the operator
+  deletes compute + service in the target namespace (the home PVC is
+  kept — contract unchanged). Watches are remapped by labels
+  (`waas.xorhub.io/workspace` +
   `waas.xorhub.io/workspace-namespace`).
-- **Cleanup du namespace : `Retain` par défaut** (`placement.cleanup`).
-  Justification : supprimer un namespace supprime ses PVC, or le home
-  survit à la suppression du workspace — Retain est le seul défaut qui ne
-  peut pas détruire de données. `DeleteWhenEmpty` (opt-in) ne supprime
-  que si l'operator a créé le namespace ET qu'aucun objet waas n'y reste
-  (PVC home inclus).
-- La politique de cleanup est **figée sur le namespace à sa création**
-  (label `waas.xorhub.io/cleanup`) et appliquée par le **namespace
-  janitor**, un reconciler interne de l'operator re-déclenché par les
-  événements de suppression du contenu : la réclamation survit à la
-  suppression du template, au drain asynchrone des PVC (pvc-protection)
-  et à la suppression tardive d'un volume retenu. Détails et procédure de
-  déblocage : `docs/workspace-deletion.md`.
+- **Namespace cleanup: `Retain` by default** (`placement.cleanup`).
+  Rationale: deleting a namespace deletes its PVCs, and the home
+  outlives workspace deletion — Retain is the only default that cannot
+  destroy data. `DeleteWhenEmpty` (opt-in) only deletes if the
+  operator created the namespace AND no waas object remains in it
+  (home PVC included).
+- The cleanup policy is **frozen on the namespace at its creation**
+  (label `waas.xorhub.io/cleanup`) and applied by the **namespace
+  janitor**, an internal operator reconciler re-triggered by content
+  deletion events: the reclamation survives template deletion, the
+  asynchronous PVC drain (pvc-protection), and the late deletion of a
+  retained volume. Details and unblocking procedure:
+  `docs/workspace-deletion.md`.
 
-## Naming des workloads (`spec.workloadName`)
+## Workload naming (`spec.workloadName`)
 
-- L'api-server calcule `sanitize(displayName)` (fallback : nom du CR) +
-  suffixe anti-collision par namespace, et le fige dans
-  `spec.workloadName` (immuable). Deployment/Service = `<workloadName>`,
-  PVC home = `<workloadName>-home`.
-- **Renommer le displayName ne renomme jamais le compute** (un rename =
-  recréation explicite si le besoin émerge).
-- Le webhook refuse les collisions de workloadName dans un même
-  namespace cible (noms legacy `ws-<cr>` comptés).
+- The api-server computes `sanitize(displayName)` (fallback: CR name) +
+  a per-namespace anti-collision suffix, and freezes it into
+  `spec.workloadName` (immutable). Deployment/Service = `<workloadName>`,
+  home PVC = `<workloadName>-home`.
+- **Renaming the displayName never renames the compute** (a rename =
+  explicit recreation if the need arises).
+- The webhook refuses workloadName collisions within the same
+  target namespace (legacy `ws-<cr>` names counted).
 
-### Migration de l'existant
+### Migrating existing resources
 
-Aucune : `workloadName`/`targetNamespace` vides ⇒ noms (`ws-<cr>`) et
-namespace historiques conservés, ownerReferences et GC inchangés. La
-nouvelle convention ne s'applique qu'aux créations. Aucun PVC n'est
-déplacé ni recréé.
+None: empty `workloadName`/`targetNamespace` ⇒ historical names
+(`ws-<cr>`) and namespace preserved, ownerReferences and GC unchanged.
+The new convention only applies to new creations. No PVC is
+moved or recreated.
 
-## Labels/annotations custom
+## Custom labels/annotations
 
-- Template : `placement.namespaceLabels/namespaceAnnotations` (namespace)
-  et `workload.labels/annotations` (Deployment **et** pod template).
-- Workspace : `overrides.labels/annotations`, gated par le champ
-  overridable **`metadata`**.
-- **Denylist serveur** (`operator/pkg/metakeys`, webhook + re-filtrage
-  reconciler) par domaine : `kubernetes.io` et sous-domaines
-  (pod-security, kubectl…), `k8s.io`, `xorhub.io` (labels plateforme),
-  `argoproj.io`, injecteurs (`istio.io`, `linkerd.io`,
+- Template: `placement.namespaceLabels/namespaceAnnotations` (namespace)
+  and `workload.labels/annotations` (Deployment **and** pod template).
+- Workspace: `overrides.labels/annotations`, gated by the overridable
+  field **`metadata`**.
+- **Server-side denylist** (`operator/pkg/metakeys`, webhook + reconciler
+  re-filtering) by domain: `kubernetes.io` and subdomains
+  (pod-security, kubectl…), `k8s.io`, `xorhub.io` (platform labels),
+  `argoproj.io`, injectors (`istio.io`, `linkerd.io`,
   `vault.hashicorp.com`), `cilium.io`, `openshift.io`.
-- Les labels de l'operator (ownership, sélecteurs) sont appliqués après
-  merge : **ils gagnent toujours**, et le sélecteur du Deployment reste
+- The operator's labels (ownership, selectors) are applied after the
+  merge: **they always win**, and the Deployment selector stays
   `waas.xorhub.io/workspace`.
 
-## RBAC ajouté (operator)
+## Added RBAC (operator)
 
 `namespaces` create/delete, `resourcequotas` create,
-`networkpolicies` create, `workspaces` update (finalizer) — miroir Helm
-vérifié par `internal/controller/rbac_test.go`.
+`networkpolicies` create, `workspaces` update (finalizer) — Helm
+mirror verified by `internal/controller/rbac_test.go`.
