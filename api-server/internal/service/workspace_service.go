@@ -489,9 +489,10 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 	// via ConnectionInfo. Params only ever restrict, never grant. A
 	// template that failed to resolve fails closed, like every other
 	// resolution failure here: session yes, clipboard no.
-	clipboard := s.clipboardGrant(ctx, actor)
+	policyGrant := s.clipboardGrant(ctx, actor)
+	clipboard := policyGrant
 	if tplErr != nil {
-		clipboard = auth.ClipboardGrant{}
+		policyGrant, clipboard = auth.ClipboardGrant{}, auth.ClipboardGrant{}
 	} else {
 		var locked map[string]string
 		if entry != nil {
@@ -509,10 +510,7 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 		SessionID:       session.ID,
 		ConnectionToken: token,
 		Protocol:        protocol,
-		Capabilities: &model.SessionCapabilities{
-			ClipboardCopy:  clipboard.Copy,
-			ClipboardPaste: clipboard.Paste,
-		},
+		Capabilities:    clipboardCapabilities(policyGrant, clipboard),
 	}, nil
 }
 
@@ -629,6 +627,32 @@ func clipboardParamBlocks(value string) bool {
 	}
 	block, err := strconv.ParseBool(value)
 	return err != nil || block
+}
+
+// clipboardCapabilities builds the overlay-facing view of a clamped
+// grant: the effective per-direction rights plus, on each denied
+// direction, WHICH gate denied it — the policy (admin-imposed, the user
+// cannot undo it) or the disable-* params (the user's own connection
+// setting, undoable + reconnect). Policy wins the label when both deny:
+// removing the param would change nothing.
+func clipboardCapabilities(policyGrant, effective auth.ClipboardGrant) *model.SessionCapabilities {
+	return &model.SessionCapabilities{
+		ClipboardCopy:      effective.Copy,
+		ClipboardPaste:     effective.Paste,
+		ClipboardCopyLock:  clipboardLock(policyGrant.Copy, effective.Copy),
+		ClipboardPasteLock: clipboardLock(policyGrant.Paste, effective.Paste),
+	}
+}
+
+func clipboardLock(policyAllows, effective bool) model.ClipboardLock {
+	switch {
+	case effective:
+		return ""
+	case policyAllows:
+		return model.ClipboardLockParams
+	default:
+		return model.ClipboardLockPolicy
+	}
 }
 
 // mergeParams overlays connect-time overrides on the locked base params

@@ -606,13 +606,38 @@ export interface UserUsage {
   used?: { [key: string]: string };
 }
 /**
- * SessionCapabilities is what the user's policy allows in-session; the
- * overlay reflects it, the proxy enforces it.
+ * SessionCapabilities is what the session may do, per clipboard
+ * direction; the overlay reflects it, the proxy enforces it. A denied
+ * direction carries WHY in its lock field so the overlay can tell an
+ * admin policy denial (immutable for the user) from the user's own
+ * disable-copy/disable-paste connection setting (undo + reconnect).
  */
 export interface SessionCapabilities {
   clipboardCopy: boolean;
   clipboardPaste: boolean;
+  /**
+   * ClipboardCopyLock/ClipboardPasteLock name the gate that denied the
+   * direction: ClipboardLockPolicy or ClipboardLockParams. Empty when
+   * the direction is allowed.
+   */
+  clipboardCopyLock?: ClipboardLock;
+  clipboardPasteLock?: ClipboardLock;
 }
+/**
+ * ClipboardLock names the gate that denied a clipboard direction.
+ */
+export type ClipboardLock = string;
+/**
+ * ClipboardLockPolicy: the WorkspacePolicy denies the direction (or
+ * its resolution failed closed) — not undoable by the user.
+ */
+export const ClipboardLockPolicy: ClipboardLock = 'policy';
+/**
+ * ClipboardLockParams: the policy allows it but the session's
+ * effective disable-copy/disable-paste param blocks it — the user
+ * can re-enable it in the connection settings and reconnect.
+ */
+export const ClipboardLockParams: ClipboardLock = 'params';
 /**
  * WorkspaceEvent is one aggregated Kubernetes Event of a workspace (the
  * CR itself or any managed child resource), pre-authorized server-side.

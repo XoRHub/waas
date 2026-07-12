@@ -57,12 +57,19 @@ func clipboardTemplate(locked map[string]string) *waasv1alpha1.WorkspaceTemplate
 
 // assertClipboard checks the capabilities AND the signed token carry the
 // same clamped grant — a divergence between the two is the original bug
-// (menu says allowed, wwt lets it through / or the reverse).
-func assertClipboard(t *testing.T, f *remoteFixture, res *ConnectResult, wantCopy, wantPaste bool) {
+// (menu says allowed, wwt lets it through / or the reverse). Lock fields
+// must name the denying gate so the overlay never mislabels the user's
+// own disable-* setting as a policy denial.
+func assertClipboard(t *testing.T, f *remoteFixture, res *ConnectResult, wantCopy, wantPaste bool,
+	wantCopyLock, wantPasteLock model.ClipboardLock) {
 	t.Helper()
 	if res.Capabilities.ClipboardCopy != wantCopy || res.Capabilities.ClipboardPaste != wantPaste {
 		t.Fatalf("capabilities copy=%t paste=%t, want copy=%t paste=%t",
 			res.Capabilities.ClipboardCopy, res.Capabilities.ClipboardPaste, wantCopy, wantPaste)
+	}
+	if res.Capabilities.ClipboardCopyLock != wantCopyLock || res.Capabilities.ClipboardPasteLock != wantPasteLock {
+		t.Fatalf("locks copy=%q paste=%q, want copy=%q paste=%q",
+			res.Capabilities.ClipboardCopyLock, res.Capabilities.ClipboardPasteLock, wantCopyLock, wantPasteLock)
 	}
 	claims, err := auth.VerifyConnectionToken(res.ConnectionToken, "waas-test", f.signer.Public())
 	if err != nil {
@@ -76,39 +83,46 @@ func assertClipboard(t *testing.T, f *remoteFixture, res *ConnectResult, wantCop
 
 func TestConnectClipboardClampedByParams(t *testing.T) {
 	cases := []struct {
-		name                    string
-		policyCopy, policyPaste bool
-		locked                  map[string]string
-		overrides               map[string]string
-		wantCopy, wantPaste     bool
+		name                        string
+		policyCopy, policyPaste     bool
+		locked                      map[string]string
+		overrides                   map[string]string
+		wantCopy, wantPaste         bool
+		wantCopyLock, wantPasteLock model.ClipboardLock
 	}{
 		{name: "policy alone decides when params are absent",
 			policyCopy: true, policyPaste: true,
 			wantCopy: true, wantPaste: true},
 		{name: "policy denial holds when params are absent",
 			policyCopy: false, policyPaste: false,
-			wantCopy: false, wantPaste: false},
+			wantCopy: false, wantPaste: false,
+			wantCopyLock: model.ClipboardLockPolicy, wantPasteLock: model.ClipboardLockPolicy},
 		{name: "template-locked disable-copy blocks on a plain connect",
 			policyCopy: true, policyPaste: true,
 			locked:   map[string]string{"disable-copy": "true"},
-			wantCopy: false, wantPaste: true},
+			wantCopy: false, wantPaste: true,
+			wantCopyLock: model.ClipboardLockParams},
 		{name: "connect-time disable-paste blocks despite the policy grant",
 			policyCopy: true, policyPaste: true,
 			overrides: map[string]string{"disable-paste": "true"},
-			wantCopy:  true, wantPaste: false},
+			wantCopy:  true, wantPaste: false,
+			wantPasteLock: model.ClipboardLockParams},
 		{name: "false params never override a policy denial",
 			policyCopy: false, policyPaste: false,
 			locked:    map[string]string{"disable-copy": "false"},
 			overrides: map[string]string{"disable-paste": "false"},
-			wantCopy:  false, wantPaste: false},
-		{name: "param true and policy denial both block",
+			wantCopy:  false, wantPaste: false,
+			wantCopyLock: model.ClipboardLockPolicy, wantPasteLock: model.ClipboardLockPolicy},
+		{name: "param true and policy denial both block, policy wins the label",
 			policyCopy: false, policyPaste: true,
 			locked:   map[string]string{"disable-copy": "true"},
-			wantCopy: false, wantPaste: true},
+			wantCopy: false, wantPaste: true,
+			wantCopyLock: model.ClipboardLockPolicy},
 		{name: "malformed template value fails closed",
 			policyCopy: true, policyPaste: true,
 			locked:   map[string]string{"disable-copy": "definitely"},
-			wantCopy: false, wantPaste: true},
+			wantCopy: false, wantPaste: true,
+			wantCopyLock: model.ClipboardLockParams},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -120,7 +134,7 @@ func TestConnectClipboardClampedByParams(t *testing.T) {
 			if err != nil {
 				t.Fatalf("connect: %v", err)
 			}
-			assertClipboard(t, f, res, tc.wantCopy, tc.wantPaste)
+			assertClipboard(t, f, res, tc.wantCopy, tc.wantPaste, tc.wantCopyLock, tc.wantPasteLock)
 		})
 	}
 }
@@ -143,7 +157,7 @@ func TestRemoteConnectClipboardClampedByParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	assertClipboard(t, f, res, false, true)
+	assertClipboard(t, f, res, false, true, model.ClipboardLockParams, "")
 
 	// A connect-time tweak clamps paste on top of the stored param.
 	res, err = f.remote.Connect(ctx, actor, rw.ID,
@@ -151,5 +165,5 @@ func TestRemoteConnectClipboardClampedByParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect with tweak: %v", err)
 	}
-	assertClipboard(t, f, res, false, false)
+	assertClipboard(t, f, res, false, false, model.ClipboardLockParams, model.ClipboardLockParams)
 }

@@ -68,6 +68,8 @@ export type {
   WorkspaceRuntime,
   WorkspaceTemplate,
 };
+// Value re-exports (generated constants, not types).
+export { ClipboardLockParams, ClipboardLockPolicy } from './types.gen';
 
 export type Theme = 'light' | 'dark' | 'system';
 

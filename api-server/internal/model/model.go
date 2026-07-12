@@ -491,12 +491,33 @@ type UserUsage struct {
 	Used       map[string]string `json:"used,omitempty"`
 }
 
-// SessionCapabilities is what the user's policy allows in-session; the
-// overlay reflects it, the proxy enforces it.
+// SessionCapabilities is what the session may do, per clipboard
+// direction; the overlay reflects it, the proxy enforces it. A denied
+// direction carries WHY in its lock field so the overlay can tell an
+// admin policy denial (immutable for the user) from the user's own
+// disable-copy/disable-paste connection setting (undo + reconnect).
 type SessionCapabilities struct {
 	ClipboardCopy  bool `json:"clipboardCopy"`
 	ClipboardPaste bool `json:"clipboardPaste"`
+	// ClipboardCopyLock/ClipboardPasteLock name the gate that denied the
+	// direction: ClipboardLockPolicy or ClipboardLockParams. Empty when
+	// the direction is allowed.
+	ClipboardCopyLock  ClipboardLock `json:"clipboardCopyLock,omitempty"`
+	ClipboardPasteLock ClipboardLock `json:"clipboardPasteLock,omitempty"`
 }
+
+// ClipboardLock names the gate that denied a clipboard direction.
+type ClipboardLock string
+
+const (
+	// ClipboardLockPolicy: the WorkspacePolicy denies the direction (or
+	// its resolution failed closed) — not undoable by the user.
+	ClipboardLockPolicy ClipboardLock = "policy"
+	// ClipboardLockParams: the policy allows it but the session's
+	// effective disable-copy/disable-paste param blocks it — the user
+	// can re-enable it in the connection settings and reconnect.
+	ClipboardLockParams ClipboardLock = "params"
+)
 
 // WorkspaceEvent is one aggregated Kubernetes Event of a workspace (the
 // CR itself or any managed child resource), pre-authorized server-side.

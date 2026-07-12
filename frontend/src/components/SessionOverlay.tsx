@@ -15,6 +15,7 @@ import { useProtocolSwitch } from '@/hooks/useProtocolSwitch';
 import { ParamField, paramsFor } from '@/components/ParamField';
 import { targetFromRemote, targetFromWorkspace, type SessionTarget } from '@/lib/target';
 import type { DesktopPaneHandle } from '@/components/DesktopPane';
+import { ClipboardLockParams } from '@/types';
 import type { RemoteWorkspace, SessionCapabilities, Workspace } from '@/types';
 
 // Placeholder keeping the hook order stable while neither prop is set.
@@ -137,6 +138,17 @@ export function SessionOverlay({
 
   const effCopy = copyOn ?? capabilities?.clipboardCopy ?? false;
   const effPaste = pasteOn ?? capabilities?.clipboardPaste ?? false;
+  // A denied direction names its gate: the user's own disable-* connection
+  // setting (undoable: re-enable there, reconnect) reads differently from
+  // an admin policy denial — mislabeling one as the other was a bug.
+  const copyDeniedReason =
+    capabilities?.clipboardCopyLock === ClipboardLockParams
+      ? t('overlay.disabledBySettings')
+      : t('overlay.deniedByPolicy');
+  const pasteDeniedReason =
+    capabilities?.clipboardPasteLock === ClipboardLockParams
+      ? t('overlay.disabledBySettings')
+      : t('overlay.deniedByPolicy');
 
   const toggleClipboard = (direction: 'copy' | 'paste', enabled: boolean) => {
     pane.current?.setClipboard(direction, enabled);
@@ -274,13 +286,13 @@ export function SessionOverlay({
                   label={t('overlay.clipboardCopy')}
                   allowed={capabilities?.clipboardCopy ?? false}
                   allowedText={t('overlay.clipboardAllowed')}
-                  deniedText={t('overlay.deniedByPolicy')}
+                  deniedText={copyDeniedReason}
                 />
                 <ClipboardStatus
                   label={t('overlay.clipboardPaste')}
                   allowed={capabilities?.clipboardPaste ?? false}
                   allowedText={t('overlay.clipboardAllowed')}
-                  deniedText={t('overlay.deniedByPolicy')}
+                  deniedText={pasteDeniedReason}
                 />
                 <p className="text-[11px] text-slate-500">{t('overlay.clipboardKasmvnc')}</p>
               </div>
@@ -291,7 +303,7 @@ export function SessionOverlay({
                   live
                   checked={effCopy}
                   allowed={capabilities?.clipboardCopy ?? false}
-                  deniedReason={t('overlay.deniedByPolicy')}
+                  deniedReason={copyDeniedReason}
                   onChange={(v) => toggleClipboard('copy', v)}
                 />
                 <OverlayToggle
@@ -299,7 +311,7 @@ export function SessionOverlay({
                   live
                   checked={effPaste}
                   allowed={capabilities?.clipboardPaste ?? false}
-                  deniedReason={t('overlay.deniedByPolicy')}
+                  deniedReason={pasteDeniedReason}
                   onChange={(v) => toggleClipboard('paste', v)}
                 />
 
@@ -331,9 +343,7 @@ export function SessionOverlay({
                         />
                       ) : (
                         <p className="text-[11px] text-slate-500">
-                          {effCopy
-                            ? t('overlay.clipboardReceivedEmpty')
-                            : t('overlay.deniedByPolicy')}
+                          {effCopy ? t('overlay.clipboardReceivedEmpty') : copyDeniedReason}
                         </p>
                       )}
                     </div>

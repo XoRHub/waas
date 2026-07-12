@@ -437,9 +437,8 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 	// Policy grant clamped by the effective disable-copy/disable-paste
 	// params (stored registration overlaid with connect-time tweaks) —
 	// same rule as provisioned workspaces: params restrict, never grant.
-	clipboard := clampClipboardGrant(
-		resolveClipboardGrant(ctx, s.kube, s.namespace, s.users, actor),
-		mergeParams(entry.Params, in.Params))
+	policyGrant := resolveClipboardGrant(ctx, s.kube, s.namespace, s.users, actor)
+	clipboard := clampClipboardGrant(policyGrant, mergeParams(entry.Params, in.Params))
 	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, rw.ID, clipboard, s.connectionTTL))
 	if err != nil {
 		return nil, fmt.Errorf("issuing connection token: %w", err)
@@ -451,10 +450,7 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 		SessionID:       session.ID,
 		ConnectionToken: token,
 		Protocol:        entry.Name,
-		Capabilities: &model.SessionCapabilities{
-			ClipboardCopy:  clipboard.Copy,
-			ClipboardPaste: clipboard.Paste,
-		},
+		Capabilities:    clipboardCapabilities(policyGrant, clipboard),
 	}, nil
 }
 

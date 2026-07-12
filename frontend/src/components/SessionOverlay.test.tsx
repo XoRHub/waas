@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders, signIn } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
 import type { DesktopPaneHandle } from '@/components/DesktopPane';
-import type { Workspace } from '@/types';
+import type { SessionCapabilities, Workspace } from '@/types';
 import { SessionOverlay } from './SessionOverlay';
 
 const apiMock = createApiMock({
@@ -35,7 +35,7 @@ const workspace = (protocol: string): Workspace => ({
 
 const renderOverlay = async (
   protocol: string,
-  capabilities = { clipboardCopy: true, clipboardPaste: true },
+  capabilities: SessionCapabilities = { clipboardCopy: true, clipboardPaste: true },
 ) => {
   signIn({ username: 'marc' });
   renderWithProviders(
@@ -74,6 +74,22 @@ describe('SessionOverlay clipboard section by protocol', () => {
     expect(screen.getByText('Allowed')).toBeInTheDocument();
     expect(screen.getByText('Denied by your policy')).toBeInTheDocument();
     expect(screen.getByText(/Native KasmVNC clipboard/i)).toBeInTheDocument();
+  });
+
+  it('names the denying gate per direction: own setting vs policy', async () => {
+    // Copy is blocked by the user's own disable-copy connection setting
+    // (lock=params, undoable), paste by the admin policy (lock=policy).
+    // Labeling both "denied by your policy" was the bug: the user's own
+    // setting must not read as an admin restriction.
+    await renderOverlay('vnc', {
+      clipboardCopy: false,
+      clipboardPaste: false,
+      clipboardCopyLock: 'params',
+      clipboardPasteLock: 'policy',
+    });
+
+    expect(screen.getByTitle(/Disabled by your connection settings/)).toBeInTheDocument();
+    expect(screen.getByTitle('Denied by your policy')).toBeInTheDocument();
   });
 });
 

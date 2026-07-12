@@ -382,6 +382,7 @@
     "clipboardCopy": "Copier depuis le workspace",
     "clipboardPaste": "Coller vers le workspace",
     "deniedByPolicy": "Refusé par votre policy",
+    "disabledBySettings": "Désactivé par vos réglages de connexion — réactivez-le puis reconnectez-vous",
     "clipboardAllowed": "Autorisé",
     "protocolParams": "Paramètres {{protocol}}",
     "applyReconnect": "Appliquer et reconnecter",
