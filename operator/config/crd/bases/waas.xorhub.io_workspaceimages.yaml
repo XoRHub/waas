@@ -29,6 +29,9 @@ spec:
     - jsonPath: .spec.enabled
       name: Enabled
       type: boolean
+    - jsonPath: .status.catalog.source
+      name: Catalog
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -82,6 +85,134 @@ spec:
                   - arm64
                   type: string
                 type: array
+              catalog:
+                description: |-
+                  Catalog configures the periodic fetch of a published catalog
+                  manifest (format below) listing the images currently under this
+                  entry's registry, with display metadata (os/app/version/icon) for
+                  the portal catalog picker. Only meaningful when spec.registry is
+                  set (ignored on exact spec.image entries — ENFORCEMENT never reads
+                  this field, it is purely cosmetic). Grouped under one struct
+                  (rather than flat fields) so a future split into its own CRD, if a
+                  real need for K8s-RBAC-level separation ever appears, is a
+                  mechanical lift instead of a field-by-field migration — no such
+                  split is planned today, application-level authorization (the same
+                  model WorkspacePolicy already uses) covers any future need for a
+                  narrower "catalog editor" role. Absent = no automatic catalog; the
+                  registry approval itself still works.
+                properties:
+                  auth:
+                    description: |-
+                      Auth configures how the live fetch authenticates — only
+                      meaningful when From.URL is set (ignored, and rejected at
+                      admission if From points at ConfigMapKeyRef/SecretKeyRef instead,
+                      see the XValidation on ImageCatalogSpec above). Nested by method
+                      (one field per auth kind) instead of a flat credential reference,
+                      so a future method (basic auth, mTLS...) is a pure ADDITION — a
+                      new sibling field on ImageCatalogAuth — never a rename or a
+                      reinterpretation of what an existing field means. Absent =
+                      unauthenticated GET, the only mode the two known public catalogs
+                      (ghcr.io/xorhub/waas-images, docker.io/kasmweb) need.
+                    properties:
+                      bearerToken:
+                        description: 'BearerToken sends "Authorization: Bearer <token>"
+                          on the fetch.'
+                        properties:
+                          secretRef:
+                            description: |-
+                              SecretRef names an existing Opaque Secret (in the platform
+                              workspace namespace, same convention as
+                              WorkspaceImageSpec.ImagePullSecretRef) holding the token under
+                              the key "token". A missing/unreadable Secret, or one without this
+                              key, is a sync failure (status.catalog.lastSyncError), never a
+                              crash — same fail-soft doctrine as the rest of the reconciler.
+                            minLength: 1
+                            type: string
+                        required:
+                        - secretRef
+                        type: object
+                    type: object
+                  from:
+                    description: |-
+                      From is the catalog manifest source (format below, § 1) —
+                      exactly one of URL/ConfigMapKeyRef/SecretKeyRef, mutually
+                      exclusive (enforced on ImageCatalogSource below; never more than
+                      one set). URL is fetched live over HTTP(S); ConfigMapKeyRef/SecretKeyRef
+                      are read directly, no HTTP involved. Both are re-checked on the
+                      SAME periodic cadence (operator.catalogSyncInterval) — no
+                      dedicated watch on the referenced ConfigMap/Secret (the operator
+                      deliberately reads both uncached, without the watch verb) — a
+                      static, GitOps-managed catalog for an admin who prefers not to
+                      depend on a live registry endpoint. This is a first-class,
+                      permanent choice, not a stopgap-until-network-works: an admin
+                      picks ONE of the three and stays on it.
+                    properties:
+                      configMapKeyRef:
+                        description: |-
+                          ConfigMapKeyRef reads the manifest from a ConfigMap key in the
+                          platform workspace namespace instead of fetching it over HTTP —
+                          the common case, since the content isn't secret, just a static
+                          admin-provided catalog. Key defaults to "catalog.yaml" when
+                          empty. Re-read periodically (operator.catalogSyncInterval), not
+                          just once — no dedicated watch on the ConfigMap (uncached reads,
+                          no watch verb, by existing design). Not a corev1
+                          ConfigMapKeySelector: that type marks key as REQUIRED in the
+                          generated schema, which would kill the default.
+                        properties:
+                          key:
+                            description: Key inside it; empty reads "catalog.yaml".
+                            type: string
+                          name:
+                            description: Name of the ConfigMap.
+                            minLength: 1
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      secretKeyRef:
+                        description: |-
+                          SecretKeyRef reads the manifest from a Secret key instead, in the
+                          platform workspace namespace — for an admin who wants the
+                          manifest content itself access-controlled. Key is REQUIRED (no
+                          default, unlike ConfigMapKeyRef): no naming convention is assumed
+                          for a Secret. Distinct from ImageCatalogAuth.BearerToken below:
+                          that one is a fetch CREDENTIAL for a URL source, this one IS the
+                          manifest content itself; the two are never the same Secret in
+                          practice but nothing in the schema prevents it, and they cannot
+                          both apply at once since URL/SecretKeyRef are mutually exclusive.
+                        properties:
+                          key:
+                            description: |-
+                              Key inside it — required: no naming convention is assumed for a
+                              Secret.
+                            minLength: 1
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            minLength: 1
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      url:
+                        description: |-
+                          URL is the catalog manifest location, fetched live and
+                          periodically (operator.catalogSyncInterval).
+                        minLength: 1
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                    - message: exactly one of url, configMapKeyRef, or secretKeyRef
+                        must be set
+                      rule: '(has(self.url) ? 1 : 0) + (has(self.configMapKeyRef)
+                        ? 1 : 0) + (has(self.secretKeyRef) ? 1 : 0) == 1'
+                required:
+                - from
+                type: object
+                x-kubernetes-validations:
+                - message: auth is only meaningful when from.url is set
+                  rule: '!has(self.auth) || self.from.url != '''''
               description:
                 description: Description is shown to users when picking an image.
                 type: string
@@ -221,9 +352,81 @@ spec:
             x-kubernetes-validations:
             - message: exactly one of image or registry must be set
               rule: has(self.image) != has(self.registry)
+          status:
+            description: WorkspaceImageStatus is the observed state of a WorkspaceImage.
+            properties:
+              catalog:
+                description: |-
+                  Catalog is nil until the first sync attempt of a spec.catalog-configured
+                  entry.
+                properties:
+                  entries:
+                    description: |-
+                      Entries is the last known set of discovered images. Stale-but-served:
+                      a failed sync never clears it.
+                    items:
+                      description: |-
+                        DiscoveredImage is one entry surfaced by a catalog sync — display
+                        metadata only, NEVER consulted by policy/enforcement (that stays
+                        FindImage/ImageAllowed against spec.image/spec.registry, unchanged).
+                      properties:
+                        app:
+                          description: |-
+                            App is a logical grouping slug (e.g. "firefox", "ubuntu-xfce") —
+                            distinct images of the same app across versions share it.
+                          type: string
+                        displayName:
+                          type: string
+                        icon:
+                          description: |-
+                            Icon is a dashboard-icons (github.com/homarr-labs/dashboard-icons,
+                            Apache-2.0) slug, e.g. "firefox". The frontend resolves it against
+                            a LOCALLY VENDORED subset — never fetched live from GitHub —
+                            falling back to an OS icon when absent or unknown.
+                          type: string
+                        image:
+                          description: Image is the exact, pinned reference (digest
+                            recommended).
+                          type: string
+                        os:
+                          description: OSType is the operating-system family of a
+                            workspace.
+                          enum:
+                          - linux
+                          - windows
+                          type: string
+                        version:
+                          type: string
+                      required:
+                      - image
+                      type: object
+                    type: array
+                  lastSyncError:
+                    description: |-
+                      LastSyncError is the most recent fetch/read failure, kept even
+                      after a later sync succeeds, so admins can see WHY it once
+                      failed.
+                    type: string
+                  lastSyncTime:
+                    description: |-
+                      LastSyncTime is when Entries was last written: the real fetch
+                      time for "Fetched", the time the ConfigMap/Secret was last read
+                      for "Static".
+                    format: date-time
+                    type: string
+                  source:
+                    description: |-
+                      Source says which From variant produced Entries: "Fetched"
+                      (From.URL, a live sync succeeded at least once) or "Static"
+                      (From.ConfigMapKeyRef/SecretKeyRef was read successfully at least
+                      once). Empty = never synced yet.
+                    type: string
+                type: object
+            type: object
         required:
         - spec
         type: object
     served: true
     storage: true
-    subresources: {}
+    subresources:
+      status: {}
