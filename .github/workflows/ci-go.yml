@@ -48,7 +48,7 @@ jobs:
             ~/.cache/go-build
           key: go-${{ runner.os }}-${{ matrix.module }}-${{ hashFiles(format('{0}/go.sum', matrix.module)) }}
           restore-keys: go-${{ runner.os }}-${{ matrix.module }}-
-      - uses: golangci/golangci-lint-action@d583c34f0599d37dbac4a198b9c83201be380893 # v9.3.0
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           install-mode: none # the binary comes from .mise.toml, via mise-action above
           working-directory: ${{ matrix.module }}
