@@ -97,7 +97,7 @@ catalogs:
     # -- Registry prefix this catalog approves images from.
     registry: docker.io/xorhub
     # -- Protocols this catalog's images support.
-    protocols: [vnc, rdp]
+    protocols: [vnc, rdp, ssh]
     # -- URL of the published catalog.yaml for this registry.
     catalogURL: https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml
   # docker.io/kasmweb — official Kasm images, native KasmVNC data plane
