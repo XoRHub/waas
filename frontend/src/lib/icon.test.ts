@@ -69,7 +69,15 @@ describe('resolveLocalIconPath', () => {
   });
 
   it('rejects unsafe paths', () => {
-    for (const path of ['', '/etc/passwd', '//evil.example/x', '../x', 'a/../x', 'a\\b', 'https://evil.example/x']) {
+    for (const path of [
+      '',
+      '/etc/passwd',
+      '//evil.example/x',
+      '../x',
+      'a/../x',
+      'a\\b',
+      'https://evil.example/x',
+    ]) {
       expect(resolveLocalIconPath(path), `path ${JSON.stringify(path)}`).toBeUndefined();
     }
   });

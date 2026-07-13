@@ -13,9 +13,7 @@ function LoginHeading() {
     <div className="flex flex-col items-center gap-3 text-center">
       <BrandLogo className="h-12" />
       <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-white">
-          {t('login.title')}
-        </h1>
+        <h1 className="text-xl font-semibold text-slate-900 dark:text-white">{t('login.title')}</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">{t('login.description')}</p>
       </div>
     </div>
@@ -51,9 +49,7 @@ export function LoginPage() {
   // Don't flash the local form while the providers request is in flight:
   // if the answer is local: false it would pop in and vanish.
   if (providers.isPending) {
-    return (
-      <div className="flex min-h-screen items-center justify-center app-background" />
-    );
+    return <div className="flex min-h-screen items-center justify-center app-background" />;
   }
 
   // No fallback form here: providers and login are served by the same

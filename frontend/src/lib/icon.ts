@@ -20,8 +20,7 @@
 // slug, offline).
 
 /** Same CDN as hack/vendor-icons.sh — keep the two in sync. */
-export const DASHBOARD_ICONS_CDN =
-  'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg';
+export const DASHBOARD_ICONS_CDN = 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg';
 
 // Icon references are not trusted: they can come from a
 // spec.catalog.from.url fetch, a third-party-edited ConfigMap/Secret,
