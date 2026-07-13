@@ -83,6 +83,18 @@
         "go run (?<depName>github\\.com/gzuidhof/tygo)@(?<currentValue>v[0-9.]+)"
       ],
       "datasourceTemplate": "go"
+    },
+    {
+      "customType": "regex",
+      "description": "helm-unittest pin in .mise.toml's postinstall hook (a helm plugin, not a [tools] entry — the built-in mise manager that bumps everything else in that file can't see it).",
+      "managerFilePatterns": [
+        "/^\\.mise\\.toml$/"
+      ],
+      "matchStrings": [
+        "helm-unittest --version (?<currentValue>v[0-9.]+)"
+      ],
+      "depNameTemplate": "helm-unittest/helm-unittest",
+      "datasourceTemplate": "github-releases"
     }
   ]
 }

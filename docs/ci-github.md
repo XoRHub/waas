@@ -241,9 +241,16 @@ file.
 
 Actions pinned by commit SHA (`helpers:pinGitHubActionDigests`),
 `docker run` images in workflows covered by a regex customManager
-(gitleaks, kubeconform, hadolint). Pins not managed automatically
-(manual bump): `version:` of golangci-lint-action and setup-helm,
-`node-version`.
+(gitleaks, kubeconform, hadolint). Toolchain versions (go, node, helm,
+golangci-lint, k3d, helm-docs, uv) live in `.mise.toml` only — CI
+installs from it via `jdx/mise-action`, so the formerly manual bumps
+(`version:` of golangci-lint-action and setup-helm, `node-version`)
+no longer exist as separate pins — and Renovate's built-in `mise`
+manager (enabled by default, resolves mise-registry short names) bumps
+them there. The one pin that manager can't see is the `helm-unittest`
+helm *plugin*, installed by `.mise.toml`'s postinstall hook: a regex
+customManager in `renovate.json` covers it (github-releases
+datasource).
 
 ## Accepted gaps / not ported (yet)
 
