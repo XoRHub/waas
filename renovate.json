@@ -4,7 +4,27 @@
   "extends": [
     "config:recommended",
     "docker:pinDigests",
-    "helpers:pinGitHubActionDigests"
+    "helpers:pinGitHubActionDigests",
+    "mergeConfidence:all-badges"
+  ],
+  "packageRules": [
+    {
+      "description": "One PR for all GitHub Actions patch/minor/digest bumps, automerged once required checks pass.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch", "minor", "digest", "pinDigest"],
+      "groupName": "github-actions",
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "description": "Go/TS patch and minor bumps automerge once required checks pass, the release is >=10 days old, and Renovate's merge confidence is neutral or better.",
+      "matchManagers": ["gomod", "npm"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "minimumReleaseAge": "10 days",
+      "matchConfidence": ["neutral", "high", "very high"],
+      "automerge": true,
+      "platformAutomerge": true
+    }
   ],
   "customManagers": [
     {
