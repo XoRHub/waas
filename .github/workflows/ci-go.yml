@@ -32,13 +32,25 @@ jobs:
         module: ${{ fromJson(inputs.go_lint) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      # Toolchain from .mise.toml — single source of truth with local dev.
+      # Deliberately NOT per-module `go-version-file`: every go.mod's
+      # directive is a plain `go 1.26`, so the one 1.26.4 pin satisfies
+      # them all (comment on the pin in .mise.toml keeps it that way).
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          go-version-file: ${{ matrix.module }}/go.mod
-          cache-dependency-path: ${{ matrix.module }}/go.sum
+          install_args: go golangci-lint
+      # setup-go's built-in module/build cache, now explicit —
+      # mise-action only caches the toolchain itself.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ matrix.module }}-${{ hashFiles(format('{0}/go.sum', matrix.module)) }}
+          restore-keys: go-${{ runner.os }}-${{ matrix.module }}-
       - uses: golangci/golangci-lint-action@d583c34f0599d37dbac4a198b9c83201be380893 # v9.3.0
         with:
-          version: v2.12.2 # keep >= the modules' go directive (see .mise.toml)
+          install-mode: none # the binary comes from .mise.toml, via mise-action above
           working-directory: ${{ matrix.module }}
 
   go-test:
@@ -68,10 +80,17 @@ jobs:
           --health-retries 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      # Toolchain + cache: same rationale as go-lint above.
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          go-version-file: ${{ matrix.module }}/go.mod
-          cache-dependency-path: ${{ matrix.module }}/go.sum
+          install_args: go
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ matrix.module }}-${{ hashFiles(format('{0}/go.sum', matrix.module)) }}
+          restore-keys: go-${{ runner.os }}-${{ matrix.module }}-
       # The operator's test/envtest suite needs a real apiserver+etcd;
       # exporting KUBEBUILDER_ASSETS makes the plain `go test ./...`
       # below run it (the suite skips itself when unset).
@@ -123,9 +142,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      # Toolchain + cache: same rationale as go-lint above.
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          go-version-file: operator/go.mod
-          cache-dependency-path: operator/go.sum
+          install_args: go
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-operator-${{ hashFiles('operator/go.sum') }}
+          restore-keys: go-${{ runner.os }}-operator-
       - run: make generate manifests docs-params generate-types
       - run: git diff --exit-code -- operator helm/waas/crds frontend/src/types.gen.ts

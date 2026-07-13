@@ -77,8 +77,10 @@ the same digest at the same time unless a release SHA happens to be
 
 ## Helm CLI: v4
 
-`azure/setup-helm` installs Helm **v4** (`v4.2.3`, pinned in `.mise.toml`
-too — `mise install` matches CI). Chart files (`Chart.yaml`,
+CI installs Helm **v4** from `.mise.toml` via `jdx/mise-action` — the
+same `v4.2.3` pin `mise install` uses locally, one source for both
+(previously `azure/setup-helm` with the version duplicated in the
+workflows). Chart files (`Chart.yaml`,
 `values.yaml`, templates) needed no changes: Helm v2 chart APIs stay
 compatible on v4. The one thing that broke moving off v3: `helm plugin
 install`'s `--verify` flag and plugin-signature verification are v4-only
@@ -92,8 +94,9 @@ that needed no change.
 
 No dedicated Helm registry: the chart is pushed as an OCI artifact into
 **ghcr.io**, the same registry as the images, under the `charts/`
-subpath (`ghcr.io/<owner>/<repo>/charts/waas:<version>`). `azure/setup-helm`
-(v4.2.3) + `helm registry login` with `GITHUB_TOKEN`; the extra mobile
+subpath (`ghcr.io/<owner>/<repo>/charts/waas:<version>`). Helm (from
+`.mise.toml` via `mise-action`) + `helm registry login` with
+`GITHUB_TOKEN`; the extra mobile
 tags (`edge`/`latest`) are added with `docker buildx imagetools create`
 (same trick as the images), which needs a plain `docker/login-action`
 login alongside the Helm one — the two CLIs keep separate credential

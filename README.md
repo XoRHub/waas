@@ -46,7 +46,7 @@ Hard boundaries (non-negotiable):
 ## Quickstart (local dev)
 
 ```sh
-mise install            # Go 1.26 + Node
+mise install            # every pinned tool (Go, Node, Helm, …) — the exact versions CI installs
 make build test         # all Go modules
 make generate manifests # operator codegen (CRDs, RBAC, deepcopy)
 make frontend-build
