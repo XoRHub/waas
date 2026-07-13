@@ -37,8 +37,9 @@ jobs:
           git diff --exit-code helm/waas/README.md \
             || { echo "FATAL helm/waas/README.md is stale — run 'make helm-docs' and commit the result"; exit 1; }
       - name: helm unittest
+        # INFO: enable verify=false when migrated to helmv4
         run: |
-          helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1 --verify=false
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1
           helm unittest helm/waas
       - name: CRDs to JSON Schemas
         run: |
