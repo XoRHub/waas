@@ -56,6 +56,20 @@ Canonical channel: `gitops/governance/policies.yaml`; the chart can
 render the equivalent (`adminPolicy.*`, disabled by default) when it is
 the sole governance source — never enable both for the same name.
 
+### Bootstrap catalog entries
+
+Same doctrine, for the catalog side: the chart can render the two
+official registry-wide `WorkspaceImage` entries (`catalogs.*` in
+`values.yaml`) so a first install already has a non-empty picker
+instead of waiting on GitOps. `catalogs.waasImages` (registry
+`ghcr.io/xorhub/waas-images`) defaults **on**; `catalogs.kasm`
+(registry `docker.io/kasmweb`, `kasmvnc`-only) defaults **off** since
+it's an extra data plane an admin opts into. Both sync their picker
+metadata live from the `catalog-*.yaml` manifests published by the
+`waas-images` repo (see `docs/image-catalog.md`). Canonical channel:
+`gitops/governance/images.yaml`; disable the matching `catalogs.*` flag
+once that takes over, same never-both-at-once rule as `adminPolicy`.
+
 ## Identity binding (trusted-writer model, validated decision)
 
 - Portal path: the api-server authenticates against the OIDC IdP, then
