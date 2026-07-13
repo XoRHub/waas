@@ -1,3 +1,6 @@
+{{- /* Skipped entirely when every secret this chart needs is supplied
+externally (see secretsJob.enabled in values.yaml). */}}
+{{- if .Values.secretsJob.enabled }}
 # RBAC for the pre-install/pre-upgrade secrets-generation hook Job — see
 # job.yaml for the full rationale (why a hook Job, not `lookup`).
 apiVersion: v1
@@ -58,3 +61,4 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Release.Name }}-secrets-job
     namespace: {{ .Release.Namespace }}
+{{- end }}

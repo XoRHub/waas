@@ -60,19 +60,19 @@ spec:
             - name: WAAS_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-app-secrets
-                  key: database-url
+                  name: {{ .Values.postgres.externalURLSecretRef.name | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: {{ .Values.postgres.externalURLSecretRef.key | default "database-url" }}
             - name: WAAS_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-app-secrets
                   key: internal-token
-            {{- if .Values.apiServer.adminPassword }}
+            {{- if or .Values.apiServer.adminPassword .Values.apiServer.adminPasswordSecretRef.name }}
             - name: WAAS_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-app-secrets
-                  key: admin-password
+                  name: {{ .Values.apiServer.adminPasswordSecretRef.name | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: {{ .Values.apiServer.adminPasswordSecretRef.key | default "admin-password" }}
             {{- end }}
             {{- with .Values.apiServer.oidc }}
             {{- if .disableLocalLogin }}
@@ -82,21 +82,44 @@ spec:
             - name: WAAS_LOGIN_OIDC_ONLY
               value: "true"
             {{- end }}
-            {{- if .issuerURL }}
+            {{- if or .issuerURL .issuerURLSecretRef.name }}
             # SSO (any OIDC provider). Local login stays available as
             # break-glass unless disableLocalLogin cuts it off; groups
-            # sync at every SSO login.
+            # sync at every SSO login. Each connection field can come from
+            # a plain value or its own Secret (ExternalSecret-friendly) —
+            # independent refs, no single do-everything secret.
             - name: WAAS_OIDC_ISSUER
+              {{- if .issuerURLSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .issuerURLSecretRef.name }}
+                  key: {{ .issuerURLSecretRef.key | default "issuer-url" }}
+              {{- else }}
               value: {{ .issuerURL | quote }}
+              {{- end }}
             - name: WAAS_OIDC_CLIENT_ID
+              {{- if .clientIDSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .clientIDSecretRef.name }}
+                  key: {{ .clientIDSecretRef.key | default "client-id" }}
+              {{- else }}
               value: {{ .clientID | quote }}
+              {{- end }}
             - name: WAAS_OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .existingSecret | default (printf "%s-app-secrets" $.Release.Name) }}
                   key: {{ .existingSecretKey | default "oidc-client-secret" }}
             - name: WAAS_OIDC_REDIRECT_URL
+              {{- if .redirectURLSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .redirectURLSecretRef.name }}
+                  key: {{ .redirectURLSecretRef.key | default "redirect-url" }}
+              {{- else }}
               value: {{ .redirectURL | quote }}
+              {{- end }}
             - name: WAAS_OIDC_FRONTEND_URL
               value: {{ .frontendURL | default "/" | quote }}
             {{- if .scopes }}

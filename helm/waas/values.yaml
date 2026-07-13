@@ -12,6 +12,16 @@ image:
 # template-time generation via `lookup` is a no-op under ArgoCD's
 # repo-server, which renders without cluster access.
 secretsJob:
+  # Disable when every password/URL this chart needs is supplied through
+  # its own *SecretRef below (postgres.passwordSecretRef,
+  # postgres.externalURLSecretRef, apiServer.adminPasswordSecretRef,
+  # apiServer.oidc.existingSecret) — e.g. all synced in by an
+  # ExternalSecret. When disabled, YOU must pre-create
+  # `<release>-app-secrets` with `internal-token` and `jwt-private-key`
+  # (always required, no override exists for these two — they're
+  # chart-internal, never user-facing credentials): nothing else
+  # generates or migrates them.
+  enabled: true
   # Needs kubectl + openssl + bash. Digest-pinned (kubectl v1.36.2):
   # bitnami/ only publishes a moving `latest` tag since the 2025 catalog
   # change; kubectl does not have to match the cluster version exactly.
@@ -138,15 +148,33 @@ apiServer:
   # api-server logs on first boot.
   adminUsername: admin
   adminPassword: ""
+  # Read the admin password from an existing Secret instead of the plain
+  # value above or the chart-generated one (ExternalSecret-friendly).
+  # Takes precedence over adminPassword when name is set.
+  adminPasswordSecretRef:
+    name: ""
+    key: "" # defaults to "admin-password"
   # SSO login (any OIDC provider). Optional: local login
   # stays available (bootstrap admin, break-glass when the IdP is down)
   # unless disableLocalLogin below opts out of it. When enabled, the IdP's
   # groups claim is mirrored into the user record at every login and
   # drives WorkspacePolicy matching.
+  #
+  # Every connection field below (issuerURL, clientID, the client secret,
+  # redirectURL) can come from a plain value OR its own *SecretRef —
+  # useful when the whole OIDC config is synced in by one ExternalSecret.
+  # Each ref is independent (no single do-everything secret): set only
+  # the ones your config actually needs from a Secret.
   oidc:
     # e.g. https://idp.example.com/application/o/waas/
     issuerURL: ""
+    issuerURLSecretRef:
+      name: ""
+      key: "" # defaults to "issuer-url"
     clientID: ""
+    clientIDSecretRef:
+      name: ""
+      key: "" # defaults to "client-id"
     # Client secret comes from a Secret (ESO/Vault-friendly). Default:
     # key "oidc-client-secret" of the chart's own <release>-secrets.
     existingSecret: ""
@@ -154,6 +182,9 @@ apiServer:
     # This api-server's public callback, e.g.
     # https://waas.example.com/api/v1/auth/oidc/callback
     redirectURL: ""
+    redirectURLSecretRef:
+      name: ""
+      key: "" # defaults to "redirect-url"
     # SPA origin for the post-login redirect ("/" when same-origin).
     frontendURL: "/"
     # Most IdPs ship groups in their default profile scope mapping.
@@ -261,16 +292,33 @@ grafana:
     folder: WaaS
 
 postgres:
-  # Set enabled=false and fill externalURL to bring your own PostgreSQL 17.
+  # Set enabled=false and fill externalURL (or externalURLSecretRef) to
+  # bring your own PostgreSQL 17.
   enabled: true
   image: postgres:17-alpine
   database: waas
   username: waas
-  # Empty = generated once and kept across upgrades.
+  # Empty = generated once and kept across upgrades. Only used when
+  # postgres.enabled is true (the chart's own instance).
   password: ""
+  # Read the postgres password from an existing Secret instead of the
+  # plain value above or the chart-generated one (ExternalSecret-
+  # friendly). Takes precedence over password when name is set. Only
+  # used when postgres.enabled is true.
+  passwordSecretRef:
+    name: ""
+    key: "" # defaults to "postgres-password"
   storage: 10Gi
   storageClassName: ""
+  # Only used when postgres.enabled is false.
   externalURL: ""
+  # Read the full external connection URL from an existing Secret
+  # instead of the plain value above — the common shape when an
+  # ExternalSecret syncs it in whole. Takes precedence over externalURL
+  # when name is set. Only used when postgres.enabled is false.
+  externalURLSecretRef:
+    name: ""
+    key: "" # defaults to "database-url"
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 1Gi }

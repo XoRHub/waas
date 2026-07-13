@@ -35,8 +35,8 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-app-secrets
-                  key: postgres-password
+                  name: {{ .Values.postgres.passwordSecretRef.name | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: {{ .Values.postgres.passwordSecretRef.key | default "postgres-password" }}
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           ports:

@@ -1,3 +1,4 @@
+{{- if .Values.secretsJob.enabled }}
 {{- /*
 Release secrets WITHOUT `lookup`: ArgoCD's repo-server renders charts
 with no access to the destination cluster, where lookup always returns
@@ -74,11 +75,20 @@ spec:
               value: {{ .Release.Name }}-postgres
             - name: POSTGRES_DB
               value: {{ .Values.postgres.database | quote }}
-            {{- else }}
+            {{- else if not .Values.postgres.externalURLSecretRef.name }}
+            # Only needed when nothing else already provides the full URL:
+            # externalURLSecretRef makes api-server read it directly and
+            # this job no longer needs to know it.
             - name: EXTERNAL_DATABASE_URL
-              value: {{ required "postgres.externalURL is required when postgres.enabled=false" .Values.postgres.externalURL | quote }}
+              value: {{ required "postgres.externalURL or postgres.externalURLSecretRef is required when postgres.enabled=false" .Values.postgres.externalURL | quote }}
             {{- end }}
-            {{- if .Values.postgres.password }}
+            {{- if .Values.postgres.passwordSecretRef.name }}
+            - name: PG_PASSWORD_OVERRIDE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.passwordSecretRef.name }}
+                  key: {{ .Values.postgres.passwordSecretRef.key | default "postgres-password" }}
+            {{- else if .Values.postgres.password }}
             - name: PG_PASSWORD_OVERRIDE
               value: {{ .Values.postgres.password | quote }}
             {{- end }}
@@ -149,3 +159,4 @@ spec:
               fi
               kubectl patch secret "$SECRET_NAME" --type=merge -p "$patch"
               echo "secret $SECRET_NAME ensured"
+{{- end }}
