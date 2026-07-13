@@ -75,12 +75,25 @@ release** (the `promote`/`promote-chart` jobs). The two never point at
 the same digest at the same time unless a release SHA happens to be
 `main`'s tip.
 
+## Helm CLI: v4
+
+`azure/setup-helm` installs Helm **v4** (`v4.2.3`, pinned in `.mise.toml`
+too — `mise install` matches CI). Chart files (`Chart.yaml`,
+`values.yaml`, templates) needed no changes: Helm v2 chart APIs stay
+compatible on v4. The one thing that broke moving off v3: `helm plugin
+install`'s `--verify` flag and plugin-signature verification are v4-only
+(`helm-unittest`'s `plugin.yaml` uses the matching `platformHooks`
+schema starting at `v1.1.0`, which a v3 plugin loader rejects outright —
+hence `--verify=false` on that install). `helm registry login` already
+took a bare host (`ghcr.io`, no `https://`), which v4.1+ requires, so
+that needed no change.
+
 ## Helm chart as OCI
 
 No dedicated Helm registry: the chart is pushed as an OCI artifact into
 **ghcr.io**, the same registry as the images, under the `charts/`
 subpath (`ghcr.io/<owner>/<repo>/charts/waas:<version>`). `azure/setup-helm`
-(v3.17.3) + `helm registry login` with `GITHUB_TOKEN`; the extra mobile
+(v4.2.3) + `helm registry login` with `GITHUB_TOKEN`; the extra mobile
 tags (`edge`/`latest`) are added with `docker buildx imagetools create`
 (same trick as the images), which needs a plain `docker/login-action`
 login alongside the Helm one — the two CLIs keep separate credential

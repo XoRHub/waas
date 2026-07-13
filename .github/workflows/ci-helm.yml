@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
-          version: v3.17.3
+          version: v4.2.3 # keep in sync with .mise.toml
       - name: Lint and render
         run: |
           helm lint helm/waas
@@ -37,9 +37,8 @@ jobs:
           git diff --exit-code helm/waas/README.md \
             || { echo "FATAL helm/waas/README.md is stale — run 'make helm-docs' and commit the result"; exit 1; }
       - name: helm unittest
-        # INFO: enable verify=false when migrated to helmv4
         run: |
-          helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1 --verify=false
           helm unittest helm/waas
       - name: CRDs to JSON Schemas
         run: |
