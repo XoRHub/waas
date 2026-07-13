@@ -1,0 +1,48 @@
+# Kubernetes manifest gates — called by ci.yml: chart lints and renders,
+# every rendered object + gitops/ seed validates against a schema —
+# including our own CRs, whose JSON Schemas derive from THIS commit's
+# CRDs.
+#
+# The dev OCI chart push (`chart-oci`) stays inline in ci.yml on purpose:
+# it must NOT gate release-please, and bundling it here would (a
+# workflow_call job only succeeds if every job inside it succeeds).
+
+name: ci-helm
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  helm-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.17.3
+      - name: Lint and render
+        run: |
+          helm lint helm/waas
+          helm template waas helm/waas > rendered-default.yaml
+          helm template waas helm/waas -f hack/dev/values-dev.yaml > rendered-dev.yaml
+      - name: CRDs to JSON Schemas
+        run: |
+          pip install pyyaml==6.0.2
+          python3 hack/ci/crd_to_jsonschema.py helm/waas/crds crd-schemas
+      - name: kubeconform
+        # -skip CustomResourceDefinition: no usable upstream schema for the
+        # CRD kind itself; CRDs are drift-checked and every CR validates
+        # against them here.
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work \
+            ghcr.io/yannh/kubeconform:v0.6.7-alpine \
+            -strict -summary \
+            -skip CustomResourceDefinition \
+            -schema-location default \
+            -schema-location 'crd-schemas/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+            rendered-default.yaml rendered-dev.yaml \
+            gitops/governance/images.yaml gitops/governance/policies.yaml

@@ -1,0 +1,130 @@
+# Image builds — called by ci.yml: one native amd64 leg + one arm64 leg
+# (native runner or QEMU, per WAAS_BUILD_STRATEGY). PR (inputs.push=false):
+# build only (nothing pushed, the amd64 image is scanned locally). main
+# (inputs.push=true): push <short-sha>-<arch>, then merge assembles the
+# manifest list. Builds run in parallel with the test gates: an
+# ephemeral PR image with failing tests keeps the pipeline red;
+# blocking gates for RELEASED bits are on main.
+
+name: ci-images
+
+on:
+  workflow_call:
+    inputs:
+      images:
+        description: JSON array of {name, context, dockerfile} to build.
+        required: true
+        type: string
+      push:
+        description: Push/scan-the-manifest-list mode (main) vs build-only (PR).
+        required: true
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: read
+
+jobs:
+  build-images:
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJson(inputs.images) }}
+        arch: [amd64, arm64]
+    runs-on: ${{ (matrix.arch == 'arm64' && vars.WAAS_BUILD_STRATEGY == 'native') && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: vars
+        run: |
+          echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        if: matrix.arch == 'arm64' && vars.WAAS_BUILD_STRATEGY != 'native'
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        if: inputs.push
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ${{ matrix.component.context }}
+          file: ${{ matrix.component.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          push: ${{ inputs.push }}
+          load: ${{ !inputs.push }}
+          # provenance would wrap the per-arch tag in an attestation
+          # manifest list and confuse the imagetools merge.
+          provenance: false
+          tags: ${{ env.REGISTRY }}/${{ steps.vars.outputs.repo }}/${{ matrix.component.name }}:${{ steps.vars.outputs.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.component.name }}-${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.component.name }}-${{ matrix.arch }},mode=max,ignore-error=true
+      - name: Scan image (PR gate — on main the merged manifest is scanned)
+        if: ${{ !inputs.push && matrix.arch == 'amd64' }}
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ steps.vars.outputs.repo }}/${{ matrix.component.name }}:${{ steps.vars.outputs.sha }}-${{ matrix.arch }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+  merge-manifests:
+    needs: build-images
+    if: inputs.push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJson(inputs.images) }}
+    steps:
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Assemble manifest list
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA::7}"
+          IMAGE="$REGISTRY/${GITHUB_REPOSITORY,,}/${{ matrix.component.name }}"
+          docker buildx imagetools create -t "$IMAGE:$SHORT" "$IMAGE:$SHORT-amd64" "$IMAGE:$SHORT-arm64"
+          # Moving `main` tag: convenience pointer for dev clusters, never
+          # a deploy reference (ArgoCD pins release tags/digests).
+          docker buildx imagetools create -t "$IMAGE:main" "$IMAGE:$SHORT"
+
+  scan-images:
+    needs: merge-manifests
+    if: inputs.push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJson(inputs.images) }}
+    steps:
+      - id: vars
+        run: |
+          echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ steps.vars.outputs.repo }}/${{ matrix.component.name }}:${{ steps.vars.outputs.sha }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

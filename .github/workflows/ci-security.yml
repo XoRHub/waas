@@ -1,0 +1,45 @@
+# Blocking security gates — called by ci.yml unconditionally on every PR
+# and main push: a gate that can be skipped by touching the "right"
+# files is not a gate.
+
+name: ci-security
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: gitleaks (working-tree scan)
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 dir /repo --redact --verbose
+      - name: trivy fs (go.mod + package-lock.json vulnerability gate)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: hadolint
+        # The desktop images' Dockerfiles are out of scope here: the
+        # waas-images repo (separate since 2026-07-10) lints its own.
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work hadolint/hadolint:2.12.0-alpine \
+            hadolint --failure-threshold warning \
+            operator/Dockerfile api-server/Dockerfile wwt/Dockerfile frontend/Dockerfile
+      - name: shellcheck
+        run: shellcheck -S warning hack/dev/*.sh hack/*.sh
+      - name: make dev-target resolution
+        # The dev-env targets are prerequisite chains over docker/k3d/helm
+        # commands nothing else in CI exercises; -n proves the graph still
+        # resolves (no missing target, no typo'd prerequisite) without a
+        # cluster. The waas-images repo (separate since 2026-07-10) is not
+        # cloned here: dev-build-images degrades to a printed error under
+        # -n when the sibling checkout is absent.
+        run: make -n dev-bootstrap dev-reload-all >/dev/null
