@@ -24,7 +24,7 @@ jobs:
       # the helm-unittest plugin (pinned there too).
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          install_args: helm helm-docs
+          install_args: helm helm-docs uv
       - name: Lint and render
         run: |
           helm lint helm/waas
@@ -38,9 +38,9 @@ jobs:
       - name: helm unittest
         run: helm unittest helm/waas
       - name: CRDs to JSON Schemas
-        run: |
-          pip install pyyaml==6.0.2
-          python3 hack/ci/crd_to_jsonschema.py helm/waas/crds crd-schemas
+        # The script declares its own pyyaml pin (PEP 723 inline
+        # metadata); uv resolves it into an ephemeral env.
+        run: uv run hack/ci/crd_to_jsonschema.py helm/waas/crds crd-schemas
       - name: kubeconform
         # -skip CustomResourceDefinition: no usable upstream schema for the
         # CRD kind itself; CRDs are drift-checked and every CR validates

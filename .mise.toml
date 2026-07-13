@@ -11,6 +11,9 @@ golangci-lint = "2.12.2" # keep >= the go directive of the modules it lints
 k3d = "5.9.0"
 helm = "4.2.3"
 helm-docs = "1.14.2"
+# runs hack/ci/crd_to_jsonschema.py (PEP 723 inline deps — the script
+# pins its own pyyaml).
+uv = "0.11.28"
 
 [hooks]
 # helm-unittest is a helm PLUGIN, not a standalone binary — no mise

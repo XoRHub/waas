@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 """Convert CRD openAPIV3Schema to JSON Schema files for kubeconform.
 
 Usage: crd_to_jsonschema.py <crd-dir> <out-dir>
@@ -10,6 +10,11 @@ the gitops/ seed manifests validate against the CRDs this very commit
 ships — schema drift between chart and governance objects fails the
 pipeline instead of ArgoCD.
 """
+# Inline metadata (PEP 723): `uv run` resolves pyyaml into an ephemeral
+# env on its own — no venv, no `pip install` step, in CI or locally.
+# /// script
+# dependencies = ["pyyaml==6.0.2"]
+# ///
 from __future__ import annotations
 
 import json
