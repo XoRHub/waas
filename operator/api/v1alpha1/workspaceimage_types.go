@@ -162,7 +162,7 @@ type ImageCatalogSpec struct {
 	// new sibling field on ImageCatalogAuth — never a rename or a
 	// reinterpretation of what an existing field means. Absent =
 	// unauthenticated GET, the only mode the two known public catalogs
-	// (ghcr.io/xorhub/waas-images, docker.io/kasmweb) need.
+	// (docker.io/xorhub, docker.io/kasmweb) need.
 	// +optional
 	Auth *ImageCatalogAuth `json:"auth,omitempty"`
 }
