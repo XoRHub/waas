@@ -10,3 +10,18 @@ golangci-lint = "2.12.2" # keep >= the go directive of the modules it lints
 # boots is pinned in hack/dev/k3d-config.yaml (keep both in sync).
 k3d = "5.9.0"
 helm = "4.2.3"
+helm-docs = "1.14.2"
+
+[hooks]
+# helm-unittest is a helm PLUGIN, not a standalone binary — no mise
+# registry entry, so it can't live in [tools]; this pin is its single
+# source instead (Renovate bumps it via a customManager in
+# renovate.json). postinstall runs on EVERY `mise install`, even a
+# no-op one, so CI toolchain-cache hits still get the plugin; mise puts
+# the installed tools on the hook's PATH. The grep keeps re-runs
+# idempotent and the `command -v` guard skips CI jobs that don't
+# install helm. --verify=false: see docs/ci-github.md, "Helm CLI: v4".
+postinstall = """
+command -v helm >/dev/null 2>&1 || exit 0
+helm plugin list 2>/dev/null | grep -q '^unittest' || helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1 --verify=false
+"""

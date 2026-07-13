@@ -20,9 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # Versions pinned in .mise.toml; its postinstall hook also installs
+      # the helm-unittest plugin (pinned there too).
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          install_args: helm go # versions pinned in .mise.toml
+          install_args: helm helm-docs
       - name: Lint and render
         run: |
           helm lint helm/waas
@@ -30,13 +32,11 @@ jobs:
           helm template waas helm/waas -f hack/dev/values-dev.yaml > rendered-dev.yaml
       - name: helm-docs drift check
         run: |
-          (cd helm/waas && go run github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2 --sort-values-order file)
+          (cd helm/waas && helm-docs --sort-values-order file)
           git diff --exit-code helm/waas/README.md \
             || { echo "FATAL helm/waas/README.md is stale — run 'make helm-docs' and commit the result"; exit 1; }
       - name: helm unittest
-        run: |
-          helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1 --verify=false
-          helm unittest helm/waas
+        run: helm unittest helm/waas
       - name: CRDs to JSON Schemas
         run: |
           pip install pyyaml==6.0.2

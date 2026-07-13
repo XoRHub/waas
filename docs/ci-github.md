@@ -124,13 +124,15 @@ consumers.
   auto-generated; install/upgrade/production notes stay hand-written in
   the template). `make helm-docs` regenerates it locally; the
   `helm-docs drift check` step in `ci-helm.yml` re-runs the same
-  pinned version (`go run
-  github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2`) and fails the
-  build if the committed `README.md` doesn't match — same drift-gate
-  pattern as the CRDs and the generated TypeScript models.
-- **`helm/waas/tests/*_test.yaml`** are `helm-unittest` suites (`helm
-  plugin install https://github.com/helm-unittest/helm-unittest`,
-  pinned to `v1.1.1` in CI; `make helm-unittest` runs them locally).
+  pinned version (`helm-docs`, pinned in `.mise.toml` — one pin for CI
+  and local) and fails the build if the committed `README.md` doesn't
+  match — same drift-gate pattern as the CRDs and the generated
+  TypeScript models.
+- **`helm/waas/tests/*_test.yaml`** are `helm-unittest` suites. The
+  plugin is installed by `.mise.toml`'s `postinstall` hook (a helm
+  *plugin* has no mise registry entry, so it can't sit in `[tools]`),
+  pinned to `v1.1.1` there for CI and local alike; `make helm-unittest`
+  runs the suites locally.
   Rule: a test **never** asserts on a `values.yaml` default or on
   `Chart.yaml`'s `version`/`appVersion` — every input a test cares
   about is set explicitly in that test's `set:` block, and the one
