@@ -81,6 +81,7 @@ contract, the CRD type follows the `v1alpha1`/ADR 0002 cycle.
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/<tag>/operator/pkg/catalog/schema/v1.schema.json
+# (pin a release tag for shared files; a branch is fine while iterating locally)
 apiVersion: waas.xorhub.io/catalog/v1
 images:
   - image: ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:...
@@ -97,8 +98,13 @@ Go struct** (`hack/gen-catalog-schema`, wired into `make generate` and
 the CI `go-generated-drift` gate), so schema and parser can't silently
 diverge; published schema versions are frozen, additive-only. The
 `$schema` URL is an editor convenience for whoever edits a
-`catalog.yaml` by hand (pin a release tag, never `main`) — the
-reconciler never fetches it.
+`catalog.yaml` by hand — the reconciler never fetches it, and nothing
+enforces what it points at. Pin a release tag in any `catalog.yaml`
+meant to be committed or shared: published schemas are frozen and
+additive-only, so a pinned tag never shifts under you. Pointing it at a
+branch (e.g. `main`) is fine for local development or exploration —
+handy for iterating against the latest schema — but not recommended
+for shared files, since branch content can change without notice.
 
 ## Visibility and the portal picker
 
