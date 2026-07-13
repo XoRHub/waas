@@ -150,6 +150,16 @@ for shared files, since branch content can change without notice.
 - The unified card component (`ImageOptionCard.tsx`) renders both
   existing templates (OS-icon fallback) and catalog entries in the same
   grid — one visual language for every picker.
+- The admin template form's image field
+  (`frontend/src/pages/admin/templates/CatalogImageField.tsx`) reuses
+  the same picker as an **input helper**: a single-image catalog entry
+  fills the field on selection, and with a registry-mode entry selected
+  the image input itself doubles as a combobox — what is typed both is
+  the value and fuzzy-filters the entry's `discovered[]` (fed by
+  `GET /api/v1/admin/images`, the unfiltered admin view, not the
+  policy-gated `/catalog`). `spec.image` stays a free string end to
+  end: any reference can be typed or pasted regardless of catalog
+  selection, which is pure frontend UI state.
 
 ## Relationship to the `waas-images` repo
 

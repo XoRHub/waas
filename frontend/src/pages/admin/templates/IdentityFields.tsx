@@ -1,10 +1,13 @@
 import { useTranslation } from 'react-i18next';
 import type { TemplateInput } from '@/hooks/useApi';
+import { CatalogImageField } from './CatalogImageField';
 import { field } from './fields';
 
 /**
  * Identity + description of the template: the flat top-of-form fields
- * (name/displayName/os/image/homeSize/storageClass, then the free-text
+ * (name/displayName/os/homeSize/storageClass in a two-column grid,
+ * then the catalog-assisted image field full-width — its picker and
+ * search list don't fit a half column — and the free-text
  * description). Grouped in one section because they all edit flat
  * TemplateInput fields with no logic of their own.
  */
@@ -61,17 +64,6 @@ export function IdentityFields({
         </label>
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('admin.templatesPage.image')}
-          </span>
-          <input
-            className={field}
-            value={input.image}
-            onChange={(e) => onPatch({ image: e.target.value })}
-            required
-          />
-        </label>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
             {t('admin.templatesPage.homeSize')}
           </span>
           <input
@@ -92,6 +84,8 @@ export function IdentityFields({
           />
         </label>
       </div>
+
+      <CatalogImageField image={input.image} onChange={(image) => onPatch({ image })} />
 
       <label className="block">
         <span className="text-sm text-slate-600 dark:text-slate-300">
