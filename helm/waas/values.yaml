@@ -51,6 +51,37 @@ adminPolicy:
     # - kind: Group
     #   name: "waas-admins"
 
+# Bootstrap of the two official image catalogs (registry-mode WorkspaceImage
+# approvals + live catalog.yaml sync, see docs/image-catalog.md) so a first
+# `helm install` already has at least one usable catalog instead of an empty
+# portal until GitOps governance (gitops/governance/images.yaml) kicks in.
+# Same doctrine as adminPolicy below: a visible, auditable CR, editable/
+# removable afterwards from the admin console — never a code bypass. Disable
+# a catalog here once its GitOps-managed equivalent takes over, never both at
+# once for the same WorkspaceImage name.
+catalogs:
+  # ghcr.io/xorhub/waas-images — WaaS' own desktop images (built by the
+  # sibling waas-images repo). On by default: this is what makes a fresh
+  # install immediately usable.
+  waasImages:
+    enabled: true
+    name: waas-images
+    displayName: "XorHub images"
+    registry: ghcr.io/xorhub/waas-images
+    protocols: [vnc, rdp]
+    catalogURL: https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml
+  # docker.io/kasmweb — official Kasm images, native KasmVNC data plane
+  # (see docs/kasmvnc.md). Off by default: it's an extra, heavier data
+  # plane an admin opts into, not a requirement for a usable first deploy.
+  kasm:
+    enabled: false
+    name: kasm
+    displayName: "Kasm official images"
+    registry: docker.io/kasmweb
+    tagPolicy: digest
+    protocols: [kasmvnc]
+    catalogURL: https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-kasmweb.yaml
+
 ingress:
   enabled: true
   className: ""

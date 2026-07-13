@@ -1,0 +1,49 @@
+# Bootstrap catalogs — see values.yaml (.Values.catalogs) and
+# docs/image-catalog.md. Registry-wide approval + a live catalog.yaml sync
+# so the portal's picker isn't empty on a first install. Purely a seed: an
+# admin can edit or delete either CR afterwards like any other WorkspaceImage
+# (e.g. once gitops/governance/images.yaml takes over as the canonical
+# source — never enable both at once for the same name).
+{{- if .Values.catalogs.waasImages.enabled }}
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: {{ .Values.catalogs.waasImages.name }}
+  namespace: {{ include "waas.workspacesNamespace" . }}
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  displayName: {{ .Values.catalogs.waasImages.displayName | quote }}
+  registry: {{ .Values.catalogs.waasImages.registry }}
+  {{- with .Values.catalogs.waasImages.tagPolicy }}
+  tagPolicy: {{ . }}
+  {{- end }}
+  protocols:
+    {{- toYaml .Values.catalogs.waasImages.protocols | nindent 4 }}
+  enabled: true
+  catalog:
+    from:
+      url: {{ .Values.catalogs.waasImages.catalogURL }}
+{{- end }}
+---
+{{- if .Values.catalogs.kasm.enabled }}
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: {{ .Values.catalogs.kasm.name }}
+  namespace: {{ include "waas.workspacesNamespace" . }}
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  displayName: {{ .Values.catalogs.kasm.displayName | quote }}
+  registry: {{ .Values.catalogs.kasm.registry }}
+  {{- with .Values.catalogs.kasm.tagPolicy }}
+  tagPolicy: {{ . }}
+  {{- end }}
+  protocols:
+    {{- toYaml .Values.catalogs.kasm.protocols | nindent 4 }}
+  enabled: true
+  catalog:
+    from:
+      url: {{ .Values.catalogs.kasm.catalogURL }}
+{{- end }}
