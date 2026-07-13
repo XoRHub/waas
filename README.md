@@ -1,9 +1,11 @@
 # WaaS — Kubernetes-native Workspace-as-a-Service
 
-Coverage: [![operator](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=operator)](https://codecov.io/github/XoRHub/waas/tree/main/operator)
-[![api-server](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=api-server)](https://codecov.io/github/XoRHub/waas/tree/main/api-server)
-[![wwt](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=wwt)](https://codecov.io/github/XoRHub/waas/tree/main/wwt)
-[![frontend](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=frontend)](https://codecov.io/github/XoRHub/waas/tree/main/frontend)
+Coverage:
+
+operator: [![operator](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=operator)](https://codecov.io/github/XoRHub/waas/tree/main/operator)
+api-server: [![api-server](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=api-server)](https://codecov.io/github/XoRHub/waas/tree/main/api-server)
+wwt: [![wwt](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=wwt)](https://codecov.io/github/XoRHub/waas/tree/main/wwt)
+frontend: [![frontend](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=frontend)](https://codecov.io/github/XoRHub/waas/tree/main/frontend)
 
 Open-source, Kubernetes-native Workspace-as-a-Service. `helm install` it on any cluster
 (the only prerequisite is cert-manager) and give people a full remote desktop — Linux
