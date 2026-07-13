@@ -41,7 +41,7 @@ the kubebuilder markers by hand — nothing tied the two together.
   `deployments;statefulsets` and `virtualmachines`
   (`workspace_controller.go`), `config/rbac/role.yaml` regenerated
   (`make manifests`), the chart's ClusterRole aligned
-  (`helm/waas/templates/operator.yaml`).
+  (`helm/waas/templates/operator/roles.yaml`).
 - **Anti-regression guard** (`internal/controller/rbac_test.go`):
   - every `(group, resource, verb)` of the generated role must be covered by
     the chart's ClusterRole — the manual mirror can no longer drift;

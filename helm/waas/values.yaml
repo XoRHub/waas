@@ -8,7 +8,7 @@ image:
   pullPolicy: IfNotPresent
 
 # Pre-install/pre-upgrade hook Job that generates and persists the
-# release secrets IN the cluster (templates/secrets-job.yaml) —
+# release secrets IN the cluster (templates/secrets-job/job.yaml) —
 # template-time generation via `lookup` is a no-op under ArgoCD's
 # repo-server, which renders without cluster access.
 secretsJob:

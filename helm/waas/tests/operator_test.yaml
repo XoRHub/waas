@@ -1,12 +1,11 @@
 suite: operator Deployment
 templates:
-  - operator.yaml
+  - operator/deployment.yaml
 tests:
   - it: uses the explicit image tag when image.tag is set
     set:
       image.registry: test.registry.example/waas
       image.tag: v9.9.9-unittest
-    documentIndex: 5
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
@@ -16,7 +15,6 @@ tests:
     set:
       image.registry: test.registry.example/waas
       image.tag: ""
-    documentIndex: 5
     asserts:
       # Only checks that SOMETHING was substituted for the empty tag
       # (the "waas.tag" helper falls back to .Chart.AppVersion) — never
@@ -28,7 +26,6 @@ tests:
   - it: disables the controller-runtime metrics server when metrics.enabled is false
     set:
       metrics.enabled: false
-    documentIndex: 5
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
@@ -37,7 +34,6 @@ tests:
   - it: leaves the metrics server on when metrics.enabled is true
     set:
       metrics.enabled: true
-    documentIndex: 5
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].args

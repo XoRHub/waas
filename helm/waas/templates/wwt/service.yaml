@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-wwt
+  labels:
+    # name/instance also live on the Service so the opt-in ServiceMonitor
+    # (templates/metrics.yaml) can select it.
+    app.kubernetes.io/name: waas-wwt
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: waas-wwt
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http

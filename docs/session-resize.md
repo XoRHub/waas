@@ -39,7 +39,7 @@ browser (ResizeObserver, debounced ~500ms)
   namespace. **Fixed** command (`waas-resize WxH`), never a shell;
   `waas-resize` re-validates its argument inside the pod.
 - RBAC: `pods/exec` (verb `create`) is a dedicated entry in the
-  api-server ClusterRole (`helm/waas/templates/api-server.yaml`) —
+  api-server ClusterRole (`helm/waas/templates/api-server/roles.yaml`) —
   deliberately kept separate from the read-only `get/list` to stay
   visible in review.
 - Audit: every effective resize writes `workspace.resized` (name + mode).

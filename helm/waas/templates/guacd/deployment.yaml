@@ -38,22 +38,3 @@ spec:
             capabilities: { drop: [ALL] }
           resources:
             {{- toYaml .Values.guacd.resources | nindent 12 }}
----
-# guacd has no authentication of its own: its entire security model is
-# "the wwt proxy validated the JWT before connecting". ClusterIP only —
-# it must NEVER be exposed outside the cluster.
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ .Release.Name }}-guacd
-  labels:
-    {{- include "waas.labels" . | nindent 4 }}
-spec:
-  type: ClusterIP
-  selector:
-    app.kubernetes.io/name: waas-guacd
-    app.kubernetes.io/instance: {{ .Release.Name }}
-  ports:
-    - name: guacd
-      port: 4822
-      targetPort: guacd
