@@ -66,6 +66,11 @@ digests a green `main` pipeline already tested and scanned. ArgoCD deploys
 the git tag (path `helm/waas`). Pipeline map, release procedure, registry
 cleanup and debugging: see [docs/ci-github.md](docs/ci-github.md).
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) — dev environment, pre-PR checks,
+commit conventions. AI coding agents: start with [AGENTS.md](AGENTS.md).
+
 ## License
 
 Apache-2.0 — community edition, free forever.
