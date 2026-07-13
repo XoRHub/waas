@@ -15,7 +15,8 @@
     "close": "Close"
   },
   "login": {
-    "title": "Sign in to your workspace",
+    "title": "Welcome to your new desktop",
+    "description": "Your brand new work experience",
     "username": "Username",
     "password": "Password",
     "submit": "Sign in",

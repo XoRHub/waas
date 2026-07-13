@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { BrandLogo } from '@/components/BrandLogo';
 import { UserMenu } from '@/components/UserMenu';
 import { CreateWorkspaceDialog } from '@/dialogs/CreateWorkspaceDialog';
 import { useQuota } from '@/hooks/useApi';
@@ -35,12 +36,24 @@ export function PortalPage() {
     }`;
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-900">
+    <div className="app-background min-h-screen">
       <header className="flex items-center justify-between bg-white px-6 py-4 shadow-sm dark:bg-slate-800">
         <div className="flex items-center gap-6">
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
-            {t('portal.title')}
-          </h1>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setTab('workspaces');
+                navigate('/');
+              }}
+              aria-label={t('portal.title')}
+            >
+              <BrandLogo className="h-8" />
+            </button>
+            <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
+              {t('portal.title')}
+            </h1>
+          </div>
           <nav className="flex gap-1">
             <button
               className={tabClass(activeTab === 'workspaces')}

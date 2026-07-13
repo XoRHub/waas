@@ -1,8 +1,26 @@
 import { useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { BrandLogo } from '@/components/BrandLogo';
 import { useAuthProviders, useLogin } from '@/hooks/useApi';
 import { useAuthStore } from '@/stores/authStore';
+
+// Brand header shared by the three card variants (error, SSO-only,
+// local form): centered theme-matched logo, welcome title and tagline.
+function LoginHeading() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col items-center gap-3 text-center">
+      <BrandLogo className="h-12" />
+      <div>
+        <h1 className="text-xl font-semibold text-slate-900 dark:text-white">
+          {t('login.title')}
+        </h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{t('login.description')}</p>
+      </div>
+    </div>
+  );
+}
 
 export function LoginPage() {
   const { t } = useTranslation();
@@ -34,7 +52,7 @@ export function LoginPage() {
   // if the answer is local: false it would pop in and vanish.
   if (providers.isPending) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-900" />
+      <div className="flex min-h-screen items-center justify-center app-background" />
     );
   }
 
@@ -43,11 +61,9 @@ export function LoginPage() {
   // OIDC-only deployment it would blame the user's credentials for it.
   if (providers.isError) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
+      <div className="flex min-h-screen items-center justify-center app-background">
         <div className="w-full max-w-sm space-y-4 rounded-xl bg-white p-8 shadow dark:bg-slate-800">
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-white">
-            {t('login.title')}
-          </h1>
+          <LoginHeading />
           <p className="text-sm text-red-600 dark:text-red-400">{t('app.error')}</p>
           <button
             type="button"
@@ -75,11 +91,9 @@ export function LoginPage() {
 
   if (!localEnabled) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
+      <div className="flex min-h-screen items-center justify-center app-background">
         <div className="w-full max-w-sm space-y-4 rounded-xl bg-white p-8 shadow dark:bg-slate-800">
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-white">
-            {t('login.title')}
-          </h1>
+          <LoginHeading />
           {ssoError && (
             <p className="text-sm text-red-600 dark:text-red-400">
               {t('login.ssoFailed')}: {ssoError}
@@ -92,12 +106,12 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
+    <div className="flex min-h-screen items-center justify-center app-background">
       <form
         onSubmit={onSubmit}
         className="w-full max-w-sm space-y-4 rounded-xl bg-white p-8 shadow dark:bg-slate-800"
       >
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-white">{t('login.title')}</h1>
+        <LoginHeading />
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">{t('login.username')}</span>
           <input

@@ -15,7 +15,8 @@
     "close": "Fermer"
   },
   "login": {
-    "title": "Connectez-vous à votre espace de travail",
+    "title": "Bienvenue sur votre nouveau bureau",
+    "description": "Votre toute nouvelle expérience de travail",
     "username": "Nom d'utilisateur",
     "password": "Mot de passe",
     "submit": "Se connecter",

@@ -17,7 +17,7 @@ export function ProfilePage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-900">
+    <div className="app-background min-h-screen">
       <header className="flex items-center gap-4 bg-white px-6 py-4 shadow-sm dark:bg-slate-800">
         <button
           onClick={() => navigate('/')}

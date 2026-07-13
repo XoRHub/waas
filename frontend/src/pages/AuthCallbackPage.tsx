@@ -44,7 +44,7 @@ export function AuthCallbackPage() {
   }, [navigate]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+    <div className="app-background flex min-h-screen items-center justify-center text-slate-400">
       <p>{t('login.ssoCompleting')}</p>
     </div>
   );

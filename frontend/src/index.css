@@ -7,3 +7,13 @@
 :root {
   color-scheme: light dark;
 }
+
+/* Brand background (public/images/background.svg — black canvas with a
+   centered illustration) behind the login, portal and admin content.
+   Opaque surfaces (cards, headers, the admin sidebar) sit above it. */
+.app-background {
+  background-color: #000;
+  background-image: url('/images/background.svg');
+  background-size: cover;
+  background-position: center;
+}

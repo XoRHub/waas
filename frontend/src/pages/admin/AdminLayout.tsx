@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { BrandLogo } from '@/components/BrandLogo';
 import { useAuthStore } from '@/stores/authStore';
 import { useEvents } from '@/hooks/useEvents';
 
@@ -19,7 +20,17 @@ export function AdminLayout() {
   return (
     <div className="flex min-h-screen bg-slate-100 dark:bg-slate-900">
       <aside className="flex w-56 flex-col gap-1 border-r border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
-        <h1 className="mb-4 px-3 text-lg font-semibold text-slate-900 dark:text-white">
+        {/* Logo centered above the title: the w-56 sidebar is too
+            narrow for logo + title on one row without cropping. */}
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="mb-2 self-center"
+          aria-label={t('admin.backToPortal')}
+        >
+          <BrandLogo className="h-8" />
+        </button>
+        <h1 className="mb-4 px-3 text-center text-lg font-semibold text-slate-900 dark:text-white">
           {t('admin.title')}
         </h1>
         <NavLink to="/admin" end className={NAV_CLASS}>
@@ -55,7 +66,9 @@ export function AdminLayout() {
           </button>
         </div>
       </aside>
-      <main className="flex-1 p-6">
+      {/* Only the content area carries the brand background — the
+          sidebar keeps its own opaque surface above it. */}
+      <main className="app-background flex-1 p-6">
         <Outlet />
       </main>
     </div>
