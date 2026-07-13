@@ -1,0 +1,253 @@
+{
+  "description": "WorkspacePolicy is the self-service envelope for a user or group.",
+  "properties": {
+    "apiVersion": {
+      "description": "APIVersion defines the versioned schema of this representation of an object.\nServers should convert recognized schemas to the latest internal value, and\nmay reject unrecognized values.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+      "type": "string"
+    },
+    "kind": {
+      "description": "Kind is a string value representing the REST resource this object represents.\nServers may infer this from the endpoint the client submits requests to.\nCannot be updated.\nIn CamelCase.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "spec": {
+      "description": "WorkspacePolicySpec is the admin-defined envelope for self-service.\n\nResolution rule (deliberate, keep in sync with pkg/policy): among all\npolicies whose subjects match the user, the HIGHEST spec.priority wins\nand applies as a whole \u2014 no field merging between policies. Ties break\non the lexicographically smallest name and surface a warning, because\ntwo same-priority matches are a configuration smell. A policy with no\nsubjects matches every authenticated user: name one \"default\" with\npriority 0 as the restrictive fallback. No matching policy at all\nmeans DENY (fail closed).",
+      "properties": {
+        "clipboard": {
+          "description": "Clipboard controls the clipboard bridge between the user's machine\nand their workspace sessions. Absent = both directions allowed.\nEnforced by the WebSocket proxy (instruction filtering, rights\nstamped into the connection token) \u2014 the portal only reflects it.",
+          "properties": {
+            "copyFromWorkspace": {
+              "description": "CopyFromWorkspace permits copying FROM the workspace to the local\nclipboard (data exfiltration direction).",
+              "type": "boolean"
+            },
+            "pasteToWorkspace": {
+              "description": "PasteToWorkspace permits pasting the local clipboard INTO the\nworkspace (data injection direction).",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "images": {
+          "description": "Images is the subset of catalog entries (WorkspaceImage names)\nthis policy allows. Empty = the whole enabled catalog (each image's\nown allowedGroups still applies).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "lifecycle": {
+          "description": "Lifecycle bounds workspace longevity to fight accumulation.",
+          "properties": {
+            "idleSuspendAfter": {
+              "description": "IdleSuspendAfter pauses a workspace with no active session for\nthis long (compute freed, home kept). Zero/absent = never.",
+              "type": "string"
+            },
+            "maxLifetime": {
+              "description": "MaxLifetime deletes the workspace (home included) this long after\ncreation. Zero/absent = never. Deletion is announced through the\nworkspace's Events and status conditions.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "limits": {
+          "description": "Limits caps what the matched user can consume.",
+          "properties": {
+            "aggregate": {
+              "description": "Aggregate caps the SUM across all of the user's workspaces\n(paused included for storage; compute of paused workspaces is\nreleased and therefore not counted).",
+              "properties": {
+                "cpu": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                },
+                "memory": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                },
+                "storage": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Storage caps the sum of home volume sizes.",
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                }
+              },
+              "type": "object"
+            },
+            "defaults": {
+              "description": "Defaults is the sizing the portal proposes when the user does not\nchoose. Display-only: a per-image default (image.resources.default)\ntakes precedence, and enforcement is unaffected either way.",
+              "properties": {
+                "cpu": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                },
+                "memory": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                }
+              },
+              "type": "object"
+            },
+            "maxWorkspaces": {
+              "description": "MaxWorkspaces is the max simultaneous workspaces per user. Paused\nworkspaces count: their home PVC still holds storage.",
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "perWorkspace": {
+              "description": "PerWorkspace caps a single workspace. The effective cap is\nmin(these, image.resources.max).",
+              "properties": {
+                "cpu": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                },
+                "home": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Home caps the persistent home volume size.",
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                },
+                "memory": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "overrides": {
+          "description": "Overrides bounds instantiation-time template overrides for the\ngoverned users, on top of each template's own allow-list.",
+          "properties": {
+            "allowedFields": {
+              "description": "AllowedFields the governed users may override when the template\nalso allows them.",
+              "items": {
+                "description": "OverridableField names one template facet that workspace creators may be\nallowed to override at instantiation time.",
+                "enum": [
+                  "env",
+                  "securityContext",
+                  "podSecurityContext",
+                  "volumes",
+                  "nodeSelector",
+                  "tolerations",
+                  "resources",
+                  "protocol",
+                  "protocolParams",
+                  "schedule",
+                  "placement",
+                  "metadata"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "priority": {
+          "description": "Priority orders competing policies; higher wins. Convention:\n0 = default fallback, 100\u2013999 = group policies, 1000+ = per-user\nexceptions.",
+          "format": "int32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "remoteWorkspaces": {
+          "description": "RemoteWorkspaces opts the governed users into the Remote Workspaces\nfeature: registering out-of-cluster machines (host/port/protocol +\ncredentials Secret) and connecting to them through guacd. Absent or\nfalse = feature hidden and refused (fail closed).",
+          "type": "boolean"
+        },
+        "subjects": {
+          "description": "Subjects this policy applies to (OR). Empty = every authenticated\nuser.",
+          "items": {
+            "description": "PolicySubject binds a policy to an identity. Groups are IdP (OIDC)\ngroup names carried by the OIDC claims; users match the workspace\nowner identity (see the webhook's trusted-writer model).",
+            "properties": {
+              "kind": {
+                "description": "SubjectKind says what a policy subject name refers to.",
+                "enum": [
+                  "User",
+                  "Group"
+                ],
+                "type": "string"
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "spec"
+  ],
+  "type": "object"
+}
