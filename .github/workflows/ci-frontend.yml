@@ -12,6 +12,9 @@ permissions:
 jobs:
   frontend:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Codecov upload (OIDC, no stored token)
     defaults:
       run:
         working-directory: frontend
@@ -31,9 +34,23 @@ jobs:
         # version so the lockfile stays untouched.
         # --coverage.all + include counts every src/ file, not just the
         # ones already imported by a test (audit-2 C14).
+        # lcov, on top of the human-readable text-summary, is what the
+        # Codecov upload below reads.
         run: |
           npm install --no-save "@vitest/coverage-v8@$(node -p "require('vitest/package.json').version")"
-          npx vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=text-summary \
+          npx vitest run --coverage.enabled --coverage.provider=v8 \
+            --coverage.reporter=text-summary --coverage.reporter=lcov \
             --coverage.all --coverage.include='src/**/*.{ts,tsx}' \
             --coverage.exclude='src/**/*.test.{ts,tsx}' \
             --coverage.exclude='src/types*.ts' --coverage.exclude='**/*.d.ts'
+      # Per-component coverage (see codecov.yml): flag = frontend, so the
+      # PR comment and README badge break down independently from
+      # operator/api-server/wwt. OIDC, not a stored token — same posture
+      # as the promote job's keyless cosign.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: frontend/coverage/lcov.info
+          flags: frontend
+          fail_ci_if_error: false

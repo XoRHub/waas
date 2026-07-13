@@ -191,6 +191,34 @@ and a cluster policy-controller must verify **certificate identity**
 on the GitHub side vs the **public key** on the GitLab side while both
 coexist.
 
+## Per-component coverage (Codecov)
+
+`ci-go.yml`'s `go-test` job (one flag per Go module: `operator`,
+`api-server`, `wwt`, `shared`) and `ci-frontend.yml`'s `frontend` job
+each upload their existing coverage output (`coverage.out` / vitest's
+`lcov` reporter) to Codecov via `codecov/codecov-action`, tagged with
+a `flags:` matching the module/component name. `codecov.yml` at the repo
+root declares those flags with `carryforward: true` — required because
+this pipeline only tests the modules a commit actually touched (the
+`changes` job): without carryforward, an untouched component's coverage
+would read as 0%/missing on every PR that doesn't happen to touch it.
+Codecov posts its own PR comment (`comment.layout` in `codecov.yml`)
+breaking coverage down by flag, and the root `README.md` embeds one
+badge per component (`?flag=<name>` on the badge URL).
+
+Upload uses `use_oidc: true` (`permissions: id-token: write`, passed
+through the `go`/`frontend` reusable-workflow calls in `ci.yml` — GitHub
+only lets a reusable workflow **keep or reduce** permissions from its
+caller, never elevate them, so both the caller job and the callee job
+need the grant) instead of a stored `CODECOV_TOKEN`: same posture as the
+`promote` job's keyless cosign, and it keeps working for fork PRs, where
+repo secrets aren't available.
+
+**Manual one-time setup this doc can't cover**: the repo must be added
+on [codecov.io](https://about.codecov.io/) (sign in with GitHub) before
+uploads/badges work — that's an external account action, not a config
+file.
+
 ## Renovate pinning
 
 Actions pinned by commit SHA (`helpers:pinGitHubActionDigests`),

@@ -44,6 +44,9 @@ jobs:
   go-test:
     if: inputs.go_test != '[]'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Codecov upload (OIDC, no stored token)
     strategy:
       fail-fast: false
       matrix:
@@ -88,6 +91,18 @@ jobs:
           # what the ratchet below measures.
           go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
           go tool cover -func=coverage.out | tail -n 1
+      # Per-component coverage (see codecov.yml): flag = module name, so
+      # the PR comment and README badges break down by operator/
+      # api-server/wwt/shared independently. OIDC, not a stored token —
+      # works the same for fork PRs, same posture as the promote job's
+      # keyless cosign.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: ${{ matrix.module }}/coverage.out
+          flags: ${{ matrix.module }}
+          fail_ci_if_error: false
       # Floors sit under today's measured coverage (handler 56%,
       # repository 78% as of T9): they catch regressions only — raise
       # them as coverage grows, never lower them.

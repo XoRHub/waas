@@ -205,6 +205,9 @@ jobs:
   go:
     needs: changes
     if: needs.changes.outputs.go_lint != '[]' || needs.changes.outputs.go_test != '[]' || needs.changes.outputs.drift == 'true'
+    permissions:
+      contents: read
+      id-token: write # passed through to ci-go.yml's keyless Codecov upload
     uses: ./.github/workflows/ci-go.yml
     with:
       go_lint: ${{ needs.changes.outputs.go_lint }}
@@ -214,6 +217,9 @@ jobs:
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
+    permissions:
+      contents: read
+      id-token: write # passed through to ci-frontend.yml's keyless Codecov upload
     uses: ./.github/workflows/ci-frontend.yml
 
   helm:
