@@ -56,7 +56,7 @@ refactor!: split waas-images/ out into its own repository
 
 | Topic | Where |
 |---|---|
-| Toolchain versions (pinned to CI, bump together) | `.mise.toml` |
+| Toolchain versions (single source — CI installs from it via mise-action) | `.mise.toml` |
 | CI pipeline, gates, release-by-promotion | `docs/ci-github.md` |
 | Test tiers: unit / envtest / smoke, what belongs where | `docs/testing.md` |
 | Architecture decisions already made | `docs/adr/` |
