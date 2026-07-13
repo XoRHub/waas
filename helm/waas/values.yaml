@@ -60,14 +60,16 @@ adminPolicy:
 # a catalog here once its GitOps-managed equivalent takes over, never both at
 # once for the same WorkspaceImage name.
 catalogs:
-  # ghcr.io/xorhub/waas-images — WaaS' own desktop images (built by the
-  # sibling waas-images repo). On by default: this is what makes a fresh
-  # install immediately usable.
+  # docker.io/xorhub — WaaS' own desktop images (built by the sibling
+  # waas-images repo, pushed as docker.io/xorhub/<image>:<tag> — Docker
+  # Hub has no nested path, unlike the former ghcr.io/xorhub/waas-images
+  # layout). On by default: this is what makes a fresh install
+  # immediately usable.
   waasImages:
     enabled: true
     name: waas-images
     displayName: "XorHub images"
-    registry: ghcr.io/xorhub/waas-images
+    registry: docker.io/xorhub
     protocols: [vnc, rdp]
     catalogURL: https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml
   # docker.io/kasmweb — official Kasm images, native KasmVNC data plane

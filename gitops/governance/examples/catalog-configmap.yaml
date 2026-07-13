@@ -23,13 +23,13 @@ data:
     # yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/v0.1.0/operator/pkg/catalog/schema/v1.schema.json
     apiVersion: waas.xorhub.io/catalog/v1
     images:
-      - image: ghcr.io/xorhub/waas-images/ubuntu-xfce:1.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
         os: linux
         app: ubuntu-xfce
         version: "1.1.0"
         icon: ubuntu-linux
         displayName: "Ubuntu 24.04 — XFCE"
-      - image: ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      - image: docker.io/xorhub/firefox:1.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
         os: linux
         app: firefox
         version: "1.0.0"
@@ -43,7 +43,7 @@ data:
 #   namespace: waas
 # spec:
 #   displayName: "XorHub images"
-#   registry: ghcr.io/xorhub/waas-images
+#   registry: docker.io/xorhub
 #   protocols: [kasmvnc]
 #   enabled: true
 #   catalog:

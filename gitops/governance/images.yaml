@@ -8,7 +8,7 @@ metadata:
 spec:
   displayName: "Ubuntu 24.04 — XFCE"
   description: "Bureau XFCE complet (VNC recommandé, RDP disponible)."
-  image: registry.xorhub.io/waas/waas-images/ubuntu-xfce:1.0.0
+  image: docker.io/xorhub/ubuntu-xfce:1.0.0
   protocols: [vnc, rdp]
   architectures: [amd64, arm64]
   enabled: true
@@ -26,7 +26,7 @@ metadata:
 spec:
   displayName: "Firefox (navigation isolée)"
   description: "Firefox durci par policies.json, session jetable idéale."
-  image: registry.xorhub.io/waas/waas-images/ubuntu-firefox:1.0.0
+  image: docker.io/xorhub/ubuntu-firefox:1.0.0
   protocols: [vnc]
   architectures: [amd64]   # packages.mozilla.org: arm64 non validé
   enabled: true
@@ -41,7 +41,7 @@ metadata:
 spec:
   displayName: "Dev env — SSH"
   description: "Environnement de dev terminal (git, tmux, build tools) via SSH, VNC en secours."
-  image: registry.xorhub.io/waas/waas-images/dev-ssh:1.0.0
+  image: docker.io/xorhub/dev-ssh:1.0.0
   protocols: [ssh, vnc]
   architectures: [amd64, arm64]
   enabled: true
@@ -57,7 +57,7 @@ metadata:
 spec:
   displayName: "Dev Tools (VS Code, toolchains)"
   description: "Poste de dev — réservé au groupe IdP nymphe:dev."
-  image: registry.xorhub.io/waas/waas-images/ubuntu-devtools:1.0.0
+  image: docker.io/xorhub/ubuntu-devtools:1.0.0
   protocols: [vnc]
   architectures: [amd64]
   enabled: true

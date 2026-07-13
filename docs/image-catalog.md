@@ -84,7 +84,7 @@ contract, the CRD type follows the `v1alpha1`/ADR 0002 cycle.
 # (pin a release tag for shared files; a branch is fine while iterating locally)
 apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:...
+  - image: docker.io/xorhub/firefox:1.0.0@sha256:...
     os: linux        # empty = linux
     app: firefox
     version: "1.0.0"
@@ -173,9 +173,11 @@ remains in this repo:
   `WAAS_IMAGES_DIR` (documented at its use site) and fails with an
   actionable message when absent;
 - the catalog **format contract** above: waas-images (the producer)
-  publishes `catalog.yaml` files for `ghcr.io/xorhub/waas-images`;
-  waas-fable (the reader) owns the schema. `docker.io/kasmweb` gets the
-  same treatment (see `docs/kasmvnc.md` for that registry's specifics).
+  publishes `catalog.yaml` files for `docker.io/xorhub` (migrated from
+  `ghcr.io/xorhub/waas-images` — Docker Hub has no nested path, so each
+  image is its own top-level `xorhub/<image>` repo); waas-fable (the
+  reader) owns the schema. `docker.io/kasmweb` gets the same treatment
+  (see `docs/kasmvnc.md` for that registry's specifics).
   An example ConfigMap-source manifest lives under
   `gitops/governance/examples/`.
 

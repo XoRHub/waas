@@ -62,7 +62,7 @@ Same doctrine, for the catalog side: the chart can render the two
 official registry-wide `WorkspaceImage` entries (`catalogs.*` in
 `values.yaml`) so a first install already has a non-empty picker
 instead of waiting on GitOps. `catalogs.waasImages` (registry
-`ghcr.io/xorhub/waas-images`) defaults **on**; `catalogs.kasm`
+`docker.io/xorhub`) defaults **on**; `catalogs.kasm`
 (registry `docker.io/kasmweb`, `kasmvnc`-only) defaults **off** since
 it's an extra data plane an admin opts into. Both sync their picker
 metadata live from the `catalog-*.yaml` manifests published by the
