@@ -62,7 +62,7 @@ table is a quick *what*.
 | catalogs.waasImages.name | string | `"waas-images"` | Name of the bootstrap WorkspaceImage for this catalog. |
 | catalogs.waasImages.displayName | string | `"XorHub images"` | Display name shown in the portal picker. |
 | catalogs.waasImages.registry | string | `"docker.io/xorhub"` | Registry prefix this catalog approves images from. |
-| catalogs.waasImages.protocols | list | `["vnc","rdp"]` | Protocols this catalog's images support. |
+| catalogs.waasImages.protocols | list | `["vnc","rdp","ssh"]` | Protocols this catalog's images support. |
 | catalogs.waasImages.catalogURL | string | `"https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml"` | URL of the published catalog.yaml for this registry. |
 | catalogs.kasm.enabled | bool | `false` | Bootstrap the official Kasm images catalog on install. |
 | catalogs.kasm.name | string | `"kasm"` | Name of the bootstrap WorkspaceImage for this catalog. |
