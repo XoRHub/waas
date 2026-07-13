@@ -52,34 +52,48 @@ push main — EVERYTHING is built (invariant: every main SHA carries the
 ├─ same gates (ci-go/ci-frontend/ci-helm/ci-security)
 ├─ ci-images.yml
 │  ├─ build-images           push <short-sha>-<arch>
-│  ├─ merge-manifests        <short-sha> manifest list + mobile `main` tag
+│  ├─ merge-manifests        <short-sha> manifest list + mobile `edge` tag
 │  └─ scan-images            blocking trivy on the manifest list
 ├─ chart-oci (in ci.yml)     OCI push of the chart, version `X.Y.Z-main.<short-sha>`
 │                            (SemVer prerelease, never collides with vX.Y.Z)
+│                            + mobile `edge` tag on the chart OCI artifact
 └─ release-please (in ci.yml)  AT THE END of the pipeline (needs on the 5 call jobs)
    ├─ promote        (if "." release_created)          ZERO rebuild:
    │     verify (Chart.yaml appVersion = tag, sources present, tags free)
-   │     → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → digest table
-   │       added to the Release notes
+   │     → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → mobile `latest`
+   │       tag → digest table added to the Release notes
    └─ promote-chart   (if "helm/waas" release_created)  independent of promote:
-         helm package (Chart.yaml of the tagged SHA, no override) + OCI push,
-         using the chart's OWN SemVer
+         helm package (Chart.yaml of the tagged SHA, no override) + OCI push
+         + mobile `latest` tag, using the chart's OWN SemVer
 ```
+
+`edge` vs `latest`, on both images and the chart OCI artifact: `edge` is
+the mobile pointer for every green **main** build (dev clusters only,
+never a deploy reference); `latest` only ever moves on an **official
+release** (the `promote`/`promote-chart` jobs). The two never point at
+the same digest at the same time unless a release SHA happens to be
+`main`'s tip.
 
 ## Helm chart as OCI
 
 No dedicated Helm registry: the chart is pushed as an OCI artifact into
 **ghcr.io**, the same registry as the images, under the `charts/`
 subpath (`ghcr.io/<owner>/<repo>/charts/waas:<version>`). `azure/setup-helm`
-(v3.17.3) + `helm registry login` with `GITHUB_TOKEN`:
+(v3.17.3) + `helm registry login` with `GITHUB_TOKEN`; the extra mobile
+tags (`edge`/`latest`) are added with `docker buildx imagetools create`
+(same trick as the images), which needs a plain `docker/login-action`
+login alongside the Helm one — the two CLIs keep separate credential
+stores.
 
 - job `chart-oci` (push main): `helm package --version
-  X.Y.Z-main.<short-sha>`, mirroring the images' mobile `main` tag.
+  X.Y.Z-main.<short-sha>`, then re-tags that push as `edge` — mirroring
+  the images' mobile `edge` tag.
 - job `promote-chart` (tag `waas-chart-X.Y.Z`, from the `helm/waas`
   release-please package): `helm package` **without override** — the
   `Chart.yaml` of the tagged commit already carries the released
   `version: X.Y.Z`, so packaging this file as-is IS the release, not a
-  rebuild. Independent of the app's `promote` job/tag.
+  rebuild. Then re-tags that push as `latest`. Independent of the app's
+  `promote` job/tag.
 
 ArgoCD continues to deploy from the Git tag (`path: helm/waas`); this
 OCI chart is for external `helm pull`/`helm install --version`

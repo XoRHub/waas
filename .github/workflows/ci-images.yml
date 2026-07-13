@@ -98,9 +98,11 @@ jobs:
           SHORT="${GITHUB_SHA::7}"
           IMAGE="$REGISTRY/${GITHUB_REPOSITORY,,}/${{ matrix.component.name }}"
           docker buildx imagetools create -t "$IMAGE:$SHORT" "$IMAGE:$SHORT-amd64" "$IMAGE:$SHORT-arm64"
-          # Moving `main` tag: convenience pointer for dev clusters, never
-          # a deploy reference (ArgoCD pins release tags/digests).
-          docker buildx imagetools create -t "$IMAGE:main" "$IMAGE:$SHORT"
+          # Moving `edge` tag: convenience pointer for dev clusters, never
+          # a deploy reference (ArgoCD pins release tags/digests). Distinct
+          # from `latest`, which only ever points at the newest official
+          # release (see the `promote` job in ci.yml).
+          docker buildx imagetools create -t "$IMAGE:edge" "$IMAGE:$SHORT"
 
   scan-images:
     needs: merge-manifests
