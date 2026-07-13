@@ -1,9 +1,9 @@
 import { osFallbackIcon, resolveIcon } from '@/lib/icon';
 
-/** The logo of a template or catalog entry: its dashboard-icons CDN
- * icon when a valid slug is present, else the OS fallback
- * (empty/unknown os = linux) — also swapped in when the CDN load
- * fails. */
+/** The logo of a template or catalog entry: its icon reference
+ * resolved by resolveIcon (https URL, file:<path>, or dashboard-icons
+ * slug), else the OS fallback (empty/unknown os = linux) — also
+ * swapped in when the resolved image fails to load. */
 export function AppIcon({
   icon,
   os,
@@ -36,7 +36,8 @@ export function AppIcon({
 }
 
 export interface ImageOptionCardProps {
-  /** dashboard-icons slug from the catalog entry; absent = OS fallback. */
+  /** Icon reference (https URL, file:<path>, or dashboard-icons
+   * slug); absent = OS fallback. */
   icon?: string;
   os?: string;
   title: string;
