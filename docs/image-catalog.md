@@ -113,11 +113,18 @@ for shared files, since branch content can change without notice.
   `policy.AllowedImages`/`allowedGroups` gate as enforcement, no second
   filtering mechanism.
 - Icons are dashboard-icons slugs
-  (github.com/homarr-labs/dashboard-icons, Apache-2.0) resolved against
-  a **locally vendored** subset (`frontend/public/icons/`, refreshed by
-  `hack/vendor-icons.sh`, attribution in `ATTRIBUTION.md`) — never
-  fetched live; `resolveIcon` falls back to an OS icon for absent or
-  unknown slugs.
+  (github.com/homarr-labs/dashboard-icons, Apache-2.0) **loaded live**
+  from the dashboard-icons CDN — no per-app vendoring or frontend
+  allowlist to maintain. Because the slug comes from untrusted catalog
+  content, `resolveIcon` validates it against `^[a-z0-9][a-z0-9-]*$`
+  before building the CDN URL; a rejected slug is never fetched. Only
+  the two OS fallbacks are vendored (`frontend/public/icons/`,
+  refreshed by `hack/vendor-icons.sh`, attribution in
+  `ATTRIBUTION.md`); they are shown when the slug is absent/invalid or
+  when the CDN load fails (unknown slug, offline). Note this makes the
+  end user's browser contact a third party (`cdn.jsdelivr.net`) when
+  rendering catalog icons; the repo ships no CSP today, but if one is
+  ever introduced, `cdn.jsdelivr.net` must be allowed in `img-src`.
 - The unified card component (`ImageOptionCard.tsx`) renders both
   existing templates (OS-icon fallback) and catalog entries in the same
   grid — one visual language for every picker.

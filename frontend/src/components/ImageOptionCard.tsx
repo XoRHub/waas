@@ -1,7 +1,9 @@
-import { resolveIcon } from '@/lib/icon';
+import { osFallbackIcon, resolveIcon } from '@/lib/icon';
 
-/** The logo of a template or catalog entry: its vendored icon when the
- * slug is known, else the OS fallback (empty/unknown os = linux). */
+/** The logo of a template or catalog entry: its dashboard-icons CDN
+ * icon when a valid slug is present, else the OS fallback
+ * (empty/unknown os = linux) — also swapped in when the CDN load
+ * fails. */
 export function AppIcon({
   icon,
   os,
@@ -13,9 +15,17 @@ export function AppIcon({
   size?: number;
   className?: string;
 }) {
+  const fallback = osFallbackIcon(os);
   return (
     <img
       src={resolveIcon(icon, os)}
+      onError={(e) => {
+        // Never re-assign the fallback to itself: if even the local
+        // fallback fails to load, this handler must not loop.
+        if (e.currentTarget.getAttribute('src') !== fallback) {
+          e.currentTarget.src = fallback;
+        }
+      }}
       alt=""
       aria-hidden
       width={size}

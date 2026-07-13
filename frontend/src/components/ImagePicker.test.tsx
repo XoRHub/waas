@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DASHBOARD_ICONS_CDN } from '@/lib/icon';
 import { Dialog } from './Dialog';
 import { ImagePicker, type ImagePickerOption } from './ImagePicker';
 
@@ -68,7 +69,9 @@ describe('ImagePicker', () => {
     renderPicker('kasm');
     const trigger = screen.getByRole('button', { name: 'Template' });
     expect(trigger.textContent).toContain('Kasm Terminal');
-    expect(trigger.querySelector('img')?.getAttribute('src')).toBe('/icons/terminal.svg');
+    expect(trigger.querySelector('img')?.getAttribute('src')).toBe(
+      `${DASHBOARD_ICONS_CDN}/terminal.svg`,
+    );
   });
 
   it('Escape closes the list', async () => {

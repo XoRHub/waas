@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { resolveIcon, VENDORED_ICONS } from './icon';
+import { DASHBOARD_ICONS_CDN, osFallbackIcon, resolveIcon } from './icon';
 
 describe('resolveIcon', () => {
-  it('resolves a vendored slug to its own icon', () => {
-    expect(resolveIcon('firefox', 'linux')).toBe('/icons/firefox.svg');
+  it('builds the CDN URL for a valid slug', () => {
+    expect(resolveIcon('firefox', 'linux')).toBe(`${DASHBOARD_ICONS_CDN}/firefox.svg`);
+    expect(resolveIcon('google-chrome')).toBe(`${DASHBOARD_ICONS_CDN}/google-chrome.svg`);
   });
 
-  it('falls back to the OS icon for an unknown slug', () => {
-    expect(resolveIcon('not-vendored', 'linux')).toBe('/icons/os-linux.svg');
+  it('rejects an invalid slug without building a CDN URL', () => {
+    // Catalog content is untrusted — anything outside the
+    // dashboard-icons charset must go straight to the OS fallback.
+    for (const slug of ['../etc/passwd', 'a/b', 'Firefox', 'fire fox', '-leading', '']) {
+      const resolved = resolveIcon(slug, 'linux');
+      expect(resolved, `slug ${JSON.stringify(slug)}`).toBe('/icons/os-linux.svg');
+      expect(resolved).not.toContain(DASHBOARD_ICONS_CDN);
+    }
   });
 
   it('falls back to the OS icon when the slug is absent', () => {
@@ -21,37 +28,10 @@ describe('resolveIcon', () => {
   });
 });
 
-describe('VENDORED_ICONS parity with public/icons/', () => {
-  // Build-time enumeration of the committed icons (no fs access, works
-  // under both vitest and tsc).
-  const files = new Set(
-    Object.keys(import.meta.glob('../../public/icons/*.svg')).map((p) =>
-      p
-        .split('/')
-        .pop()!
-        .replace(/\.svg$/, ''),
-    ),
-  );
-
-  it('every listed slug is vendored', () => {
-    for (const slug of VENDORED_ICONS) {
-      expect(files, `missing public/icons/${slug}.svg — rerun hack/vendor-icons.sh`).toContain(
-        slug,
-      );
-    }
-  });
-
-  it('every vendored app icon is listed (os-* fallbacks excepted)', () => {
-    for (const file of files) {
-      if (file.startsWith('os-')) continue;
-      expect(VENDORED_ICONS, `unlisted icon ${file}.svg — add it to VENDORED_ICONS`).toContain(
-        file,
-      );
-    }
-  });
-
-  it('both OS fallbacks are vendored', () => {
-    expect(files).toContain('os-linux');
-    expect(files).toContain('os-windows');
+describe('osFallbackIcon', () => {
+  it('maps windows to its icon and everything else to linux', () => {
+    expect(osFallbackIcon('windows')).toBe('/icons/os-windows.svg');
+    expect(osFallbackIcon('linux')).toBe('/icons/os-linux.svg');
+    expect(osFallbackIcon()).toBe('/icons/os-linux.svg');
   });
 });

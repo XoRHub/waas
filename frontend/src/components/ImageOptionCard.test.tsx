@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DASHBOARD_ICONS_CDN } from '@/lib/icon';
 import { AppIcon, ImageOptionCard } from './ImageOptionCard';
 
 afterEach(cleanup);
@@ -10,6 +11,28 @@ describe('AppIcon', () => {
   it('renders the OS fallback without a slug', () => {
     render(<AppIcon os="windows" />);
     expect(document.querySelector('img')?.getAttribute('src')).toBe('/icons/os-windows.svg');
+  });
+
+  it('renders the OS fallback directly for an invalid slug (no CDN attempt)', () => {
+    render(<AppIcon icon="../evil" os="linux" />);
+    expect(document.querySelector('img')?.getAttribute('src')).toBe('/icons/os-linux.svg');
+  });
+
+  it('swaps to the OS fallback when the CDN load fails', () => {
+    render(<AppIcon icon="no-such-slug" os="windows" />);
+    const img = document.querySelector('img')!;
+    expect(img.getAttribute('src')).toBe(`${DASHBOARD_ICONS_CDN}/no-such-slug.svg`);
+    fireEvent.error(img);
+    expect(img.getAttribute('src')).toBe('/icons/os-windows.svg');
+  });
+
+  it('does not loop when the fallback itself fails to load', () => {
+    render(<AppIcon icon="no-such-slug" os="linux" />);
+    const img = document.querySelector('img')!;
+    fireEvent.error(img);
+    expect(img.getAttribute('src')).toBe('/icons/os-linux.svg');
+    fireEvent.error(img);
+    expect(img.getAttribute('src')).toBe('/icons/os-linux.svg');
   });
 });
 
@@ -21,9 +44,11 @@ describe('ImageOptionCard', () => {
     expect(screen.getByText('linux · kasmvnc')).toBeTruthy();
   });
 
-  it('uses the catalog entry icon when vendored', () => {
+  it('loads the catalog entry icon from the dashboard-icons CDN', () => {
     render(<ImageOptionCard title="Firefox" os="linux" icon="firefox" />);
-    expect(document.querySelector('img')?.getAttribute('src')).toBe('/icons/firefox.svg');
+    expect(document.querySelector('img')?.getAttribute('src')).toBe(
+      `${DASHBOARD_ICONS_CDN}/firefox.svg`,
+    );
   });
 
   it('selects on click and reflects the option state', async () => {
