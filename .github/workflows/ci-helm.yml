@@ -28,6 +28,18 @@ jobs:
           helm lint helm/waas
           helm template waas helm/waas > rendered-default.yaml
           helm template waas helm/waas -f hack/dev/values-dev.yaml > rendered-dev.yaml
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.26.4" # keep in sync with .mise.toml
+      - name: helm-docs drift check
+        run: |
+          (cd helm/waas && go run github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2)
+          git diff --exit-code helm/waas/README.md \
+            || { echo "FATAL helm/waas/README.md is stale — run 'make helm-docs' and commit the result"; exit 1; }
+      - name: helm unittest
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1 --verify=false
+          helm unittest helm/waas
       - name: CRDs to JSON Schemas
         run: |
           pip install pyyaml==6.0.2

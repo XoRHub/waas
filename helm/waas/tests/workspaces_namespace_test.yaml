@@ -1,0 +1,37 @@
+suite: workspaces Namespace
+templates:
+  - workspaces-namespace.yaml
+release:
+  namespace: waas-release-ns
+tests:
+  - it: creates the Namespace when it differs from the release namespace and create is true
+    set:
+      workspaces.create: true
+      workspaces.namespace: waas-workspaces-ns
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Namespace
+      - equal:
+          path: metadata.name
+          value: waas-workspaces-ns
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+
+  - it: skips the Namespace when create is false
+    set:
+      workspaces.create: false
+      workspaces.namespace: waas-workspaces-ns
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: skips the Namespace when it resolves to the release namespace
+    set:
+      workspaces.create: true
+      workspaces.namespace: ""
+    asserts:
+      - hasDocuments:
+          count: 0

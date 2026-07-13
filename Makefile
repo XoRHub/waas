@@ -20,7 +20,7 @@ WORKSPACE_IMAGES      := ubuntu-xfce ubuntu-firefox dev-ssh
 .PHONY: all build test lint generate manifests docs-params frontend-build docker-build \
 	dev-up dev-down dev-reset dev-bootstrap dev-build dev-load dev-deploy \
 	dev-reload dev-reload-all dev-build-images dev-load-images \
-	dev-status dev-logs dev-url tidy
+	dev-status dev-logs dev-url tidy helm-docs helm-unittest
 
 all: build
 
@@ -56,6 +56,14 @@ docs-params:
 generate-types:
 	cd api-server && go run github.com/gzuidhof/tygo@v0.2.21 generate
 	cd frontend && npx prettier --write src/types.gen.ts
+
+# helm/waas/README.md is generated from Chart.yaml + values.yaml
+# (README.md.gotmpl is the template). Drift-checked in CI like the CRDs.
+helm-docs:
+	cd helm/waas && go run github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
+
+helm-unittest:
+	helm unittest helm/waas
 
 frontend-build:
 	cd frontend && npm ci && npm run build

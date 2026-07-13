@@ -1,0 +1,78 @@
+suite: Ingress
+templates:
+  - ingress.yaml
+tests:
+  - it: renders nothing when disabled
+    set:
+      ingress.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the host and skips the class/tls blocks when unset
+    set:
+      ingress.enabled: true
+      ingress.host: chart-test.example.com
+      ingress.className: ""
+      ingress.tls.enabled: false
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: chart-test.example.com
+      - isNull:
+          path: spec.ingressClassName
+      - isNull:
+          path: spec.tls
+
+  - it: sets ingressClassName when set
+    set:
+      ingress.enabled: true
+      ingress.host: chart-test.example.com
+      ingress.className: nginx
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+
+  - it: annotates a cluster-issuer when tls is enabled with a ClusterIssuer
+    set:
+      ingress.enabled: true
+      ingress.host: chart-test.example.com
+      ingress.tls.enabled: true
+      ingress.tls.issuerRef.kind: ClusterIssuer
+      ingress.tls.issuerRef.name: letsencrypt-prod
+    asserts:
+      - equal:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+          value: letsencrypt-prod
+      - notExists:
+          path: metadata.annotations["cert-manager.io/issuer"]
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: chart-test.example.com
+
+  - it: annotates a plain issuer when tls issuerRef.kind is Issuer
+    set:
+      ingress.enabled: true
+      ingress.host: chart-test.example.com
+      ingress.tls.enabled: true
+      ingress.tls.issuerRef.kind: Issuer
+      ingress.tls.issuerRef.name: my-issuer
+    asserts:
+      - equal:
+          path: metadata.annotations["cert-manager.io/issuer"]
+          value: my-issuer
+      - notExists:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+
+  - it: skips the cert-manager annotation when issuerRef.name is empty
+    set:
+      ingress.enabled: true
+      ingress.host: chart-test.example.com
+      ingress.tls.enabled: true
+      ingress.tls.issuerRef.name: ""
+    asserts:
+      - notExists:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+      - notExists:
+          path: metadata.annotations["cert-manager.io/issuer"]

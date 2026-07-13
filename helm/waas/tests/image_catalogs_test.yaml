@@ -1,0 +1,59 @@
+suite: bootstrap image catalogs
+templates:
+  - image-catalogs.yaml
+tests:
+  - it: renders nothing when both catalogs are disabled
+    set:
+      catalogs.waasImages.enabled: false
+      catalogs.kasm.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the waasImages WorkspaceImage with the configured registry
+    set:
+      catalogs.waasImages.enabled: true
+      catalogs.waasImages.name: test-waas-images
+      catalogs.waasImages.displayName: "Test XorHub images"
+      catalogs.waasImages.registry: test.registry.example/xorhub
+      catalogs.waasImages.protocols: [vnc]
+      catalogs.waasImages.catalogURL: https://example.com/catalog.yaml
+      catalogs.kasm.enabled: false
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: WorkspaceImage
+      - equal:
+          path: metadata.name
+          value: test-waas-images
+      - equal:
+          path: spec.registry
+          value: test.registry.example/xorhub
+      - equal:
+          path: spec.catalog.from.url
+          value: https://example.com/catalog.yaml
+      - notExists:
+          path: spec.tagPolicy
+
+  - it: renders the kasm WorkspaceImage with tagPolicy when set
+    set:
+      catalogs.waasImages.enabled: false
+      catalogs.kasm.enabled: true
+      catalogs.kasm.name: test-kasm
+      catalogs.kasm.registry: docker.io/kasmweb
+      catalogs.kasm.tagPolicy: digest
+      catalogs.kasm.protocols: [kasmvnc]
+      catalogs.kasm.catalogURL: https://example.com/kasm-catalog.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: WorkspaceImage
+      - equal:
+          path: metadata.name
+          value: test-kasm
+      - equal:
+          path: spec.registry
+          value: docker.io/kasmweb
+      - equal:
+          path: spec.tagPolicy
+          value: digest

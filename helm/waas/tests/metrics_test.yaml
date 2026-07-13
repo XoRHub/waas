@@ -1,0 +1,51 @@
+suite: Prometheus-operator discovery objects
+templates:
+  - metrics.yaml
+tests:
+  - it: renders nothing when metrics is disabled, even if podMonitor/serviceMonitor are enabled
+    set:
+      metrics.enabled: false
+      metrics.podMonitor.enabled: true
+      metrics.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when metrics is enabled but both sub-toggles are off
+    set:
+      metrics.enabled: true
+      metrics.podMonitor.enabled: false
+      metrics.serviceMonitor.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders only the operator PodMonitor when podMonitor alone is enabled
+    set:
+      metrics.enabled: true
+      metrics.podMonitor.enabled: true
+      metrics.podMonitor.interval: 15s
+      metrics.serviceMonitor.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: PodMonitor
+      - equal:
+          path: spec.podMetricsEndpoints[0].interval
+          value: 15s
+
+  - it: renders one ServiceMonitor per component when serviceMonitor alone is enabled
+    set:
+      metrics.enabled: true
+      metrics.podMonitor.enabled: false
+      metrics.serviceMonitor.enabled: true
+      metrics.serviceMonitor.interval: 45s
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ServiceMonitor
+      - equal:
+          path: spec.endpoints[0].interval
+          value: 45s

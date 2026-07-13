@@ -1,0 +1,39 @@
+suite: bootstrap admin WorkspacePolicy
+templates:
+  - admin-policy.yaml
+tests:
+  - it: renders nothing when disabled
+    set:
+      adminPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the configured name, priority and subjects
+    set:
+      adminPolicy.enabled: true
+      adminPolicy.name: test-admins
+      adminPolicy.priority: 42
+      adminPolicy.subjects:
+        - kind: Group
+          name: test-admins-group
+    asserts:
+      - isKind:
+          of: WorkspacePolicy
+      - equal:
+          path: metadata.name
+          value: test-admins
+      - equal:
+          path: spec.priority
+          value: 42
+      - equal:
+          path: spec.subjects
+          value:
+            - kind: Group
+              name: test-admins-group
+      - equal:
+          path: spec.remoteWorkspaces
+          value: true
+      - equal:
+          path: spec.images
+          value: []
