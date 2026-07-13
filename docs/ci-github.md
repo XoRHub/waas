@@ -1,30 +1,62 @@
 # GitHub Actions CI
 
 GitHub is the canonical repository; the GitLab pipeline (`docs/ci.md`)
-stays as-is until it's retired. A single workflow: `.github/workflows/ci.yml`.
+stays as-is until it's retired.
+
+`.github/workflows/ci.yml` is the entry point (triggers, path filtering,
+concurrency) and orchestrates five `workflow_call` reusable workflows,
+one per domain, so each is reviewable on its own:
+
+| File | Owns |
+|---|---|
+| `ci.yml` | `changes` (path filter), `chart-oci`, `release-please`, `promote`, `promote-chart` |
+| `ci-go.yml` | `go-lint`, `go-test`, `go-generated-drift` |
+| `ci-frontend.yml` | `frontend` |
+| `ci-helm.yml` | `helm-manifests` |
+| `ci-security.yml` | `security` |
+| `ci-images.yml` | `build-images`, `merge-manifests`, `scan-images` |
+
+`chart-oci`, `release-please`, `promote` and `promote-chart` stay in
+`ci.yml` rather than being delegated, for two reasons:
+
+- **`chart-oci` must not gate `release-please`** (it isn't in its
+  `needs`, on purpose — a failed dev chart push shouldn't block an app
+  release). A `workflow_call` job only succeeds once every job inside
+  it does, so bundling `chart-oci` with `helm-manifests` in
+  `ci-helm.yml` would accidentally couple their success.
+- **`promote`'s cosign signature and the `release-please` → `promote`
+  chaining are both file-path-sensitive.** The chaining sidesteps the
+  `GITHUB_TOKEN` anti-recursion rule by staying in the same run
+  (explained below); moving `promote` into a separate reusable
+  workflow would also change the OIDC `job_workflow_ref` claim cosign
+  records, which the `--certificate-identity-regexp` below matches
+  against `ci.yml` specifically.
 
 ## Pipeline map
 
 ```
 PR — selective by path (job `changes`, dorny/paths-filter)
-├─ go-lint / go-test        DYNAMIC matrix per module, follows the real graph:
-│                           api-server ← operator + shared ; wwt ← shared ;
-│                           test/smoke ← operator (lint only, tests = cluster)
-├─ go-generated-drift       operator/** — regenerating must be a no-op
-├─ frontend                 typecheck + vitest (frontend/**)
-├─ helm-manifests           lint + render + kubeconform vs CRDs of THIS commit
-├─ security                 gitleaks, trivy fs, hadolint, shellcheck — ALWAYS
-└─ build-images             per impacted component × {amd64, arm64},
+├─ ci-go.yml
+│  ├─ go-lint / go-test     DYNAMIC matrix per module, follows the real graph:
+│  │                        api-server ← operator + shared ; wwt ← shared ;
+│  │                        test/smoke ← operator (lint only, tests = cluster)
+│  └─ go-generated-drift    operator/** — regenerating must be a no-op
+├─ ci-frontend.yml          typecheck + vitest (frontend/**)
+├─ ci-helm.yml              lint + render + kubeconform vs CRDs of THIS commit
+├─ ci-security.yml          gitleaks, trivy fs, hadolint, shellcheck — ALWAYS
+└─ ci-images.yml            build-images per impacted component × {amd64, arm64},
                             push:false, local trivy scan (amd64)
 
 push main — EVERYTHING is built (invariant: every main SHA carries the
 │           complete image set, a prerequisite for promotion)
-├─ same gates + build-images → push <short-sha>-<arch>
-├─ merge-manifests           <short-sha> manifest list + mobile `main` tag
-├─ scan-images               blocking trivy on the manifest list
-├─ chart-oci                 OCI push of the chart, version `X.Y.Z-main.<short-sha>`
+├─ same gates (ci-go/ci-frontend/ci-helm/ci-security)
+├─ ci-images.yml
+│  ├─ build-images           push <short-sha>-<arch>
+│  ├─ merge-manifests        <short-sha> manifest list + mobile `main` tag
+│  └─ scan-images            blocking trivy on the manifest list
+├─ chart-oci (in ci.yml)     OCI push of the chart, version `X.Y.Z-main.<short-sha>`
 │                            (SemVer prerelease, never collides with vX.Y.Z)
-└─ release-please            AT THE END of the pipeline (needs on everything else)
+└─ release-please (in ci.yml)  AT THE END of the pipeline (needs on the 5 call jobs)
    ├─ promote        (if "." release_created)          ZERO rebuild:
    │     verify (Chart.yaml appVersion = tag, sources present, tags free)
    │     → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → digest table
