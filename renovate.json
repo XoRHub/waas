@@ -21,7 +21,6 @@
       "matchManagers": ["gomod", "npm"],
       "matchUpdateTypes": ["patch", "minor"],
       "minimumReleaseAge": "10 days",
-      "matchConfidence": ["neutral", "high", "very high"],
       "automerge": true,
       "platformAutomerge": true
     }
