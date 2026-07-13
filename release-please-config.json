@@ -24,7 +24,7 @@
       "release-type": "simple",
       "changelog-path": "CHANGELOG.md",
       "exclude-paths": ["helm/waas/"],
-      "extra-files": ["helm/waas/Chart.yaml"]
+      "extra-files": [{ "type": "generic", "path": "helm/waas/Chart.yaml" }]
     },
     "helm/waas": {
       "package-name": "waas-chart",
