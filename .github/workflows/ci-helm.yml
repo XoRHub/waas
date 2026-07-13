@@ -33,7 +33,7 @@ jobs:
           go-version: "1.26.4" # keep in sync with .mise.toml
       - name: helm-docs drift check
         run: |
-          (cd helm/waas && go run github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2)
+          (cd helm/waas && go run github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2 --sort-values-order file)
           git diff --exit-code helm/waas/README.md \
             || { echo "FATAL helm/waas/README.md is stale — run 'make helm-docs' and commit the result"; exit 1; }
       - name: helm unittest

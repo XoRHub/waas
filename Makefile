@@ -59,8 +59,11 @@ generate-types:
 
 # helm/waas/README.md is generated from Chart.yaml + values.yaml
 # (README.md.gotmpl is the template). Drift-checked in CI like the CRDs.
+# --sort-values-order file: keeps the table in values.yaml's own section
+# order (image, secretsJob, workspaces, ...) instead of flattening it
+# alphabetically.
 helm-docs:
-	cd helm/waas && go run github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
+	cd helm/waas && go run github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2 --sort-values-order file
 
 helm-unittest:
 	helm unittest helm/waas

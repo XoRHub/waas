@@ -46,126 +46,120 @@ table is a quick *what*.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| adminPolicy.enabled | bool | `false` |  |
-| adminPolicy.name | string | `"admins"` |  |
-| adminPolicy.priority | int | `10000` |  |
-| adminPolicy.subjects[0].kind | string | `"User"` |  |
-| adminPolicy.subjects[0].name | string | `"admin"` |  |
-| apiServer.accessTokenTTL | string | `"8h"` |  |
-| apiServer.adminPassword | string | `""` |  |
-| apiServer.adminPasswordSecretRef.key | string | `""` |  |
-| apiServer.adminPasswordSecretRef.name | string | `""` |  |
-| apiServer.adminUsername | string | `"admin"` |  |
-| apiServer.connectionTokenTTL | string | `"5m"` |  |
-| apiServer.eventsPollInterval | string | `"10s"` |  |
-| apiServer.jwtIssuer | string | `"waas"` |  |
-| apiServer.oidc.adminGroups | list | `[]` |  |
-| apiServer.oidc.clientID | string | `""` |  |
-| apiServer.oidc.clientIDSecretRef.key | string | `""` |  |
-| apiServer.oidc.clientIDSecretRef.name | string | `""` |  |
-| apiServer.oidc.disableLocalLogin | bool | `false` |  |
-| apiServer.oidc.existingSecret | string | `""` |  |
-| apiServer.oidc.existingSecretKey | string | `""` |  |
-| apiServer.oidc.frontendURL | string | `"/"` |  |
-| apiServer.oidc.groupsClaim | string | `"groups"` |  |
-| apiServer.oidc.issuerURL | string | `""` |  |
-| apiServer.oidc.issuerURLSecretRef.key | string | `""` |  |
-| apiServer.oidc.issuerURLSecretRef.name | string | `""` |  |
-| apiServer.oidc.providerName | string | `"OIDC"` |  |
-| apiServer.oidc.redirectURL | string | `""` |  |
-| apiServer.oidc.redirectURLSecretRef.key | string | `""` |  |
-| apiServer.oidc.redirectURLSecretRef.name | string | `""` |  |
-| apiServer.oidc.scopes[0] | string | `"openid"` |  |
-| apiServer.oidc.scopes[1] | string | `"profile"` |  |
-| apiServer.oidc.scopes[2] | string | `"email"` |  |
-| apiServer.replicas | int | `1` |  |
-| apiServer.resources.limits.memory | string | `"512Mi"` |  |
-| apiServer.resources.requests.cpu | string | `"100m"` |  |
-| apiServer.resources.requests.memory | string | `"128Mi"` |  |
-| apiServer.wol.existingSecret | string | `""` |  |
-| apiServer.wol.existingSecretKey | string | `""` |  |
-| apiServer.wol.relayURL | string | `""` |  |
-| catalogs.kasm.catalogURL | string | `"https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-kasmweb.yaml"` |  |
-| catalogs.kasm.displayName | string | `"Kasm official images"` |  |
-| catalogs.kasm.enabled | bool | `false` |  |
-| catalogs.kasm.name | string | `"kasm"` |  |
-| catalogs.kasm.protocols[0] | string | `"kasmvnc"` |  |
-| catalogs.kasm.registry | string | `"docker.io/kasmweb"` |  |
-| catalogs.kasm.tagPolicy | string | `"digest"` |  |
-| catalogs.waasImages.catalogURL | string | `"https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml"` |  |
-| catalogs.waasImages.displayName | string | `"XorHub images"` |  |
-| catalogs.waasImages.enabled | bool | `true` |  |
-| catalogs.waasImages.name | string | `"waas-images"` |  |
-| catalogs.waasImages.protocols[0] | string | `"vnc"` |  |
-| catalogs.waasImages.protocols[1] | string | `"rdp"` |  |
-| catalogs.waasImages.registry | string | `"docker.io/xorhub"` |  |
-| frontend.replicas | int | `1` |  |
-| frontend.resources.limits.memory | string | `"128Mi"` |  |
-| frontend.resources.requests.cpu | string | `"10m"` |  |
-| frontend.resources.requests.memory | string | `"32Mi"` |  |
-| grafana.dashboards.enabled | bool | `false` |  |
-| grafana.dashboards.folder | string | `"WaaS"` |  |
-| grafana.dashboards.instanceSelector.matchLabels | object | `{}` |  |
-| grafana.dashboards.mode | string | `"configmap"` |  |
-| guacd.image | string | `"guacamole/guacd:1.6.0"` |  |
-| guacd.replicas | int | `1` |  |
-| guacd.resources.limits.memory | string | `"1Gi"` |  |
-| guacd.resources.requests.cpu | string | `"250m"` |  |
-| guacd.resources.requests.memory | string | `"256Mi"` |  |
-| httpRoute.annotations | object | `{}` |  |
-| httpRoute.enabled | bool | `false` |  |
-| httpRoute.hostnames | list | `[]` |  |
-| httpRoute.parentRefs[0].name | string | `""` |  |
-| httpRoute.parentRefs[0].namespace | string | `""` |  |
-| httpRoute.parentRefs[0].sectionName | string | `""` |  |
-| image.pullPolicy | string | `"IfNotPresent"` |  |
-| image.registry | string | `"ghcr.io/xorhub/waas"` |  |
-| image.tag | string | `""` |  |
-| ingress.className | string | `""` |  |
-| ingress.enabled | bool | `true` |  |
-| ingress.host | string | `"waas.example.com"` |  |
-| ingress.tls.enabled | bool | `true` |  |
-| ingress.tls.issuerRef.kind | string | `"ClusterIssuer"` |  |
-| ingress.tls.issuerRef.name | string | `""` |  |
-| metrics.enabled | bool | `false` |  |
-| metrics.podMonitor.enabled | bool | `false` |  |
-| metrics.podMonitor.interval | string | `"30s"` |  |
-| metrics.podMonitor.labels | object | `{}` |  |
-| metrics.scrapeAnnotations | bool | `false` |  |
-| metrics.serviceMonitor.enabled | bool | `false` |  |
-| metrics.serviceMonitor.interval | string | `"30s"` |  |
-| metrics.serviceMonitor.labels | object | `{}` |  |
-| operator.catalogSyncInterval | string | `"6h"` |  |
-| operator.policyBypass | string | `"system:masters"` |  |
-| operator.replicas | int | `1` |  |
-| operator.resources.limits.memory | string | `"256Mi"` |  |
+| image.registry | string | `"ghcr.io/xorhub/waas"` | Image registry/repository prefix; each component appends its own name (`/operator`, `/api-server`, ...). |
+| image.tag | string | `""` | Image tag for every component; empty defaults to Chart.yaml's appVersion (bumped on every app release). |
+| image.pullPolicy | string | `"IfNotPresent"` | imagePullPolicy for every component's pods. |
+| secretsJob.enabled | bool | `true` | Generate/manage the release Secrets in-cluster; disable once every `*SecretRef` below is set. |
+| secretsJob.image | string | `"bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978"` | Image used by the secrets-generation hook Job. |
+| workspaces.namespace | string | `""` | Namespace for Workspace/WorkspaceTemplate CRs; empty defaults to the release namespace. |
+| workspaces.create | bool | `true` | Create the namespace above when it differs from the release namespace. |
+| workspaces.defaultNamespacePattern | string | `""` | Operator-wide namespace placement pattern; empty uses the built-in default. |
+| adminPolicy.enabled | bool | `false` | Bootstrap an explicit all-rights WorkspacePolicy for platform admins. |
+| adminPolicy.name | string | `"admins"` | Name of the bootstrap admin WorkspacePolicy. |
+| adminPolicy.priority | int | `10000` | Priority of the bootstrap admin WorkspacePolicy (higher wins ties). |
+| adminPolicy.subjects | list | `[{"kind":"User","name":"admin"}]` | Subjects (users/groups) granted the bootstrap admin policy. |
+| catalogs.waasImages.enabled | bool | `true` | Bootstrap the XorHub desktop-images catalog on install. |
+| catalogs.waasImages.name | string | `"waas-images"` | Name of the bootstrap WorkspaceImage for this catalog. |
+| catalogs.waasImages.displayName | string | `"XorHub images"` | Display name shown in the portal picker. |
+| catalogs.waasImages.registry | string | `"docker.io/xorhub"` | Registry prefix this catalog approves images from. |
+| catalogs.waasImages.protocols | list | `["vnc","rdp"]` | Protocols this catalog's images support. |
+| catalogs.waasImages.catalogURL | string | `"https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml"` | URL of the published catalog.yaml for this registry. |
+| catalogs.kasm.enabled | bool | `false` | Bootstrap the official Kasm images catalog on install. |
+| catalogs.kasm.name | string | `"kasm"` | Name of the bootstrap WorkspaceImage for this catalog. |
+| catalogs.kasm.displayName | string | `"Kasm official images"` | Display name shown in the portal picker. |
+| catalogs.kasm.registry | string | `"docker.io/kasmweb"` | Registry prefix this catalog approves images from. |
+| catalogs.kasm.tagPolicy | string | `"digest"` | Tag discipline enforced for this registry (`tag` | `digest` | `any`). |
+| catalogs.kasm.protocols | list | `["kasmvnc"]` | Protocols this catalog's images support. |
+| catalogs.kasm.catalogURL | string | `"https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-kasmweb.yaml"` | URL of the published catalog.yaml for this registry. |
+| ingress.enabled | bool | `true` | Deploy an Ingress in front of the frontend/api-server/wwt. |
+| ingress.className | string | `""` | ingressClassName; empty uses the cluster default. |
+| ingress.host | string | `"waas.example.com"` | Public hostname routed to the platform. |
+| ingress.tls.enabled | bool | `true` | Terminate TLS on the Ingress using the issuer below. |
+| ingress.tls.issuerRef.kind | string | `"ClusterIssuer"` | cert-manager issuer kind (`ClusterIssuer` or `Issuer`). |
+| ingress.tls.issuerRef.name | string | `""` | cert-manager issuer name; empty skips the cert-manager annotation. |
+| httpRoute.enabled | bool | `false` | Deploy a Gateway API HTTPRoute instead of/alongside the Ingress. |
+| httpRoute.hostnames | list | `[]` | Hostnames to match; empty reuses ingress.host. |
+| httpRoute.parentRefs | list | `[{"name":"","namespace":"","sectionName":""}]` | Gateway(s) this route attaches to. |
+| httpRoute.annotations | object | `{}` | Extra annotations on the HTTPRoute. |
+| operator.replicas | int | `1` | Operator Deployment replica count. |
+| operator.webhook.enabled | bool | `true` | Enable the operator's admission webhook (cert-manager Issuer/Certificate + ValidatingWebhookConfiguration). |
+| operator.policyBypass | string | `"system:masters"` | Comma-separated users/groups exempt from workspace policy checks. |
+| operator.catalogSyncInterval | string | `"6h"` | Re-sync cadence of WorkspaceImage catalog sources (cosmetic picker metadata only). |
 | operator.resources.requests.cpu | string | `"50m"` |  |
 | operator.resources.requests.memory | string | `"64Mi"` |  |
-| operator.webhook.enabled | bool | `true` |  |
-| postgres.database | string | `"waas"` |  |
-| postgres.enabled | bool | `true` |  |
-| postgres.externalURL | string | `""` |  |
-| postgres.externalURLSecretRef.key | string | `""` |  |
-| postgres.externalURLSecretRef.name | string | `""` |  |
-| postgres.image | string | `"postgres:17-alpine"` |  |
-| postgres.password | string | `""` |  |
-| postgres.passwordSecretRef.key | string | `""` |  |
-| postgres.passwordSecretRef.name | string | `""` |  |
-| postgres.resources.limits.memory | string | `"1Gi"` |  |
-| postgres.resources.requests.cpu | string | `"100m"` |  |
-| postgres.resources.requests.memory | string | `"256Mi"` |  |
-| postgres.storage | string | `"10Gi"` |  |
-| postgres.storageClassName | string | `""` |  |
-| postgres.username | string | `"waas"` |  |
-| secretsJob.enabled | bool | `true` |  |
-| secretsJob.image | string | `"bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978"` |  |
-| workspaces.create | bool | `true` |  |
-| workspaces.defaultNamespacePattern | string | `""` |  |
-| workspaces.namespace | string | `""` |  |
-| wwt.replicas | int | `1` |  |
-| wwt.resources.limits.memory | string | `"256Mi"` |  |
+| operator.resources.limits.memory | string | `"256Mi"` |  |
+| apiServer.replicas | int | `1` | API server Deployment replica count. |
+| apiServer.jwtIssuer | string | `"waas"` | JWT `iss` claim value. |
+| apiServer.accessTokenTTL | string | `"8h"` | Access token lifetime. |
+| apiServer.connectionTokenTTL | string | `"5m"` | Short-lived connection token lifetime (per desktop session). |
+| apiServer.eventsPollInterval | string | `"10s"` | Poll interval used by the workspace Events panel. |
+| apiServer.adminUsername | string | `"admin"` | Bootstrap admin username. |
+| apiServer.adminPassword | string | `""` | Bootstrap admin password; empty generates one and prints it once in the logs. |
+| apiServer.adminPasswordSecretRef.name | string | `""` | Secret name to read the admin password from instead of `adminPassword` above. |
+| apiServer.adminPasswordSecretRef.key | string | `""` | Secret key. Defaults to `"admin-password"`. |
+| apiServer.oidc.issuerURL | string | `""` | OIDC issuer URL; enables SSO when set (directly or via issuerURLSecretRef). |
+| apiServer.oidc.issuerURLSecretRef.name | string | `""` | Secret name to read issuerURL from instead of the plain value above. |
+| apiServer.oidc.issuerURLSecretRef.key | string | `""` | Secret key. Defaults to `"issuer-url"`. |
+| apiServer.oidc.clientID | string | `""` | OIDC client ID. |
+| apiServer.oidc.clientIDSecretRef.name | string | `""` | Secret name to read clientID from instead of the plain value above. |
+| apiServer.oidc.clientIDSecretRef.key | string | `""` | Secret key. Defaults to `"client-id"`. |
+| apiServer.oidc.existingSecret | string | `""` | Secret name holding the OIDC client secret; empty uses the chart's own `<release>-app-secrets`. |
+| apiServer.oidc.existingSecretKey | string | `""` | Secret key. Defaults to `"oidc-client-secret"`. |
+| apiServer.oidc.redirectURL | string | `""` | This api-server's public OIDC callback URL. |
+| apiServer.oidc.redirectURLSecretRef.name | string | `""` | Secret name to read redirectURL from instead of the plain value above. |
+| apiServer.oidc.redirectURLSecretRef.key | string | `""` | Secret key. Defaults to `"redirect-url"`. |
+| apiServer.oidc.frontendURL | string | `"/"` | SPA origin for the post-login redirect (`"/"` when same-origin). |
+| apiServer.oidc.scopes | list | `["openid","profile","email"]` | OIDC scopes requested at login. Most IdPs ship groups in their default profile scope mapping. |
+| apiServer.oidc.groupsClaim | string | `"groups"` | Claim name carrying the IdP's groups. |
+| apiServer.oidc.adminGroups | list | `[]` | IdP groups granted the platform admin role (synced at every login). |
+| apiServer.oidc.providerName | string | `"OIDC"` | Display name of the SSO provider/button. |
+| apiServer.oidc.disableLocalLogin | bool | `false` | Disable local username/password login entirely once SSO is configured. |
+| apiServer.wol.relayURL | string | `""` | Wake-on-LAN relay URL; empty disables the feature. |
+| apiServer.wol.existingSecret | string | `""` | Secret name holding the WOL relay bearer token. |
+| apiServer.wol.existingSecretKey | string | `""` | Secret key. Defaults to `"wol-relay-token"`. |
+| apiServer.resources.requests.cpu | string | `"100m"` |  |
+| apiServer.resources.requests.memory | string | `"128Mi"` |  |
+| apiServer.resources.limits.memory | string | `"512Mi"` |  |
+| wwt.replicas | int | `1` | wwt Deployment replica count. |
 | wwt.resources.requests.cpu | string | `"100m"` |  |
 | wwt.resources.requests.memory | string | `"64Mi"` |  |
+| wwt.resources.limits.memory | string | `"256Mi"` |  |
+| frontend.replicas | int | `1` | Frontend Deployment replica count. |
+| frontend.resources.requests.cpu | string | `"10m"` |  |
+| frontend.resources.requests.memory | string | `"32Mi"` |  |
+| frontend.resources.limits.memory | string | `"128Mi"` |  |
+| guacd.image | string | `"guacamole/guacd:1.6.0"` | guacd image reference. |
+| guacd.replicas | int | `1` | guacd Deployment replica count. |
+| guacd.resources.requests.cpu | string | `"250m"` |  |
+| guacd.resources.requests.memory | string | `"256Mi"` |  |
+| guacd.resources.limits.memory | string | `"1Gi"` |  |
+| metrics.enabled | bool | `false` | Serve /metrics on every component (cluster-internal only, never routed by ingress/httpRoute). |
+| metrics.scrapeAnnotations | bool | `false` | Stamp `prometheus.io/scrape|port|path` annotations on pods (needs `metrics.enabled`). |
+| metrics.podMonitor.enabled | bool | `false` | Create a PodMonitor for the operator (requires prometheus-operator CRDs and `metrics.enabled`). |
+| metrics.podMonitor.labels | object | `{}` | Extra labels so the target Prometheus' podMonitorSelector matches (e.g. `release: prometheus`). |
+| metrics.podMonitor.interval | string | `"30s"` | Scrape interval. |
+| metrics.serviceMonitor.enabled | bool | `false` | Create ServiceMonitors for api-server/wwt (requires prometheus-operator CRDs and `metrics.enabled`). |
+| metrics.serviceMonitor.labels | object | `{}` | Extra labels so the target Prometheus' serviceMonitorSelector matches. |
+| metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval. |
+| grafana.dashboards.enabled | bool | `false` | Ship the bundled Grafana dashboards. |
+| grafana.dashboards.mode | string | `"configmap"` | `"configmap"` (sidecar-picked ConfigMaps) or `"operator"` (GrafanaDashboard CRs). |
+| grafana.dashboards.instanceSelector.matchLabels | object | `{}` | Grafana instance selector; only used in mode `"operator"`. |
+| grafana.dashboards.folder | string | `"WaaS"` | Grafana folder the dashboards are filed under. |
+| postgres.enabled | bool | `true` | Deploy the chart's own PostgreSQL 17 StatefulSet; false brings your own instance. |
+| postgres.image | string | `"postgres:17-alpine"` | postgres image reference; only used when postgres.enabled is true. |
+| postgres.database | string | `"waas"` | Database name. |
+| postgres.username | string | `"waas"` | Database user. |
+| postgres.password | string | `""` | Postgres password; empty generates one and keeps it across upgrades. Only used when postgres.enabled is true. |
+| postgres.passwordSecretRef.name | string | `""` | Secret name to read the postgres password from instead of `password` above. |
+| postgres.passwordSecretRef.key | string | `""` | Secret key. Defaults to `"postgres-password"`. |
+| postgres.storage | string | `"10Gi"` | Size of the postgres data PVC. |
+| postgres.storageClassName | string | `""` | storageClassName for the postgres data PVC; empty uses the cluster default. |
+| postgres.externalURL | string | `""` | Full external connection URL; required when postgres.enabled is false (unless externalURLSecretRef is set). |
+| postgres.externalURLSecretRef.name | string | `""` | Secret name to read the full external connection URL from instead of `externalURL` above. |
+| postgres.externalURLSecretRef.key | string | `""` | Secret key. Defaults to `"database-url"`. |
+| postgres.resources.requests.cpu | string | `"100m"` |  |
+| postgres.resources.requests.memory | string | `"256Mi"` |  |
+| postgres.resources.limits.memory | string | `"1Gi"` |  |
 
 ## Production note
 
