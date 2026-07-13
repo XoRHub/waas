@@ -2,7 +2,8 @@
 
 Open-source, Kubernetes-native Workspace-as-a-Service. `helm install` it on any cluster
 (the only prerequisite is cert-manager) and give people a full remote desktop — Linux
-(VNC) or Windows (RDP via KubeVirt, auto-detected) — accessible from any browser.
+(VNC) or Windows (RDP via KubeVirt, auto-detected) — accessible from any browser. See
+[helm/waas/README.md](helm/waas/README.md) for install/upgrade instructions.
 
 **Workspaces as code, GitOps-first:** a workspace is a Kubernetes resource
 (`Workspace` / `WorkspaceTemplate` CRDs), created via `kubectl apply`, ArgoCD or Flux
@@ -25,7 +26,7 @@ Browser ── HTTPS/WSS ──> API Server (chi) ──> PostgreSQL (users, quo
 | WebSocket Proxy | `wwt/` | Validates the JWT **before** opening any TCP connection to guacd. |
 | Frontend | `frontend/` | React 19 admin dashboard + user portal. Only ever talks to the API Server. |
 | Shared | `shared/` | JWT claims & auth primitives shared by API Server and proxy. |
-| Helm chart | `helm/waas/` | Single-chart install: operator, API server, proxy, frontend, guacd, PostgreSQL. |
+| Helm chart | `helm/waas/` | Single-chart install: operator, API server, proxy, frontend, guacd, PostgreSQL — see [helm/waas/README.md](helm/waas/README.md). |
 
 Hard boundaries (non-negotiable):
 
