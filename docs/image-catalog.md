@@ -88,7 +88,8 @@ images:
     os: linux        # empty = linux
     app: firefox
     version: "1.0.0"
-    icon: firefox    # dashboard-icons slug
+    icon: firefox    # dashboard-icons slug — also accepts an absolute
+                     # https URL or file:<path> (see the picker section)
 ```
 
 The parser is tolerant (absent optional fields = zero values) but
@@ -112,19 +113,40 @@ for shared files, since branch content can change without notice.
   `CatalogImage.discovered` — visibility is **inherited** from the same
   `policy.AllowedImages`/`allowedGroups` gate as enforcement, no second
   filtering mechanism.
-- Icons are dashboard-icons slugs
-  (github.com/homarr-labs/dashboard-icons, Apache-2.0) **loaded live**
-  from the dashboard-icons CDN — no per-app vendoring or frontend
-  allowlist to maintain. Because the slug comes from untrusted catalog
-  content, `resolveIcon` validates it against `^[a-z0-9][a-z0-9-]*$`
-  before building the CDN URL; a rejected slug is never fetched. Only
-  the two OS fallbacks are vendored (`frontend/public/icons/`,
+- An icon reference (`icon` in a catalog entry, or a template's
+  `spec.logo` — same resolver, `frontend/src/lib/icon.ts`) takes one of
+  three forms, detected by prefix:
+  - **Absolute `https://` URL** — used as-is as the image source, with
+    no host allow-list (any https host is accepted; plain `http://` is
+    rejected for now). Useful when the wanted asset doesn't follow the
+    slug convention, e.g.
+    `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/webp/longhorn.webp`.
+  - **`file:<path>`** — a path internal to the frontend, resolved
+    same-origin from the web root (`file:custom/longhorn.svg` →
+    `/custom/longhorn.svg`); it never makes the browser leave the
+    portal's origin. This is a repo convention, **not** the browser's
+    `file://` scheme: the admin mounts the asset into the nginx
+    container under `/usr/share/nginx/html/<path>` or bakes it into a
+    custom frontend image (`FROM` the published image + `COPY`). The
+    path is validated — a leading `/`, `..` traversal, an embedded
+    scheme, or a backslash falls back to the OS icon without a load
+    attempt.
+  - **dashboard-icons slug**
+    (github.com/homarr-labs/dashboard-icons, Apache-2.0), e.g.
+    `firefox` — **loaded live** from the dashboard-icons CDN, no
+    per-app vendoring or frontend allowlist to maintain. Because the
+    value comes from untrusted catalog content, `resolveIcon` validates
+    it against `^[a-z0-9][a-z0-9-]*$` before building the CDN URL; a
+    rejected slug is never fetched.
+
+  Only the two OS fallbacks are vendored (`frontend/public/icons/`,
   refreshed by `hack/vendor-icons.sh`, attribution in
-  `ATTRIBUTION.md`); they are shown when the slug is absent/invalid or
-  when the CDN load fails (unknown slug, offline). Note this makes the
-  end user's browser contact a third party (`cdn.jsdelivr.net`) when
-  rendering catalog icons; the repo ships no CSP today, but if one is
-  ever introduced, `cdn.jsdelivr.net` must be allowed in `img-src`.
+  `ATTRIBUTION.md`); they are shown when the reference is
+  absent/invalid or when the load fails (unknown slug, offline). Note
+  the slug and https-URL forms make the end user's browser contact a
+  third party (`cdn.jsdelivr.net` or the URL's host) when rendering
+  catalog icons — `file:` never does; the repo ships no CSP today, but
+  if one is ever introduced, those hosts must be allowed in `img-src`.
 - The unified card component (`ImageOptionCard.tsx`) renders both
   existing templates (OS-icon fallback) and catalog entries in the same
   grid — one visual language for every picker.

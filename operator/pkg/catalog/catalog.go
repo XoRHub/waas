@@ -40,7 +40,10 @@ type Entry struct {
 	App string `json:"app,omitempty"`
 	// Version is the human-facing version of the entry.
 	Version string `json:"version,omitempty"`
-	// Icon is a dashboard-icons slug (e.g. "firefox").
+	// Icon is an icon reference: an absolute https URL, a
+	// `file:<path>` path internal to the frontend, or a
+	// dashboard-icons slug (e.g. "firefox") — see
+	// docs/image-catalog.md.
 	Icon string `json:"icon,omitempty"`
 	// DisplayName is the human-facing name; empty falls back to App.
 	DisplayName string `json:"displayName,omitempty"`

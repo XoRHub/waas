@@ -109,7 +109,8 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     : undefined;
   // Catalog-sync icon of a template: the discovered entry (of its
   // approving CatalogImage) whose exact reference matches the
-  // template's image. Absent = the card falls back to the OS icon.
+  // template's image. Fallback only — an explicit spec.logo wins over
+  // it; both absent = the card falls back to the OS icon.
   const discoveredIconFor = (name: string, imageRef: string) =>
     catalog.data?.data
       .find((img) => img.templates?.includes(name))
@@ -285,7 +286,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
             onChange={selectTemplate}
             options={availability.map(({ template: tpl, available }) => ({
               id: tpl.name,
-              icon: discoveredIconFor(tpl.name, tpl.image),
+              icon: tpl.logo || discoveredIconFor(tpl.name, tpl.image),
               os: tpl.os,
               title: tpl.displayName,
               subtitle: `${tpl.os}${

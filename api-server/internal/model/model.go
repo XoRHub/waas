@@ -310,10 +310,14 @@ type WorkspaceTemplate struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName"`
 	Description string `json:"description,omitempty"`
-	OS          string `json:"os"`
-	Image       string `json:"image"`
-	Port        int32  `json:"port,omitempty"`
-	HomeSize    string `json:"homeSize,omitempty"`
+	// Logo is the template's icon reference (https URL, `file:<path>`,
+	// or dashboard-icons slug); empty falls back to the matching
+	// catalog entry's icon, then the OS icon.
+	Logo     string `json:"logo,omitempty"`
+	OS       string `json:"os"`
+	Image    string `json:"image"`
+	Port     int32  `json:"port,omitempty"`
+	HomeSize string `json:"homeSize,omitempty"`
 	// HomeMountPath is where the home volume is mounted (default
 	// /home/waas_user; kasmweb images expect /home/kasm-user).
 	HomeMountPath string `json:"homeMountPath,omitempty"`
@@ -395,8 +399,10 @@ type DiscoveredImage struct {
 	// App is a logical grouping slug (e.g. "firefox").
 	App     string `json:"app,omitempty"`
 	Version string `json:"version,omitempty"`
-	// Icon is a locally vendored dashboard-icons slug; unknown or
-	// absent falls back to the OS icon.
+	// Icon is an icon reference (https URL, `file:<path>`, or a
+	// dashboard-icons slug fetched live from the CDN — see
+	// docs/image-catalog.md); malformed or absent falls back to the
+	// OS icon.
 	Icon        string `json:"icon,omitempty"`
 	DisplayName string `json:"displayName,omitempty"`
 }

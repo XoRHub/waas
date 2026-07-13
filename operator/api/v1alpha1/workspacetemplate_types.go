@@ -291,6 +291,20 @@ type WorkspaceTemplateSpec struct {
 	// +optional
 	Description string `json:"description,omitempty"`
 
+	// Logo is the icon shown for this template in the portal's picker.
+	// Empty falls back to the icon of the matching catalog entry
+	// (DiscoveredImage.Icon for the template's image), then to the OS
+	// icon — the behavior templates had before this field existed.
+	// Accepts the same three forms as DiscoveredImage.Icon: an absolute
+	// https URL, a `file:<path>` path internal to the frontend, or a
+	// dashboard-icons slug. Deliberately unvalidated here (no CRD
+	// pattern, same precedent as DiscoveredImage.Icon): the frontend's
+	// icon resolver treats the value as untrusted and falls back to the
+	// OS icon on anything malformed. See docs/image-catalog.md for the
+	// format.
+	// +optional
+	Logo string `json:"logo,omitempty"`
+
 	// OS selects the workspace kind: linux (pod + VNC) or windows
 	// (KubeVirt VM + RDP). Windows requires KubeVirt in the cluster and is
 	// rejected by the validating webhook otherwise.

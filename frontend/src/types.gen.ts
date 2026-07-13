@@ -365,6 +365,12 @@ export interface WorkspaceTemplate {
   name: string;
   displayName: string;
   description?: string;
+  /**
+   * Logo is the template's icon reference (https URL, `file:<path>`,
+   * or dashboard-icons slug); empty falls back to the matching
+   * catalog entry's icon, then the OS icon.
+   */
+  logo?: string;
   os: string;
   image: string;
   port?: number /* int32 */;
@@ -491,8 +497,10 @@ export interface DiscoveredImage {
   app?: string;
   version?: string;
   /**
-   * Icon is a locally vendored dashboard-icons slug; unknown or
-   * absent falls back to the OS icon.
+   * Icon is an icon reference (https URL, `file:<path>`, or a
+   * dashboard-icons slug fetched live from the CDN — see
+   * docs/image-catalog.md); malformed or absent falls back to the
+   * OS icon.
    */
   icon?: string;
   displayName?: string;

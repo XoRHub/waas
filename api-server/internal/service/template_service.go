@@ -43,9 +43,12 @@ func NewTemplateService(kube client.Client, namespace string, audit *AuditServic
 // the API accepts exactly what the CR schema accepts, so new CR fields
 // never need a parallel DTO — the "no duplicated schema" decision.
 type TemplateInput struct {
-	Name          string `json:"name"`
-	DisplayName   string `json:"displayName"`
-	Description   string `json:"description"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
+	// Logo is the CR field verbatim (https URL, `file:<path>`, or
+	// dashboard-icons slug) — unvalidated here, like on the CR.
+	Logo          string `json:"logo,omitempty"`
 	OS            string `json:"os"`
 	Image         string `json:"image"`
 	Port          int32  `json:"port"`
@@ -206,6 +209,7 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 	spec := &waasv1alpha1.WorkspaceTemplateSpec{
 		DisplayName: in.DisplayName,
 		Description: in.Description,
+		Logo:        in.Logo,
 		OS:          os,
 		Image:       in.Image,
 		Port:        in.Port,
@@ -389,6 +393,7 @@ func templateToModel(tpl *waasv1alpha1.WorkspaceTemplate) model.WorkspaceTemplat
 		Name:        tpl.Name,
 		DisplayName: tpl.Spec.DisplayName,
 		Description: tpl.Spec.Description,
+		Logo:        tpl.Spec.Logo,
 		OS:          string(tpl.Spec.OS),
 		Image:       tpl.Spec.Image,
 		Port:        tpl.Spec.DesktopPort(),

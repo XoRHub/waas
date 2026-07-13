@@ -35,6 +35,16 @@ Changing the workload kind of a template does not touch running
 workspaces (grandfathering counts any existing kind); the new kind applies
 on the next provisioning (resume after pause, or recreate).
 
+## Logo
+
+`spec.logo` (optional) sets the icon shown for the template in the
+portal's picker. It takes the same three forms as a catalog entry's
+`icon` — an absolute https URL, a `file:<path>` path internal to the
+frontend, or a dashboard-icons slug — documented in
+[image-catalog.md](image-catalog.md). Precedence: `spec.logo` when set,
+else the icon of the catalog entry whose image matches the template's
+image (the pre-existing deduction, unchanged), else the OS icon.
+
 ## Protocols
 
 A template may declare several protocols in guacd terms:

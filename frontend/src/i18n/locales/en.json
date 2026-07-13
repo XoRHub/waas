@@ -260,6 +260,8 @@
       "image": "Image",
       "homeSize": "Home size",
       "description": "Description",
+      "logo": "Logo",
+      "logoHint": "https URL, file:<path> (asset served by the frontend), or dashboard-icons slug — empty uses the catalog icon, then the OS icon",
       "kasmvncConfig": "KasmVNC configuration",
       "kasmvncConfigHint": "Raw ~/.vnc/kasmvnc.yaml. Merged over the image's own defaults (unspecified keys keep the image default) and mounted read-only in the user's workspace. Clipboard copy/paste is derived from the WorkspacePolicy — those DLP keys are rejected here.",
       "kasmvncConfigDocLink": "KasmVNC configuration reference",

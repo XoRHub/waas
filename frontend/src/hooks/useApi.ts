@@ -388,6 +388,9 @@ export interface TemplateInput {
   name: string;
   displayName: string;
   description?: string;
+  /** Icon reference: https URL, file:<path>, or dashboard-icons slug.
+   * Empty falls back to the catalog icon, then the OS icon. */
+  logo?: string;
   os: string;
   image: string;
   homeSize?: string;

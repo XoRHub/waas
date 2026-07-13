@@ -95,6 +95,18 @@ export function IdentityFields({
 
       <label className="block">
         <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('admin.templatesPage.logo')}
+        </span>
+        <input
+          className={field}
+          value={input.logo ?? ''}
+          onChange={(e) => onPatch({ logo: e.target.value })}
+          placeholder={t('admin.templatesPage.logoHint')}
+        />
+      </label>
+
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
           {t('admin.templatesPage.description')}
         </span>
         <textarea

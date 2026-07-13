@@ -128,6 +128,7 @@ function toInput(tpl: WorkspaceTemplate): TemplateInput {
     name: tpl.name,
     displayName: tpl.displayName,
     description: tpl.description ?? '',
+    logo: tpl.logo ?? '',
     os: tpl.os,
     image: tpl.image,
     homeSize: tpl.homeSize ?? '',

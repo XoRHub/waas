@@ -288,10 +288,15 @@ type DiscoveredImage struct {
 	App string `json:"app,omitempty"`
 	// +optional
 	Version string `json:"version,omitempty"`
-	// Icon is a dashboard-icons (github.com/homarr-labs/dashboard-icons,
-	// Apache-2.0) slug, e.g. "firefox". The frontend resolves it against
-	// a LOCALLY VENDORED subset — never fetched live from GitHub —
-	// falling back to an OS icon when absent or unknown.
+	// Icon is the entry's icon reference, one of: an absolute https
+	// URL (used as-is, no host allow-list), a `file:<path>` path
+	// internal to the frontend (same-origin asset mounted into the
+	// nginx container), or a dashboard-icons
+	// (github.com/homarr-labs/dashboard-icons, Apache-2.0) slug, e.g.
+	// "firefox", fetched live from the dashboard-icons CDN. The
+	// frontend treats the value as untrusted and falls back to a
+	// vendored OS icon when absent or malformed. See
+	// docs/image-catalog.md for the format.
 	// +optional
 	Icon string `json:"icon,omitempty"`
 	// +optional
