@@ -68,11 +68,6 @@ spec:
             # break-glass admins). Keep this list short and audited.
             - name: WAAS_POLICY_BYPASS
               value: {{ .Values.operator.policyBypass | default "system:masters" | quote }}
-            # Catalog re-sync cadence for WorkspaceImage.spec.catalog
-            # (cosmetic picker metadata; an invalid duration refuses to
-            # start).
-            - name: WAAS_CATALOG_SYNC_INTERVAL
-              value: {{ .Values.operator.catalogSyncInterval | default "6h" | quote }}
           ports:
             - name: webhook
               containerPort: 9443

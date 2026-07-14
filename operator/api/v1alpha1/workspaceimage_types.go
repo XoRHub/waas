@@ -143,9 +143,10 @@ type ImageCatalogSpec struct {
 	// exclusive (enforced on ImageCatalogSource below; never more than
 	// one set). URL is fetched live over HTTP(S); ConfigMapKeyRef/SecretKeyRef
 	// are read directly, no HTTP involved. Both are re-checked on the
-	// SAME periodic cadence (operator.catalogSyncInterval) — no
-	// dedicated watch on the referenced ConfigMap/Secret (the operator
-	// deliberately reads both uncached, without the watch verb) — a
+	// SAME periodic cadence (apiServer.catalogSyncInterval) — no
+	// dedicated watch on the referenced ConfigMap/Secret (the
+	// api-server's CatalogSyncWorker deliberately reads both uncached,
+	// without the watch verb) — a
 	// static, GitOps-managed catalog for an admin who prefers not to
 	// depend on a live registry endpoint. This is a first-class,
 	// permanent choice, not a stopgap-until-network-works: an admin
@@ -172,7 +173,7 @@ type ImageCatalogSpec struct {
 // +kubebuilder:validation:XValidation:rule="(has(self.url) ? 1 : 0) + (has(self.configMapKeyRef) ? 1 : 0) + (has(self.secretKeyRef) ? 1 : 0) == 1",message="exactly one of url, configMapKeyRef, or secretKeyRef must be set"
 type ImageCatalogSource struct {
 	// URL is the catalog manifest location, fetched live and
-	// periodically (operator.catalogSyncInterval).
+	// periodically (apiServer.catalogSyncInterval).
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	URL string `json:"url,omitempty"`
@@ -181,7 +182,7 @@ type ImageCatalogSource struct {
 	// platform workspace namespace instead of fetching it over HTTP —
 	// the common case, since the content isn't secret, just a static
 	// admin-provided catalog. Key defaults to "catalog.yaml" when
-	// empty. Re-read periodically (operator.catalogSyncInterval), not
+	// empty. Re-read periodically (apiServer.catalogSyncInterval), not
 	// just once — no dedicated watch on the ConfigMap (uncached reads,
 	// no watch verb, by existing design). Not a corev1
 	// ConfigMapKeySelector: that type marks key as REQUIRED in the

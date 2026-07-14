@@ -113,7 +113,6 @@ table is a quick *what*.
 | operator.replicas | int | `1` | Operator Deployment replica count. |
 | operator.webhook.enabled | bool | `true` | Enable the operator's admission webhook (cert-manager Issuer/Certificate + ValidatingWebhookConfiguration). |
 | operator.policyBypass | string | `"system:masters"` | Comma-separated users/groups exempt from workspace policy checks. |
-| operator.catalogSyncInterval | string | `"6h"` | Re-sync cadence of WorkspaceImage catalog sources (cosmetic picker metadata only). |
 | operator.resources.requests.cpu | string | `"50m"` |  |
 | operator.resources.requests.memory | string | `"64Mi"` |  |
 | operator.resources.limits.memory | string | `"256Mi"` |  |
@@ -126,6 +125,7 @@ table is a quick *what*.
 | apiServer.accessTokenTTL | string | `"8h"` | Access token lifetime. |
 | apiServer.connectionTokenTTL | string | `"5m"` | Short-lived connection token lifetime (per desktop session). |
 | apiServer.eventsPollInterval | string | `"10s"` | Poll interval used by the workspace Events panel. |
+| apiServer.catalogSyncInterval | string | `"6h"` | Re-sync cadence of WorkspaceImage catalog sources (cosmetic picker metadata only). |
 | apiServer.adminUsername | string | `"admin"` | Bootstrap admin username. |
 | apiServer.adminPassword | string | `""` | Bootstrap admin password; empty generates one and prints it once in the logs. |
 | apiServer.adminPasswordSecretRef.name | string | `""` | Secret name to read the admin password from instead of `adminPassword` above. |

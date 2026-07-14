@@ -23,6 +23,12 @@ rules:
   - apiGroups: [waas.xorhub.io]
     resources: [workspaceimages, workspacepolicies]
     verbs: [create, delete, get, list, patch, update, watch]
+  # CatalogSyncWorker writes status.catalog.{source,lastSyncTime,lastSyncError}
+  # after every sync — the discovered entries themselves go to Postgres
+  # (catalog_entries), never to this subresource.
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspaceimages/status]
+    verbs: [get, patch]
   # Secrets, scoped to the workspace namespace and deliberately without
   # list/watch:
   #   - get: connect-time resolution of template credentialsSecretRef;

@@ -285,12 +285,6 @@ operator:
   # "system:masters,system:serviceaccount:argocd:argocd-application-controller".
   # -- Comma-separated users/groups exempt from workspace policy checks.
   policyBypass: "system:masters"
-  # Re-sync cadence of WorkspaceImage.spec.catalog sources (live URL
-  # fetch and static ConfigMap/Secret re-read alike). Purely cosmetic
-  # picker metadata — a longer interval only delays logos, never
-  # workspace creation.
-  # -- Re-sync cadence of WorkspaceImage catalog sources (cosmetic picker metadata only).
-  catalogSyncInterval: 6h
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { memory: 256Mi }
@@ -316,6 +310,14 @@ apiServer:
   # frontend honors whatever the API answers, no rebuild needed).
   # -- Poll interval used by the workspace Events panel.
   eventsPollInterval: 10s
+  # Re-sync cadence of WorkspaceImage.spec.catalog sources (live URL
+  # fetch and static ConfigMap/Secret re-read alike). Purely cosmetic
+  # picker metadata — a longer interval only delays logos, never
+  # workspace creation. Owned by the api-server (CatalogSyncWorker):
+  # it is the component with both database and k8s access to sync
+  # discovered images into catalog_entries (Postgres).
+  # -- Re-sync cadence of WorkspaceImage catalog sources (cosmetic picker metadata only).
+  catalogSyncInterval: 6h
   # Bootstrap admin password. Empty = generated and printed once in the
   # api-server logs on first boot.
   # -- Bootstrap admin username.
