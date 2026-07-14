@@ -53,6 +53,8 @@ table is a quick *what*.
 | image.pullPolicy | string | `"IfNotPresent"` | imagePullPolicy for every component's pods. |
 | secretsJob.enabled | bool | `true` | Generate/manage the release Secrets in-cluster; disable once every `*SecretRef` below is set. |
 | secretsJob.image | string | `"bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978"` | Image used by the secrets-generation hook Job. |
+| internalTokenSecretRef.name | string | `""` | Secret name to read the internal-token from instead of the chart-generated one. |
+| internalTokenSecretRef.key | string | `""` | Secret key. Defaults to `"internal-token"`. |
 | jwtJob.image | string | `"bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978"` | Image used by the JWT signing-key hook Job (kubectl + openssl, same as secretsJob's). |
 | workspaces.namespace | string | `""` | Namespace for Workspace/WorkspaceTemplate CRs; empty defaults to the release namespace. |
 | workspaces.create | bool | `true` | Create the namespace above when it differs from the release namespace. |

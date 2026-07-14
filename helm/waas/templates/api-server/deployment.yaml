@@ -75,8 +75,8 @@ spec:
             - name: WAAS_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-app-secrets
-                  key: internal-token
+                  name: {{ .Values.internalTokenSecretRef.name | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: {{ .Values.internalTokenSecretRef.key | default "internal-token" }}
             {{- if or .Values.apiServer.adminPassword .Values.apiServer.adminPasswordSecretRef.name }}
             - name: WAAS_ADMIN_PASSWORD
               valueFrom:

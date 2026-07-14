@@ -28,12 +28,12 @@ secretsJob:
   # Disable when every password/URL this chart needs is supplied through
   # its own *SecretRef below (postgres.passwordSecretRef,
   # postgres.externalURLSecretRef, apiServer.adminPasswordSecretRef,
-  # apiServer.oidc.clientSecretRef) — e.g. all synced in by an
-  # ExternalSecret. When disabled, YOU must pre-create
-  # `<release>-app-secrets` with an `internal-token` key (always
-  # required, no override exists for it — it's a chart-internal,
-  # never user-facing credential shared between wwt and api-server;
-  # nothing else generates or migrates it). Generate one with:
+  # apiServer.oidc.clientSecretRef, internalTokenSecretRef) — e.g. all
+  # synced in by an ExternalSecret. When disabled and no
+  # internalTokenSecretRef is set, YOU must pre-create
+  # `<release>-app-secrets` with an `internal-token` key yourself
+  # (nothing else generates or migrates it in that case). Generate one
+  # with:
   #   openssl rand -hex 32
   # For postgres.password/apiServer.adminPassword, if you'd rather
   # generate your own instead of leaving them empty (auto-generated):
@@ -51,6 +51,17 @@ secretsJob:
   # change; kubectl does not have to match the cluster version exactly.
   # -- Image used by the secrets-generation hook Job.
   image: bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978
+
+# internal-token: the shared bearer secret wwt sends (X-Internal-Token
+# header) and api-server checks (subtle.ConstantTimeCompare, no format
+# requirement — see docs/ci-github.md) to authenticate wwt→api-server
+# calls. Shared by both components, so it lives at the root rather than
+# under apiServer.* or wwt.*, same shape as every other *SecretRef.
+internalTokenSecretRef:
+  # -- Secret name to read the internal-token from instead of the chart-generated one.
+  name: ""
+  # -- Secret key. Defaults to `"internal-token"`.
+  key: ""
 
 # Pre-install/pre-upgrade hook Job dedicated to the JWT signing key
 # (RS256, used by api-server to sign tokens and publish the JWKS wwt
