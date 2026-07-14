@@ -5,7 +5,6 @@ go 1.26
 require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/xorhub/waas/shared v0.0.0
 	golang.org/x/text v0.40.0
 	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0
@@ -13,8 +12,6 @@ require (
 	sigs.k8s.io/controller-runtime v0.23.1
 	sigs.k8s.io/yaml v1.6.0
 )
-
-replace github.com/xorhub/waas/shared => ../shared
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
