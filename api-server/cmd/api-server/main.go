@@ -77,6 +77,7 @@ func run() error {
 	sessions := repository.NewSQLSessionRepository(db)
 	remotes := repository.NewSQLRemoteWorkspaceRepository(db)
 	auditRepo := repository.NewSQLAuditRepository(db)
+	catalogRepo := repository.NewSQLCatalogRepository(db)
 
 	audit := service.NewAuditService(auditRepo)
 	authSvc := service.NewAuthService(users, signer, audit, cfg.JWTIssuer, cfg.AccessTokenTTL)
@@ -139,6 +140,10 @@ func run() error {
 	// rows whose workspace/remote was deleted outside this API (kubectl,
 	// ArgoCD prune) or whose end-of-session callback was lost.
 	go service.NewSessionSweeper(kube, cfg.WorkspaceNamespace, sessions, remotes, audit, cfg.SessionSweepInterval).Run(ctx)
+	// Catalog sync also lives here, not in the operator: only the
+	// api-server has both database and k8s access needed to write
+	// catalog_entries (see CatalogSyncWorker doc comment).
+	go service.NewCatalogSyncWorker(kube, cfg.WorkspaceNamespace, catalogRepo, cfg.CatalogSyncInterval).Run(ctx)
 	go events.RunWorkspaceWatch(ctx, kube, cfg.WorkspaceNamespace)
 	// Admin-managed objects change through GitOps and kubectl too: watch
 	// them and broadcast their KIND (never data — clients re-fetch through

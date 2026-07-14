@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // setBaseEnv makes Load() pass its unrelated required-var checks and pins
@@ -59,5 +60,47 @@ func TestLoadOIDCOnlyDefaultsToFalse(t *testing.T) {
 	}
 	if cfg.OIDC.OIDCOnly {
 		t.Fatal("cfg.OIDC.OIDCOnly should default to false")
+	}
+}
+
+func TestLoadCatalogSyncIntervalDefault(t *testing.T) {
+	setBaseEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	if want := 6 * time.Hour; cfg.CatalogSyncInterval != want {
+		t.Fatalf("cfg.CatalogSyncInterval = %v, want %v", cfg.CatalogSyncInterval, want)
+	}
+}
+
+// An invalid WAAS_CATALOG_SYNC_INTERVAL must NOT stop the api-server —
+// unlike the operator's historical fail-closed behavior for this same
+// setting, it only degrades a purely cosmetic sync cadence. It must
+// still fall back to the default rather than e.g. parsing as zero.
+func TestLoadCatalogSyncIntervalInvalidFallsBack(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("WAAS_CATALOG_SYNC_INTERVAL", "not-a-duration")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() must not fail on an invalid catalog sync interval: %v", err)
+	}
+	if want := 6 * time.Hour; cfg.CatalogSyncInterval != want {
+		t.Fatalf("cfg.CatalogSyncInterval = %v, want fallback %v", cfg.CatalogSyncInterval, want)
+	}
+}
+
+func TestLoadCatalogSyncIntervalValid(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("WAAS_CATALOG_SYNC_INTERVAL", "30m")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	if want := 30 * time.Minute; cfg.CatalogSyncInterval != want {
+		t.Fatalf("cfg.CatalogSyncInterval = %v, want %v", cfg.CatalogSyncInterval, want)
 	}
 }

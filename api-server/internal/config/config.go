@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -58,6 +59,13 @@ type Config struct {
 	// EventsPollInterval is handed to the frontend events panel: how
 	// often it refetches while open (server-driven, no rebuild needed).
 	EventsPollInterval time.Duration
+
+	// CatalogSyncInterval is how often CatalogSyncWorker re-fetches
+	// every registry-mode WorkspaceImage's published catalog manifest
+	// into catalog_entries. Purely cosmetic (picker refresh cadence):
+	// see durationOrLogged for why an invalid value falls back instead
+	// of refusing to start.
+	CatalogSyncInterval time.Duration
 
 	// MetricsEnabled mounts the Prometheus /metrics endpoint (and its
 	// request-observing middleware). Off by default: the endpoint is
@@ -150,6 +158,7 @@ func Load() (*Config, error) {
 		IdleSweepInterval:       durationOr("WAAS_IDLE_SWEEP_INTERVAL", 5*time.Minute),
 		SessionSweepInterval:    durationOr("WAAS_SESSION_SWEEP_INTERVAL", time.Minute),
 		EventsPollInterval:      durationOr("WAAS_EVENTS_POLL_INTERVAL", 10*time.Second),
+		CatalogSyncInterval:     durationOrLogged("WAAS_CATALOG_SYNC_INTERVAL", 6*time.Hour),
 		MetricsEnabled:          os.Getenv("WAAS_METRICS_ENABLED") == "true",
 	}
 	if origins := os.Getenv("WAAS_CORS_ALLOWED_ORIGINS"); origins != "" {
@@ -230,4 +239,29 @@ func durationOr(key string, fallback time.Duration) time.Duration {
 		}
 	}
 	return fallback
+}
+
+// durationOrLogged parses a duration env var like durationOr, but an
+// invalid value is logged as an ERROR (visible and alertable) instead
+// of failing silently. This sits deliberately between durationOr's
+// plain silent fallback and the operator's historical fail-closed
+// behavior for the same setting (os.Exit(1) on an invalid
+// WAAS_CATALOG_SYNC_INTERVAL, back when it gated a CR reconciler):
+// here the value only controls a purely cosmetic sync cadence
+// (catalog picker freshness) on a process that ALSO serves live user
+// traffic (sessions, workspace creation, auth) — killing the whole
+// api-server over a mistyped duration would be a disproportionate
+// blast radius, but the mistake must not vanish into the fallback
+// unnoticed either.
+func durationOrLogged(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		slog.Error("invalid duration, falling back to default", "env", key, "value", v, "default", fallback)
+		return fallback
+	}
+	return d
 }
