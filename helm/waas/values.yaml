@@ -530,6 +530,10 @@ grafana:
     instanceSelector:
       # -- Grafana instance selector; only used in mode `"operator"`.
       matchLabels: {}
+    # -- Allow the matched Grafana instance to live in a different namespace than the dashboard CR; only used in mode `"operator"`.
+    allowCrossNamespaceImport: true
+    # -- How often grafana-operator re-applies the dashboard JSON; only used in mode `"operator"`.
+    resyncPeriod: 24h
     # -- Grafana folder the dashboards are filed under.
     folder: WaaS
 

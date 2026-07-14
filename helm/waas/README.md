@@ -193,6 +193,8 @@ table is a quick *what*.
 | grafana.dashboards.enabled | bool | `false` | Ship the bundled Grafana dashboards. |
 | grafana.dashboards.mode | string | `"configmap"` | `"configmap"` (sidecar-picked ConfigMaps) or `"operator"` (GrafanaDashboard CRs). |
 | grafana.dashboards.instanceSelector.matchLabels | object | `{}` | Grafana instance selector; only used in mode `"operator"`. |
+| grafana.dashboards.allowCrossNamespaceImport | bool | `true` | Allow the matched Grafana instance to live in a different namespace than the dashboard CR; only used in mode `"operator"`. |
+| grafana.dashboards.resyncPeriod | string | `"24h"` | How often grafana-operator re-applies the dashboard JSON; only used in mode `"operator"`. |
 | grafana.dashboards.folder | string | `"WaaS"` | Grafana folder the dashboards are filed under. |
 | postgres.enabled | bool | `true` | Deploy the chart's own PostgreSQL 17 StatefulSet; false brings your own instance. |
 | postgres.image | string | `"postgres:17-alpine"` | postgres image reference; only used when postgres.enabled is true. |
