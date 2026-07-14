@@ -281,10 +281,16 @@ jobs:
           DEV_VERSION="${CHART_VERSION}-main.${{ steps.vars.outputs.sha }}"
           helm package helm/waas --version "$DEV_VERSION" -d dist
           helm push "dist/waas-${DEV_VERSION}.tgz" "oci://$REGISTRY/${{ steps.vars.outputs.repo }}/charts"
-          # Moving `edge` tag: same convenience pointer as the images'
+          # Moving `0.0.0-edge` tag: same convenience pointer as the images'
           # `edge` tag (ci-images.yml), mirrored onto the chart artifact.
+          # Unlike the images (untagged, no SemVer to satisfy), a bare
+          # `edge` tag isn't valid SemVer, so `helm pull --version edge`
+          # (and kustomize's helmCharts, which goes through the same Helm
+          # SDK validation) reject it outright. `0.0.0-edge` is a valid
+          # SemVer prerelease with a fixed name — stable regardless of
+          # Chart.yaml's own version bumps.
           docker buildx imagetools create \
-            -t "$REGISTRY/${{ steps.vars.outputs.repo }}/charts/waas:edge" \
+            -t "$REGISTRY/${{ steps.vars.outputs.repo }}/charts/waas:0.0.0-edge" \
             "$REGISTRY/${{ steps.vars.outputs.repo }}/charts/waas:$DEV_VERSION"
 
   # ------------------------------------------------------------------

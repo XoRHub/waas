@@ -57,7 +57,7 @@ push main — EVERYTHING is built (invariant: every main SHA carries the
 │  └─ scan-images            blocking trivy on the manifest list
 ├─ chart-oci (in ci.yml)     OCI push of the chart, version `X.Y.Z-main.<short-sha>`
 │                            (SemVer prerelease, never collides with vX.Y.Z)
-│                            + mobile `edge` tag on the chart OCI artifact
+│                            + mobile `0.0.0-edge` tag on the chart OCI artifact
 └─ release-please (in ci.yml)  AT THE END of the pipeline (needs on the 5 call jobs)
    ├─ promote        (if "." release_created)          ZERO rebuild:
    │     verify (Chart.yaml appVersion = tag, sources present, tags free)
@@ -74,6 +74,14 @@ never a deploy reference); `latest` only ever moves on an **official
 release** (the `promote`/`promote-chart` jobs). The two never point at
 the same digest at the same time unless a release SHA happens to be
 `main`'s tip.
+
+On the chart artifact specifically, the moving dev pointer is tagged
+`0.0.0-edge`, not a bare `edge`: Helm (and kustomize's `helmCharts`,
+which validates through the same Helm SDK) requires OCI tags used with
+`--version` to parse as SemVer, and `edge` alone doesn't. `0.0.0-edge`
+is a valid SemVer prerelease with a name that stays fixed across
+`Chart.yaml` version bumps — images have no such constraint (pulled by
+plain tag, no `--version`), so they keep the bare `edge` tag.
 
 ## Helm CLI: v4
 
@@ -97,14 +105,14 @@ No dedicated Helm registry: the chart is pushed as an OCI artifact into
 subpath (`ghcr.io/<owner>/<repo>/charts/waas:<version>`). Helm (from
 `.mise.toml` via `mise-action`) + `helm registry login` with
 `GITHUB_TOKEN`; the extra mobile
-tags (`edge`/`latest`) are added with `docker buildx imagetools create`
+tags (`0.0.0-edge`/`latest`) are added with `docker buildx imagetools create`
 (same trick as the images), which needs a plain `docker/login-action`
 login alongside the Helm one — the two CLIs keep separate credential
 stores.
 
 - job `chart-oci` (push main): `helm package --version
-  X.Y.Z-main.<short-sha>`, then re-tags that push as `edge` — mirroring
-  the images' mobile `edge` tag.
+  X.Y.Z-main.<short-sha>`, then re-tags that push as `0.0.0-edge` — a
+  SemVer-valid stand-in for the images' mobile `edge` tag (see above).
 - job `promote-chart` (tag `waas-chart-X.Y.Z`, from the `helm/waas`
   release-please package): `helm package` **without override** — the
   `Chart.yaml` of the tagged commit already carries the released
