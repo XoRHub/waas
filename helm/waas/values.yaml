@@ -28,7 +28,7 @@ secretsJob:
   # Disable when every password/URL this chart needs is supplied through
   # its own *SecretRef below (postgres.passwordSecretRef,
   # postgres.externalURLSecretRef, apiServer.adminPasswordSecretRef,
-  # apiServer.oidc.existingSecret) — e.g. all synced in by an
+  # apiServer.oidc.clientSecretRef) — e.g. all synced in by an
   # ExternalSecret. When disabled, YOU must pre-create
   # `<release>-app-secrets` with an `internal-token` key (always
   # required, no override exists for it — it's a chart-internal,
@@ -102,8 +102,11 @@ defaultPolicy:
   name: default
   # -- Priority of the bootstrap default WorkspacePolicy (0 = fallback, per the CRD's own convention).
   priority: 0
+  # -- Subjects (users/groups) this policy applies to; empty = every authenticated user (the point of a "default" policy).
+  subjects: []
   # -- Catalog subset this policy allows; empty = the whole enabled catalog.
   images: []
+  # -- Caps on what a matched user can consume; empty = unlimited.
   limits:
     # -- Max concurrent workspaces per matched user.
     maxWorkspaces: 3
@@ -113,16 +116,23 @@ defaultPolicy:
     aggregate: { cpu: "2", memory: 3Gi, storage: 15Gi }
     # -- Sizing the portal proposes when the user doesn't choose; display-only, never enforced (a per-image default takes precedence).
     defaults: { cpu: 500m, memory: 0.5Mi }
+  # -- Workspace longevity bounds; empty = never suspended/deleted.
   lifecycle:
     # -- Pause (compute released, home kept) a workspace idle this long.
     idleSuspendAfter: 2h
     # -- Delete a workspace (home included) this long after creation.
     maxLifetime: 336h
+  # -- Clipboard bridge directions; empty = both allowed.
   clipboard:
     # -- Allow copying FROM the workspace to the local clipboard.
     copyFromWorkspace: true
     # -- Allow pasting the local clipboard INTO the workspace.
     pasteToWorkspace: true
+  # -- Template-override fields the matched user may set at instantiation time (intersected with the template's own allow-list); empty = no policy-level restriction, the template's allow-list alone applies.
+  overrides:
+    allowedFields: [env, resources, schedule, volumes]
+  # -- Opt the matched user into the Remote Workspaces feature (out-of-cluster machines via guacd).
+  remoteWorkspaces: false
 
 # Bootstrap of the explicit all-rights admin policy (priority 10000, no
 # limits/lifecycle = no caps or TTL, whole catalog, every override
@@ -145,6 +155,33 @@ adminPolicy:
     # Add your IDP admin groups here, e.g.:
     # - kind: Group
     #   name: "waas-admins"
+  # -- Catalog subset this policy allows; empty = the whole enabled catalog.
+  images: []
+  # -- Caps on what an admin can consume; empty = unlimited (the point of this policy).
+  limits: {}
+  # -- Workspace longevity bounds; empty = never suspended/deleted.
+  lifecycle: {}
+  # -- Clipboard bridge directions; empty = both allowed.
+  clipboard: {}
+  # -- Template-override fields admins may set at instantiation time (intersected with the template's own allow-list).
+  overrides:
+    allowedFields:
+      [
+        env,
+        securityContext,
+        podSecurityContext,
+        volumes,
+        nodeSelector,
+        tolerations,
+        resources,
+        protocol,
+        protocolParams,
+        schedule,
+        placement,
+        metadata,
+      ]
+  # -- Opt admins into the Remote Workspaces feature (out-of-cluster machines via guacd).
+  remoteWorkspaces: true
 
 # Bootstrap of the two official image catalogs (registry-mode WorkspaceImage
 # approvals + live catalog.yaml sync, see docs/image-catalog.md) so a first
@@ -309,12 +346,15 @@ apiServer:
       name: ""
       # -- Secret key. Defaults to `"client-id"`.
       key: ""
-    # Client secret comes from a Secret (ESO/Vault-friendly). Default:
-    # key "oidc-client-secret" of the chart's own <release>-secrets.
-    # -- Secret name holding the OIDC client secret; empty uses the chart's own `<release>-app-secrets`.
-    existingSecret: ""
-    # -- Secret key. Defaults to `"oidc-client-secret"`.
-    existingSecretKey: ""
+    # Client secret ALWAYS comes from a Secret (ESO/Vault-friendly) — no
+    # plain-value counterpart, unlike the fields above: a client secret
+    # in a plain value would defeat the purpose. Same {name, key} shape
+    # as issuerURLSecretRef/clientIDSecretRef/redirectURLSecretRef.
+    clientSecretRef:
+      # -- Secret name holding the OIDC client secret; empty uses the chart's own `<release>-app-secrets`.
+      name: ""
+      # -- Secret key. Defaults to `"oidc-client-secret"`.
+      key: ""
     # This api-server's public callback, e.g.
     # https://waas.example.com/api/v1/auth/oidc/callback
     # -- This api-server's public OIDC callback URL.

@@ -9,11 +9,12 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: renders the configured name, priority and no subjects field
+  - it: renders the configured name, priority, no subjects field, limits/lifecycle/clipboard
     set:
       defaultPolicy.enabled: true
       defaultPolicy.name: test-default
       defaultPolicy.priority: 0
+      defaultPolicy.subjects: []
       defaultPolicy.images: []
       defaultPolicy.limits:
         maxWorkspaces: 7
@@ -26,6 +27,8 @@ tests:
       defaultPolicy.clipboard:
         copyFromWorkspace: false
         pasteToWorkspace: false
+      defaultPolicy.overrides: { allowedFields: [] }
+      defaultPolicy.remoteWorkspaces: false
     asserts:
       - isKind:
           of: WorkspacePolicy
@@ -58,3 +61,29 @@ tests:
       - equal:
           path: spec.clipboard.pasteToWorkspace
           value: false
+      - notExists:
+          path: spec.overrides
+      - equal:
+          path: spec.remoteWorkspaces
+          value: false
+
+  - it: restricting subjects and enabling overrides/remoteWorkspaces are supported for full bootstrap customization
+    set:
+      defaultPolicy.enabled: true
+      defaultPolicy.subjects:
+        - kind: Group
+          name: everyone-but-guests
+      defaultPolicy.overrides: { allowedFields: [resources] }
+      defaultPolicy.remoteWorkspaces: true
+    asserts:
+      - equal:
+          path: spec.subjects
+          value:
+            - kind: Group
+              name: everyone-but-guests
+      - equal:
+          path: spec.overrides.allowedFields
+          value: [resources]
+      - equal:
+          path: spec.remoteWorkspaces
+          value: true

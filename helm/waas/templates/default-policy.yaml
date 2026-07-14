@@ -12,12 +12,28 @@ metadata:
     {{- include "waas.labels" . | nindent 4 }}
 spec:
   priority: {{ .Values.defaultPolicy.priority }}
+  {{- with .Values.defaultPolicy.subjects }}
+  subjects:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   images:
     {{- toYaml .Values.defaultPolicy.images | nindent 4 }}
+  {{- with .Values.defaultPolicy.limits }}
   limits:
-    {{- toYaml .Values.defaultPolicy.limits | nindent 4 }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaultPolicy.lifecycle }}
   lifecycle:
-    {{- toYaml .Values.defaultPolicy.lifecycle | nindent 4 }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaultPolicy.clipboard }}
   clipboard:
-    {{- toYaml .Values.defaultPolicy.clipboard | nindent 4 }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaultPolicy.overrides.allowedFields }}
+  overrides:
+    allowedFields:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+  remoteWorkspaces: {{ .Values.defaultPolicy.remoteWorkspaces }}
 {{- end }}

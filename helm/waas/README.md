@@ -60,19 +60,31 @@ table is a quick *what*.
 | defaultPolicy.enabled | bool | `true` | Bootstrap a catch-all baseline WorkspacePolicy (priority 0) applying to every user. |
 | defaultPolicy.name | string | `"default"` | Name of the bootstrap default WorkspacePolicy. |
 | defaultPolicy.priority | int | `0` | Priority of the bootstrap default WorkspacePolicy (0 = fallback, per the CRD's own convention). |
+| defaultPolicy.subjects | list | `[]` | Subjects (users/groups) this policy applies to; empty = every authenticated user (the point of a "default" policy). |
 | defaultPolicy.images | list | `[]` | Catalog subset this policy allows; empty = the whole enabled catalog. |
+| defaultPolicy.limits | object | `{"aggregate":{"cpu":"2","memory":"3Gi","storage":"15Gi"},"defaults":{"cpu":"500m","memory":"0.5Mi"},"maxWorkspaces":3,"perWorkspace":{"cpu":"1","home":"5Gi","memory":"1Gi"}}` | Caps on what a matched user can consume; empty = unlimited. |
 | defaultPolicy.limits.maxWorkspaces | int | `3` | Max concurrent workspaces per matched user. |
 | defaultPolicy.limits.perWorkspace | object | `{"cpu":"1","home":"5Gi","memory":"1Gi"}` | Per-workspace caps (cpu/memory/home volume size). |
 | defaultPolicy.limits.aggregate | object | `{"cpu":"2","memory":"3Gi","storage":"15Gi"}` | Caps on the SUM across all of the matched user's workspaces (cpu/memory/home storage). |
 | defaultPolicy.limits.defaults | object | `{"cpu":"500m","memory":"0.5Mi"}` | Sizing the portal proposes when the user doesn't choose; display-only, never enforced (a per-image default takes precedence). |
+| defaultPolicy.lifecycle | object | `{"idleSuspendAfter":"2h","maxLifetime":"336h"}` | Workspace longevity bounds; empty = never suspended/deleted. |
 | defaultPolicy.lifecycle.idleSuspendAfter | string | `"2h"` | Pause (compute released, home kept) a workspace idle this long. |
 | defaultPolicy.lifecycle.maxLifetime | string | `"336h"` | Delete a workspace (home included) this long after creation. |
+| defaultPolicy.clipboard | object | `{"copyFromWorkspace":true,"pasteToWorkspace":true}` | Clipboard bridge directions; empty = both allowed. |
 | defaultPolicy.clipboard.copyFromWorkspace | bool | `true` | Allow copying FROM the workspace to the local clipboard. |
 | defaultPolicy.clipboard.pasteToWorkspace | bool | `true` | Allow pasting the local clipboard INTO the workspace. |
+| defaultPolicy.overrides | object | `{"allowedFields":["env","resources","schedule","volumes"]}` | Template-override fields the matched user may set at instantiation time (intersected with the template's own allow-list); empty = no policy-level restriction, the template's allow-list alone applies. |
+| defaultPolicy.remoteWorkspaces | bool | `false` | Opt the matched user into the Remote Workspaces feature (out-of-cluster machines via guacd). |
 | adminPolicy.enabled | bool | `false` | Bootstrap an explicit all-rights WorkspacePolicy for platform admins. |
 | adminPolicy.name | string | `"admins"` | Name of the bootstrap admin WorkspacePolicy. |
 | adminPolicy.priority | int | `10000` | Priority of the bootstrap admin WorkspacePolicy (higher wins ties). |
 | adminPolicy.subjects | list | `[{"kind":"User","name":"admin"}]` | Subjects (users/groups) granted the bootstrap admin policy. |
+| adminPolicy.images | list | `[]` | Catalog subset this policy allows; empty = the whole enabled catalog. |
+| adminPolicy.limits | object | `{}` | Caps on what an admin can consume; empty = unlimited (the point of this policy). |
+| adminPolicy.lifecycle | object | `{}` | Workspace longevity bounds; empty = never suspended/deleted. |
+| adminPolicy.clipboard | object | `{}` | Clipboard bridge directions; empty = both allowed. |
+| adminPolicy.overrides | object | `{"allowedFields":["env","securityContext","podSecurityContext","volumes","nodeSelector","tolerations","resources","protocol","protocolParams","schedule","placement","metadata"]}` | Template-override fields admins may set at instantiation time (intersected with the template's own allow-list). |
+| adminPolicy.remoteWorkspaces | bool | `true` | Opt admins into the Remote Workspaces feature (out-of-cluster machines via guacd). |
 | catalogs.waasImages.enabled | bool | `true` | Bootstrap the XorHub desktop-images catalog on install. |
 | catalogs.waasImages.name | string | `"waas-images"` | Name of the bootstrap WorkspaceImage for this catalog. |
 | catalogs.waasImages.displayName | string | `"XorHub images"` | Display name shown in the portal picker. |
@@ -122,8 +134,8 @@ table is a quick *what*.
 | apiServer.oidc.clientID | string | `""` | OIDC client ID. |
 | apiServer.oidc.clientIDSecretRef.name | string | `""` | Secret name to read clientID from instead of the plain value above. |
 | apiServer.oidc.clientIDSecretRef.key | string | `""` | Secret key. Defaults to `"client-id"`. |
-| apiServer.oidc.existingSecret | string | `""` | Secret name holding the OIDC client secret; empty uses the chart's own `<release>-app-secrets`. |
-| apiServer.oidc.existingSecretKey | string | `""` | Secret key. Defaults to `"oidc-client-secret"`. |
+| apiServer.oidc.clientSecretRef.name | string | `""` | Secret name holding the OIDC client secret; empty uses the chart's own `<release>-app-secrets`. |
+| apiServer.oidc.clientSecretRef.key | string | `""` | Secret key. Defaults to `"oidc-client-secret"`. |
 | apiServer.oidc.redirectURL | string | `""` | This api-server's public OIDC callback URL. |
 | apiServer.oidc.redirectURLSecretRef.name | string | `""` | Secret name to read redirectURL from instead of the plain value above. |
 | apiServer.oidc.redirectURLSecretRef.key | string | `""` | Secret key. Defaults to `"redirect-url"`. |

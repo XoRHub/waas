@@ -119,8 +119,8 @@ spec:
             - name: WAAS_OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .existingSecret | default (printf "%s-app-secrets" $.Release.Name) }}
-                  key: {{ .existingSecretKey | default "oidc-client-secret" }}
+                  name: {{ .clientSecretRef.name | default (printf "%s-app-secrets" $.Release.Name) }}
+                  key: {{ .clientSecretRef.key | default "oidc-client-secret" }}
             - name: WAAS_OIDC_REDIRECT_URL
               {{- if .redirectURLSecretRef.name }}
               valueFrom:

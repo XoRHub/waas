@@ -9,7 +9,7 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: renders the configured name, priority and subjects
+  - it: renders the configured name, priority, subjects, images and remoteWorkspaces
     set:
       adminPolicy.enabled: true
       adminPolicy.name: test-admins
@@ -17,6 +17,8 @@ tests:
       adminPolicy.subjects:
         - kind: Group
           name: test-admins-group
+      adminPolicy.images: []
+      adminPolicy.remoteWorkspaces: true
     asserts:
       - isKind:
           of: WorkspacePolicy
@@ -37,3 +39,41 @@ tests:
       - equal:
           path: spec.images
           value: []
+
+  - it: omits limits/lifecycle/clipboard/overrides when left empty (unlimited admin)
+    set:
+      adminPolicy.enabled: true
+      adminPolicy.limits: {}
+      adminPolicy.lifecycle: {}
+      adminPolicy.clipboard: {}
+      adminPolicy.overrides: { allowedFields: [] }
+    asserts:
+      - notExists:
+          path: spec.limits
+      - notExists:
+          path: spec.lifecycle
+      - notExists:
+          path: spec.clipboard
+      - notExists:
+          path: spec.overrides
+
+  - it: renders limits/lifecycle/clipboard/overrides when set, for full bootstrap customization
+    set:
+      adminPolicy.enabled: true
+      adminPolicy.limits: { maxWorkspaces: 10 }
+      adminPolicy.lifecycle: { idleSuspendAfter: 4h }
+      adminPolicy.clipboard: { copyFromWorkspace: false }
+      adminPolicy.overrides: { allowedFields: [env] }
+    asserts:
+      - equal:
+          path: spec.limits.maxWorkspaces
+          value: 10
+      - equal:
+          path: spec.lifecycle.idleSuspendAfter
+          value: 4h
+      - equal:
+          path: spec.clipboard.copyFromWorkspace
+          value: false
+      - equal:
+          path: spec.overrides.allowedFields
+          value: [env]

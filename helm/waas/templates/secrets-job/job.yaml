@@ -141,7 +141,7 @@ spec:
                 patch+=",\"admin-password\":\"$(b64 "$ADMIN_PASSWORD")\""
               fi
               # oidc-client-secret has no chart-side source (added by the
-              # operator or referenced via oidc.existingSecret): carry it
+              # operator or referenced via oidc.clientSecretRef): carry it
               # over from the legacy secret so existing SSO keeps working.
               oidc=$(livekey "$SECRET_NAME" oidc-client-secret)
               [ -n "$oidc" ] || oidc=$(livekey "$LEGACY_SECRET_NAME" oidc-client-secret)
