@@ -274,51 +274,21 @@ type ComputeSize struct {
 	Memory *resource.Quantity `json:"memory,omitempty"`
 }
 
-// DiscoveredImage is one entry surfaced by a catalog sync — display
-// metadata only, NEVER consulted by policy/enforcement (that stays
-// FindImage/ImageAllowed against spec.image/spec.registry, unchanged).
-type DiscoveredImage struct {
-	// Image is the exact, pinned reference (digest recommended).
-	Image string `json:"image"`
-	// +optional
-	OS OSType `json:"os,omitempty"`
-	// App is a logical grouping slug (e.g. "firefox", "ubuntu-xfce") —
-	// distinct images of the same app across versions share it.
-	// +optional
-	App string `json:"app,omitempty"`
-	// +optional
-	Version string `json:"version,omitempty"`
-	// Icon is the entry's icon reference, one of: an absolute https
-	// URL (used as-is, no host allow-list), a `file:<path>` path
-	// internal to the frontend (same-origin asset mounted into the
-	// nginx container), or a dashboard-icons
-	// (github.com/homarr-labs/dashboard-icons, Apache-2.0) slug, e.g.
-	// "firefox", fetched live from the dashboard-icons CDN. The
-	// frontend treats the value as untrusted and falls back to a
-	// vendored OS icon when absent or malformed. See
-	// docs/image-catalog.md for the format.
-	// +optional
-	Icon string `json:"icon,omitempty"`
-	// +optional
-	DisplayName string `json:"displayName,omitempty"`
-}
-
 // ImageCatalogStatus is the last known result of the catalog fetch
-// configured by spec.catalog.
+// configured by spec.catalog. The discovered entries themselves live
+// in the api-server's catalog_entries table (Postgres), not here: this
+// status only keeps the small, purely-informational bookkeeping useful
+// for `kubectl get workspaceimage` — see docs/image-catalog.md.
 type ImageCatalogStatus struct {
-	// Entries is the last known set of discovered images. Stale-but-served:
-	// a failed sync never clears it.
-	// +optional
-	Entries []DiscoveredImage `json:"entries,omitempty"`
-	// Source says which From variant produced Entries: "Fetched"
+	// Source says which From variant last produced entries: "Fetched"
 	// (From.URL, a live sync succeeded at least once) or "Static"
 	// (From.ConfigMapKeyRef/SecretKeyRef was read successfully at least
 	// once). Empty = never synced yet.
 	// +optional
 	Source string `json:"source,omitempty"`
-	// LastSyncTime is when Entries was last written: the real fetch
-	// time for "Fetched", the time the ConfigMap/Secret was last read
-	// for "Static".
+	// LastSyncTime is when the catalog was last synced successfully:
+	// the real fetch time for "Fetched", the time the ConfigMap/Secret
+	// was last read for "Static".
 	// +optional
 	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`
 	// LastSyncError is the most recent fetch/read failure, kept even

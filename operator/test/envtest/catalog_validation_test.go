@@ -95,11 +95,6 @@ func TestWorkspaceImageStatusSubresource(t *testing.T) {
 	}
 
 	img.Status.Catalog = &waasv1alpha1.ImageCatalogStatus{
-		Entries: []waasv1alpha1.DiscoveredImage{{
-			Image: "ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:def",
-			OS:    waasv1alpha1.OSLinux,
-			Icon:  "firefox",
-		}},
 		Source:       "Fetched",
 		LastSyncTime: &metav1.Time{Time: metav1.Now().Time},
 	}
@@ -111,7 +106,7 @@ func TestWorkspaceImageStatusSubresource(t *testing.T) {
 	if err := adminCli.Get(ctx, types.NamespacedName{Namespace: ns, Name: "with-status"}, got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Status.Catalog == nil || len(got.Status.Catalog.Entries) != 1 {
+	if got.Status.Catalog == nil || got.Status.Catalog.Source != "Fetched" || got.Status.Catalog.LastSyncTime == nil {
 		t.Fatalf("status.catalog not persisted: %+v", got.Status)
 	}
 }
