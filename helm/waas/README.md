@@ -46,14 +46,29 @@ table is a quick *what*.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| global.labels | object | `{}` | Labels merged into every rendered object's metadata. |
+| global.annotations | object | `{}` | Annotations merged into every Deployment/StatefulSet and its Pod template. |
 | image.registry | string | `"ghcr.io/xorhub/waas"` | Image registry/repository prefix; each component appends its own name (`/operator`, `/api-server`, ...). |
 | image.tag | string | `""` | Image tag for every component; empty defaults to Chart.yaml's appVersion (bumped on every app release). |
 | image.pullPolicy | string | `"IfNotPresent"` | imagePullPolicy for every component's pods. |
 | secretsJob.enabled | bool | `true` | Generate/manage the release Secrets in-cluster; disable once every `*SecretRef` below is set. |
 | secretsJob.image | string | `"bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978"` | Image used by the secrets-generation hook Job. |
+| jwtJob.image | string | `"bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978"` | Image used by the JWT signing-key hook Job (kubectl + openssl, same as secretsJob's). |
 | workspaces.namespace | string | `""` | Namespace for Workspace/WorkspaceTemplate CRs; empty defaults to the release namespace. |
 | workspaces.create | bool | `true` | Create the namespace above when it differs from the release namespace. |
 | workspaces.defaultNamespacePattern | string | `""` | Operator-wide namespace placement pattern; empty uses the built-in default. |
+| defaultPolicy.enabled | bool | `true` | Bootstrap a catch-all baseline WorkspacePolicy (priority 0) applying to every user. |
+| defaultPolicy.name | string | `"default"` | Name of the bootstrap default WorkspacePolicy. |
+| defaultPolicy.priority | int | `0` | Priority of the bootstrap default WorkspacePolicy (0 = fallback, per the CRD's own convention). |
+| defaultPolicy.images | list | `[]` | Catalog subset this policy allows; empty = the whole enabled catalog. |
+| defaultPolicy.limits.maxWorkspaces | int | `3` | Max concurrent workspaces per matched user. |
+| defaultPolicy.limits.perWorkspace | object | `{"cpu":"1","home":"5Gi","memory":"1Gi"}` | Per-workspace caps (cpu/memory/home volume size). |
+| defaultPolicy.limits.aggregate | object | `{"cpu":"2","memory":"3Gi","storage":"15Gi"}` | Caps on the SUM across all of the matched user's workspaces (cpu/memory/home storage). |
+| defaultPolicy.limits.defaults | object | `{"cpu":"500m","memory":"0.5Mi"}` | Sizing the portal proposes when the user doesn't choose; display-only, never enforced (a per-image default takes precedence). |
+| defaultPolicy.lifecycle.idleSuspendAfter | string | `"2h"` | Pause (compute released, home kept) a workspace idle this long. |
+| defaultPolicy.lifecycle.maxLifetime | string | `"336h"` | Delete a workspace (home included) this long after creation. |
+| defaultPolicy.clipboard.copyFromWorkspace | bool | `true` | Allow copying FROM the workspace to the local clipboard. |
+| defaultPolicy.clipboard.pasteToWorkspace | bool | `true` | Allow pasting the local clipboard INTO the workspace. |
 | adminPolicy.enabled | bool | `false` | Bootstrap an explicit all-rights WorkspacePolicy for platform admins. |
 | adminPolicy.name | string | `"admins"` | Name of the bootstrap admin WorkspacePolicy. |
 | adminPolicy.priority | int | `10000` | Priority of the bootstrap admin WorkspacePolicy (higher wins ties). |
@@ -88,6 +103,10 @@ table is a quick *what*.
 | operator.resources.requests.cpu | string | `"50m"` |  |
 | operator.resources.requests.memory | string | `"64Mi"` |  |
 | operator.resources.limits.memory | string | `"256Mi"` |  |
+| operator.deploymentLabels | object | `{}` | Extra labels on the Deployment object itself. |
+| operator.deploymentAnnotations | object | `{}` | Extra annotations on the Deployment object itself. |
+| operator.podLabels | object | `{}` | Extra labels on the Pod template. |
+| operator.podAnnotations | object | `{}` | Extra annotations on the Pod template. |
 | apiServer.replicas | int | `1` | API server Deployment replica count. |
 | apiServer.jwtIssuer | string | `"waas"` | JWT `iss` claim value. |
 | apiServer.accessTokenTTL | string | `"8h"` | Access token lifetime. |
@@ -120,19 +139,35 @@ table is a quick *what*.
 | apiServer.resources.requests.cpu | string | `"100m"` |  |
 | apiServer.resources.requests.memory | string | `"128Mi"` |  |
 | apiServer.resources.limits.memory | string | `"512Mi"` |  |
+| apiServer.deploymentLabels | object | `{}` | Extra labels on the Deployment object itself. |
+| apiServer.deploymentAnnotations | object | `{}` | Extra annotations on the Deployment object itself. |
+| apiServer.podLabels | object | `{}` | Extra labels on the Pod template. |
+| apiServer.podAnnotations | object | `{}` | Extra annotations on the Pod template. |
 | wwt.replicas | int | `1` | wwt Deployment replica count. |
 | wwt.resources.requests.cpu | string | `"100m"` |  |
 | wwt.resources.requests.memory | string | `"64Mi"` |  |
 | wwt.resources.limits.memory | string | `"256Mi"` |  |
+| wwt.deploymentLabels | object | `{}` | Extra labels on the Deployment object itself. |
+| wwt.deploymentAnnotations | object | `{}` | Extra annotations on the Deployment object itself. |
+| wwt.podLabels | object | `{}` | Extra labels on the Pod template. |
+| wwt.podAnnotations | object | `{}` | Extra annotations on the Pod template. |
 | frontend.replicas | int | `1` | Frontend Deployment replica count. |
 | frontend.resources.requests.cpu | string | `"10m"` |  |
 | frontend.resources.requests.memory | string | `"32Mi"` |  |
 | frontend.resources.limits.memory | string | `"128Mi"` |  |
+| frontend.deploymentLabels | object | `{}` | Extra labels on the Deployment object itself. |
+| frontend.deploymentAnnotations | object | `{}` | Extra annotations on the Deployment object itself. |
+| frontend.podLabels | object | `{}` | Extra labels on the Pod template. |
+| frontend.podAnnotations | object | `{}` | Extra annotations on the Pod template. |
 | guacd.image | string | `"guacamole/guacd:1.6.0"` | guacd image reference. |
 | guacd.replicas | int | `1` | guacd Deployment replica count. |
 | guacd.resources.requests.cpu | string | `"250m"` |  |
 | guacd.resources.requests.memory | string | `"256Mi"` |  |
 | guacd.resources.limits.memory | string | `"1Gi"` |  |
+| guacd.deploymentLabels | object | `{}` | Extra labels on the Deployment object itself. |
+| guacd.deploymentAnnotations | object | `{}` | Extra annotations on the Deployment object itself. |
+| guacd.podLabels | object | `{}` | Extra labels on the Pod template. |
+| guacd.podAnnotations | object | `{}` | Extra annotations on the Pod template. |
 | metrics.enabled | bool | `false` | Serve /metrics on every component (cluster-internal only, never routed by ingress/httpRoute). |
 | metrics.scrapeAnnotations | bool | `false` | Stamp `prometheus.io/scrape|port|path` annotations on pods (needs `metrics.enabled`). |
 | metrics.podMonitor.enabled | bool | `false` | Create a PodMonitor for the operator (requires prometheus-operator CRDs and `metrics.enabled`). |
@@ -160,6 +195,10 @@ table is a quick *what*.
 | postgres.resources.requests.cpu | string | `"100m"` |  |
 | postgres.resources.requests.memory | string | `"256Mi"` |  |
 | postgres.resources.limits.memory | string | `"1Gi"` |  |
+| postgres.deploymentLabels | object | `{}` | Extra labels on the StatefulSet object itself. |
+| postgres.deploymentAnnotations | object | `{}` | Extra annotations on the StatefulSet object itself. |
+| postgres.podLabels | object | `{}` | Extra labels on the Pod template. |
+| postgres.podAnnotations | object | `{}` | Extra annotations on the Pod template. |
 
 ## Production note
 

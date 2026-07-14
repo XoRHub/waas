@@ -5,6 +5,13 @@ metadata:
   labels:
     app.kubernetes.io/name: waas-operator
     {{- include "waas.labels" . | nindent 4 }}
+    {{- with .Values.operator.deploymentLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with include "waas.deploymentAnnotations" (dict "root" $ "annotations" .Values.operator.deploymentAnnotations) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: {{ .Values.operator.replicas }}
   selector:
@@ -16,7 +23,10 @@ spec:
       labels:
         app.kubernetes.io/name: waas-operator
         app.kubernetes.io/instance: {{ .Release.Name }}
-      {{- with include "waas.scrapeAnnotations" (dict "root" $ "port" 8080) }}
+        {{- with include "waas.podLabels" (dict "root" $ "podLabels" .Values.operator.podLabels) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with include "waas.podAnnotations" (dict "root" $ "podAnnotations" .Values.operator.podAnnotations "port" 8080) }}
       annotations:
         {{- . | nindent 8 }}
       {{- end }}

@@ -4,20 +4,22 @@ Release secrets WITHOUT `lookup`: ArgoCD's repo-server renders charts
 with no access to the destination cluster, where lookup always returns
 an empty map — template-time generation would re-roll every secret at
 every sync (postgres password diverging from the PVC, internal-token
-breaking wwt→api-server, jwt key invalidating every session). This
-pre-install/pre-upgrade hook Job runs IN the target cluster instead —
-identical behaviour under `helm install` and under ArgoCD (which maps
-helm hooks to PreSync) — and idempotently ensures
-`{{ .Release.Name }}-app-secrets`:
+breaking wwt→api-server). This pre-install/pre-upgrade hook Job runs IN
+the target cluster instead — identical behaviour under `helm install`
+and under ArgoCD (which maps helm hooks to PreSync) — and idempotently
+ensures `{{ .Release.Name }}-app-secrets`:
 
-  - generated-once keys (postgres-password, internal-token,
-    jwt-private-key): created on first run, NEVER regenerated or
-    overwritten afterwards;
+  - generated-once keys (postgres-password, internal-token): created on
+    first run, NEVER regenerated or overwritten afterwards;
   - values-driven keys (database-url, admin-password): recomputed each
     run so values changes propagate;
   - migration: values found in the legacy chart-rendered
     `{{ .Release.Name }}-secrets` (pre-hook chart versions) are carried
     over, including a manually-added oidc-client-secret.
+
+The JWT signing key lives in its own hook Job/Secret instead
+(templates/jwt-job/job.yaml) — it's never disableable, unlike this one,
+so it can't share this Job's `secretsJob.enabled` gate.
 
 `helm template` renders NO secret material: only operator-provided
 values (postgres.password, apiServer.adminPassword, externalURL) appear
@@ -108,7 +110,6 @@ spec:
 
               gen_pg() { genpw 32; }
               gen_token() { genpw 48; }
-              gen_jwt() { openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 2>/dev/null; }
 
               # Generated-once keys: the live value wins, then the legacy
               # chart-rendered secret (migration), then a fresh value.
@@ -125,7 +126,6 @@ spec:
                 pg_b64=$(b64 "$PG_PASSWORD_OVERRIDE")
               fi
               token_b64=$(ensure internal-token gen_token)
-              jwt_b64=$(ensure jwt-private-key gen_jwt)
 
               if [ "$POSTGRES_ENABLED" = "true" ]; then
                 dburl="postgres://${POSTGRES_USER}:$(printf '%s' "$pg_b64" | base64 -d)@${POSTGRES_HOST}:5432/${POSTGRES_DB}?sslmode=disable"
@@ -136,7 +136,6 @@ spec:
               patch='{"data":{'
               patch+="\"postgres-password\":\"$pg_b64\","
               patch+="\"internal-token\":\"$token_b64\","
-              patch+="\"jwt-private-key\":\"$jwt_b64\","
               patch+="\"database-url\":\"$(b64 "$dburl")\""
               if [ -n "${ADMIN_PASSWORD:-}" ]; then
                 patch+=",\"admin-password\":\"$(b64 "$ADMIN_PASSWORD")\""

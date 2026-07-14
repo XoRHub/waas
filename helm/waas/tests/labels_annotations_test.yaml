@@ -1,0 +1,99 @@
+suite: global/per-component labels and annotations
+templates:
+  - operator/deployment.yaml
+  - frontend/deployment.yaml
+release:
+  name: waas
+tests:
+  - it: renders no annotations block anywhere when nothing is set
+    template: operator/deployment.yaml
+    set:
+      global.labels: {}
+      global.annotations: {}
+      operator.podAnnotations: {}
+      operator.deploymentAnnotations: {}
+      metrics.enabled: false
+    asserts:
+      - notExists:
+          path: metadata.annotations
+        documentIndex: -1
+      - notExists:
+          path: spec.template.metadata.annotations
+        documentIndex: -1
+
+  - it: global.labels land on both the Deployment and the Pod template
+    template: operator/deployment.yaml
+    set:
+      global.labels: { team: waas }
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: waas
+      - equal:
+          path: spec.template.metadata.labels.team
+          value: waas
+
+  - it: deploymentLabels/deploymentAnnotations only touch the Deployment object, not the Pod template
+    template: operator/deployment.yaml
+    set:
+      operator.deploymentLabels: { tier: control-plane }
+      operator.deploymentAnnotations: { owner: platform-team }
+    asserts:
+      - equal:
+          path: metadata.labels.tier
+          value: control-plane
+      - equal:
+          path: metadata.annotations.owner
+          value: platform-team
+      - notExists:
+          path: spec.template.metadata.labels.tier
+      - notExists:
+          path: spec.template.metadata.annotations.owner
+
+  - it: podLabels/podAnnotations only touch the Pod template, not the Deployment object
+    template: operator/deployment.yaml
+    set:
+      operator.podLabels: { sidecar-injection: enabled }
+      operator.podAnnotations: { checksum/config: abc123 }
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels.sidecar-injection
+          value: enabled
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config"]
+          value: abc123
+      - notExists:
+          path: metadata.labels.sidecar-injection
+      - notExists:
+          path: metadata.annotations["checksum/config"]
+
+  - it: global.annotations, podAnnotations and the scrape toggle all merge on the same Pod template
+    template: operator/deployment.yaml
+    set:
+      global.annotations: { cost-center: eng }
+      operator.podAnnotations: { checksum/config: abc123 }
+      metrics.enabled: true
+      metrics.scrapeAnnotations: true
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations.cost-center
+          value: eng
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config"]
+          value: abc123
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+
+  - it: frontend (no scrape port) still merges global + pod annotations
+    template: frontend/deployment.yaml
+    set:
+      global.annotations: { cost-center: eng }
+      frontend.podAnnotations: { checksum/config: xyz789 }
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations.cost-center
+          value: eng
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config"]
+          value: xyz789

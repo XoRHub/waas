@@ -2,6 +2,16 @@
 # prerequisite. KubeVirt is auto-detected by the operator at startup —
 # never listed as a prerequisite.
 
+# Applied to EVERY object this chart renders (labels) or every
+# Deployment/StatefulSet and its Pod template (annotations) — see the
+# per-component podLabels/podAnnotations/deploymentLabels/
+# deploymentAnnotations below for scoping to one workload instead.
+global:
+  # -- Labels merged into every rendered object's metadata.
+  labels: {}
+  # -- Annotations merged into every Deployment/StatefulSet and its Pod template.
+  annotations: {}
+
 image:
   # -- Image registry/repository prefix; each component appends its own name (`/operator`, `/api-server`, ...).
   registry: ghcr.io/xorhub/waas
@@ -20,16 +30,42 @@ secretsJob:
   # postgres.externalURLSecretRef, apiServer.adminPasswordSecretRef,
   # apiServer.oidc.existingSecret) — e.g. all synced in by an
   # ExternalSecret. When disabled, YOU must pre-create
-  # `<release>-app-secrets` with `internal-token` and `jwt-private-key`
-  # (always required, no override exists for these two — they're
-  # chart-internal, never user-facing credentials): nothing else
-  # generates or migrates them.
+  # `<release>-app-secrets` with an `internal-token` key (always
+  # required, no override exists for it — it's a chart-internal,
+  # never user-facing credential shared between wwt and api-server;
+  # nothing else generates or migrates it). Generate one with:
+  #   openssl rand -hex 32
+  # For postgres.password/apiServer.adminPassword, if you'd rather
+  # generate your own instead of leaving them empty (auto-generated):
+  #   openssl rand -hex 24
+  # (hex, not base64: base64's `+`, `/`, `=` can break a password
+  # embedded in a postgres:// connection URL unless percent-encoded).
+  #
+  # jwt-private-key lives in its own always-on hook Job/Secret instead
+  # (jwtJob below, never disableable) — see there for why it can't fold
+  # into this toggle.
   # -- Generate/manage the release Secrets in-cluster; disable once every `*SecretRef` below is set.
   enabled: true
   # Needs kubectl + openssl + bash. Digest-pinned (kubectl v1.36.2):
   # bitnami/ only publishes a moving `latest` tag since the 2025 catalog
   # change; kubectl does not have to match the cluster version exactly.
   # -- Image used by the secrets-generation hook Job.
+  image: bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978
+
+# Pre-install/pre-upgrade hook Job dedicated to the JWT signing key
+# (RS256, used by api-server to sign tokens and publish the JWKS wwt
+# verifies connection tokens against — templates/jwt-job/job.yaml).
+# Split out from secretsJob and NEVER disableable: unlike every secret
+# above, this key has no *SecretRef override, and Signer.JWKS()
+# (shared/auth/keys.go) publishes exactly one active key with no
+# overlap/grace period — losing or regenerating it invalidates every
+# access token still in use (forces every browser session to log back
+# in; in-flight desktop connections are unaffected, the JWT is only
+# checked once at connect time). A disable toggle would be an easy way
+# to accidentally end up without this key at all, which the api-server
+# refuses to start without — hence no toggle, ever.
+jwtJob:
+  # -- Image used by the JWT signing-key hook Job (kubectl + openssl, same as secretsJob's).
   image: bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978
 
 # Namespace where Workspace/WorkspaceTemplate CRs live. Empty (default)
@@ -50,6 +86,43 @@ workspaces:
   # existing ones keep their frozen spec.targetNamespace.
   # -- Operator-wide namespace placement pattern; empty uses the built-in default.
   defaultNamespacePattern: ""
+
+# Bootstrap of a catch-all baseline WorkspacePolicy at priority 0 — the
+# CRD's own documented convention for "default fallback"
+# (WorkspacePolicySpec.Priority: "0 = default fallback"). No subjects
+# field = applies to every authenticated user. Same doctrine as
+# adminPolicy below: a visible, auditable CR, editable/removable
+# afterwards from the admin console — disable once GitOps
+# (gitops/governance/policies.yaml) owns it, never both at once for the
+# same policy name.
+defaultPolicy:
+  # -- Bootstrap a catch-all baseline WorkspacePolicy (priority 0) applying to every user.
+  enabled: true
+  # -- Name of the bootstrap default WorkspacePolicy.
+  name: default
+  # -- Priority of the bootstrap default WorkspacePolicy (0 = fallback, per the CRD's own convention).
+  priority: 0
+  # -- Catalog subset this policy allows; empty = the whole enabled catalog.
+  images: []
+  limits:
+    # -- Max concurrent workspaces per matched user.
+    maxWorkspaces: 3
+    # -- Per-workspace caps (cpu/memory/home volume size).
+    perWorkspace: { cpu: "1", memory: 1Gi, home: 5Gi }
+    # -- Caps on the SUM across all of the matched user's workspaces (cpu/memory/home storage).
+    aggregate: { cpu: "2", memory: 3Gi, storage: 15Gi }
+    # -- Sizing the portal proposes when the user doesn't choose; display-only, never enforced (a per-image default takes precedence).
+    defaults: { cpu: 500m, memory: 0.5Mi }
+  lifecycle:
+    # -- Pause (compute released, home kept) a workspace idle this long.
+    idleSuspendAfter: 2h
+    # -- Delete a workspace (home included) this long after creation.
+    maxLifetime: 336h
+  clipboard:
+    # -- Allow copying FROM the workspace to the local clipboard.
+    copyFromWorkspace: true
+    # -- Allow pasting the local clipboard INTO the workspace.
+    pasteToWorkspace: true
 
 # Bootstrap of the explicit all-rights admin policy (priority 10000, no
 # limits/lifecycle = no caps or TTL, whole catalog, every override
@@ -173,6 +246,14 @@ operator:
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { memory: 256Mi }
+  # -- Extra labels on the Deployment object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the Deployment object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}
 
 apiServer:
   # -- API server Deployment replica count.
@@ -284,6 +365,14 @@ apiServer:
   resources:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { memory: 512Mi }
+  # -- Extra labels on the Deployment object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the Deployment object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}
 
 wwt:
   # -- wwt Deployment replica count.
@@ -291,6 +380,14 @@ wwt:
   resources:
     requests: { cpu: 100m, memory: 64Mi }
     limits: { memory: 256Mi }
+  # -- Extra labels on the Deployment object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the Deployment object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}
 
 frontend:
   # -- Frontend Deployment replica count.
@@ -298,6 +395,14 @@ frontend:
   resources:
     requests: { cpu: 10m, memory: 32Mi }
     limits: { memory: 128Mi }
+  # -- Extra labels on the Deployment object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the Deployment object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}
 
 # guacd is the HTML5 gateway. ClusterIP only — never exposed outside the
 # cluster; the wwt proxy is its sole client.
@@ -309,6 +414,14 @@ guacd:
   resources:
     requests: { cpu: 250m, memory: 256Mi }
     limits: { memory: 1Gi }
+  # -- Extra labels on the Deployment object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the Deployment object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}
 
 # Prometheus metrics. Everything is opt-in: /metrics endpoints are only
 # SERVED when enabled=true (not merely hidden from the manifests), and
@@ -412,3 +525,11 @@ postgres:
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 1Gi }
+  # -- Extra labels on the StatefulSet object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the StatefulSet object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}

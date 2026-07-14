@@ -5,6 +5,13 @@ metadata:
   labels:
     app.kubernetes.io/name: waas-api-server
     {{- include "waas.labels" . | nindent 4 }}
+    {{- with .Values.apiServer.deploymentLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with include "waas.deploymentAnnotations" (dict "root" $ "annotations" .Values.apiServer.deploymentAnnotations) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: {{ .Values.apiServer.replicas }}
   selector:
@@ -16,7 +23,10 @@ spec:
       labels:
         app.kubernetes.io/name: waas-api-server
         app.kubernetes.io/instance: {{ .Release.Name }}
-      {{- with include "waas.scrapeAnnotations" (dict "root" $ "port" 8080) }}
+        {{- with include "waas.podLabels" (dict "root" $ "podLabels" .Values.apiServer.podLabels) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with include "waas.podAnnotations" (dict "root" $ "podAnnotations" .Values.apiServer.podAnnotations "port" 8080) }}
       annotations:
         {{- . | nindent 8 }}
       {{- end }}
@@ -177,7 +187,7 @@ spec:
       volumes:
         - name: keys
           secret:
-            secretName: {{ .Release.Name }}-app-secrets
+            secretName: {{ .Release.Name }}-jwt-signing-key
             items:
               - key: jwt-private-key
                 path: jwt-private-key

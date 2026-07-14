@@ -6,6 +6,13 @@ metadata:
   labels:
     app.kubernetes.io/name: waas-postgres
     {{- include "waas.labels" . | nindent 4 }}
+    {{- with .Values.postgres.deploymentLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with include "waas.deploymentAnnotations" (dict "root" $ "annotations" .Values.postgres.deploymentAnnotations) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   serviceName: {{ .Release.Name }}-postgres
   replicas: 1
@@ -18,6 +25,13 @@ spec:
       labels:
         app.kubernetes.io/name: waas-postgres
         app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with include "waas.podLabels" (dict "root" $ "podLabels" .Values.postgres.podLabels) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with include "waas.podAnnotations" (dict "root" $ "podAnnotations" .Values.postgres.podAnnotations) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
     spec:
       securityContext:
         runAsNonRoot: true

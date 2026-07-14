@@ -5,6 +5,13 @@ metadata:
   labels:
     app.kubernetes.io/name: waas-guacd
     {{- include "waas.labels" . | nindent 4 }}
+    {{- with .Values.guacd.deploymentLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with include "waas.deploymentAnnotations" (dict "root" $ "annotations" .Values.guacd.deploymentAnnotations) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: {{ .Values.guacd.replicas }}
   selector:
@@ -16,6 +23,13 @@ spec:
       labels:
         app.kubernetes.io/name: waas-guacd
         app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with include "waas.podLabels" (dict "root" $ "podLabels" .Values.guacd.podLabels) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with include "waas.podAnnotations" (dict "root" $ "podAnnotations" .Values.guacd.podAnnotations) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
     spec:
       securityContext:
         runAsNonRoot: true

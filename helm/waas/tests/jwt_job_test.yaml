@@ -1,0 +1,37 @@
+suite: JWT signing-key hook Job (never disableable)
+templates:
+  - jwt-job/roles.yaml
+  - jwt-job/job.yaml
+release:
+  name: waas
+tests:
+  - it: always renders the RBAC and the Job regardless of secretsJob.enabled
+    set:
+      secretsJob.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 3
+        template: jwt-job/roles.yaml
+      - hasDocuments:
+          count: 1
+        template: jwt-job/job.yaml
+
+  - it: targets its own dedicated Secret, distinct from app-secrets
+    template: jwt-job/job.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="SECRET_NAME")].value
+          value: waas-jwt-signing-key
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="LEGACY_APP_SECRET_NAME")].value
+          value: waas-app-secrets
+
+  - it: the Role only grants get/patch on the dedicated Secret, never a bare list/watch
+    template: jwt-job/roles.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: rules[?(@.verbs[0]=="patch")].resourceNames[0]
+          value: waas-jwt-signing-key
