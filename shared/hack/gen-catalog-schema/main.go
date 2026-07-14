@@ -1,15 +1,14 @@
 // gen-catalog-schema writes the versioned JSON Schema of the shared
-// catalog.yaml wire-format (pkg/catalog) to
-// pkg/catalog/schema/v1.schema.json. waas-fable is the READER of that
+// catalog.yaml wire-format (catalog) to
+// catalog/schema/v1.schema.json. waas-fable is the READER of that
 // format and therefore its single source of truth: the schema is
-// generated from the same Go struct the reconciler's parser
-// unmarshals, never written by hand, so the two cannot silently
-// diverge. Editors reference the published file over HTTPS
-// (yaml-language-server) — it is never fetched at runtime.
+// generated from the same Go struct the parser unmarshals, never
+// written by hand, so the two cannot silently diverge. Editors
+// reference the published file over HTTPS (yaml-language-server) — it
+// is never fetched at runtime.
 //
-// Run via `make generate` (build tooling only — never imported by
-// cmd/operator, so invopop/jsonschema stays out of the shipped
-// binary).
+// Run via `make generate` (build tooling only — never imported by any
+// shipped binary, so invopop/jsonschema stays out of them).
 package main
 
 import (
@@ -20,7 +19,7 @@ import (
 
 	"github.com/invopop/jsonschema"
 
-	"github.com/xorhub/waas/operator/pkg/catalog"
+	"github.com/xorhub/waas/shared/catalog"
 )
 
 func main() {
@@ -43,7 +42,7 @@ func main() {
 	}
 	out = append(out, '\n')
 
-	dest := filepath.Join("pkg", "catalog", "schema", "v1.schema.json")
+	dest := filepath.Join("catalog", "schema", "v1.schema.json")
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "mkdir %s: %v\n", filepath.Dir(dest), err)
 		os.Exit(1)

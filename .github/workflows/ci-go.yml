@@ -15,7 +15,7 @@ on:
         required: true
         type: string
       drift:
-        description: Whether operator/** changed (gates go-generated-drift).
+        description: Whether operator/** or shared/** changed (gates go-generated-drift).
         required: true
         type: boolean
 
@@ -151,7 +151,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-${{ runner.os }}-operator-${{ hashFiles('operator/go.sum') }}
+          key: go-${{ runner.os }}-operator-${{ hashFiles('operator/go.sum', 'shared/go.sum') }}
           restore-keys: go-${{ runner.os }}-operator-
       - run: make generate manifests docs-params generate-types
-      - run: git diff --exit-code -- operator helm/waas/crds frontend/src/types.gen.ts
+      - run: git diff --exit-code -- operator shared helm/waas/crds frontend/src/types.gen.ts

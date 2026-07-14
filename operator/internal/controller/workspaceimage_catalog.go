@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
-	"github.com/xorhub/waas/operator/pkg/catalog"
+	"github.com/xorhub/waas/shared/catalog"
 )
 
 const (

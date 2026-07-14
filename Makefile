@@ -47,8 +47,12 @@ tidy:
 		(cd $$m && go mod tidy) || exit 1; \
 	done
 
-generate manifests:
-	$(MAKE) -C operator $@
+generate:
+	$(MAKE) -C operator generate
+	$(MAKE) -C shared generate
+
+manifests:
+	$(MAKE) -C operator manifests
 
 # operator/docs/guacd-parameters.md is generated from the parameter
 # registry so the docs can never drift from what the webhook enforces.

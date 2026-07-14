@@ -196,7 +196,12 @@ jobs:
 
           echo "frontend=${F_FRONTEND}" >> "$GITHUB_OUTPUT"
           echo "helm=${F_HELM}" >> "$GITHUB_OUTPUT"
-          echo "drift=${F_OPERATOR}" >> "$GITHUB_OUTPUT"
+          # shared/catalog feeds the generated CRD/schema drift check
+          # (gen-catalog-schema) just like operator/api/v1alpha1 does.
+          DRIFT=false
+          [ "$F_OPERATOR" = "true" ] && DRIFT=true
+          [ "$F_SHARED" = "true" ] && DRIFT=true
+          echo "drift=${DRIFT}" >> "$GITHUB_OUTPUT"
 
   # ------------------------------------------------------------------
   # Delegated domains — see ci-*.yml. Each call job's `if` mirrors the
