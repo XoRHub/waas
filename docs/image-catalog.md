@@ -1,10 +1,10 @@
-# Image catalog — published manifests, `WorkspaceImage.status.catalog`, visual picker
+# Image catalog — published manifests, `catalog_entries`, visual picker
 
 Registry-mode `WorkspaceImage` entries can surface a **published
 catalog** of the images currently under their registry (display
 metadata: os/app/version/icon), so the portal shows a picker of cards
 with logos instead of raw references. The catalog is **purely
-cosmetic**: `status.catalog` is never read by
+cosmetic**: the discovered entries are never read by
 `enforce()`/`FindImage`/`ImageAllowed` — approval and policy gating are
 unchanged, and a catalog sync can never block or delay workspace
 creation.
@@ -45,42 +45,66 @@ review.
   method so a future `basicAuth`/`mTLS` is a sibling field, never a
   reinterpretation.
 
-`status.catalog` carries `entries` (`DiscoveredImage`: image, os, app,
-version, icon, displayName), `source` (`Fetched`/`Static`),
+The discovered entries themselves (`Image`, `OS`, `App`, `Version`,
+`Icon`, `DisplayName`, `SyncedAt`) live in the api-server's Postgres
+`catalog_entries` table, keyed by `(workspace_image_name, image)` —
+**not** in `status.catalog`, which only keeps the small,
+purely-informational bookkeeping: `source` (`Fetched`/`Static`),
 `lastSyncTime` and `lastSyncError` (kept even after a later success).
+A display/picker list that changes periodically has no reason to be
+retransmitted in full to every watcher of `WorkspaceImage` — see the
+design study referenced by the migration commit for the full
+reasoning.
 
-## Sync reconciler (`operator/internal/controller/workspaceimage_catalog.go`)
+## Sync worker (`api-server/internal/service/catalog_sync_worker.go`)
 
-The first — and only — `WorkspaceImage` reconciler. Per entry with
-`spec.registry` + `spec.catalog`:
+`CatalogSyncWorker` — a ticker-based background worker started
+alongside `IdleSweeper`/`SessionSweeper` in `cmd/api-server/main.go` —
+owns the periodic sync, not the operator: only the api-server has both
+database access (to write `catalog_entries`) and the k8s access needed
+to read `WorkspaceImage`/ConfigMap/Secret. For every `WorkspaceImage`
+with `spec.registry` + `spec.catalog`, independently of the others (one
+registry outage never blocks the rest):
 
 - fetches (URL branch) or reads (ConfigMap/Secret branch) the manifest,
-  parses it, converts entries to `DiscoveredImage` (an unknown `os` is
-  emptied rather than propagated), and patches the **status
-  subresource**;
-- **stale-but-served**: a failed sync updates `lastSyncError` but never
-  clears already-populated `entries`;
-- requeues after `operator.catalogSyncInterval` (Helm value, default
-  `6h`) on success and failure alike. There is deliberately **no watch
-  on the referenced ConfigMap/Secret**: the operator's ConfigMap/Secret
-  reads bypass the cache by existing design (no `watch` RBAC verb), so
-  the static branch accepts the same propagation delay as the live one.
+  parses it, and on success atomically **replaces** that image's rows
+  in `catalog_entries` (`CatalogRepository.ReplaceEntries` — one
+  registry's sync is one all-or-nothing swap) with an unknown `os`
+  emptied rather than propagated, then patches the **status
+  subresource** (`source`, `lastSyncTime`, clears `lastSyncError`);
+- **stale-but-served**: a failed sync only updates
+  `status.catalog.lastSyncError` — `catalog_entries` is left completely
+  untouched, so a transient registry hiccup never empties the picker;
+- syncs immediately on worker start (unlike the sweepers, which wait
+  for their first tick — a 6h default interval would otherwise hide a
+  broken catalog source for hours after a deploy), then every
+  `apiServer.catalogSyncInterval` (Helm value, default `6h`) on success
+  and failure alike. There is deliberately **no watch on the referenced
+  ConfigMap/Secret**: those reads bypass the cache by existing design
+  (no `watch` RBAC verb on them), so the static branch accepts the same
+  propagation delay as the live one.
 
-Status writes never bump `metadata.generation`, so the periodic sync
-never triggers `workspace_controller.go`'s
+The status patch never bumps `metadata.generation`, so the periodic
+sync never triggers `workspace_controller.go`'s
 `GenerationChangedPredicate`-filtered watch on `WorkspaceImage` (fleet
-drift re-evaluation) — only a human `spec` edit does. The two watches
-on the same GVK belong to two independent controllers; no conflict.
+drift re-evaluation, operator-side) — only a human `spec` edit does.
+The api-server's RBAC grants `workspaceimages/status` `get`/`patch`
+only (no `update`): it never needs to read-modify-write the whole
+status, just this one patch.
 
 ## Wire format and schema — this repo is the source of truth
 
-`operator/pkg/catalog` defines the manifest format
+`shared/catalog` defines the manifest format
 (`apiVersion: waas.xorhub.io/catalog/v1`), deliberately **distinct**
-from `DiscoveredImage`: the wire format follows an inter-repo file
-contract, the CRD type follows the `v1alpha1`/ADR 0002 cycle.
+from the api-server's `model.DiscoveredImage`/`repository.CatalogEntry`:
+the wire format follows an inter-repo file contract, the API types
+follow their own compatibility cycle. It lives under `shared/` (not
+`operator/` or `api-server/`) because both the operator's CRD
+validation history and the api-server's `CatalogSyncWorker` need the
+same parser with no cross-module dependency between the two.
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/<tag>/operator/pkg/catalog/schema/v1.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/<tag>/shared/catalog/schema/v1.schema.json
 # (pin a release tag for shared files; a branch is fine while iterating locally)
 apiVersion: waas.xorhub.io/catalog/v1
 images:
@@ -94,14 +118,15 @@ images:
 
 The parser is tolerant (absent optional fields = zero values) but
 rejects an unknown `apiVersion` cleanly — a sync error, never a crash.
-`operator/pkg/catalog/schema/v1.schema.json` is **generated from the
-Go struct** (`hack/gen-catalog-schema`, wired into `make generate` and
-the CI `go-generated-drift` gate), so schema and parser can't silently
-diverge; published schema versions are frozen, additive-only. The
-`$schema` URL is an editor convenience for whoever edits a
-`catalog.yaml` by hand — the reconciler never fetches it, and nothing
-enforces what it points at. Pin a release tag in any `catalog.yaml`
-meant to be committed or shared: published schemas are frozen and
+`shared/catalog/schema/v1.schema.json` is **generated from the Go
+struct** (`shared/hack/gen-catalog-schema`, wired into `make generate`
+and the CI `go-generated-drift` gate — it now covers `shared/**` as
+well as `operator/**`), so schema and parser can't silently diverge;
+published schema versions are frozen, additive-only. The `$schema` URL
+is an editor convenience for whoever edits a `catalog.yaml` by hand —
+`CatalogSyncWorker` never fetches it, and nothing enforces what it
+points at. Pin a release tag in any `catalog.yaml` meant to be
+committed or shared: published schemas are frozen and
 additive-only, so a pinned tag never shifts under you. Pointing it at a
 branch (e.g. `main`) is fine for local development or exploration —
 handy for iterating against the latest schema — but not recommended
