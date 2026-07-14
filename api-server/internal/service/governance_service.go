@@ -37,11 +37,12 @@ type GovernanceService struct {
 	namespace string
 	users     repository.UserRepository
 	audit     *AuditService
+	catalog   repository.CatalogRepository
 }
 
 // NewGovernanceService wires the governance projections.
-func NewGovernanceService(kube client.Client, namespace string, users repository.UserRepository, audit *AuditService) *GovernanceService {
-	return &GovernanceService{kube: kube, namespace: namespace, users: users, audit: audit}
+func NewGovernanceService(kube client.Client, namespace string, users repository.UserRepository, audit *AuditService, catalog repository.CatalogRepository) *GovernanceService {
+	return &GovernanceService{kube: kube, namespace: namespace, users: users, audit: audit, catalog: catalog}
 }
 
 // identityFor resolves the platform identity of a user record, matching
@@ -103,7 +104,10 @@ func (s *GovernanceService) Catalog(ctx context.Context, actor Actor) ([]model.C
 	allowed := policy.AllowedImages(images.Items, pol, id)
 	out := make([]model.CatalogImage, 0, len(allowed))
 	for i := range allowed {
-		m := imageToModel(&allowed[i])
+		m, err := s.imageToModel(ctx, &allowed[i])
+		if err != nil {
+			return nil, err
+		}
 		m.Templates = templatesByEntry[allowed[i].Name]
 		out = append(out, m)
 	}
@@ -267,7 +271,11 @@ func (s *GovernanceService) AdminListImages(ctx context.Context) ([]model.Catalo
 	}
 	out := make([]model.CatalogImage, 0, len(images.Items))
 	for i := range images.Items {
-		out = append(out, imageToModel(&images.Items[i]))
+		m, err := s.imageToModel(ctx, &images.Items[i])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
 	}
 	return out, nil
 }
@@ -355,7 +363,10 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 		s.audit.Record(ctx, actor, "catalog.image_updated", "workspaceimage", name,
 			fmt.Sprintf("enabled=%t image=%s", spec.Enabled, in.Image))
 	}
-	m := imageToModel(img)
+	m, err := s.imageToModel(ctx, img)
+	if err != nil {
+		return nil, err
+	}
 	return &m, nil
 }
 
@@ -373,7 +384,10 @@ func (s *GovernanceService) AdminSetImageEnabled(ctx context.Context, actor Acto
 		return nil, fmt.Errorf("updating workspace image %s: %w", name, err)
 	}
 	s.audit.Record(ctx, actor, "catalog.image_toggled", "workspaceimage", name, fmt.Sprintf("enabled=%t", enabled))
-	m := imageToModel(img)
+	m, err := s.imageToModel(ctx, img)
+	if err != nil {
+		return nil, err
+	}
 	return &m, nil
 }
 
@@ -666,7 +680,12 @@ func (s *GovernanceService) AdminUsage(ctx context.Context) ([]model.UserUsage, 
 
 // ------------------------------------------------------------- mapping
 
-func imageToModel(img *waasv1alpha1.WorkspaceImage) model.CatalogImage {
+// imageToModel projects a WorkspaceImage plus its discovered catalog
+// entries (now in Postgres, catalog_entries — see CatalogSyncWorker)
+// into the API model. A method, not a free function, because the
+// discovered entries require a DB round trip the caller's ctx must
+// bound.
+func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.WorkspaceImage) (model.CatalogImage, error) {
 	m := model.CatalogImage{
 		Name:               img.Name,
 		DisplayName:        img.Spec.DisplayName,
@@ -687,19 +706,21 @@ func imageToModel(img *waasv1alpha1.WorkspaceImage) model.CatalogImage {
 		m.Min = sizeToMap(r.Min)
 		m.Max = sizeToMap(r.Max)
 	}
-	if c := img.Status.Catalog; c != nil {
-		for _, e := range c.Entries {
-			m.Discovered = append(m.Discovered, model.DiscoveredImage{
-				Image:       e.Image,
-				OS:          string(e.OS),
-				App:         e.App,
-				Version:     e.Version,
-				Icon:        e.Icon,
-				DisplayName: e.DisplayName,
-			})
-		}
+	entries, err := s.catalog.ListEntries(ctx, img.Name)
+	if err != nil {
+		return model.CatalogImage{}, fmt.Errorf("listing catalog entries of %s: %w", img.Name, err)
 	}
-	return m
+	for _, e := range entries {
+		m.Discovered = append(m.Discovered, model.DiscoveredImage{
+			Image:       e.Image,
+			OS:          e.OS,
+			App:         e.App,
+			Version:     e.Version,
+			Icon:        e.Icon,
+			DisplayName: e.DisplayName,
+		})
+	}
+	return m, nil
 }
 
 func policyToModel(pol *waasv1alpha1.WorkspacePolicy) model.PolicyModel {

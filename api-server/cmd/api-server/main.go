@@ -124,7 +124,7 @@ func run() error {
 	events := service.NewEventHub()
 	remoteSvc = remoteSvc.WithEvents(events)
 	sessionSvc := service.NewSessionService(sessions)
-	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit)
+	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit, catalogRepo)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

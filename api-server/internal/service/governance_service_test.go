@@ -55,7 +55,8 @@ func newGovernanceFixture(t *testing.T, usersIn []model.User, policies []waasv1a
 	}
 
 	audit := NewAuditService(repository.NewSQLAuditRepository(db))
-	return NewGovernanceService(kube, testNS, users, audit)
+	catalogRepo := repository.NewSQLCatalogRepository(db)
+	return NewGovernanceService(kube, testNS, users, audit, catalogRepo)
 }
 
 func pol(name string, priority int32, maxWS int32, subjects ...waasv1alpha1.PolicySubject) waasv1alpha1.WorkspacePolicy {
@@ -321,7 +322,7 @@ func TestQuotaFollowsGroupMirror(t *testing.T) {
 }
 
 // TestCatalogSurfacesDiscoveredEntries: the discovered entries of a
-// registry-mode image (status.catalog, written by the operator's sync)
+// registry-mode image (catalog_entries, written by CatalogSyncWorker)
 // ride on the SAME visibility gate as the CatalogImage itself
 // (policy.AllowedImages) — nested under the image, no separate list,
 // no separate filter.
@@ -340,13 +341,7 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 			Protocols: []waasv1alpha1.Protocol{waasv1alpha1.ProtocolKasmVNC}, Enabled: true,
 		},
 		Status: waasv1alpha1.WorkspaceImageStatus{
-			Catalog: &waasv1alpha1.ImageCatalogStatus{
-				Entries: []waasv1alpha1.DiscoveredImage{{
-					Image: "ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:def",
-					OS:    waasv1alpha1.OSLinux, App: "firefox", Icon: "firefox",
-				}},
-				Source: "Fetched",
-			},
+			Catalog: &waasv1alpha1.ImageCatalogStatus{Source: "Fetched"},
 		},
 	}
 	// Same catalog data on a group-restricted image the user is NOT in:
@@ -357,6 +352,13 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 	for _, img := range []*waasv1alpha1.WorkspaceImage{visible, hidden} {
 		if err := svc.kube.Create(ctx, img); err != nil {
 			t.Fatalf("seeding image %s: %v", img.Name, err)
+		}
+		entry := []repository.CatalogEntry{{
+			Image: "ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:def",
+			OS:    "linux", App: "firefox", Icon: "firefox", SyncedAt: time.Now(),
+		}}
+		if err := svc.catalog.ReplaceEntries(ctx, img.Name, entry); err != nil {
+			t.Fatalf("seeding catalog entries of %s: %v", img.Name, err)
 		}
 	}
 
