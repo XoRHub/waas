@@ -1,19 +1,19 @@
-# Dev catalog — mirrors gitops/governance/images.yaml but points at the
-# waas-local:dev tags produced by `make dev-build-images`, imported straight
-# into the k3d node's containerd by `make dev-load-images` (no registry
-# involved). Only images that actually exist in the waas-images repo (its
-# own repo since 2026-07-10, sibling checkout — see WAAS_IMAGES_DIR in the
-# Makefile) are seeded here (ubuntu-devtools in the real catalog has no
-# manifest there yet).
+# Dev catalog — mirrors gitops/governance/images.yaml, pointed at the
+# published registry images (docker.io/xorhub/*, catalog-waas-images.yaml)
+# by default: no local build/import needed. For local iteration on a
+# waas-images change, `make dev-load-images LOCAL_IMAGES="firefox devtools"`
+# builds (via the sibling waas-images checkout, see WAAS_IMAGES_DIR in the
+# Makefile) and imports waas-local/<name>:dev into k3d — point the matching
+# WorkspaceTemplate's `image:` at that tag yourself to actually run it.
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceImage
 metadata:
   name: ubuntu-xfce
 spec:
   displayName: "Ubuntu 24.04 — XFCE"
-  description: "Bureau XFCE complet (VNC recommandé, RDP disponible)."
-  image: waas-local/ubuntu-xfce:dev
-  protocols: [vnc, rdp]
+  description: "Bureau XFCE complet (VNC recommandé, RDP/SSH disponibles)."
+  image: docker.io/xorhub/ubuntu-desktop-noble:1.0.0
+  protocols: [vnc, rdp, ssh]
   architectures: [amd64, arm64]
   enabled: true
   resources:
@@ -21,6 +21,10 @@ spec:
     min:     { cpu: 250m, memory: 512Mi }
     max:     { cpu: "2",  memory: 4Gi }
 ---
+# Same underlying image as ubuntu-xfce above (SSH is a capability of
+# ubuntu-desktop-noble, not a standalone image since the waas-images
+# 2026-07-10 catalog split) — kept as its own entry because the "dev-ssh"
+# WorkspaceTemplate enables a different protocol/credential shape.
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceImage
 metadata:
@@ -28,7 +32,7 @@ metadata:
 spec:
   displayName: "Dev env — SSH"
   description: "Environnement de dev terminal (git, tmux, build tools) via SSH, VNC en secours."
-  image: waas-local/dev-ssh:dev
+  image: docker.io/xorhub/ubuntu-desktop-noble:1.0.0
   protocols: [ssh, vnc]
   architectures: [amd64, arm64]
   enabled: true
@@ -44,7 +48,7 @@ metadata:
 spec:
   displayName: "Firefox (navigation isolée)"
   description: "Firefox durci par policies.json, session jetable idéale."
-  image: waas-local/ubuntu-firefox:dev
+  image: docker.io/xorhub/firefox:1.0.0
   protocols: [vnc]
   architectures: [amd64]
   enabled: true
