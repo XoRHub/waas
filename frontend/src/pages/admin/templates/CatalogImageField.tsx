@@ -5,7 +5,7 @@ import { ImageOptionCard } from '@/components/ImageOptionCard';
 import { useEscape } from '@/hooks/useEscape';
 import { useAdminImages } from '@/hooks/useApi';
 import { fuzzyFilter } from '@/lib/fuzzy';
-import type { CatalogImage, DiscoveredImage } from '@/types';
+import type { CatalogImage, DeploymentRecommendation, DiscoveredImage } from '@/types';
 import { field } from './fields';
 
 /** Sentinel picker id for "no catalog — free input": resets the local
@@ -37,9 +37,14 @@ function searchText(d: DiscoveredImage): string {
 export function CatalogImageField({
   image,
   onChange,
+  onApplyRecommendation,
 }: {
   image: string;
   onChange: (image: string) => void;
+  /** Explicit "apply the catalog's recommendation" action — never
+   * triggered by onSelect/onChange, only by the button rendered when
+   * the currently selected discovered image carries one. */
+  onApplyRecommendation?: (recommended: DeploymentRecommendation) => void;
 }) {
   const { t } = useTranslation();
   const images = useAdminImages();
@@ -88,6 +93,11 @@ export function CatalogImageField({
   // catalog (fuzzyFilter passes it through untouched).
   const results = fuzzyFilter(discovered, image, searchText);
 
+  // The discovered entry backing the CURRENT image value, if any — the
+  // apply-recommendation action reads from it, not from the last click,
+  // so it stays correct if the admin types over the field afterward.
+  const selectedDiscovered = discovered.find((d) => d.image === image);
+
   return (
     <div className="space-y-2">
       <div>
@@ -116,24 +126,40 @@ export function CatalogImageField({
           if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
         }}
       >
-        <label className="block">
+        {/* Not a single <label>: the apply-recommendation button must
+            sit beside the field without becoming part of the input's
+            accessible name (a control nested inside a <label> gets
+            folded into the label text otherwise). aria-label on the
+            input replaces the implicit label association. */}
+        <div className="flex items-center justify-between gap-2">
           <span className="text-sm text-slate-600 dark:text-slate-300">
             {t('admin.templatesPage.image')}
           </span>
-          <input
-            className={field}
-            value={image}
-            onChange={(e) => {
-              onChange(e.target.value);
-              if (discovered.length > 0) setOpen(true);
-            }}
-            onFocus={() => {
-              if (discovered.length > 0) setOpen(true);
-            }}
-            placeholder={discovered.length > 0 ? t('admin.templatesPage.imageSearch') : undefined}
-            required
-          />
-        </label>
+          {selectedDiscovered?.recommended && onApplyRecommendation && (
+            <button
+              type="button"
+              onClick={() => onApplyRecommendation(selectedDiscovered.recommended!)}
+              title={t('admin.templatesPage.applyRecommendationHint')}
+              className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+            >
+              {t('admin.templatesPage.applyRecommendation')}
+            </button>
+          )}
+        </div>
+        <input
+          aria-label={t('admin.templatesPage.image')}
+          className={field}
+          value={image}
+          onChange={(e) => {
+            onChange(e.target.value);
+            if (discovered.length > 0) setOpen(true);
+          }}
+          onFocus={() => {
+            if (discovered.length > 0) setOpen(true);
+          }}
+          placeholder={discovered.length > 0 ? t('admin.templatesPage.imageSearch') : undefined}
+          required
+        />
         {open && discovered.length > 0 && (
           /* In-flow like ImagePicker's listbox: dialog bodies are
              overflow-y-auto scrollers and would clip an absolute
@@ -150,6 +176,7 @@ export function CatalogImageField({
                 os={d.os}
                 title={d.displayName || d.app || d.image}
                 subtitle={d.version || d.image}
+                profile={d.profile}
                 selected={d.image === image}
                 onSelect={() => {
                   onChange(d.image);

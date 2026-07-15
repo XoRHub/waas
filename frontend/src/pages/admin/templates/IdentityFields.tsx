@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { TemplateInput } from '@/hooks/useApi';
+import type { DeploymentRecommendation } from '@/types';
 import { CatalogImageField } from './CatalogImageField';
 import { field } from './fields';
 
@@ -15,10 +16,12 @@ export function IdentityFields({
   input,
   isNew,
   onPatch,
+  onApplyRecommendation,
 }: {
   input: TemplateInput;
   isNew: boolean;
   onPatch: (patch: Partial<TemplateInput>) => void;
+  onApplyRecommendation?: (recommended: DeploymentRecommendation) => void;
 }) {
   const { t } = useTranslation();
 
@@ -85,7 +88,11 @@ export function IdentityFields({
         </label>
       </div>
 
-      <CatalogImageField image={input.image} onChange={(image) => onPatch({ image })} />
+      <CatalogImageField
+        image={input.image}
+        onChange={(image) => onPatch({ image })}
+        onApplyRecommendation={onApplyRecommendation}
+      />
 
       <label className="block">
         <span className="text-sm text-slate-600 dark:text-slate-300">
