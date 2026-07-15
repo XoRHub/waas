@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -108,6 +109,73 @@ func TestCatalogSyncWorkerSuccessPopulatesTable(t *testing.T) {
 	st := workerCatalogStatus(t, c, "default", "waas-images")
 	if st == nil || st.Source != catalogSourceFetched || st.LastSyncTime == nil || st.LastSyncError != "" {
 		t.Fatalf("sync bookkeeping wrong: %+v", st)
+	}
+}
+
+const workerRecommendationManifest = `apiVersion: waas.xorhub.io/catalog/v1
+images:
+  - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc
+    os: linux
+    app: ubuntu-xfce
+    profile: hardened
+    recommended:
+      podSecurityContext:
+        runAsUser: 1000
+      securityContext:
+        readOnlyRootFilesystem: true
+      env:
+        - name: WAAS_SSH_ENABLED
+          protocols: [ssh]
+          requires: [WAAS_SSH_AUTHORIZED_KEYS_FILE]
+`
+
+func TestCatalogSyncWorkerCopiesRecommendation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(workerRecommendationManifest))
+	}))
+	defer srv.Close()
+
+	img := workerRegistryImage("waas-images", workerURLSource(srv.URL))
+	w, _, catalogRepo := catalogWorkerFixture(t, img)
+	ctx := context.Background()
+
+	w.syncAll(ctx)
+
+	entries, err := catalogRepo.ListEntries(ctx, "waas-images")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("catalog_entries = %+v, want 1 row", entries)
+	}
+	e := entries[0]
+	if e.Profile != "hardened" {
+		t.Errorf("profile = %q, want hardened", e.Profile)
+	}
+	if e.Recommended == nil {
+		t.Fatal("recommended = nil, want populated")
+	}
+	var got struct {
+		PodSecurityContext struct {
+			RunAsUser int64 `json:"runAsUser"`
+		} `json:"podSecurityContext"`
+		SecurityContext struct {
+			ReadOnlyRootFilesystem bool `json:"readOnlyRootFilesystem"`
+		} `json:"securityContext"`
+		Env []struct {
+			Name      string   `json:"name"`
+			Protocols []string `json:"protocols"`
+			Requires  []string `json:"requires"`
+		} `json:"env"`
+	}
+	if err := json.Unmarshal(e.Recommended, &got); err != nil {
+		t.Fatalf("recommended did not land as valid JSON: %v (%s)", err, e.Recommended)
+	}
+	if got.PodSecurityContext.RunAsUser != 1000 || !got.SecurityContext.ReadOnlyRootFilesystem {
+		t.Errorf("recommended mismatch: %+v", got)
+	}
+	if len(got.Env) != 1 || got.Env[0].Name != "WAAS_SSH_ENABLED" || len(got.Env[0].Requires) != 1 || got.Env[0].Requires[0] != "WAAS_SSH_AUTHORIZED_KEYS_FILE" {
+		t.Errorf("env hint mismatch: %+v", got.Env)
 	}
 }
 

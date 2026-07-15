@@ -405,6 +405,45 @@ type DiscoveredImage struct {
 	// OS icon.
 	Icon        string `json:"icon,omitempty"`
 	DisplayName string `json:"displayName,omitempty"`
+	// Profile is a display badge ("hardened"/"normal"); empty shows no
+	// badge.
+	Profile string `json:"profile,omitempty"`
+	// Recommended is an optional deployment-prefill hint the admin
+	// template form may copy into a Workload on explicit request —
+	// never applied automatically, never enforced. Deliberately its
+	// own type rather than shared/catalog.Recommendation: this is the
+	// api-server/frontend wire contract (tygo-generated), the other is
+	// the inter-repo catalog.yaml contract — two different
+	// compatibility cadences, same split as DiscoveredImage vs
+	// shared/catalog.Entry.
+	Recommended *DeploymentRecommendation `json:"recommended,omitempty"`
+}
+
+// DeploymentRecommendation mirrors shared/catalog.Recommendation for
+// the api-server/frontend wire contract. See DiscoveredImage.Recommended.
+type DeploymentRecommendation struct {
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+	SecurityContext    *corev1.SecurityContext    `json:"securityContext,omitempty"`
+	Volumes            []RecommendedVolume        `json:"volumes,omitempty"`
+	Env                []RecommendedEnvVar        `json:"env,omitempty"`
+}
+
+// RecommendedVolume mirrors shared/catalog.RecommendedVolume.
+type RecommendedVolume struct {
+	Name      string `json:"name"`
+	MountPath string `json:"mountPath"`
+	ReadOnly  bool   `json:"readOnly,omitempty"`
+}
+
+// RecommendedEnvVar mirrors shared/catalog.EnvHint. Protocols stays
+// []string here: there is no CRD Protocol type to reuse on this side,
+// unlike the operator.
+type RecommendedEnvVar struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Protocols   []string `json:"protocols,omitempty"`
+	Requires    []string `json:"requires,omitempty"`
+	Default     string   `json:"default,omitempty"`
 }
 
 // QuotaStatus is "where do I stand" for one user: applied policy, hard

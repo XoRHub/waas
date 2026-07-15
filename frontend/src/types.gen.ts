@@ -504,6 +504,52 @@ export interface DiscoveredImage {
    */
   icon?: string;
   displayName?: string;
+  /**
+   * Profile is a display badge ("hardened"/"normal"); empty shows no
+   * badge.
+   */
+  profile?: string;
+  /**
+   * Recommended is an optional deployment-prefill hint the admin
+   * template form may copy into a Workload on explicit request —
+   * never applied automatically, never enforced. Deliberately its
+   * own type rather than shared/catalog.Recommendation: this is the
+   * api-server/frontend wire contract (tygo-generated), the other is
+   * the inter-repo catalog.yaml contract — two different
+   * compatibility cadences, same split as DiscoveredImage vs
+   * shared/catalog.Entry.
+   */
+  recommended?: DeploymentRecommendation;
+}
+/**
+ * DeploymentRecommendation mirrors shared/catalog.Recommendation for
+ * the api-server/frontend wire contract. See DiscoveredImage.Recommended.
+ */
+export interface DeploymentRecommendation {
+  podSecurityContext?: unknown;
+  securityContext?: unknown;
+  volumes?: RecommendedVolume[];
+  env?: RecommendedEnvVar[];
+}
+/**
+ * RecommendedVolume mirrors shared/catalog.RecommendedVolume.
+ */
+export interface RecommendedVolume {
+  name: string;
+  mountPath: string;
+  readOnly?: boolean;
+}
+/**
+ * RecommendedEnvVar mirrors shared/catalog.EnvHint. Protocols stays
+ * []string here: there is no CRD Protocol type to reuse on this side,
+ * unlike the operator.
+ */
+export interface RecommendedEnvVar {
+  name: string;
+  description?: string;
+  protocols?: string[];
+  requires?: string[];
+  default?: string;
 }
 /**
  * QuotaStatus is "where do I stand" for one user: applied policy, hard

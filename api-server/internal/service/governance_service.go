@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -718,9 +719,26 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 			Version:     e.Version,
 			Icon:        e.Icon,
 			DisplayName: e.DisplayName,
+			Profile:     e.Profile,
+			Recommended: unmarshalRecommended(e.Recommended),
 		})
 	}
 	return m, nil
+}
+
+// unmarshalRecommended decodes the opaque JSON persisted by
+// CatalogSyncWorker; a nil/malformed column yields nil rather than an
+// error — this is display/prefill data, never a reason to fail an API
+// response.
+func unmarshalRecommended(raw json.RawMessage) *model.DeploymentRecommendation {
+	if len(raw) == 0 {
+		return nil
+	}
+	var r model.DeploymentRecommendation
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return nil
+	}
+	return &r
 }
 
 func policyToModel(pol *waasv1alpha1.WorkspacePolicy) model.PolicyModel {

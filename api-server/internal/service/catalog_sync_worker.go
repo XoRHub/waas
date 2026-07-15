@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -144,6 +145,8 @@ func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.Works
 			Version:     e.Version,
 			Icon:        e.Icon,
 			DisplayName: e.DisplayName,
+			Profile:     e.Profile,
+			Recommended: marshalRecommended(e.Recommended),
 			SyncedAt:    now,
 		})
 	}
@@ -158,6 +161,20 @@ func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.Works
 		return fmt.Errorf("patching catalog status of %s: %w", img.Name, err)
 	}
 	return nil
+}
+
+// marshalRecommended serializes a parsed recommendation for the JSON
+// column; nil (absent in the manifest) stays nil rather than "null" so
+// the repository can tell "no recommendation" from "an empty one".
+func marshalRecommended(r *catalog.Recommendation) json.RawMessage {
+	if r == nil {
+		return nil
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // normalizeOS degrades an unrecognized os value to "" (treated as

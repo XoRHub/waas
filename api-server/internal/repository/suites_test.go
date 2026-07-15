@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -278,7 +279,7 @@ func TestCatalogRepositorySuite(t *testing.T) {
 		}
 
 		first := []CatalogEntry{
-			{Image: "docker.io/xorhub/ubuntu-xfce:1.0.0", OS: "linux", App: "ubuntu-xfce", Version: "1.0.0", Icon: "linux", DisplayName: "Ubuntu XFCE", SyncedAt: synced},
+			{Image: "docker.io/xorhub/ubuntu-xfce:1.0.0", OS: "linux", App: "ubuntu-xfce", Version: "1.0.0", Icon: "linux", DisplayName: "Ubuntu XFCE", Profile: "hardened", Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000}}`), SyncedAt: synced},
 			{Image: "docker.io/xorhub/firefox:1.0.0", App: "firefox", SyncedAt: synced},
 		}
 		if err := repo.ReplaceEntries(ctx, "ubuntu-xfce", first); err != nil {
@@ -304,6 +305,27 @@ func TestCatalogRepositorySuite(t *testing.T) {
 		}
 		if got[1].DisplayName != "Ubuntu XFCE" || got[1].Icon != "linux" {
 			t.Fatalf("scalar round-trip: %+v", got[1])
+		}
+		// Structural comparison, not literal string equality: Postgres's
+		// real jsonb column reformats to its own canonical text on
+		// storage (whitespace, key order), unlike SQLite's TEXT-affinity
+		// passthrough.
+		var recommended struct {
+			PodSecurityContext struct {
+				RunAsUser int `json:"runAsUser"`
+			} `json:"podSecurityContext"`
+		}
+		if got[1].Profile != "hardened" || got[1].Recommended == nil {
+			t.Fatalf("profile/recommended round-trip: %+v", got[1])
+		}
+		if err := json.Unmarshal(got[1].Recommended, &recommended); err != nil {
+			t.Fatalf("recommended is not valid JSON: %v (%s)", err, got[1].Recommended)
+		}
+		if recommended.PodSecurityContext.RunAsUser != 1000 {
+			t.Fatalf("recommended round-trip mismatch: %+v", recommended)
+		}
+		if got[0].Profile != "" || got[0].Recommended != nil {
+			t.Fatalf("absent profile/recommended should stay zero: %+v", got[0])
 		}
 		if !got[1].SyncedAt.Equal(synced) {
 			t.Fatalf("synced_at round-trip: want %v got %v", synced, got[1].SyncedAt)

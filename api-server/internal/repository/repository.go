@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -110,5 +111,13 @@ type CatalogEntry struct {
 	Version     string
 	Icon        string
 	DisplayName string
+	// Profile and Recommended mirror shared/catalog.Entry's
+	// Profile/Recommended: display/prefill hints only, opaque to this
+	// layer. Recommended is stored as the raw JSON produced by the
+	// worker from shared/catalog.Recommendation — this repository
+	// never parses it, so it isn't coupled to the wire-format's or the
+	// API model's compatibility cadence.
+	Profile     string
+	Recommended json.RawMessage
 	SyncedAt    time.Time
 }
