@@ -132,6 +132,93 @@ branch (e.g. `main`) is fine for local development or exploration —
 handy for iterating against the latest schema — but not recommended
 for shared files, since branch content can change without notice.
 
+## Deployment recommendations (`profile`/`recommended`) — display/prefill only
+
+A catalog entry can optionally carry a `profile` badge
+(`hardened`/`normal`) and a `recommended` block —
+`podSecurityContext`/`securityContext`/`volumes`/`env` hints copied from
+`waas-images/HARDENING.md`'s *"To apply on the platform side"* section,
+so the admin template form doesn't start from a blank page on identity
+and hardening. **These fields follow the exact same regime as every
+other discovered field above: purely cosmetic, never read by
+`enforce()`/`buildPodTemplate`, prefill-only.** They live on the wire
+format (`shared/catalog.Entry`) and on `catalog_entries`
+(`profile`/`recommended` columns, the latter JSON text — not JSONB,
+since this table round-trips on both the Postgres and SQLite backends)
+exactly like `os`/`app`/`icon`; nothing on `WorkspaceImageSpec` or any
+CRD carries them, and no webhook validates or requires them.
+
+```yaml
+apiVersion: waas.xorhub.io/catalog/v1
+images:
+  - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:...
+    os: linux
+    app: ubuntu-xfce
+    version: "1.1.0"
+    profile: hardened
+    recommended:
+      podSecurityContext:
+        runAsUser: 1000
+        runAsNonRoot: true
+      securityContext:
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumes:
+        - name: tmp
+          mountPath: /tmp
+        - name: run
+          mountPath: /run
+          readOnly: true
+      env:
+        - name: WAAS_SSH_ENABLED
+          description: "Enable sshd (publickey only) — boolean '0'/'1'"
+          protocols: [ssh]
+          default: "0"
+          requires: [WAAS_SSH_AUTHORIZED_KEYS_FILE]
+        - name: WAAS_SSH_AUTHORIZED_KEYS_FILE
+          description: "Path to the authorized public key — mount from a
+            Secret (valueFrom.secretKeyRef), never a literal value.
+            Required as soon as WAAS_SSH_ENABLED=1: the image's
+            entrypoint refuses to start otherwise (fail-closed by
+            design, not a bug — see
+            waas-images/base/*/rootfs/etc/waas/entrypoint.d/50-sshd.sh)."
+          protocols: [ssh]
+```
+
+`recommended.volumes` is deliberately **not** a `corev1.Volume` +
+`corev1.VolumeMount` pair: the only case `HARDENING.md` documents is a
+plain `emptyDir` mounted at a fixed path (the `/tmp`+`/run` pair needed
+alongside `readOnlyRootFilesystem`), so one `name`/`mountPath`/`readOnly`
+entry says that without repeating the volume/mount boilerplate twice
+per entry. It never covers configMap/secret-backed mounts (e.g. an
+init.d script volume) — those stay the admin's call via the free-form
+`Workload.volumes`/`volumeMounts` override, never suggested by the
+catalog. `env[].requires` names another hint of the *same*
+recommendation that makes no sense without this one; it is purely
+descriptive (lets the prefill UI group/warn together) — never
+validated, never enforced, the admin can still apply one without the
+other exactly like today.
+
+The admin template form (`CatalogImageField.tsx`) offers an explicit
+**"Apply catalog recommendations"** button next to the image field once
+a registry-mode discovered image carrying a `recommended` block is
+selected — never an automatic prefill on selection, so an admin can
+never save a `securityContext` they didn't consciously see. Clicking it
+expands the (collapsed-by-default) Workload YAML section so the
+injected values are visible before saving, and merges `env` hints into
+the template's env list by name without overwriting an already-present
+entry.
+
+**Explored and explicitly rejected**: letting the catalog trigger an
+operator-side secret generation (e.g. an SSH keypair), addressed by env
+var name or by an enumerated generator id. `env`/`recommended` stays
+strictly informational; a generation mechanism, if it is ever built,
+belongs on `WorkspaceTemplateSpec` itself (near
+`WorkspaceProtocol.CredentialsSecretRef`) with its own webhook
+validation and operator logic — never as an extension of the catalog
+recommendation.
+
 ## Visibility and the portal picker
 
 - `GET /api/v1/catalog` nests discovered entries on the parent:
