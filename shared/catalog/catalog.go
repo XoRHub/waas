@@ -11,6 +11,7 @@ package catalog
 import (
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 )
 
@@ -47,6 +48,62 @@ type Entry struct {
 	Icon string `json:"icon,omitempty"`
 	// DisplayName is the human-facing name; empty falls back to App.
 	DisplayName string `json:"displayName,omitempty"`
+	// Profile is a display badge ("hardened" or "normal"); empty means
+	// no badge is shown. Purely cosmetic — never read by enforce() or
+	// buildPodTemplate.
+	Profile string `json:"profile,omitempty" jsonschema:"enum=,enum=hardened,enum=normal"`
+	// Recommended is an optional deployment-prefill hint for the admin
+	// template form — never merged into a built pod, never validated by
+	// a webhook. See docs/image-catalog.md.
+	Recommended *Recommendation `json:"recommended,omitempty"`
+}
+
+// Recommendation is a display/prefill hint attached to one catalog
+// Entry: what the admin template form can offer to copy into a
+// WorkspaceTemplate's Workload on explicit request. Never read at
+// reconcile time.
+type Recommendation struct {
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+	SecurityContext    *corev1.SecurityContext    `json:"securityContext,omitempty"`
+	Volumes            []RecommendedVolume        `json:"volumes,omitempty"`
+	Env                []EnvHint                  `json:"env,omitempty"`
+}
+
+// RecommendedVolume is deliberately NOT a corev1.Volume+corev1.VolumeMount
+// pair by name: the only case HARDENING.md actually documents is a
+// plain emptyDir mounted at a fixed path (the /tmp+/run pair needed
+// when readOnlyRootFilesystem is recommended) — one name+mountPath
+// entry says that without repeating the volume/mount boilerplate twice
+// per entry, and removes any risk of an unpaired volume/mount by
+// construction. Never covers configMap/secret-backed mounts (e.g. an
+// init.d script volume): those stay entirely the admin's call via the
+// free-form WorkspaceWorkload.Volumes/VolumeMounts override at
+// template-edit time, never suggested by the catalog.
+type RecommendedVolume struct {
+	Name      string `json:"name"`
+	MountPath string `json:"mountPath"`
+	ReadOnly  bool   `json:"readOnly,omitempty"`
+}
+
+// EnvHint is a display/prefill hint for one recommended env var. No
+// Kind field, deliberately: an EnvVar's value is always a string
+// wire-side (corev1.EnvVar.Value) regardless of what it "means" — a
+// bool/int/enum classification would never drive a different widget
+// in this feature, so it stays out. The one real structural
+// distinction that exists — literal Value vs ValueFrom.SecretKeyRef —
+// is left to Description text rather than a new field.
+type EnvHint struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Protocols this hint applies to; empty means all protocols.
+	Protocols []string `json:"protocols,omitempty" jsonschema:"enum=vnc,enum=rdp,enum=ssh,enum=kasmvnc"`
+	// Requires names other Env[].Name entries of the SAME recommendation
+	// that make no sense without this one (e.g. WAAS_SSH_ENABLED
+	// requires WAAS_SSH_AUTHORIZED_KEYS_FILE). Purely descriptive: lets
+	// the prefill UI group/warn together, never validated, never
+	// enforced.
+	Requires []string `json:"requires,omitempty"`
+	Default  string   `json:"default,omitempty"`
 }
 
 // Parse decodes one catalog manifest. Unknown apiVersion is a clean

@@ -1,6 +1,39 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "AppArmorProfile": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "localhostProfile": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "Capabilities": {
+      "properties": {
+        "add": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "drop": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Entry": {
       "properties": {
         "image": {
@@ -25,6 +58,17 @@
         },
         "displayName": {
           "type": "string"
+        },
+        "profile": {
+          "type": "string",
+          "enum": [
+            "",
+            "hardened",
+            "normal"
+          ]
+        },
+        "recommended": {
+          "$ref": "#/$defs/Recommendation"
         }
       },
       "additionalProperties": false,
@@ -32,6 +76,245 @@
       "required": [
         "image"
       ]
+    },
+    "EnvHint": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "protocols": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "vnc",
+              "rdp",
+              "ssh",
+              "kasmvnc"
+            ]
+          },
+          "type": "array"
+        },
+        "requires": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "PodSecurityContext": {
+      "properties": {
+        "seLinuxOptions": {
+          "$ref": "#/$defs/SELinuxOptions"
+        },
+        "windowsOptions": {
+          "$ref": "#/$defs/WindowsSecurityContextOptions"
+        },
+        "runAsUser": {
+          "type": "integer"
+        },
+        "runAsGroup": {
+          "type": "integer"
+        },
+        "runAsNonRoot": {
+          "type": "boolean"
+        },
+        "supplementalGroups": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "supplementalGroupsPolicy": {
+          "type": "string"
+        },
+        "fsGroup": {
+          "type": "integer"
+        },
+        "sysctls": {
+          "items": {
+            "$ref": "#/$defs/Sysctl"
+          },
+          "type": "array"
+        },
+        "fsGroupChangePolicy": {
+          "type": "string"
+        },
+        "seccompProfile": {
+          "$ref": "#/$defs/SeccompProfile"
+        },
+        "appArmorProfile": {
+          "$ref": "#/$defs/AppArmorProfile"
+        },
+        "seLinuxChangePolicy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Recommendation": {
+      "properties": {
+        "podSecurityContext": {
+          "$ref": "#/$defs/PodSecurityContext"
+        },
+        "securityContext": {
+          "$ref": "#/$defs/SecurityContext"
+        },
+        "volumes": {
+          "items": {
+            "$ref": "#/$defs/RecommendedVolume"
+          },
+          "type": "array"
+        },
+        "env": {
+          "items": {
+            "$ref": "#/$defs/EnvHint"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RecommendedVolume": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "mountPath": {
+          "type": "string"
+        },
+        "readOnly": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "mountPath"
+      ]
+    },
+    "SELinuxOptions": {
+      "properties": {
+        "user": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SeccompProfile": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "localhostProfile": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "SecurityContext": {
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "privileged": {
+          "type": "boolean"
+        },
+        "seLinuxOptions": {
+          "$ref": "#/$defs/SELinuxOptions"
+        },
+        "windowsOptions": {
+          "$ref": "#/$defs/WindowsSecurityContextOptions"
+        },
+        "runAsUser": {
+          "type": "integer"
+        },
+        "runAsGroup": {
+          "type": "integer"
+        },
+        "runAsNonRoot": {
+          "type": "boolean"
+        },
+        "readOnlyRootFilesystem": {
+          "type": "boolean"
+        },
+        "allowPrivilegeEscalation": {
+          "type": "boolean"
+        },
+        "procMount": {
+          "type": "string"
+        },
+        "seccompProfile": {
+          "$ref": "#/$defs/SeccompProfile"
+        },
+        "appArmorProfile": {
+          "$ref": "#/$defs/AppArmorProfile"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Sysctl": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ]
+    },
+    "WindowsSecurityContextOptions": {
+      "properties": {
+        "gmsaCredentialSpecName": {
+          "type": "string"
+        },
+        "gmsaCredentialSpec": {
+          "type": "string"
+        },
+        "runAsUserName": {
+          "type": "string"
+        },
+        "hostProcess": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     }
   },
   "properties": {
