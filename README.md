@@ -1,8 +1,16 @@
 # WaaS — Kubernetes-native Workspace-as-a-Service
 
+Coverage:
+
+operator: [![operator](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=operator)](https://codecov.io/github/XoRHub/waas/tree/main/operator)
+api-server: [![api-server](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=api-server)](https://codecov.io/github/XoRHub/waas/tree/main/api-server)
+wwt: [![wwt](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=wwt)](https://codecov.io/github/XoRHub/waas/tree/main/wwt)
+frontend: [![frontend](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=frontend)](https://codecov.io/github/XoRHub/waas/tree/main/frontend)
+
 Open-source, Kubernetes-native Workspace-as-a-Service. `helm install` it on any cluster
 (the only prerequisite is cert-manager) and give people a full remote desktop — Linux
-(VNC) or Windows (RDP via KubeVirt, auto-detected) — accessible from any browser.
+(VNC) or Windows (RDP via KubeVirt, auto-detected) — accessible from any browser. See
+[helm/waas/README.md](helm/waas/README.md) for install/upgrade instructions.
 
 **Workspaces as code, GitOps-first:** a workspace is a Kubernetes resource
 (`Workspace` / `WorkspaceTemplate` CRDs), created via `kubectl apply`, ArgoCD or Flux
@@ -25,7 +33,7 @@ Browser ── HTTPS/WSS ──> API Server (chi) ──> PostgreSQL (users, quo
 | WebSocket Proxy | `wwt/` | Validates the JWT **before** opening any TCP connection to guacd. |
 | Frontend | `frontend/` | React 19 admin dashboard + user portal. Only ever talks to the API Server. |
 | Shared | `shared/` | JWT claims & auth primitives shared by API Server and proxy. |
-| Helm chart | `helm/waas/` | Single-chart install: operator, API server, proxy, frontend, guacd, PostgreSQL. |
+| Helm chart | `helm/waas/` | Single-chart install: operator, API server, proxy, frontend, guacd, PostgreSQL — see [helm/waas/README.md](helm/waas/README.md). |
 
 Hard boundaries (non-negotiable):
 
@@ -38,7 +46,7 @@ Hard boundaries (non-negotiable):
 ## Quickstart (local dev)
 
 ```sh
-mise install            # Go 1.26 + Node
+mise install            # every pinned tool (Go, Node, Helm, …) — the exact versions CI installs
 make build test         # all Go modules
 make generate manifests # operator codegen (CRDs, RBAC, deepcopy)
 make frontend-build

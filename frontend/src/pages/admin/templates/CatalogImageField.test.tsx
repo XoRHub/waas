@@ -6,8 +6,15 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
 import en from '@/i18n/locales/en.json';
-import type { CatalogImage } from '@/types';
+import type { CatalogImage, DeploymentRecommendation } from '@/types';
 import { CatalogImageField } from './CatalogImageField';
+
+const firefoxRecommendation: DeploymentRecommendation = {
+  podSecurityContext: { runAsUser: 1000 },
+  securityContext: { readOnlyRootFilesystem: true },
+  volumes: [{ name: 'tmp', mountPath: '/tmp' }],
+  env: [{ name: 'WAAS_SSH_ENABLED', protocols: ['ssh'] }],
+};
 
 const apiMock = createApiMock();
 vi.mock('@/lib/api', () => ({
@@ -30,6 +37,8 @@ const catalogs: CatalogImage[] = [
         displayName: 'Firefox',
         version: '128',
         os: 'linux',
+        profile: 'hardened',
+        recommended: firefoxRecommendation,
       },
       {
         image: 'ghcr.io/acme/chromium:126',
@@ -56,7 +65,15 @@ const catalogs: CatalogImage[] = [
 
 // The image input is controlled by the parent (the value IS the fuzzy
 // query), so the tests need the real round-trip, not a bare spy.
-function Harness({ initial, onChange }: { initial: string; onChange: (v: string) => void }) {
+function Harness({
+  initial,
+  onChange,
+  onApplyRecommendation,
+}: {
+  initial: string;
+  onChange: (v: string) => void;
+  onApplyRecommendation?: (recommended: DeploymentRecommendation) => void;
+}) {
   const [image, setImage] = useState(initial);
   return (
     <CatalogImageField
@@ -65,14 +82,18 @@ function Harness({ initial, onChange }: { initial: string; onChange: (v: string)
         onChange(v);
         setImage(v);
       }}
+      onApplyRecommendation={onApplyRecommendation}
     />
   );
 }
 
 function renderField(initial = '') {
   const onChange = vi.fn();
-  renderWithProviders(<Harness initial={initial} onChange={onChange} />);
-  return { onChange };
+  const onApplyRecommendation = vi.fn();
+  renderWithProviders(
+    <Harness initial={initial} onChange={onChange} onApplyRecommendation={onApplyRecommendation} />,
+  );
+  return { onChange, onApplyRecommendation };
 }
 
 // A string name is an exact match: never collides with "Image catalog".
@@ -144,5 +165,26 @@ describe('CatalogImageField', () => {
     expect(screen.queryByRole('listbox', { name: en.admin.templatesPage.image })).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
     expect(imageInput()).toHaveValue('docker.io/current');
+  });
+
+  it('shows an apply-recommendation button only for a discovered image carrying one', async () => {
+    const { onApplyRecommendation } = renderField();
+    await openPicker();
+    await userEvent.click(await screen.findByRole('option', { name: /Browsers/ }));
+
+    // Firefox carries a recommendation: the button is offered once selected.
+    await userEvent.click(screen.getByRole('option', { name: /Firefox/ }));
+    const applyButton = screen.getByRole('button', {
+      name: en.admin.templatesPage.applyRecommendation,
+    });
+    await userEvent.click(applyButton);
+    expect(onApplyRecommendation).toHaveBeenCalledWith(firefoxRecommendation);
+
+    // Chromium has no recommendation: no button once it's the current value.
+    await userEvent.clear(imageInput());
+    await userEvent.click(await screen.findByRole('option', { name: /Chromium/ }));
+    expect(
+      screen.queryByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
+    ).toBeNull();
   });
 });

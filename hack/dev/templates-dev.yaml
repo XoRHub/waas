@@ -1,6 +1,9 @@
 # Dev WorkspaceTemplates consuming the images seeded in images-dev.yaml.
 # `image` must match the corresponding WorkspaceImage verbatim (see its
-# comment) — here that means the waas-local:dev tag, not a registry ref.
+# comment) — registry refs (docker.io/xorhub/*) by default, same as prod.
+# For local iteration on a waas-images change, `make dev-load-images
+# LOCAL_IMAGES="firefox"` builds + imports waas-local/firefox:dev into k3d;
+# point this template's `image:` at that tag yourself to actually run it.
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceTemplate
 metadata:
@@ -9,7 +12,7 @@ spec:
   displayName: "Ubuntu 24.04 — XFCE"
   description: "Full XFCE desktop over VNC (recommended protocol for Linux)."
   os: linux
-  image: waas-local/ubuntu-xfce:dev
+  image: docker.io/xorhub/ubuntu-desktop-noble:1.0.0
   homeSize: 10Gi
   resources:
     requests: { cpu: 500m, memory: 1Gi }
@@ -88,12 +91,18 @@ spec:
   displayName: "Dev env — SSH"
   description: "Terminal dev env (git, tmux, build tools) over SSH; VNC fallback."
   os: linux
-  image: waas-local/dev-ssh:dev
+  # Same underlying image as ubuntu-xfce above — SSH is a capability of the
+  # OS-only desktop image (INSTALL_SSH=1 at build time), off by default even
+  # then: WAAS_SSH_ENABLED=1 below is what actually turns it on. There is no
+  # more standalone "dev-ssh" image (waas-images split, 2026-07-10 catalog).
+  image: docker.io/xorhub/ubuntu-desktop-noble:1.0.0
   homeSize: 10Gi
   resources:
     requests: { cpu: 500m, memory: 1Gi }
     limits: { cpu: "2", memory: 4Gi }
   env:
+    - name: WAAS_SSH_ENABLED
+      value: "1"
     # Keys come from the dev-ssh-credentials Secret, seeded by
     # hack/dev/seed-ssh-secret.sh (make dev-load-images runs it).
     - name: WAAS_SSH_AUTHORIZED_KEYS
@@ -134,7 +143,7 @@ spec:
   displayName: "Firefox (navigation isolée)"
   description: "Firefox durci, session jetable — avec audio (PulseAudio streamé par guacd)."
   os: linux
-  image: waas-local/ubuntu-firefox:dev
+  image: docker.io/xorhub/firefox:1.0.0
   homeSize: 5Gi
   resources:
     requests: { cpu: 500m, memory: 1536Mi }

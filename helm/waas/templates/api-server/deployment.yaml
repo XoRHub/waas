@@ -1,0 +1,199 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api-server
+  labels:
+    app.kubernetes.io/name: waas-api-server
+    {{- include "waas.labels" . | nindent 4 }}
+    {{- with .Values.apiServer.deploymentLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with include "waas.deploymentAnnotations" (dict "root" $ "annotations" .Values.apiServer.deploymentAnnotations) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.apiServer.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waas-api-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waas-api-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with include "waas.podLabels" (dict "root" $ "podLabels" .Values.apiServer.podLabels) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with include "waas.podAnnotations" (dict "root" $ "podAnnotations" .Values.apiServer.podAnnotations "port" 8080) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-api-server
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: api-server
+          image: "{{ .Values.image.registry }}/api-server:{{ include "waas.tag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: WAAS_LISTEN_ADDR
+              value: ":8080"
+            - name: WAAS_WORKSPACE_NAMESPACE
+              value: {{ include "waas.workspacesNamespace" . | quote }}
+            # Same placement pattern as the operator (one values key):
+            # the api-server resolves it at creation, the webhook
+            # re-verifies — they must agree.
+            - name: WAAS_DEFAULT_NAMESPACE_PATTERN
+              value: {{ .Values.workspaces.defaultNamespacePattern | quote }}
+            - name: WAAS_JWT_ISSUER
+              value: {{ .Values.apiServer.jwtIssuer | quote }}
+            - name: WAAS_ACCESS_TOKEN_TTL
+              value: {{ .Values.apiServer.accessTokenTTL | quote }}
+            - name: WAAS_CONNECTION_TOKEN_TTL
+              value: {{ .Values.apiServer.connectionTokenTTL | quote }}
+            - name: WAAS_EVENTS_POLL_INTERVAL
+              value: {{ .Values.apiServer.eventsPollInterval | default "10s" | quote }}
+            # Catalog re-sync cadence for WorkspaceImage.spec.catalog
+            # (cosmetic picker metadata; an invalid duration logs an
+            # error and falls back to the default — see
+            # durationOrLogged in internal/config).
+            - name: WAAS_CATALOG_SYNC_INTERVAL
+              value: {{ .Values.apiServer.catalogSyncInterval | default "6h" | quote }}
+            {{- if .Values.metrics.enabled }}
+            # Serves Prometheus /metrics on the app port (cluster-internal
+            # only — the ingress allow-list never routes it).
+            - name: WAAS_METRICS_ENABLED
+              value: "true"
+            {{- end }}
+            - name: WAAS_JWT_PRIVATE_KEY_FILE
+              value: /etc/waas/keys/jwt-private-key
+            - name: WAAS_ADMIN_USERNAME
+              value: {{ .Values.apiServer.adminUsername | quote }}
+            - name: WAAS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.externalURLSecretRef.name | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: {{ .Values.postgres.externalURLSecretRef.key | default "database-url" }}
+            - name: WAAS_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.internalTokenSecretRef.name | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: {{ .Values.internalTokenSecretRef.key | default "internal-token" }}
+            {{- if or .Values.apiServer.adminPassword .Values.apiServer.adminPasswordSecretRef.name }}
+            - name: WAAS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.apiServer.adminPasswordSecretRef.name | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: {{ .Values.apiServer.adminPasswordSecretRef.key | default "admin-password" }}
+            {{- end }}
+            {{- with .Values.apiServer.oidc }}
+            {{- if .disableLocalLogin }}
+            # Deliberately emitted even without issuerURL: the api-server
+            # must refuse to start on that misconfiguration rather than
+            # have Helm silently hide the flag.
+            - name: WAAS_LOGIN_OIDC_ONLY
+              value: "true"
+            {{- end }}
+            {{- if or .issuerURL .issuerURLSecretRef.name }}
+            # SSO (any OIDC provider). Local login stays available as
+            # break-glass unless disableLocalLogin cuts it off; groups
+            # sync at every SSO login. Each connection field can come from
+            # a plain value or its own Secret (ExternalSecret-friendly) —
+            # independent refs, no single do-everything secret.
+            - name: WAAS_OIDC_ISSUER
+              {{- if .issuerURLSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .issuerURLSecretRef.name }}
+                  key: {{ .issuerURLSecretRef.key | default "issuer-url" }}
+              {{- else }}
+              value: {{ .issuerURL | quote }}
+              {{- end }}
+            - name: WAAS_OIDC_CLIENT_ID
+              {{- if .clientIDSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .clientIDSecretRef.name }}
+                  key: {{ .clientIDSecretRef.key | default "client-id" }}
+              {{- else }}
+              value: {{ .clientID | quote }}
+              {{- end }}
+            - name: WAAS_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .clientSecretRef.name | default (printf "%s-app-secrets" $.Release.Name) }}
+                  key: {{ .clientSecretRef.key | default "oidc-client-secret" }}
+            - name: WAAS_OIDC_REDIRECT_URL
+              {{- if .redirectURLSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .redirectURLSecretRef.name }}
+                  key: {{ .redirectURLSecretRef.key | default "redirect-url" }}
+              {{- else }}
+              value: {{ .redirectURL | quote }}
+              {{- end }}
+            - name: WAAS_OIDC_FRONTEND_URL
+              value: {{ .frontendURL | default "/" | quote }}
+            {{- if .scopes }}
+            - name: WAAS_OIDC_SCOPES
+              value: {{ join "," .scopes | quote }}
+            {{- end }}
+            {{- if .groupsClaim }}
+            - name: WAAS_OIDC_GROUPS_CLAIM
+              value: {{ .groupsClaim | quote }}
+            {{- end }}
+            {{- if .adminGroups }}
+            - name: WAAS_OIDC_ADMIN_GROUPS
+              value: {{ join "," .adminGroups | quote }}
+            {{- end }}
+            {{- if .providerName }}
+            - name: WAAS_OIDC_PROVIDER_NAME
+              value: {{ .providerName | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.apiServer.wol }}
+            {{- if .relayURL }}
+            # Wake-on-LAN relay for remote workspaces (magic packet must
+            # be emitted on the target's L2; a pod cannot — see docs).
+            - name: WAAS_WOL_RELAY_URL
+              value: {{ .relayURL | quote }}
+            {{- if .existingSecret }}
+            - name: WAAS_WOL_RELAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret | quote }}
+                  key: {{ .existingSecretKey | default "wol-relay-token" | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+          volumeMounts:
+            - name: keys
+              mountPath: /etc/waas/keys
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          resources:
+            {{- toYaml .Values.apiServer.resources | nindent 12 }}
+      volumes:
+        - name: keys
+          secret:
+            secretName: {{ .Release.Name }}-jwt-signing-key
+            items:
+              - key: jwt-private-key
+                path: jwt-private-key

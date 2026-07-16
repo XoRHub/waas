@@ -1,0 +1,39 @@
+{{- if .Values.defaultPolicy.enabled }}
+# Catch-all baseline policy at priority 0 — no subjects means it
+# matches every authenticated user, exactly the CRD's own documented
+# "default fallback" convention. Resolved by priority like any other
+# policy; adminPolicy/gitops-managed policies simply outrank it.
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspacePolicy
+metadata:
+  name: {{ .Values.defaultPolicy.name }}
+  namespace: {{ include "waas.workspacesNamespace" . }}
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  priority: {{ .Values.defaultPolicy.priority }}
+  {{- with .Values.defaultPolicy.subjects }}
+  subjects:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  images:
+    {{- toYaml .Values.defaultPolicy.images | nindent 4 }}
+  {{- with .Values.defaultPolicy.limits }}
+  limits:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaultPolicy.lifecycle }}
+  lifecycle:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaultPolicy.clipboard }}
+  clipboard:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaultPolicy.overrides.allowedFields }}
+  overrides:
+    allowedFields:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+  remoteWorkspaces: {{ .Values.defaultPolicy.remoteWorkspaces }}
+{{- end }}

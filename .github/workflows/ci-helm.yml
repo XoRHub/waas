@@ -20,18 +20,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      # Versions pinned in .mise.toml; its postinstall hook also installs
+      # the helm-unittest plugin (pinned there too).
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          version: v3.17.3
+          install_args: helm helm-docs uv
       - name: Lint and render
         run: |
           helm lint helm/waas
           helm template waas helm/waas > rendered-default.yaml
           helm template waas helm/waas -f hack/dev/values-dev.yaml > rendered-dev.yaml
-      - name: CRDs to JSON Schemas
+      - name: helm-docs drift check
         run: |
-          pip install pyyaml==6.0.2
-          python3 hack/ci/crd_to_jsonschema.py helm/waas/crds crd-schemas
+          (cd helm/waas && helm-docs --sort-values-order file)
+          git diff --exit-code helm/waas/README.md \
+            || { echo "FATAL helm/waas/README.md is stale — run 'make helm-docs' and commit the result"; exit 1; }
+      - name: helm unittest
+        run: helm unittest helm/waas
+      - name: CRDs to JSON Schemas
+        # The script declares its own pyyaml pin (PEP 723 inline
+        # metadata); uv resolves it into an ephemeral env.
+        run: uv run hack/ci/crd_to_jsonschema.py helm/waas/crds crd-schemas
       - name: kubeconform
         # -skip CustomResourceDefinition: no usable upstream schema for the
         # CRD kind itself; CRDs are drift-checked and every CR validates

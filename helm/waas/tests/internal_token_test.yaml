@@ -1,0 +1,49 @@
+suite: internal-token secret sourcing (shared between wwt and api-server)
+templates:
+  - api-server/deployment.yaml
+  - wwt/deployment.yaml
+release:
+  name: waas
+tests:
+  - it: both wwt and api-server read from the release-managed secret when internalTokenSecretRef is unset
+    set:
+      internalTokenSecretRef.name: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_INTERNAL_TOKEN")].valueFrom.secretKeyRef.name
+          value: waas-app-secrets
+        template: api-server/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_INTERNAL_TOKEN")].valueFrom.secretKeyRef.key
+          value: internal-token
+        template: api-server/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WWT_INTERNAL_TOKEN")].valueFrom.secretKeyRef.name
+          value: waas-app-secrets
+        template: wwt/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WWT_INTERNAL_TOKEN")].valueFrom.secretKeyRef.key
+          value: internal-token
+        template: wwt/deployment.yaml
+
+  - it: both wwt and api-server read from the SAME external secret when internalTokenSecretRef is set
+    set:
+      internalTokenSecretRef.name: my-shared-secret
+      internalTokenSecretRef.key: token
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_INTERNAL_TOKEN")].valueFrom.secretKeyRef.name
+          value: my-shared-secret
+        template: api-server/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_INTERNAL_TOKEN")].valueFrom.secretKeyRef.key
+          value: token
+        template: api-server/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WWT_INTERNAL_TOKEN")].valueFrom.secretKeyRef.name
+          value: my-shared-secret
+        template: wwt/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WWT_INTERNAL_TOKEN")].valueFrom.secretKeyRef.key
+          value: token
+        template: wwt/deployment.yaml

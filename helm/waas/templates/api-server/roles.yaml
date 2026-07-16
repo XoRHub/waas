@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-api-server
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+---
+# The API server only manipulates WaaS CRs — never pods or VMs directly.
+# Its RBAC enforces that boundary at the cluster level.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-api-server
+  namespace: {{ include "waas.workspacesNamespace" . }}
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspaces, workspacetemplates]
+    verbs: [create, delete, get, list, patch, update, watch]
+  # Governance: the admin console writes the catalog and policies
+  # straight to the CRDs (ArgoCD only bootstraps them).
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspaceimages, workspacepolicies]
+    verbs: [create, delete, get, list, patch, update, watch]
+  # CatalogSyncWorker writes status.catalog.{source,lastSyncTime,lastSyncError}
+  # after every sync — the discovered entries themselves go to Postgres
+  # (catalog_entries), never to this subresource.
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspaceimages/status]
+    verbs: [get, patch]
+  # Secrets, scoped to the workspace namespace and deliberately without
+  # list/watch:
+  #   - get: connect-time resolution of template credentialsSecretRef;
+  #   - create/update/delete: the per-entry credentials Secrets of the
+  #     Remote Workspaces feature (waas-remote-<id>), written exclusively
+  #     by the api-server, never exposed through the API.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, update, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-api-server
+  namespace: {{ include "waas.workspacesNamespace" . }}
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-api-server
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-api-server
+    namespace: {{ .Release.Namespace }}
+---
+# Retained volumes (home PVCs surviving their deleted workspace) live in
+# the WORKLOAD namespaces, wherever placement put them: the dashboards
+# and the quota computation need a cluster-wide, label-selected view.
+# Deliberately read+delete only: creation/adoption stays the operator's.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-api-server-volumes
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    # watch: the "volumes" SSE kind (owner-scoped live updates).
+    verbs: [get, list, delete, watch]
+  # Events panel: aggregated Kubernetes events of a workspace and its
+  # children — workloads live in dynamic per-user namespaces, so the
+  # reads must be cluster-wide. Child DISCOVERY (label-scoped list over
+  # the operator's managed inventory) needs read on those kinds too.
+  # Filtering per workspace ownership happens server-side; the UI never
+  # sees raw cluster objects.
+  - apiGroups: [""]
+    resources: [events, pods, services]
+    verbs: [get, list]
+  # Effective KasmVNC config: read-only display of the per-workspace
+  # kasmvnc.yaml ConfigMap the operator materialized (GET
+  # /workspaces/{id}/kasmvnc-config). Addressed by its exact name in the
+  # workload namespace — get only, never list/watch and never any write:
+  # editing stays admin-only through the template CR.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get]
+  # Session resize: the ONLY write into workspace pods — exec of the
+  # image's fixed waas-resize helper (docs/session-resize.md). Kept as
+  # its OWN rule on purpose: pods/exec is a significant grant and must
+  # stay visible in review, never folded into the read-only pods entry.
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, replicasets]
+    verbs: [get, list]
+  - apiGroups: [kubevirt.io]
+    resources: [virtualmachines]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-api-server-volumes
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-api-server-volumes
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-api-server
+    namespace: {{ .Release.Namespace }}

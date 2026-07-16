@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -261,6 +262,100 @@ func TestAuditRepositorySuite(t *testing.T) {
 		_, total, err = repo.List(ctx, AuditFilter{Actor: "lic"}, 1, 10)
 		if err != nil || total != 3 {
 			t.Fatalf("actor substring: total=%d err=%v", total, err)
+		}
+	})
+}
+
+func TestCatalogRepositorySuite(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, db *database.DB) {
+		repo := NewSQLCatalogRepository(db)
+		ctx := context.Background()
+		synced := time.Date(2026, 7, 8, 8, 0, 0, 0, time.UTC)
+
+		// No rows yet: an empty, non-nil slice, never an error.
+		got, err := repo.ListEntries(ctx, "ubuntu-xfce")
+		if err != nil || len(got) != 0 {
+			t.Fatalf("empty catalog: got=%v err=%v", got, err)
+		}
+
+		first := []CatalogEntry{
+			{Image: "docker.io/xorhub/ubuntu-xfce:1.0.0", OS: "linux", App: "ubuntu-xfce", Version: "1.0.0", Icon: "linux", DisplayName: "Ubuntu XFCE", Profile: "hardened", Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000}}`), SyncedAt: synced},
+			{Image: "docker.io/xorhub/firefox:1.0.0", App: "firefox", SyncedAt: synced},
+		}
+		if err := repo.ReplaceEntries(ctx, "ubuntu-xfce", first); err != nil {
+			t.Fatal(err)
+		}
+		// A second, unrelated WorkspaceImage's rows must not leak across.
+		if err := repo.ReplaceEntries(ctx, "windows-server", []CatalogEntry{
+			{Image: "docker.io/xorhub/windows:2022", SyncedAt: synced},
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		got, err = repo.ListEntries(ctx, "ubuntu-xfce")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("expected 2 entries, got %+v", got)
+		}
+		// image ordering (ORDER BY image): firefox before ubuntu-xfce.
+		if got[0].Image != "docker.io/xorhub/firefox:1.0.0" || got[0].App != "firefox" {
+			t.Fatalf("unexpected first entry: %+v", got[0])
+		}
+		if got[1].DisplayName != "Ubuntu XFCE" || got[1].Icon != "linux" {
+			t.Fatalf("scalar round-trip: %+v", got[1])
+		}
+		// Structural comparison, not literal string equality: Postgres's
+		// real jsonb column reformats to its own canonical text on
+		// storage (whitespace, key order), unlike SQLite's TEXT-affinity
+		// passthrough.
+		var recommended struct {
+			PodSecurityContext struct {
+				RunAsUser int `json:"runAsUser"`
+			} `json:"podSecurityContext"`
+		}
+		if got[1].Profile != "hardened" || got[1].Recommended == nil {
+			t.Fatalf("profile/recommended round-trip: %+v", got[1])
+		}
+		if err := json.Unmarshal(got[1].Recommended, &recommended); err != nil {
+			t.Fatalf("recommended is not valid JSON: %v (%s)", err, got[1].Recommended)
+		}
+		if recommended.PodSecurityContext.RunAsUser != 1000 {
+			t.Fatalf("recommended round-trip mismatch: %+v", recommended)
+		}
+		if got[0].Profile != "" || got[0].Recommended != nil {
+			t.Fatalf("absent profile/recommended should stay zero: %+v", got[0])
+		}
+		if !got[1].SyncedAt.Equal(synced) {
+			t.Fatalf("synced_at round-trip: want %v got %v", synced, got[1].SyncedAt)
+		}
+
+		other, err := repo.ListEntries(ctx, "windows-server")
+		if err != nil || len(other) != 1 {
+			t.Fatalf("windows-server entries: %v %v", other, err)
+		}
+
+		// A second sync fully replaces the first: dropped images
+		// disappear, survivors keep their fresh values.
+		second := []CatalogEntry{
+			{Image: "docker.io/xorhub/firefox:1.1.0", App: "firefox", Version: "1.1.0", SyncedAt: synced.Add(time.Hour)},
+		}
+		if err := repo.ReplaceEntries(ctx, "ubuntu-xfce", second); err != nil {
+			t.Fatal(err)
+		}
+		got, err = repo.ListEntries(ctx, "ubuntu-xfce")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Version != "1.1.0" {
+			t.Fatalf("replace must swap the whole set: %+v", got)
+		}
+		// The other WorkspaceImage's rows are untouched by an unrelated
+		// ReplaceEntries call.
+		other, err = repo.ListEntries(ctx, "windows-server")
+		if err != nil || len(other) != 1 {
+			t.Fatalf("windows-server entries after unrelated replace: %v %v", other, err)
 		}
 	})
 }

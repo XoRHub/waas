@@ -1,0 +1,89 @@
+suite: bootstrap default WorkspacePolicy
+templates:
+  - default-policy.yaml
+tests:
+  - it: renders nothing when disabled
+    set:
+      defaultPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the configured name, priority, no subjects field, limits/lifecycle/clipboard
+    set:
+      defaultPolicy.enabled: true
+      defaultPolicy.name: test-default
+      defaultPolicy.priority: 0
+      defaultPolicy.subjects: []
+      defaultPolicy.images: []
+      defaultPolicy.limits:
+        maxWorkspaces: 7
+        perWorkspace: { cpu: "2", memory: 2Gi, home: 10Gi }
+        aggregate: { cpu: "4", memory: 6Gi, storage: 30Gi }
+        defaults: { cpu: 250m, memory: 256Mi }
+      defaultPolicy.lifecycle:
+        idleSuspendAfter: 1h
+        maxLifetime: 168h
+      defaultPolicy.clipboard:
+        copyFromWorkspace: false
+        pasteToWorkspace: false
+      defaultPolicy.overrides: { allowedFields: [] }
+      defaultPolicy.remoteWorkspaces: false
+    asserts:
+      - isKind:
+          of: WorkspacePolicy
+      - equal:
+          path: metadata.name
+          value: test-default
+      - equal:
+          path: spec.priority
+          value: 0
+      - notExists:
+          path: spec.subjects
+      - equal:
+          path: spec.limits.maxWorkspaces
+          value: 7
+      - equal:
+          path: spec.limits.perWorkspace
+          value: { cpu: "2", memory: 2Gi, home: 10Gi }
+      - equal:
+          path: spec.limits.aggregate
+          value: { cpu: "4", memory: 6Gi, storage: 30Gi }
+      - equal:
+          path: spec.lifecycle.idleSuspendAfter
+          value: 1h
+      - equal:
+          path: spec.lifecycle.maxLifetime
+          value: 168h
+      - equal:
+          path: spec.clipboard.copyFromWorkspace
+          value: false
+      - equal:
+          path: spec.clipboard.pasteToWorkspace
+          value: false
+      - notExists:
+          path: spec.overrides
+      - equal:
+          path: spec.remoteWorkspaces
+          value: false
+
+  - it: restricting subjects and enabling overrides/remoteWorkspaces are supported for full bootstrap customization
+    set:
+      defaultPolicy.enabled: true
+      defaultPolicy.subjects:
+        - kind: Group
+          name: everyone-but-guests
+      defaultPolicy.overrides: { allowedFields: [resources] }
+      defaultPolicy.remoteWorkspaces: true
+    asserts:
+      - equal:
+          path: spec.subjects
+          value:
+            - kind: Group
+              name: everyone-but-guests
+      - equal:
+          path: spec.overrides.allowedFields
+          value: [resources]
+      - equal:
+          path: spec.remoteWorkspaces
+          value: true

@@ -11,6 +11,7 @@ import {
 } from '@/hooks/useApi';
 import { Dialog } from '@/components/Dialog';
 import { parseYaml } from '@/components/YamlEditor';
+import type { DeploymentRecommendation } from '@/types';
 import { EnvFieldset } from './EnvFieldset';
 import { IdentityFields } from './IdentityFields';
 import { KasmVNCConfigFieldset } from './KasmVNCConfigFieldset';
@@ -59,8 +60,47 @@ export function TemplateDialog({
     initial.workload ? yamlStringify(initial.workload) : '',
   );
   const [workloadError, setWorkloadError] = useState('');
+  const [workloadOpen, setWorkloadOpen] = useState(false);
 
   const set = (patch: Partial<TemplateInput>) => setInput((prev) => ({ ...prev, ...patch }));
+
+  // Explicit "apply catalog recommendation" action (CatalogImageField's
+  // button) — never triggered by selecting an image. Unlike a silent
+  // auto-fill, an explicit click overwriting existing YAML is not a
+  // surprise, so podSecurityContext/securityContext/volumes are set
+  // unconditionally; env is merged by name so an already-configured
+  // var is never clobbered (see EnvFieldset/mergeEnv doctrine).
+  const applyRecommendation = (recommended: DeploymentRecommendation) => {
+    const { value } = parseYaml(workloadText);
+    const base = (
+      value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+    ) as Record<string, unknown>;
+    const next: Record<string, unknown> = { ...base };
+    if (recommended.podSecurityContext) next.podSecurityContext = recommended.podSecurityContext;
+    if (recommended.securityContext) next.securityContext = recommended.securityContext;
+    if (recommended.volumes?.length) {
+      // RecommendedVolume (name/mountPath/readOnly) expands to the
+      // corev1.Volume/VolumeMount pair the workload actually needs —
+      // always a plain emptyDir (see shared/catalog.RecommendedVolume).
+      next.volumes = recommended.volumes.map((v) => ({ name: v.name, emptyDir: {} }));
+      next.volumeMounts = recommended.volumes.map((v) => ({
+        name: v.name,
+        mountPath: v.mountPath,
+        readOnly: v.readOnly,
+      }));
+    }
+    setWorkloadText(yamlStringify(next));
+
+    if (recommended.env?.length) {
+      const existingNames = new Set((input.env ?? []).map((e) => e.name));
+      const additions = recommended.env
+        .filter((e) => !existingNames.has(e.name))
+        .map((e) => ({ name: e.name, value: e.default ?? '' }));
+      if (additions.length > 0) set({ env: [...(input.env ?? []), ...additions] });
+    }
+
+    setWorkloadOpen(true);
+  };
   const protocols = input.protocols ?? [];
   const [activeProto, setActiveProto] = useState(protocols[0]?.name ?? '');
   const patchActive = (patch: Partial<TemplateProtocolInput>) => {
@@ -143,7 +183,12 @@ export function TemplateDialog({
         </>
       }
     >
-      <IdentityFields input={input} isNew={isNew} onPatch={set} />
+      <IdentityFields
+        input={input}
+        isNew={isNew}
+        onPatch={set}
+        onApplyRecommendation={applyRecommendation}
+      />
 
       <ResourcesFieldset requests={input.requests} limits={input.limits} onPatch={set} />
 
@@ -187,7 +232,13 @@ export function TemplateDialog({
 
       <ScheduleFieldset value={input.schedule} onChange={(schedule) => set({ schedule })} />
 
-      <WorkloadSection text={workloadText} onChange={setWorkloadText} error={workloadError} />
+      <WorkloadSection
+        text={workloadText}
+        onChange={setWorkloadText}
+        error={workloadError}
+        open={workloadOpen}
+        onToggle={setWorkloadOpen}
+      />
     </Dialog>
   );
 }

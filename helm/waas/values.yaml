@@ -2,19 +2,81 @@
 # prerequisite. KubeVirt is auto-detected by the operator at startup —
 # never listed as a prerequisite.
 
+# Applied to EVERY object this chart renders (labels) or every
+# Deployment/StatefulSet and its Pod template (annotations) — see the
+# per-component podLabels/podAnnotations/deploymentLabels/
+# deploymentAnnotations below for scoping to one workload instead.
+global:
+  # -- Labels merged into every rendered object's metadata.
+  labels: {}
+  # -- Annotations merged into every Deployment/StatefulSet and its Pod template.
+  annotations: {}
+
 image:
+  # -- Image registry/repository prefix; each component appends its own name (`/operator`, `/api-server`, ...).
   registry: ghcr.io/xorhub/waas
-  tag: "" # defaults to .Chart.AppVersion
+  # -- Image tag for every component; empty defaults to Chart.yaml's appVersion (bumped on every app release).
+  tag: ""
+  # -- imagePullPolicy for every component's pods.
   pullPolicy: IfNotPresent
 
 # Pre-install/pre-upgrade hook Job that generates and persists the
-# release secrets IN the cluster (templates/secrets-job.yaml) —
+# release secrets IN the cluster (templates/secrets-job/job.yaml) —
 # template-time generation via `lookup` is a no-op under ArgoCD's
 # repo-server, which renders without cluster access.
 secretsJob:
+  # Disable when every password/URL this chart needs is supplied through
+  # its own *SecretRef below (postgres.passwordSecretRef,
+  # postgres.externalURLSecretRef, apiServer.adminPasswordSecretRef,
+  # apiServer.oidc.clientSecretRef, internalTokenSecretRef) — e.g. all
+  # synced in by an ExternalSecret. When disabled and no
+  # internalTokenSecretRef is set, YOU must pre-create
+  # `<release>-app-secrets` with an `internal-token` key yourself
+  # (nothing else generates or migrates it in that case). Generate one
+  # with:
+  #   openssl rand -hex 32
+  # For postgres.password/apiServer.adminPassword, if you'd rather
+  # generate your own instead of leaving them empty (auto-generated):
+  #   openssl rand -hex 24
+  # (hex, not base64: base64's `+`, `/`, `=` can break a password
+  # embedded in a postgres:// connection URL unless percent-encoded).
+  #
+  # jwt-private-key lives in its own always-on hook Job/Secret instead
+  # (jwtJob below, never disableable) — see there for why it can't fold
+  # into this toggle.
+  # -- Generate/manage the release Secrets in-cluster; disable once every `*SecretRef` below is set.
+  enabled: true
   # Needs kubectl + openssl + bash. Digest-pinned (kubectl v1.36.2):
   # bitnami/ only publishes a moving `latest` tag since the 2025 catalog
   # change; kubectl does not have to match the cluster version exactly.
+  # -- Image used by the secrets-generation hook Job.
+  image: bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978
+
+# internal-token: the shared bearer secret wwt sends (X-Internal-Token
+# header) and api-server checks (subtle.ConstantTimeCompare, no format
+# requirement — see docs/ci-github.md) to authenticate wwt→api-server
+# calls. Shared by both components, so it lives at the root rather than
+# under apiServer.* or wwt.*, same shape as every other *SecretRef.
+internalTokenSecretRef:
+  # -- Secret name to read the internal-token from instead of the chart-generated one.
+  name: ""
+  # -- Secret key. Defaults to `"internal-token"`.
+  key: ""
+
+# Pre-install/pre-upgrade hook Job dedicated to the JWT signing key
+# (RS256, used by api-server to sign tokens and publish the JWKS wwt
+# verifies connection tokens against — templates/jwt-job/job.yaml).
+# Split out from secretsJob and NEVER disableable: unlike every secret
+# above, this key has no *SecretRef override, and Signer.JWKS()
+# (shared/auth/keys.go) publishes exactly one active key with no
+# overlap/grace period — losing or regenerating it invalidates every
+# access token still in use (forces every browser session to log back
+# in; in-flight desktop connections are unaffected, the JWT is only
+# checked once at connect time). A disable toggle would be an easy way
+# to accidentally end up without this key at all, which the api-server
+# refuses to start without — hence no toggle, ever.
+jwtJob:
+  # -- Image used by the JWT signing-key hook Job (kubectl + openssl, same as secretsJob's).
   image: bitnami/kubectl:latest@sha256:558420daf32bbc382e3e9af4537f4073085b336ddd47399a3b70e70087115978
 
 # Namespace where Workspace/WorkspaceTemplate CRs live. Empty (default)
@@ -22,7 +84,9 @@ secretsJob:
 # pods themselves run. Set explicitly to isolate CRs in their own
 # namespace instead.
 workspaces:
+  # -- Namespace for Workspace/WorkspaceTemplate CRs; empty defaults to the release namespace.
   namespace: ""
+  # -- Create the namespace above when it differs from the release namespace.
   create: true
   # Operator-wide workload placement pattern, applied when a template
   # declares no placement.namespace. Precedence: template pattern > this
@@ -31,7 +95,55 @@ workspaces:
   # operator and the api-server (they must agree); an invalid pattern
   # makes both refuse to start. Changing it only affects NEW workspaces —
   # existing ones keep their frozen spec.targetNamespace.
+  # -- Operator-wide namespace placement pattern; empty uses the built-in default.
   defaultNamespacePattern: ""
+
+# Bootstrap of a catch-all baseline WorkspacePolicy at priority 0 — the
+# CRD's own documented convention for "default fallback"
+# (WorkspacePolicySpec.Priority: "0 = default fallback"). No subjects
+# field = applies to every authenticated user. Same doctrine as
+# adminPolicy below: a visible, auditable CR, editable/removable
+# afterwards from the admin console — disable once GitOps
+# (gitops/governance/policies.yaml) owns it, never both at once for the
+# same policy name.
+defaultPolicy:
+  # -- Bootstrap a catch-all baseline WorkspacePolicy (priority 0) applying to every user.
+  enabled: true
+  # -- Name of the bootstrap default WorkspacePolicy.
+  name: default
+  # -- Priority of the bootstrap default WorkspacePolicy (0 = fallback, per the CRD's own convention).
+  priority: 0
+  # -- Subjects (users/groups) this policy applies to; empty = every authenticated user (the point of a "default" policy).
+  subjects: []
+  # -- Catalog subset this policy allows; empty = the whole enabled catalog.
+  images: []
+  # -- Caps on what a matched user can consume; empty = unlimited.
+  limits:
+    # -- Max concurrent workspaces per matched user.
+    maxWorkspaces: 3
+    # -- Per-workspace caps (cpu/memory/home volume size).
+    perWorkspace: { cpu: "1", memory: 1Gi, home: 5Gi }
+    # -- Caps on the SUM across all of the matched user's workspaces (cpu/memory/home storage).
+    aggregate: { cpu: "2", memory: 3Gi, storage: 15Gi }
+    # -- Sizing the portal proposes when the user doesn't choose; display-only, never enforced (a per-image default takes precedence).
+    defaults: { cpu: 500m, memory: 0.5Mi }
+  # -- Workspace longevity bounds; empty = never suspended/deleted.
+  lifecycle:
+    # -- Pause (compute released, home kept) a workspace idle this long.
+    idleSuspendAfter: 2h
+    # -- Delete a workspace (home included) this long after creation.
+    maxLifetime: 336h
+  # -- Clipboard bridge directions; empty = both allowed.
+  clipboard:
+    # -- Allow copying FROM the workspace to the local clipboard.
+    copyFromWorkspace: true
+    # -- Allow pasting the local clipboard INTO the workspace.
+    pasteToWorkspace: true
+  # -- Template-override fields the matched user may set at instantiation time (intersected with the template's own allow-list); empty = no policy-level restriction, the template's allow-list alone applies.
+  overrides:
+    allowedFields: [env, resources, schedule, volumes]
+  # -- Opt the matched user into the Remote Workspaces feature (out-of-cluster machines via guacd).
+  remoteWorkspaces: false
 
 # Bootstrap of the explicit all-rights admin policy (priority 10000, no
 # limits/lifecycle = no caps or TTL, whole catalog, every override
@@ -41,15 +153,46 @@ workspaces:
 # enable it only when the chart is your sole governance source, and
 # never both at once for the same policy name.
 adminPolicy:
+  # -- Bootstrap an explicit all-rights WorkspacePolicy for platform admins.
   enabled: false
+  # -- Name of the bootstrap admin WorkspacePolicy.
   name: admins
+  # -- Priority of the bootstrap admin WorkspacePolicy (higher wins ties).
   priority: 10000
+  # -- Subjects (users/groups) granted the bootstrap admin policy.
   subjects:
     - kind: User
       name: admin
     # Add your IDP admin groups here, e.g.:
     # - kind: Group
     #   name: "waas-admins"
+  # -- Catalog subset this policy allows; empty = the whole enabled catalog.
+  images: []
+  # -- Caps on what an admin can consume; empty = unlimited (the point of this policy).
+  limits: {}
+  # -- Workspace longevity bounds; empty = never suspended/deleted.
+  lifecycle: {}
+  # -- Clipboard bridge directions; empty = both allowed.
+  clipboard: {}
+  # -- Template-override fields admins may set at instantiation time (intersected with the template's own allow-list).
+  overrides:
+    allowedFields:
+      [
+        env,
+        securityContext,
+        podSecurityContext,
+        volumes,
+        nodeSelector,
+        tolerations,
+        resources,
+        protocol,
+        protocolParams,
+        schedule,
+        placement,
+        metadata,
+      ]
+  # -- Opt admins into the Remote Workspaces feature (out-of-cluster machines via guacd).
+  remoteWorkspaces: true
 
 # Bootstrap of the two official image catalogs (registry-mode WorkspaceImage
 # approvals + live catalog.yaml sync, see docs/image-catalog.md) so a first
@@ -60,105 +203,189 @@ adminPolicy:
 # a catalog here once its GitOps-managed equivalent takes over, never both at
 # once for the same WorkspaceImage name.
 catalogs:
-  # ghcr.io/xorhub/waas-images — WaaS' own desktop images (built by the
-  # sibling waas-images repo). On by default: this is what makes a fresh
-  # install immediately usable.
+  # docker.io/xorhub — WaaS' own desktop images (built by the sibling
+  # waas-images repo, pushed as docker.io/xorhub/<image>:<tag> — Docker
+  # Hub has no nested path, unlike the former ghcr.io/xorhub/waas-images
+  # layout). On by default: this is what makes a fresh install
+  # immediately usable.
   waasImages:
+    # -- Bootstrap the XorHub desktop-images catalog on install.
     enabled: true
+    # -- Name of the bootstrap WorkspaceImage for this catalog.
     name: waas-images
+    # -- Display name shown in the portal picker.
     displayName: "XorHub images"
-    registry: ghcr.io/xorhub/waas-images
-    protocols: [vnc, rdp]
+    # -- Registry prefix this catalog approves images from.
+    registry: docker.io/xorhub
+    # -- Protocols this catalog's images support.
+    protocols: [vnc, rdp, ssh]
+    # -- URL of the published catalog.yaml for this registry.
     catalogURL: https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml
   # docker.io/kasmweb — official Kasm images, native KasmVNC data plane
   # (see docs/kasmvnc.md). Off by default: it's an extra, heavier data
   # plane an admin opts into, not a requirement for a usable first deploy.
   kasm:
+    # -- Bootstrap the official Kasm images catalog on install.
     enabled: false
+    # -- Name of the bootstrap WorkspaceImage for this catalog.
     name: kasm
+    # -- Display name shown in the portal picker.
     displayName: "Kasm official images"
+    # -- Registry prefix this catalog approves images from.
     registry: docker.io/kasmweb
+    # -- Tag discipline enforced for this registry (`tag` | `digest` | `any`).
     tagPolicy: digest
+    # -- Protocols this catalog's images support.
     protocols: [kasmvnc]
+    # -- URL of the published catalog.yaml for this registry.
     catalogURL: https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-kasmweb.yaml
 
 ingress:
+  # -- Deploy an Ingress in front of the frontend/api-server/wwt.
   enabled: true
+  # -- ingressClassName; empty uses the cluster default.
   className: ""
+  # -- Public hostname routed to the platform.
   host: waas.example.com
   tls:
+    # -- Terminate TLS on the Ingress using the issuer below.
     enabled: true
     # cert-manager issuer used for the public certificate.
     issuerRef:
+      # -- cert-manager issuer kind (`ClusterIssuer` or `Issuer`).
       kind: ClusterIssuer
+      # -- cert-manager issuer name; empty skips the cert-manager annotation.
       name: ""
 
 # Gateway API alternative to ingress. Can be enabled alongside or instead
 # of ingress. TLS is terminated by the Gateway's listener, not here.
 httpRoute:
+  # -- Deploy a Gateway API HTTPRoute instead of/alongside the Ingress.
   enabled: false
-  # Hostnames to match. Empty = reuse ingress.host.
+  # -- Hostnames to match; empty reuses ingress.host.
   hostnames: []
   # Gateway(s) this route attaches to. namespace defaults to the release
   # namespace when empty; sectionName restricts to one listener.
+  # -- Gateway(s) this route attaches to.
   parentRefs:
     - name: ""
       namespace: ""
       sectionName: ""
+  # -- Extra annotations on the HTTPRoute.
   annotations: {}
 
 operator:
+  # -- Operator Deployment replica count.
   replicas: 1
   webhook:
+    # -- Enable the operator's admission webhook (cert-manager Issuer/Certificate + ValidatingWebhookConfiguration).
     enabled: true
   # Comma-separated users/groups exempt from workspace policy checks.
   # Add your GitOps applier SA here if it manages Workspace CRs, e.g.
   # "system:masters,system:serviceaccount:argocd:argocd-application-controller".
+  # -- Comma-separated users/groups exempt from workspace policy checks.
   policyBypass: "system:masters"
-  # Re-sync cadence of WorkspaceImage.spec.catalog sources (live URL
-  # fetch and static ConfigMap/Secret re-read alike). Purely cosmetic
-  # picker metadata — a longer interval only delays logos, never
-  # workspace creation.
-  catalogSyncInterval: 6h
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { memory: 256Mi }
+  # -- Extra labels on the Deployment object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the Deployment object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}
 
 apiServer:
+  # -- API server Deployment replica count.
   replicas: 1
+  # -- JWT `iss` claim value.
   jwtIssuer: waas
+  # -- Access token lifetime.
   accessTokenTTL: 8h
+  # -- Short-lived connection token lifetime (per desktop session).
   connectionTokenTTL: 5m
   # Refresh cadence of the workspace Events panel (server-driven: the
   # frontend honors whatever the API answers, no rebuild needed).
+  # -- Poll interval used by the workspace Events panel.
   eventsPollInterval: 10s
+  # Re-sync cadence of WorkspaceImage.spec.catalog sources (live URL
+  # fetch and static ConfigMap/Secret re-read alike). Purely cosmetic
+  # picker metadata — a longer interval only delays logos, never
+  # workspace creation. Owned by the api-server (CatalogSyncWorker):
+  # it is the component with both database and k8s access to sync
+  # discovered images into catalog_entries (Postgres).
+  # -- Re-sync cadence of WorkspaceImage catalog sources (cosmetic picker metadata only).
+  catalogSyncInterval: 6h
   # Bootstrap admin password. Empty = generated and printed once in the
   # api-server logs on first boot.
+  # -- Bootstrap admin username.
   adminUsername: admin
+  # -- Bootstrap admin password; empty generates one and prints it once in the logs.
   adminPassword: ""
+  # Read the admin password from an existing Secret instead of the plain
+  # value above or the chart-generated one (ExternalSecret-friendly).
+  # Takes precedence over adminPassword when name is set.
+  adminPasswordSecretRef:
+    # -- Secret name to read the admin password from instead of `adminPassword` above.
+    name: ""
+    # -- Secret key. Defaults to `"admin-password"`.
+    key: ""
   # SSO login (any OIDC provider). Optional: local login
   # stays available (bootstrap admin, break-glass when the IdP is down)
   # unless disableLocalLogin below opts out of it. When enabled, the IdP's
   # groups claim is mirrored into the user record at every login and
   # drives WorkspacePolicy matching.
+  #
+  # Every connection field below (issuerURL, clientID, the client secret,
+  # redirectURL) can come from a plain value OR its own *SecretRef —
+  # useful when the whole OIDC config is synced in by one ExternalSecret.
+  # Each ref is independent (no single do-everything secret): set only
+  # the ones your config actually needs from a Secret.
   oidc:
     # e.g. https://idp.example.com/application/o/waas/
+    # -- OIDC issuer URL; enables SSO when set (directly or via issuerURLSecretRef).
     issuerURL: ""
+    issuerURLSecretRef:
+      # -- Secret name to read issuerURL from instead of the plain value above.
+      name: ""
+      # -- Secret key. Defaults to `"issuer-url"`.
+      key: ""
+    # -- OIDC client ID.
     clientID: ""
-    # Client secret comes from a Secret (ESO/Vault-friendly). Default:
-    # key "oidc-client-secret" of the chart's own <release>-secrets.
-    existingSecret: ""
-    existingSecretKey: ""
+    clientIDSecretRef:
+      # -- Secret name to read clientID from instead of the plain value above.
+      name: ""
+      # -- Secret key. Defaults to `"client-id"`.
+      key: ""
+    # Client secret ALWAYS comes from a Secret (ESO/Vault-friendly) — no
+    # plain-value counterpart, unlike the fields above: a client secret
+    # in a plain value would defeat the purpose. Same {name, key} shape
+    # as issuerURLSecretRef/clientIDSecretRef/redirectURLSecretRef.
+    clientSecretRef:
+      # -- Secret name holding the OIDC client secret; empty uses the chart's own `<release>-app-secrets`.
+      name: ""
+      # -- Secret key. Defaults to `"oidc-client-secret"`.
+      key: ""
     # This api-server's public callback, e.g.
     # https://waas.example.com/api/v1/auth/oidc/callback
+    # -- This api-server's public OIDC callback URL.
     redirectURL: ""
-    # SPA origin for the post-login redirect ("/" when same-origin).
+    redirectURLSecretRef:
+      # -- Secret name to read redirectURL from instead of the plain value above.
+      name: ""
+      # -- Secret key. Defaults to `"redirect-url"`.
+      key: ""
+    # -- SPA origin for the post-login redirect (`"/"` when same-origin).
     frontendURL: "/"
-    # Most IdPs ship groups in their default profile scope mapping.
+    # -- OIDC scopes requested at login. Most IdPs ship groups in their default profile scope mapping.
     scopes: [openid, profile, email]
+    # -- Claim name carrying the IdP's groups.
     groupsClaim: groups
-    # IdP groups granting the platform admin role (synced each login).
+    # -- IdP groups granted the platform admin role (synced at every login).
     adminGroups: []
+    # -- Display name of the SSO provider/button.
     providerName: OIDC
     # Disables local username/password login entirely once set —
     # every account must go through the IdP above. Requires
@@ -173,41 +400,81 @@ apiServer:
     # ever be able to reach the admin role through SSO — only the
     # bootstrap admin has it, and it becomes unreachable once this
     # flag is true.
+    # -- Disable local username/password login entirely once SSO is configured.
     disableLocalLogin: false
   # Wake-on-LAN relay for remote workspaces. A magic packet must be
   # emitted on the target machine's L2 network, which a pod cannot reach —
   # so it is delegated to an external relay (device or agent on that LAN)
   # that the api-server calls over HTTP. Empty relayURL = feature off.
   wol:
+    # -- Wake-on-LAN relay URL; empty disables the feature.
     relayURL: ""
     # Optional bearer token for the relay, from a Secret. Default key
     # "wol-relay-token".
+    # -- Secret name holding the WOL relay bearer token.
     existingSecret: ""
+    # -- Secret key. Defaults to `"wol-relay-token"`.
     existingSecretKey: ""
   resources:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { memory: 512Mi }
+  # -- Extra labels on the Deployment object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the Deployment object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}
 
 wwt:
+  # -- wwt Deployment replica count.
   replicas: 1
   resources:
     requests: { cpu: 100m, memory: 64Mi }
     limits: { memory: 256Mi }
+  # -- Extra labels on the Deployment object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the Deployment object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}
 
 frontend:
+  # -- Frontend Deployment replica count.
   replicas: 1
   resources:
     requests: { cpu: 10m, memory: 32Mi }
     limits: { memory: 128Mi }
+  # -- Extra labels on the Deployment object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the Deployment object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}
 
 # guacd is the HTML5 gateway. ClusterIP only — never exposed outside the
 # cluster; the wwt proxy is its sole client.
 guacd:
+  # -- guacd image reference.
   image: guacamole/guacd:1.6.0
+  # -- guacd Deployment replica count.
   replicas: 1
   resources:
     requests: { cpu: 250m, memory: 256Mi }
     limits: { memory: 1Gi }
+  # -- Extra labels on the Deployment object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the Deployment object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}
 
 # Prometheus metrics. Everything is opt-in: /metrics endpoints are only
 # SERVED when enabled=true (not merely hidden from the manifests), and
@@ -218,33 +485,40 @@ metrics:
   # operator (controller-runtime endpoint, :8080). false disables the
   # endpoints themselves, including the operator's previously always-on
   # controller-runtime metrics server.
+  # -- Serve /metrics on every component (cluster-internal only, never routed by ingress/httpRoute).
   enabled: false
   # Stamp prometheus.io/scrape|port|path annotations on the pods, for a
   # classic Prometheus with kubernetes_sd annotation-based discovery (no
   # prometheus-operator CRDs required). Needs metrics.enabled.
+  # -- Stamp `prometheus.io/scrape|port|path` annotations on pods (needs `metrics.enabled`).
   scrapeAnnotations: false
   # PodMonitor for the OPERATOR (monitoring.coreos.com/v1, requires
   # prometheus-operator CRDs). Pod-level on purpose: the operator has no
   # metrics Service, and a PodMonitor selects pods directly. Needs
   # metrics.enabled.
   podMonitor:
+    # -- Create a PodMonitor for the operator (requires prometheus-operator CRDs and `metrics.enabled`).
     enabled: false
-    # Extra labels so the target Prometheus' podMonitorSelector matches
-    # (e.g. release: prometheus for kube-prometheus-stack defaults).
+    # -- Extra labels so the target Prometheus' podMonitorSelector matches (e.g. `release: prometheus`).
     labels: {}
+    # -- Scrape interval.
     interval: 30s
   # ServiceMonitor for api-server + wwt (monitoring.coreos.com/v1,
   # requires prometheus-operator CRDs): both already have a ClusterIP
   # Service carrying the shared http port. Needs metrics.enabled.
   serviceMonitor:
+    # -- Create ServiceMonitors for api-server/wwt (requires prometheus-operator CRDs and `metrics.enabled`).
     enabled: false
+    # -- Extra labels so the target Prometheus' serviceMonitorSelector matches.
     labels: {}
+    # -- Scrape interval.
     interval: 30s
 
 # Grafana dashboards over the metrics above (helm/waas/dashboards/*.json,
 # one file consumed identically by both modes).
 grafana:
   dashboards:
+    # -- Ship the bundled Grafana dashboards.
     enabled: false
     # "configmap": one ConfigMap per dashboard labeled
     #   grafana_dashboard: "1", picked up by the sidecar of the official
@@ -252,23 +526,67 @@ grafana:
     # "operator": one GrafanaDashboard CR (grafana.integreatly.org/
     #   v1beta1) per dashboard, for grafana-operator. Requires its CRDs
     #   and an existing Grafana instance matched by instanceSelector.
+    # -- `"configmap"` (sidecar-picked ConfigMaps) or `"operator"` (GrafanaDashboard CRs).
     mode: configmap
     # Only used in mode "operator".
     instanceSelector:
+      # -- Grafana instance selector; only used in mode `"operator"`.
       matchLabels: {}
+    # -- Allow the matched Grafana instance to live in a different namespace than the dashboard CR; only used in mode `"operator"`.
+    allowCrossNamespaceImport: true
+    # -- How often grafana-operator re-applies the dashboard JSON; only used in mode `"operator"`.
+    resyncPeriod: 24h
+    # -- Grafana folder the dashboards are filed under.
     folder: WaaS
 
 postgres:
-  # Set enabled=false and fill externalURL to bring your own PostgreSQL 17.
+  # Set enabled=false and fill externalURL (or externalURLSecretRef) to
+  # bring your own PostgreSQL 17.
+  # -- Deploy the chart's own PostgreSQL 17 StatefulSet; false brings your own instance.
   enabled: true
+  # -- postgres image reference; only used when postgres.enabled is true.
   image: postgres:17-alpine
+  # -- Database name.
   database: waas
+  # -- Database user.
   username: waas
-  # Empty = generated once and kept across upgrades.
+  # Empty = generated once and kept across upgrades. Only used when
+  # postgres.enabled is true (the chart's own instance).
+  # -- Postgres password; empty generates one and keeps it across upgrades. Only used when postgres.enabled is true.
   password: ""
+  # Read the postgres password from an existing Secret instead of the
+  # plain value above or the chart-generated one (ExternalSecret-
+  # friendly). Takes precedence over password when name is set. Only
+  # used when postgres.enabled is true.
+  passwordSecretRef:
+    # -- Secret name to read the postgres password from instead of `password` above.
+    name: ""
+    # -- Secret key. Defaults to `"postgres-password"`.
+    key: ""
+  # -- Size of the postgres data PVC.
   storage: 10Gi
+  # -- storageClassName for the postgres data PVC; empty uses the cluster default.
   storageClassName: ""
+  # Only used when postgres.enabled is false.
+  # -- Full external connection URL; required when postgres.enabled is false (unless externalURLSecretRef is set).
   externalURL: ""
+  # Read the full external connection URL from an existing Secret
+  # instead of the plain value above — the common shape when an
+  # ExternalSecret syncs it in whole. Takes precedence over externalURL
+  # when name is set. Only used when postgres.enabled is false.
+  externalURLSecretRef:
+    # -- Secret name to read the full external connection URL from instead of `externalURL` above.
+    name: ""
+    # -- Secret key. Defaults to `"database-url"`.
+    key: ""
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 1Gi }
+  # -- Extra labels on the StatefulSet object itself.
+  deploymentLabels: {}
+  # -- Extra annotations on the StatefulSet object itself.
+  deploymentAnnotations: {}
+  # -- Extra labels on the Pod template.
+  podLabels: {}
+  # -- Extra annotations on the Pod template.
+  podAnnotations: {}

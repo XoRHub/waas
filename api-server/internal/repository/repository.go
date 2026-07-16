@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -82,4 +83,41 @@ type AuditFilter struct {
 type AuditRepository interface {
 	Insert(ctx context.Context, entry *model.AuditLog) error
 	List(ctx context.Context, filter AuditFilter, page, pageSize int) ([]model.AuditLog, int, error)
+}
+
+// CatalogRepository persists the images discovered by CatalogSyncWorker
+// out of each registry-mode WorkspaceImage's published manifest —
+// display metadata only (os/app/version/icon), never read by
+// enforcement.
+type CatalogRepository interface {
+	// ReplaceEntries atomically replaces every row of
+	// workspaceImageName with entries — one registry's sync is one
+	// all-or-nothing swap, never a mix of old and new. Must not be
+	// called with entries built from a failed fetch/parse: the caller
+	// (CatalogSyncWorker) leaves the table untouched on failure so a
+	// stale-but-served row survives a transient sync error.
+	ReplaceEntries(ctx context.Context, workspaceImageName string, entries []CatalogEntry) error
+	// ListEntries returns the discovered images of one WorkspaceImage,
+	// for the admin/catalog API projections.
+	ListEntries(ctx context.Context, workspaceImageName string) ([]CatalogEntry, error)
+}
+
+// CatalogEntry is one discovered image, mirroring the catalog.yaml wire
+// format (shared/catalog.Entry) plus the sync timestamp.
+type CatalogEntry struct {
+	Image       string
+	OS          string
+	App         string
+	Version     string
+	Icon        string
+	DisplayName string
+	// Profile and Recommended mirror shared/catalog.Entry's
+	// Profile/Recommended: display/prefill hints only, opaque to this
+	// layer. Recommended is stored as the raw JSON produced by the
+	// worker from shared/catalog.Recommendation — this repository
+	// never parses it, so it isn't coupled to the wire-format's or the
+	// API model's compatibility cadence.
+	Profile     string
+	Recommended json.RawMessage
+	SyncedAt    time.Time
 }

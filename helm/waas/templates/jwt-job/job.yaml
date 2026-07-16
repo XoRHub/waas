@@ -1,0 +1,91 @@
+{{- /*
+The JWT signing key (RS256), in its own Secret and hook Job, split out
+from secrets-job and NEVER gated behind secretsJob.enabled: it has no
+*SecretRef override, and Signer.JWKS() (shared/auth/keys.go) publishes
+exactly one active key with no overlap/grace period — losing this key,
+or silently regenerating a new one, invalidates every access token
+still in use (forces every browser session to log back in; an
+in-flight desktop connection is unaffected, the JWT is only checked
+once at connect time — see docs/ci-github.md). A disable toggle would
+be an easy way to end up without this key entirely, which the
+api-server refuses to start without.
+
+Same no-`lookup` rationale as secrets-job (ArgoCD's repo-server renders
+with no cluster access). Idempotently ensures
+`{{ .Release.Name }}-jwt-signing-key`, migrating the key forward rather
+than ever generating a new one on an existing install:
+  1. already-migrated: the dedicated Secret already has it — keep it;
+  2. pre-split installs: carry it over from
+     `{{ .Release.Name }}-app-secrets` (where secrets-job used to
+     generate it);
+  3. very old, pre-hook chart versions: carry it over from the legacy
+     `{{ .Release.Name }}-secrets`;
+  4. fresh install: generate a new RS256 (4096-bit RSA) key.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-jwt-job
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    # before-hook-creation keeps the finished Job around for debugging;
+    # the next install/upgrade replaces it.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waas-jwt-job
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-jwt-job
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: ensure-jwt-key
+          image: {{ .Values.jwtJob.image | quote }}
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          env:
+            - name: SECRET_NAME
+              value: {{ .Release.Name }}-jwt-signing-key
+            - name: LEGACY_APP_SECRET_NAME
+              value: {{ .Release.Name }}-app-secrets
+            - name: LEGACY_SECRET_NAME
+              value: {{ .Release.Name }}-secrets
+          command:
+            - bash
+            - -ec
+            - |
+              set -uo pipefail
+
+              livekey() { kubectl get secret "$1" -o "jsonpath={.data['$2']}" 2>/dev/null || true; }
+
+              jwt_b64=$(livekey "$SECRET_NAME" jwt-private-key)
+              [ -n "$jwt_b64" ] || jwt_b64=$(livekey "$LEGACY_APP_SECRET_NAME" jwt-private-key)
+              [ -n "$jwt_b64" ] || jwt_b64=$(livekey "$LEGACY_SECRET_NAME" jwt-private-key)
+              if [ -z "$jwt_b64" ]; then
+                jwt_b64=$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 2>/dev/null | base64 | tr -d '\n')
+              fi
+
+              if ! kubectl get secret "$SECRET_NAME" >/dev/null 2>&1; then
+                kubectl create secret generic "$SECRET_NAME"
+                kubectl label secret "$SECRET_NAME" \
+                  app.kubernetes.io/managed-by=waas-jwt-job \
+                  app.kubernetes.io/instance={{ .Release.Name }} --overwrite
+              fi
+              kubectl patch secret "$SECRET_NAME" --type=merge \
+                -p "{\"data\":{\"jwt-private-key\":\"$jwt_b64\"}}"
+              echo "secret $SECRET_NAME ensured"

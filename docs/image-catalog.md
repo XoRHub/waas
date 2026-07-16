@@ -1,10 +1,10 @@
-# Image catalog — published manifests, `WorkspaceImage.status.catalog`, visual picker
+# Image catalog — published manifests, `catalog_entries`, visual picker
 
 Registry-mode `WorkspaceImage` entries can surface a **published
 catalog** of the images currently under their registry (display
 metadata: os/app/version/icon), so the portal shows a picker of cards
 with logos instead of raw references. The catalog is **purely
-cosmetic**: `status.catalog` is never read by
+cosmetic**: the discovered entries are never read by
 `enforce()`/`FindImage`/`ImageAllowed` — approval and policy gating are
 unchanged, and a catalog sync can never block or delay workspace
 creation.
@@ -45,46 +45,70 @@ review.
   method so a future `basicAuth`/`mTLS` is a sibling field, never a
   reinterpretation.
 
-`status.catalog` carries `entries` (`DiscoveredImage`: image, os, app,
-version, icon, displayName), `source` (`Fetched`/`Static`),
+The discovered entries themselves (`Image`, `OS`, `App`, `Version`,
+`Icon`, `DisplayName`, `SyncedAt`) live in the api-server's Postgres
+`catalog_entries` table, keyed by `(workspace_image_name, image)` —
+**not** in `status.catalog`, which only keeps the small,
+purely-informational bookkeeping: `source` (`Fetched`/`Static`),
 `lastSyncTime` and `lastSyncError` (kept even after a later success).
+A display/picker list that changes periodically has no reason to be
+retransmitted in full to every watcher of `WorkspaceImage` — see the
+design study referenced by the migration commit for the full
+reasoning.
 
-## Sync reconciler (`operator/internal/controller/workspaceimage_catalog.go`)
+## Sync worker (`api-server/internal/service/catalog_sync_worker.go`)
 
-The first — and only — `WorkspaceImage` reconciler. Per entry with
-`spec.registry` + `spec.catalog`:
+`CatalogSyncWorker` — a ticker-based background worker started
+alongside `IdleSweeper`/`SessionSweeper` in `cmd/api-server/main.go` —
+owns the periodic sync, not the operator: only the api-server has both
+database access (to write `catalog_entries`) and the k8s access needed
+to read `WorkspaceImage`/ConfigMap/Secret. For every `WorkspaceImage`
+with `spec.registry` + `spec.catalog`, independently of the others (one
+registry outage never blocks the rest):
 
 - fetches (URL branch) or reads (ConfigMap/Secret branch) the manifest,
-  parses it, converts entries to `DiscoveredImage` (an unknown `os` is
-  emptied rather than propagated), and patches the **status
-  subresource**;
-- **stale-but-served**: a failed sync updates `lastSyncError` but never
-  clears already-populated `entries`;
-- requeues after `operator.catalogSyncInterval` (Helm value, default
-  `6h`) on success and failure alike. There is deliberately **no watch
-  on the referenced ConfigMap/Secret**: the operator's ConfigMap/Secret
-  reads bypass the cache by existing design (no `watch` RBAC verb), so
-  the static branch accepts the same propagation delay as the live one.
+  parses it, and on success atomically **replaces** that image's rows
+  in `catalog_entries` (`CatalogRepository.ReplaceEntries` — one
+  registry's sync is one all-or-nothing swap) with an unknown `os`
+  emptied rather than propagated, then patches the **status
+  subresource** (`source`, `lastSyncTime`, clears `lastSyncError`);
+- **stale-but-served**: a failed sync only updates
+  `status.catalog.lastSyncError` — `catalog_entries` is left completely
+  untouched, so a transient registry hiccup never empties the picker;
+- syncs immediately on worker start (unlike the sweepers, which wait
+  for their first tick — a 6h default interval would otherwise hide a
+  broken catalog source for hours after a deploy), then every
+  `apiServer.catalogSyncInterval` (Helm value, default `6h`) on success
+  and failure alike. There is deliberately **no watch on the referenced
+  ConfigMap/Secret**: those reads bypass the cache by existing design
+  (no `watch` RBAC verb on them), so the static branch accepts the same
+  propagation delay as the live one.
 
-Status writes never bump `metadata.generation`, so the periodic sync
-never triggers `workspace_controller.go`'s
+The status patch never bumps `metadata.generation`, so the periodic
+sync never triggers `workspace_controller.go`'s
 `GenerationChangedPredicate`-filtered watch on `WorkspaceImage` (fleet
-drift re-evaluation) — only a human `spec` edit does. The two watches
-on the same GVK belong to two independent controllers; no conflict.
+drift re-evaluation, operator-side) — only a human `spec` edit does.
+The api-server's RBAC grants `workspaceimages/status` `get`/`patch`
+only (no `update`): it never needs to read-modify-write the whole
+status, just this one patch.
 
 ## Wire format and schema — this repo is the source of truth
 
-`operator/pkg/catalog` defines the manifest format
+`shared/catalog` defines the manifest format
 (`apiVersion: waas.xorhub.io/catalog/v1`), deliberately **distinct**
-from `DiscoveredImage`: the wire format follows an inter-repo file
-contract, the CRD type follows the `v1alpha1`/ADR 0002 cycle.
+from the api-server's `model.DiscoveredImage`/`repository.CatalogEntry`:
+the wire format follows an inter-repo file contract, the API types
+follow their own compatibility cycle. It lives under `shared/` (not
+`operator/` or `api-server/`) because both the operator's CRD
+validation history and the api-server's `CatalogSyncWorker` need the
+same parser with no cross-module dependency between the two.
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/<tag>/operator/pkg/catalog/schema/v1.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/<tag>/shared/catalog/schema/v1.schema.json
 # (pin a release tag for shared files; a branch is fine while iterating locally)
 apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:...
+  - image: docker.io/xorhub/firefox:1.0.0@sha256:...
     os: linux        # empty = linux
     app: firefox
     version: "1.0.0"
@@ -94,18 +118,106 @@ images:
 
 The parser is tolerant (absent optional fields = zero values) but
 rejects an unknown `apiVersion` cleanly — a sync error, never a crash.
-`operator/pkg/catalog/schema/v1.schema.json` is **generated from the
-Go struct** (`hack/gen-catalog-schema`, wired into `make generate` and
-the CI `go-generated-drift` gate), so schema and parser can't silently
-diverge; published schema versions are frozen, additive-only. The
-`$schema` URL is an editor convenience for whoever edits a
-`catalog.yaml` by hand — the reconciler never fetches it, and nothing
-enforces what it points at. Pin a release tag in any `catalog.yaml`
-meant to be committed or shared: published schemas are frozen and
+`shared/catalog/schema/v1.schema.json` is **generated from the Go
+struct** (`shared/hack/gen-catalog-schema`, wired into `make generate`
+and the CI `go-generated-drift` gate — it now covers `shared/**` as
+well as `operator/**`), so schema and parser can't silently diverge;
+published schema versions are frozen, additive-only. The `$schema` URL
+is an editor convenience for whoever edits a `catalog.yaml` by hand —
+`CatalogSyncWorker` never fetches it, and nothing enforces what it
+points at. Pin a release tag in any `catalog.yaml` meant to be
+committed or shared: published schemas are frozen and
 additive-only, so a pinned tag never shifts under you. Pointing it at a
 branch (e.g. `main`) is fine for local development or exploration —
 handy for iterating against the latest schema — but not recommended
 for shared files, since branch content can change without notice.
+
+## Deployment recommendations (`profile`/`recommended`) — display/prefill only
+
+A catalog entry can optionally carry a `profile` badge
+(`hardened`/`normal`) and a `recommended` block —
+`podSecurityContext`/`securityContext`/`volumes`/`env` hints copied from
+`waas-images/HARDENING.md`'s *"To apply on the platform side"* section,
+so the admin template form doesn't start from a blank page on identity
+and hardening. **These fields follow the exact same regime as every
+other discovered field above: purely cosmetic, never read by
+`enforce()`/`buildPodTemplate`, prefill-only.** They live on the wire
+format (`shared/catalog.Entry`) and on `catalog_entries`
+(`profile`/`recommended` columns, the latter JSON text — not JSONB,
+since this table round-trips on both the Postgres and SQLite backends)
+exactly like `os`/`app`/`icon`; nothing on `WorkspaceImageSpec` or any
+CRD carries them, and no webhook validates or requires them.
+
+```yaml
+apiVersion: waas.xorhub.io/catalog/v1
+images:
+  - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:...
+    os: linux
+    app: ubuntu-xfce
+    version: "1.1.0"
+    profile: hardened
+    recommended:
+      podSecurityContext:
+        runAsUser: 1000
+        runAsNonRoot: true
+      securityContext:
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumes:
+        - name: tmp
+          mountPath: /tmp
+        - name: run
+          mountPath: /run
+          readOnly: true
+      env:
+        - name: WAAS_SSH_ENABLED
+          description: "Enable sshd (publickey only) — boolean '0'/'1'"
+          protocols: [ssh]
+          default: "0"
+          requires: [WAAS_SSH_AUTHORIZED_KEYS_FILE]
+        - name: WAAS_SSH_AUTHORIZED_KEYS_FILE
+          description: "Path to the authorized public key — mount from a
+            Secret (valueFrom.secretKeyRef), never a literal value.
+            Required as soon as WAAS_SSH_ENABLED=1: the image's
+            entrypoint refuses to start otherwise (fail-closed by
+            design, not a bug — see
+            waas-images/base/*/rootfs/etc/waas/entrypoint.d/50-sshd.sh)."
+          protocols: [ssh]
+```
+
+`recommended.volumes` is deliberately **not** a `corev1.Volume` +
+`corev1.VolumeMount` pair: the only case `HARDENING.md` documents is a
+plain `emptyDir` mounted at a fixed path (the `/tmp`+`/run` pair needed
+alongside `readOnlyRootFilesystem`), so one `name`/`mountPath`/`readOnly`
+entry says that without repeating the volume/mount boilerplate twice
+per entry. It never covers configMap/secret-backed mounts (e.g. an
+init.d script volume) — those stay the admin's call via the free-form
+`Workload.volumes`/`volumeMounts` override, never suggested by the
+catalog. `env[].requires` names another hint of the *same*
+recommendation that makes no sense without this one; it is purely
+descriptive (lets the prefill UI group/warn together) — never
+validated, never enforced, the admin can still apply one without the
+other exactly like today.
+
+The admin template form (`CatalogImageField.tsx`) offers an explicit
+**"Apply catalog recommendations"** button next to the image field once
+a registry-mode discovered image carrying a `recommended` block is
+selected — never an automatic prefill on selection, so an admin can
+never save a `securityContext` they didn't consciously see. Clicking it
+expands the (collapsed-by-default) Workload YAML section so the
+injected values are visible before saving, and merges `env` hints into
+the template's env list by name without overwriting an already-present
+entry.
+
+**Explored and explicitly rejected**: letting the catalog trigger an
+operator-side secret generation (e.g. an SSH keypair), addressed by env
+var name or by an enumerated generator id. `env`/`recommended` stays
+strictly informational; a generation mechanism, if it is ever built,
+belongs on `WorkspaceTemplateSpec` itself (near
+`WorkspaceProtocol.CredentialsSecretRef`) with its own webhook
+validation and operator logic — never as an extension of the catalog
+recommendation.
 
 ## Visibility and the portal picker
 
@@ -173,9 +285,11 @@ remains in this repo:
   `WAAS_IMAGES_DIR` (documented at its use site) and fails with an
   actionable message when absent;
 - the catalog **format contract** above: waas-images (the producer)
-  publishes `catalog.yaml` files for `ghcr.io/xorhub/waas-images`;
-  waas-fable (the reader) owns the schema. `docker.io/kasmweb` gets the
-  same treatment (see `docs/kasmvnc.md` for that registry's specifics).
+  publishes `catalog.yaml` files for `docker.io/xorhub` (migrated from
+  `ghcr.io/xorhub/waas-images` — Docker Hub has no nested path, so each
+  image is its own top-level `xorhub/<image>` repo); waas-fable (the
+  reader) owns the schema. `docker.io/kasmweb` gets the same treatment
+  (see `docs/kasmvnc.md` for that registry's specifics).
   An example ConfigMap-source manifest lives under
   `gitops/governance/examples/`.
 

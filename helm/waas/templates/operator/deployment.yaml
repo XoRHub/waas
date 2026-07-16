@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-operator
+  labels:
+    app.kubernetes.io/name: waas-operator
+    {{- include "waas.labels" . | nindent 4 }}
+    {{- with .Values.operator.deploymentLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with include "waas.deploymentAnnotations" (dict "root" $ "annotations" .Values.operator.deploymentAnnotations) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.operator.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waas-operator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waas-operator
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with include "waas.podLabels" (dict "root" $ "podLabels" .Values.operator.podLabels) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with include "waas.podAnnotations" (dict "root" $ "podAnnotations" .Values.operator.podAnnotations "port" 8080) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-operator
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: operator
+          image: "{{ .Values.image.registry }}/operator:{{ include "waas.tag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --leader-elect
+            {{- if not .Values.metrics.enabled }}
+            # Opt-in like everywhere else: without metrics.enabled the
+            # controller-runtime metrics server does not even listen.
+            - --metrics-bind-address=0
+            {{- end }}
+          env:
+            - name: ENABLE_WEBHOOKS
+              value: {{ .Values.operator.webhook.enabled | quote }}
+            # Namespace where guacd/wwt run: the bootstrap NetworkPolicy of
+            # placed workload namespaces lets it in (the workspaces
+            # namespace may differ from the release namespace).
+            - name: WAAS_PLATFORM_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Operator-wide placement pattern (template > this > built-in
+            # "waas-workspaces"). Same values key as the api-server.
+            - name: WAAS_DEFAULT_NAMESPACE_PATTERN
+              value: {{ .Values.workspaces.defaultNamespacePattern | quote }}
+            # Trusted-writer identity model: only the api-server SA may
+            # set spec.owner and the identity annotations on Workspaces.
+            - name: WAAS_TRUSTED_WRITERS
+              value: "system:serviceaccount:{{ .Release.Namespace }}:{{ .Release.Name }}-api-server"
+            # Users/groups exempt from policy checks (GitOps applier,
+            # break-glass admins). Keep this list short and audited.
+            - name: WAAS_POLICY_BYPASS
+              value: {{ .Values.operator.policyBypass | default "system:masters" | quote }}
+          ports:
+            - name: webhook
+              containerPort: 9443
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: 8080
+            {{- end }}
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8081 }
+            initialDelaySeconds: 15
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8081 }
+            initialDelaySeconds: 5
+          {{- if .Values.operator.webhook.enabled }}
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          resources:
+            {{- toYaml .Values.operator.resources | nindent 12 }}
+      {{- if .Values.operator.webhook.enabled }}
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: {{ .Release.Name }}-operator-webhook-cert
+      {{- end }}

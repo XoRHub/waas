@@ -143,9 +143,10 @@ type ImageCatalogSpec struct {
 	// exclusive (enforced on ImageCatalogSource below; never more than
 	// one set). URL is fetched live over HTTP(S); ConfigMapKeyRef/SecretKeyRef
 	// are read directly, no HTTP involved. Both are re-checked on the
-	// SAME periodic cadence (operator.catalogSyncInterval) — no
-	// dedicated watch on the referenced ConfigMap/Secret (the operator
-	// deliberately reads both uncached, without the watch verb) — a
+	// SAME periodic cadence (apiServer.catalogSyncInterval) — no
+	// dedicated watch on the referenced ConfigMap/Secret (the
+	// api-server's CatalogSyncWorker deliberately reads both uncached,
+	// without the watch verb) — a
 	// static, GitOps-managed catalog for an admin who prefers not to
 	// depend on a live registry endpoint. This is a first-class,
 	// permanent choice, not a stopgap-until-network-works: an admin
@@ -162,7 +163,7 @@ type ImageCatalogSpec struct {
 	// new sibling field on ImageCatalogAuth — never a rename or a
 	// reinterpretation of what an existing field means. Absent =
 	// unauthenticated GET, the only mode the two known public catalogs
-	// (ghcr.io/xorhub/waas-images, docker.io/kasmweb) need.
+	// (docker.io/xorhub, docker.io/kasmweb) need.
 	// +optional
 	Auth *ImageCatalogAuth `json:"auth,omitempty"`
 }
@@ -172,7 +173,7 @@ type ImageCatalogSpec struct {
 // +kubebuilder:validation:XValidation:rule="(has(self.url) ? 1 : 0) + (has(self.configMapKeyRef) ? 1 : 0) + (has(self.secretKeyRef) ? 1 : 0) == 1",message="exactly one of url, configMapKeyRef, or secretKeyRef must be set"
 type ImageCatalogSource struct {
 	// URL is the catalog manifest location, fetched live and
-	// periodically (operator.catalogSyncInterval).
+	// periodically (apiServer.catalogSyncInterval).
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	URL string `json:"url,omitempty"`
@@ -181,7 +182,7 @@ type ImageCatalogSource struct {
 	// platform workspace namespace instead of fetching it over HTTP —
 	// the common case, since the content isn't secret, just a static
 	// admin-provided catalog. Key defaults to "catalog.yaml" when
-	// empty. Re-read periodically (operator.catalogSyncInterval), not
+	// empty. Re-read periodically (apiServer.catalogSyncInterval), not
 	// just once — no dedicated watch on the ConfigMap (uncached reads,
 	// no watch verb, by existing design). Not a corev1
 	// ConfigMapKeySelector: that type marks key as REQUIRED in the
@@ -274,51 +275,21 @@ type ComputeSize struct {
 	Memory *resource.Quantity `json:"memory,omitempty"`
 }
 
-// DiscoveredImage is one entry surfaced by a catalog sync — display
-// metadata only, NEVER consulted by policy/enforcement (that stays
-// FindImage/ImageAllowed against spec.image/spec.registry, unchanged).
-type DiscoveredImage struct {
-	// Image is the exact, pinned reference (digest recommended).
-	Image string `json:"image"`
-	// +optional
-	OS OSType `json:"os,omitempty"`
-	// App is a logical grouping slug (e.g. "firefox", "ubuntu-xfce") —
-	// distinct images of the same app across versions share it.
-	// +optional
-	App string `json:"app,omitempty"`
-	// +optional
-	Version string `json:"version,omitempty"`
-	// Icon is the entry's icon reference, one of: an absolute https
-	// URL (used as-is, no host allow-list), a `file:<path>` path
-	// internal to the frontend (same-origin asset mounted into the
-	// nginx container), or a dashboard-icons
-	// (github.com/homarr-labs/dashboard-icons, Apache-2.0) slug, e.g.
-	// "firefox", fetched live from the dashboard-icons CDN. The
-	// frontend treats the value as untrusted and falls back to a
-	// vendored OS icon when absent or malformed. See
-	// docs/image-catalog.md for the format.
-	// +optional
-	Icon string `json:"icon,omitempty"`
-	// +optional
-	DisplayName string `json:"displayName,omitempty"`
-}
-
 // ImageCatalogStatus is the last known result of the catalog fetch
-// configured by spec.catalog.
+// configured by spec.catalog. The discovered entries themselves live
+// in the api-server's catalog_entries table (Postgres), not here: this
+// status only keeps the small, purely-informational bookkeeping useful
+// for `kubectl get workspaceimage` — see docs/image-catalog.md.
 type ImageCatalogStatus struct {
-	// Entries is the last known set of discovered images. Stale-but-served:
-	// a failed sync never clears it.
-	// +optional
-	Entries []DiscoveredImage `json:"entries,omitempty"`
-	// Source says which From variant produced Entries: "Fetched"
+	// Source says which From variant last produced entries: "Fetched"
 	// (From.URL, a live sync succeeded at least once) or "Static"
 	// (From.ConfigMapKeyRef/SecretKeyRef was read successfully at least
 	// once). Empty = never synced yet.
 	// +optional
 	Source string `json:"source,omitempty"`
-	// LastSyncTime is when Entries was last written: the real fetch
-	// time for "Fetched", the time the ConfigMap/Secret was last read
-	// for "Static".
+	// LastSyncTime is when the catalog was last synced successfully:
+	// the real fetch time for "Fetched", the time the ConfigMap/Secret
+	// was last read for "Static".
 	// +optional
 	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`
 	// LastSyncError is the most recent fetch/read failure, kept even

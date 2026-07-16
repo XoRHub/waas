@@ -1,0 +1,318 @@
+{
+  "description": "WorkspaceImage is an admin-approved catalog entry.",
+  "properties": {
+    "apiVersion": {
+      "description": "APIVersion defines the versioned schema of this representation of an object.\nServers should convert recognized schemas to the latest internal value, and\nmay reject unrecognized values.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+      "type": "string"
+    },
+    "kind": {
+      "description": "Kind is a string value representing the REST resource this object represents.\nServers may infer this from the endpoint the client submits requests to.\nCannot be updated.\nIn CamelCase.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "spec": {
+      "description": "WorkspaceImageSpec is one admin-approved catalog entry. Only images\npresent in the catalog AND enabled can be referenced (through a\nWorkspaceTemplate) by a Workspace; everything else is rejected at\nadmission. The catalog is deliberately separate from WorkspaceTemplate:\nthe template says HOW to deploy, this object records WHAT is approved\nand for WHOM, and disabling it must not tear the template down.",
+      "properties": {
+        "allowedGroups": {
+          "description": "AllowedGroups restricts this image to members of at least one of\nthese IdP (OIDC) groups. Empty = every authenticated user (still\nsubject to the policy's image subset).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "architectures": {
+          "description": "Architectures the image is published for. The operator turns this\ninto node affinity (ARM64 control-plane vs AMD64 workers). Empty\nmeans any node.",
+          "items": {
+            "enum": [
+              "amd64",
+              "arm64"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "catalog": {
+          "description": "Catalog configures the periodic fetch of a published catalog\nmanifest (format below) listing the images currently under this\nentry's registry, with display metadata (os/app/version/icon) for\nthe portal catalog picker. Only meaningful when spec.registry is\nset (ignored on exact spec.image entries \u2014 ENFORCEMENT never reads\nthis field, it is purely cosmetic). Grouped under one struct\n(rather than flat fields) so a future split into its own CRD, if a\nreal need for K8s-RBAC-level separation ever appears, is a\nmechanical lift instead of a field-by-field migration \u2014 no such\nsplit is planned today, application-level authorization (the same\nmodel WorkspacePolicy already uses) covers any future need for a\nnarrower \"catalog editor\" role. Absent = no automatic catalog; the\nregistry approval itself still works.",
+          "properties": {
+            "auth": {
+              "description": "Auth configures how the live fetch authenticates \u2014 only\nmeaningful when From.URL is set (ignored, and rejected at\nadmission if From points at ConfigMapKeyRef/SecretKeyRef instead,\nsee the XValidation on ImageCatalogSpec above). Nested by method\n(one field per auth kind) instead of a flat credential reference,\nso a future method (basic auth, mTLS...) is a pure ADDITION \u2014 a\nnew sibling field on ImageCatalogAuth \u2014 never a rename or a\nreinterpretation of what an existing field means. Absent =\nunauthenticated GET, the only mode the two known public catalogs\n(docker.io/xorhub, docker.io/kasmweb) need.",
+              "properties": {
+                "bearerToken": {
+                  "description": "BearerToken sends \"Authorization: Bearer <token>\" on the fetch.",
+                  "properties": {
+                    "secretRef": {
+                      "description": "SecretRef names an existing Opaque Secret (in the platform\nworkspace namespace, same convention as\nWorkspaceImageSpec.ImagePullSecretRef) holding the token under\nthe key \"token\". A missing/unreadable Secret, or one without this\nkey, is a sync failure (status.catalog.lastSyncError), never a\ncrash \u2014 same fail-soft doctrine as the rest of the reconciler.",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "secretRef"
+                  ],
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "from": {
+              "description": "From is the catalog manifest source (format below, \u00a7 1) \u2014\nexactly one of URL/ConfigMapKeyRef/SecretKeyRef, mutually\nexclusive (enforced on ImageCatalogSource below; never more than\none set). URL is fetched live over HTTP(S); ConfigMapKeyRef/SecretKeyRef\nare read directly, no HTTP involved. Both are re-checked on the\nSAME periodic cadence (apiServer.catalogSyncInterval) \u2014 no\ndedicated watch on the referenced ConfigMap/Secret (the\napi-server's CatalogSyncWorker deliberately reads both uncached,\nwithout the watch verb) \u2014 a\nstatic, GitOps-managed catalog for an admin who prefers not to\ndepend on a live registry endpoint. This is a first-class,\npermanent choice, not a stopgap-until-network-works: an admin\npicks ONE of the three and stays on it.",
+              "properties": {
+                "configMapKeyRef": {
+                  "description": "ConfigMapKeyRef reads the manifest from a ConfigMap key in the\nplatform workspace namespace instead of fetching it over HTTP \u2014\nthe common case, since the content isn't secret, just a static\nadmin-provided catalog. Key defaults to \"catalog.yaml\" when\nempty. Re-read periodically (apiServer.catalogSyncInterval), not\njust once \u2014 no dedicated watch on the ConfigMap (uncached reads,\nno watch verb, by existing design). Not a corev1\nConfigMapKeySelector: that type marks key as REQUIRED in the\ngenerated schema, which would kill the default.",
+                  "properties": {
+                    "key": {
+                      "description": "Key inside it; empty reads \"catalog.yaml\".",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Name of the ConfigMap.",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "secretKeyRef": {
+                  "description": "SecretKeyRef reads the manifest from a Secret key instead, in the\nplatform workspace namespace \u2014 for an admin who wants the\nmanifest content itself access-controlled. Key is REQUIRED (no\ndefault, unlike ConfigMapKeyRef): no naming convention is assumed\nfor a Secret. Distinct from ImageCatalogAuth.BearerToken below:\nthat one is a fetch CREDENTIAL for a URL source, this one IS the\nmanifest content itself; the two are never the same Secret in\npractice but nothing in the schema prevents it, and they cannot\nboth apply at once since URL/SecretKeyRef are mutually exclusive.",
+                  "properties": {
+                    "key": {
+                      "description": "Key inside it \u2014 required: no naming convention is assumed for a\nSecret.",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Name of the Secret.",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "url": {
+                  "description": "URL is the catalog manifest location, fetched live and\nperiodically (apiServer.catalogSyncInterval).",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "type": "object",
+              "x-kubernetes-validations": [
+                {
+                  "message": "exactly one of url, configMapKeyRef, or secretKeyRef must be set",
+                  "rule": "(has(self.url) ? 1 : 0) + (has(self.configMapKeyRef) ? 1 : 0) + (has(self.secretKeyRef) ? 1 : 0) == 1"
+                }
+              ]
+            }
+          },
+          "required": [
+            "from"
+          ],
+          "type": "object",
+          "x-kubernetes-validations": [
+            {
+              "message": "auth is only meaningful when from.url is set",
+              "rule": "!has(self.auth) || size(self.from.url) > 0"
+            }
+          ]
+        },
+        "description": {
+          "description": "Description is shown to users when picking an image.",
+          "type": "string"
+        },
+        "displayName": {
+          "description": "DisplayName is the human-facing name shown in the portal catalog.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Enabled is the admin kill-switch: false blocks NEW workspaces\nimmediately (existing ones keep running, see grandfathering) while\nkeeping the entry, its history and its group bindings in place.",
+          "type": "boolean"
+        },
+        "image": {
+          "description": "Image is the exact reference approved by the admin. Templates must\nmatch it verbatim; pin the digest for immutability (the waas-images\npipeline publishes immutable tags precisely for this). Exactly one\nof image/registry must be set.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "imagePullSecretRef": {
+          "description": "ImagePullSecretRef names an existing kubernetes.io/dockerconfigjson\nSecret (in the platform workspace namespace) holding the pull\ncredentials for this entry's registry. The operator copies it into\neach workspace's target namespace (imagePullSecrets are read by the\nkubelet in the POD's namespace) and wires it into the PodSpec. A\nmissing or unreadable source is FAIL-CLOSED: the workspace does not\nstart and its Ready condition says PullSecretMissing.",
+          "type": "string"
+        },
+        "protocols": {
+          "description": "Protocols the image can serve. A template using this image must\npick a port whose protocol is listed here.",
+          "items": {
+            "description": "Protocol is a desktop protocol a workspace image can serve.",
+            "enum": [
+              "vnc",
+              "rdp",
+              "ssh",
+              "kasmvnc"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "registry": {
+          "description": "Registry approves every image UNDER this prefix instead of one\nexact reference \u2014 e.g. \"docker.io/kasmweb\" approves\ndocker.io/kasmweb/terminal:1.19.0 (path-boundary match: it never\napproves docker.io/kasmweb-evil/*). An exact image entry always\nbeats a registry entry; among registry entries the longest prefix\nwins. Combine with tagPolicy: a whole-registry approval with\nmoving tags allowed is the loosest possible gate.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "resources": {
+          "description": "Resources are the per-workspace sizing hints and hard bounds for\nthis image.",
+          "properties": {
+            "default": {
+              "description": "Default is applied by the portal when the user does not choose.",
+              "properties": {
+                "cpu": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                },
+                "memory": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                }
+              },
+              "type": "object"
+            },
+            "max": {
+              "description": "Max caps a single workspace of this image regardless of policy.\nThe effective per-workspace cap is min(image.max, policy.perWorkspace).",
+              "properties": {
+                "cpu": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                },
+                "memory": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                }
+              },
+              "type": "object"
+            },
+            "min": {
+              "description": "Min rejects undersized workspaces (an IDE image needs real memory).",
+              "properties": {
+                "cpu": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                },
+                "memory": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
+                  "x-kubernetes-int-or-string": true
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "tagPolicy": {
+          "description": "TagPolicy is the pinning discipline the matched template reference\nmust satisfy: digest (must carry @sha256:\u2026), tag (fixed tag\nrequired \u2014 :latest and tag-less references rejected), any\n(everything allowed, latest included). Unset defaults to \"any\" on\nexact image entries (the approval is verbatim) and to \"tag\" on\nregistry entries (broad approvals stay pinned unless explicitly\nloosened).",
+          "enum": [
+            "digest",
+            "tag",
+            "any"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "displayName",
+        "enabled",
+        "protocols"
+      ],
+      "type": "object",
+      "x-kubernetes-validations": [
+        {
+          "message": "exactly one of image or registry must be set",
+          "rule": "has(self.image) != has(self.registry)"
+        }
+      ]
+    },
+    "status": {
+      "description": "WorkspaceImageStatus is the observed state of a WorkspaceImage.",
+      "properties": {
+        "catalog": {
+          "description": "Catalog is nil until the first sync attempt of a spec.catalog-configured\nentry.",
+          "properties": {
+            "lastSyncError": {
+              "description": "LastSyncError is the most recent fetch/read failure, kept even\nafter a later sync succeeds, so admins can see WHY it once\nfailed.",
+              "type": "string"
+            },
+            "lastSyncTime": {
+              "description": "LastSyncTime is when the catalog was last synced successfully:\nthe real fetch time for \"Fetched\", the time the ConfigMap/Secret\nwas last read for \"Static\".",
+              "format": "date-time",
+              "type": "string"
+            },
+            "source": {
+              "description": "Source says which From variant last produced entries: \"Fetched\"\n(From.URL, a live sync succeeded at least once) or \"Static\"\n(From.ConfigMapKeyRef/SecretKeyRef was read successfully at least\nonce). Empty = never synced yet.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "spec"
+  ],
+  "type": "object"
+}

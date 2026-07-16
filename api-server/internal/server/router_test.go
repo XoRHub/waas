@@ -52,6 +52,7 @@ func newTestServer(t *testing.T) (http.Handler, *auth.Signer) {
 	users := repository.NewSQLUserRepository(db)
 	sessions := repository.NewSQLSessionRepository(db)
 	remotes := repository.NewSQLRemoteWorkspaceRepository(db)
+	catalogRepo := repository.NewSQLCatalogRepository(db)
 	audit := service.NewAuditService(repository.NewSQLAuditRepository(db))
 	authSvc := service.NewAuthService(users, signer, audit, cfg.JWTIssuer, cfg.AccessTokenTTL)
 	userSvc := service.NewUserService(users, audit)
@@ -62,7 +63,7 @@ func newTestServer(t *testing.T) (http.Handler, *auth.Signer) {
 	remoteSvc := service.NewRemoteWorkspaceService(kube, cfg.WorkspaceNamespace, users, remotes, sessions,
 		audit, signer, cfg.JWTIssuer, cfg.ConnectionTokenTTL).
 		WithEvents(service.NewEventHub())
-	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit)
+	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit, catalogRepo)
 
 	if err := userSvc.EnsureBootstrapAdmin(context.Background(), "admin", "admin-password"); err != nil {
 		t.Fatalf("bootstrapping admin: %v", err)

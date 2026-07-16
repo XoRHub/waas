@@ -1,0 +1,77 @@
+suite: HTTPRoute
+templates:
+  - httproute.yaml
+tests:
+  - it: renders nothing when disabled
+    set:
+      httpRoute.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: uses the explicit hostnames when set
+    set:
+      httpRoute.enabled: true
+      httpRoute.hostnames: [a.example.com, b.example.com]
+      httpRoute.parentRefs:
+        - name: my-gateway
+      ingress.host: should-not-be-used.example.com
+    asserts:
+      - equal:
+          path: spec.hostnames
+          value: [a.example.com, b.example.com]
+
+  - it: falls back to ingress.host when hostnames is empty
+    set:
+      httpRoute.enabled: true
+      httpRoute.hostnames: []
+      httpRoute.parentRefs:
+        - name: my-gateway
+      ingress.host: fallback.example.com
+    asserts:
+      - equal:
+          path: spec.hostnames
+          value: [fallback.example.com]
+
+  - it: renders an optional namespace and sectionName on a parentRef
+    set:
+      httpRoute.enabled: true
+      httpRoute.hostnames: [a.example.com]
+      httpRoute.parentRefs:
+        - name: my-gateway
+          namespace: gateway-ns
+          sectionName: https
+    asserts:
+      - equal:
+          path: spec.parentRefs[0].name
+          value: my-gateway
+      - equal:
+          path: spec.parentRefs[0].namespace
+          value: gateway-ns
+      - equal:
+          path: spec.parentRefs[0].sectionName
+          value: https
+
+  - it: omits namespace and sectionName on a parentRef when unset
+    set:
+      httpRoute.enabled: true
+      httpRoute.hostnames: [a.example.com]
+      httpRoute.parentRefs:
+        - name: my-gateway
+          namespace: ""
+          sectionName: ""
+    asserts:
+      - notExists:
+          path: spec.parentRefs[0].namespace
+      - notExists:
+          path: spec.parentRefs[0].sectionName
+
+  - it: fails to render when a parentRef has no name
+    set:
+      httpRoute.enabled: true
+      httpRoute.hostnames: [a.example.com]
+      httpRoute.parentRefs:
+        - name: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "httpRoute.parentRefs[].name is required when httpRoute.enabled"

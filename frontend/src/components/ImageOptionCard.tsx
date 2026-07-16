@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { osFallbackIcon, resolveIcon } from '@/lib/icon';
 
 /** The logo of a template or catalog entry: its icon reference
@@ -45,6 +46,9 @@ export interface ImageOptionCardProps {
   disabled?: boolean;
   /** Shown on the card when disabled — never silently dropped. */
   disabledReason?: string;
+  /** Catalog deployment-recommendation badge ("hardened"/"normal");
+   * absent shows no pill. Purely cosmetic — see docs/image-catalog.md. */
+  profile?: string;
   selected?: boolean;
   onSelect?: () => void;
 }
@@ -64,9 +68,11 @@ export function ImageOptionCard({
   subtitle,
   disabled,
   disabledReason,
+  profile,
   selected,
   onSelect,
 }: ImageOptionCardProps) {
+  const { t } = useTranslation();
   // Truncated text stays reachable: the full lines ride in the native
   // tooltip of the whole row.
   const tooltip = [title, subtitle, disabled ? disabledReason : undefined]
@@ -88,8 +94,23 @@ export function ImageOptionCard({
     >
       <AppIcon icon={icon} os={os} size={26} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-slate-900 dark:text-white">
-          {title}
+        <span className="flex items-center gap-1.5">
+          <span className="truncate text-sm font-medium text-slate-900 dark:text-white">
+            {title}
+          </span>
+          {profile && (
+            <span
+              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                profile === 'hardened'
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                  : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+              }`}
+            >
+              {profile === 'hardened'
+                ? t('admin.templatesPage.profileHardened')
+                : t('admin.templatesPage.profileNormal')}
+            </span>
+          )}
         </span>
         <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
           {subtitle}

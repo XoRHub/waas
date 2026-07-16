@@ -42,7 +42,8 @@ PR — selective by path (job `changes`, dorny/paths-filter)
 │  │                        test/smoke ← operator (lint only, tests = cluster)
 │  └─ go-generated-drift    operator/** — regenerating must be a no-op
 ├─ ci-frontend.yml          typecheck + vitest (frontend/**)
-├─ ci-helm.yml              lint + render + kubeconform vs CRDs of THIS commit
+├─ ci-helm.yml              lint + render + helm-docs drift + helm unittest
+│                            + kubeconform vs CRDs of THIS commit
 ├─ ci-security.yml          gitleaks, trivy fs, hadolint, shellcheck — ALWAYS
 └─ ci-images.yml            build-images per impacted component × {amd64, arm64},
                             push:false, local trivy scan (amd64)
@@ -52,38 +53,102 @@ push main — EVERYTHING is built (invariant: every main SHA carries the
 ├─ same gates (ci-go/ci-frontend/ci-helm/ci-security)
 ├─ ci-images.yml
 │  ├─ build-images           push <short-sha>-<arch>
-│  ├─ merge-manifests        <short-sha> manifest list + mobile `main` tag
+│  ├─ merge-manifests        <short-sha> manifest list + mobile `edge` tag
 │  └─ scan-images            blocking trivy on the manifest list
 ├─ chart-oci (in ci.yml)     OCI push of the chart, version `X.Y.Z-main.<short-sha>`
 │                            (SemVer prerelease, never collides with vX.Y.Z)
+│                            + mobile `0.0.0-edge` tag on the chart OCI artifact
 └─ release-please (in ci.yml)  AT THE END of the pipeline (needs on the 5 call jobs)
    ├─ promote        (if "." release_created)          ZERO rebuild:
    │     verify (Chart.yaml appVersion = tag, sources present, tags free)
-   │     → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → digest table
-   │       added to the Release notes
+   │     → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → mobile `latest`
+   │       tag → digest table added to the Release notes
    └─ promote-chart   (if "helm/waas" release_created)  independent of promote:
-         helm package (Chart.yaml of the tagged SHA, no override) + OCI push,
-         using the chart's OWN SemVer
+         helm package (Chart.yaml of the tagged SHA, no override) + OCI push
+         + mobile `latest` tag, using the chart's OWN SemVer
 ```
+
+`edge` vs `latest`, on both images and the chart OCI artifact: `edge` is
+the mobile pointer for every green **main** build (dev clusters only,
+never a deploy reference); `latest` only ever moves on an **official
+release** (the `promote`/`promote-chart` jobs). The two never point at
+the same digest at the same time unless a release SHA happens to be
+`main`'s tip.
+
+On the chart artifact specifically, the moving dev pointer is tagged
+`0.0.0-edge`, not a bare `edge`: Helm (and kustomize's `helmCharts`,
+which validates through the same Helm SDK) requires OCI tags used with
+`--version` to parse as SemVer, and `edge` alone doesn't. `0.0.0-edge`
+is a valid SemVer prerelease with a name that stays fixed across
+`Chart.yaml` version bumps — images have no such constraint (pulled by
+plain tag, no `--version`), so they keep the bare `edge` tag.
+
+## Helm CLI: v4
+
+CI installs Helm **v4** from `.mise.toml` via `jdx/mise-action` — the
+same `v4.2.3` pin `mise install` uses locally, one source for both
+(previously `azure/setup-helm` with the version duplicated in the
+workflows). Chart files (`Chart.yaml`,
+`values.yaml`, templates) needed no changes: Helm v2 chart APIs stay
+compatible on v4. The one thing that broke moving off v3: `helm plugin
+install`'s `--verify` flag and plugin-signature verification are v4-only
+(`helm-unittest`'s `plugin.yaml` uses the matching `platformHooks`
+schema starting at `v1.1.0`, which a v3 plugin loader rejects outright —
+hence `--verify=false` on that install). `helm registry login` already
+took a bare host (`ghcr.io`, no `https://`), which v4.1+ requires, so
+that needed no change.
 
 ## Helm chart as OCI
 
 No dedicated Helm registry: the chart is pushed as an OCI artifact into
 **ghcr.io**, the same registry as the images, under the `charts/`
-subpath (`ghcr.io/<owner>/<repo>/charts/waas:<version>`). `azure/setup-helm`
-(v3.17.3) + `helm registry login` with `GITHUB_TOKEN`:
+subpath (`ghcr.io/<owner>/<repo>/charts/waas:<version>`). Helm (from
+`.mise.toml` via `mise-action`) + `helm registry login` with
+`GITHUB_TOKEN`; the extra mobile
+tags (`0.0.0-edge`/`latest`) are added with `docker buildx imagetools create`
+(same trick as the images), which needs a plain `docker/login-action`
+login alongside the Helm one — the two CLIs keep separate credential
+stores.
 
 - job `chart-oci` (push main): `helm package --version
-  X.Y.Z-main.<short-sha>`, mirroring the images' mobile `main` tag.
+  X.Y.Z-main.<short-sha>`, then re-tags that push as `0.0.0-edge` — a
+  SemVer-valid stand-in for the images' mobile `edge` tag (see above).
 - job `promote-chart` (tag `waas-chart-X.Y.Z`, from the `helm/waas`
   release-please package): `helm package` **without override** — the
   `Chart.yaml` of the tagged commit already carries the released
   `version: X.Y.Z`, so packaging this file as-is IS the release, not a
-  rebuild. Independent of the app's `promote` job/tag.
+  rebuild. Then re-tags that push as `latest`. Independent of the app's
+  `promote` job/tag.
 
 ArgoCD continues to deploy from the Git tag (`path: helm/waas`); this
 OCI chart is for external `helm pull`/`helm install --version`
 consumers.
+
+## Chart docs and unit tests (`ci-helm.yml`)
+
+- **`helm/waas/README.md`** is generated by `helm-docs` from
+  `Chart.yaml` + `values.yaml`, using `helm/waas/README.md.gotmpl` as
+  the template (badges, requirements and the values table are
+  auto-generated; install/upgrade/production notes stay hand-written in
+  the template). `make helm-docs` regenerates it locally; the
+  `helm-docs drift check` step in `ci-helm.yml` re-runs the same
+  pinned version (`helm-docs`, pinned in `.mise.toml` — one pin for CI
+  and local) and fails the build if the committed `README.md` doesn't
+  match — same drift-gate pattern as the CRDs and the generated
+  TypeScript models.
+- **`helm/waas/tests/*_test.yaml`** are `helm-unittest` suites. The
+  plugin is installed by `.mise.toml`'s `postinstall` hook (a helm
+  *plugin* has no mise registry entry, so it can't sit in `[tools]`),
+  pinned to `v1.1.1` there for CI and local alike; `make helm-unittest`
+  runs the suites locally.
+  Rule: a test **never** asserts on a `values.yaml` default or on
+  `Chart.yaml`'s `version`/`appVersion` — every input a test cares
+  about is set explicitly in that test's `set:` block, and the one
+  place that touches the `appVersion` fallback (`waas.tag` in
+  `_helpers.tpl`) is checked with a `matchRegex` that only proves
+  *something* was substituted, never the literal released version.
+  Otherwise a routine release-please version bump would fail unrelated
+  chart tests.
 
 ## Release (release-please, SemVer, conventional commits)
 
@@ -152,13 +217,48 @@ and a cluster policy-controller must verify **certificate identity**
 on the GitHub side vs the **public key** on the GitLab side while both
 coexist.
 
+## Per-component coverage (Codecov)
+
+`ci-go.yml`'s `go-test` job (one flag per Go module: `operator`,
+`api-server`, `wwt`, `shared`) and `ci-frontend.yml`'s `frontend` job
+each upload their existing coverage output (`coverage.out` / vitest's
+`lcov` reporter) to Codecov via `codecov/codecov-action`, tagged with
+a `flags:` matching the module/component name. `codecov.yml` at the repo
+root declares those flags with `carryforward: true` — required because
+this pipeline only tests the modules a commit actually touched (the
+`changes` job): without carryforward, an untouched component's coverage
+would read as 0%/missing on every PR that doesn't happen to touch it.
+Codecov posts its own PR comment (`comment.layout` in `codecov.yml`)
+breaking coverage down by flag, and the root `README.md` embeds one
+badge per component (`?flag=<name>` on the badge URL).
+
+Upload uses `use_oidc: true` (`permissions: id-token: write`, passed
+through the `go`/`frontend` reusable-workflow calls in `ci.yml` — GitHub
+only lets a reusable workflow **keep or reduce** permissions from its
+caller, never elevate them, so both the caller job and the callee job
+need the grant) instead of a stored `CODECOV_TOKEN`: same posture as the
+`promote` job's keyless cosign, and it keeps working for fork PRs, where
+repo secrets aren't available.
+
+**Manual one-time setup this doc can't cover**: the repo must be added
+on [codecov.io](https://about.codecov.io/) (sign in with GitHub) before
+uploads/badges work — that's an external account action, not a config
+file.
+
 ## Renovate pinning
 
 Actions pinned by commit SHA (`helpers:pinGitHubActionDigests`),
 `docker run` images in workflows covered by a regex customManager
-(gitleaks, kubeconform, hadolint). Pins not managed automatically
-(manual bump): `version:` of golangci-lint-action and setup-helm,
-`node-version`.
+(gitleaks, kubeconform, hadolint). Toolchain versions (go, node, helm,
+golangci-lint, k3d, helm-docs, uv) live in `.mise.toml` only — CI
+installs from it via `jdx/mise-action`, so the formerly manual bumps
+(`version:` of golangci-lint-action and setup-helm, `node-version`)
+no longer exist as separate pins — and Renovate's built-in `mise`
+manager (enabled by default, resolves mise-registry short names) bumps
+them there. The one pin that manager can't see is the `helm-unittest`
+helm *plugin*, installed by `.mise.toml`'s postinstall hook: a regex
+customManager in `renovate.json` covers it (github-releases
+datasource).
 
 ## Accepted gaps / not ported (yet)
 

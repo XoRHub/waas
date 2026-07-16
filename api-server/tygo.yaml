@@ -21,6 +21,11 @@ packages:
       time.Time: "string /* RFC3339 */"
       corev1.EnvVar: "EnvVar"
       corev1.Toleration: "Toleration"
+      # Kept loose like WorkspaceWorkload.securityContext/podSecurityContext
+      # in types.manual.ts: the frontend only merges these structurally
+      # into Workload YAML, it never reads individual fields.
+      corev1.PodSecurityContext: "unknown"
+      corev1.SecurityContext: "unknown"
       auth.Role: "Role"
       waasv1alpha1.WorkspaceSchedule: "WorkspaceSchedule"
       waasv1alpha1.WorkspaceWorkload: "WorkspaceWorkload"

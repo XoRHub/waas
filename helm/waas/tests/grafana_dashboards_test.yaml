@@ -1,0 +1,38 @@
+suite: Grafana dashboards
+templates:
+  - grafana-dashboards.yaml
+tests:
+  - it: renders nothing when disabled
+    set:
+      grafana.dashboards.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders one ConfigMap per dashboard in mode configmap
+    set:
+      grafana.dashboards.enabled: true
+      grafana.dashboards.mode: configmap
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: ConfigMap
+
+  - it: renders GrafanaDashboard CRs with the configured allowCrossNamespaceImport/resyncPeriod in mode operator
+    set:
+      grafana.dashboards.enabled: true
+      grafana.dashboards.mode: operator
+      grafana.dashboards.allowCrossNamespaceImport: false
+      grafana.dashboards.resyncPeriod: 1h
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: GrafanaDashboard
+      - equal:
+          path: spec.allowCrossNamespaceImport
+          value: false
+      - equal:
+          path: spec.resyncPeriod
+          value: 1h

@@ -8,19 +8,24 @@ DEV_NAMESPACE    := waas
 IMAGE_TAG        := dev
 DEV_IMAGES       := operator api-server wwt frontend
 
-# Workspace desktop images. They live in their own repo since 2026-07-10
-# (git@github.com:XoRHub/waas-images.git); dev-build-images resolves
-# the checkout via WAAS_IMAGES_DIR (default: sibling of this repo). Base
-# images are build-time-only (FROM layers); only the leaf images are ever
-# scheduled as pods, so only those get imported into k3d.
-WAAS_IMAGES_DIR       ?= ../waas-images
-WORKSPACE_BASE_IMAGES := ubuntu-base-vnc ubuntu-base-rdp
-WORKSPACE_IMAGES      := ubuntu-xfce ubuntu-firefox dev-ssh
+# Workspace desktop images. hack/dev/images-dev.yaml + templates-dev.yaml
+# point at the published registry (docker.io/xorhub/*, catalog-waas-images.yaml)
+# by default — no local build/import needed. For local iteration on a
+# waas-images change, pass LOCAL_IMAGES (space-separated IMAGE= variants from
+# that repo's own Makefile, e.g. "firefox devtools ubuntu-desktop-noble") to
+# dev-load-images / dev-build-images. Its `build` target does not chain
+# parents (FROM waas-local/<parent>:dev must already exist locally) — list
+# the full chain in build order, e.g. LOCAL_IMAGES="core-ubuntu-noble
+# core-ubuntu-noble-xfce firefox". The checkout is resolved via
+# WAAS_IMAGES_DIR (default: sibling of this repo, since the 2026-07-10 split
+# — git@github.com:XoRHub/waas-images.git).
+WAAS_IMAGES_DIR ?= ../waas-images
+LOCAL_IMAGES    ?=
 
 .PHONY: all build test lint generate manifests docs-params frontend-build docker-build \
 	dev-up dev-down dev-reset dev-bootstrap dev-build dev-load dev-deploy \
 	dev-reload dev-reload-all dev-build-images dev-load-images \
-	dev-status dev-logs dev-url tidy
+	dev-status dev-logs dev-url tidy helm-docs helm-unittest
 
 all: build
 
@@ -42,8 +47,12 @@ tidy:
 		(cd $$m && go mod tidy) || exit 1; \
 	done
 
-generate manifests:
-	$(MAKE) -C operator $@
+generate:
+	$(MAKE) -C operator generate
+	$(MAKE) -C shared generate
+
+manifests:
+	$(MAKE) -C operator manifests
 
 # operator/docs/guacd-parameters.md is generated from the parameter
 # registry so the docs can never drift from what the webhook enforces.
@@ -56,6 +65,18 @@ docs-params:
 generate-types:
 	cd api-server && go run github.com/gzuidhof/tygo@v0.2.21 generate
 	cd frontend && npx prettier --write src/types.gen.ts
+
+# helm/waas/README.md is generated from Chart.yaml + values.yaml
+# (README.md.gotmpl is the template). Drift-checked in CI like the CRDs.
+# helm-docs itself is pinned in .mise.toml (mise install provides it).
+# --sort-values-order file: keeps the table in values.yaml's own section
+# order (image, secretsJob, workspaces, ...) instead of flattening it
+# alphabetically.
+helm-docs:
+	cd helm/waas && helm-docs --sort-values-order file
+
+helm-unittest:
+	helm unittest helm/waas
 
 frontend-build:
 	cd frontend && npm ci && npm run build
@@ -141,36 +162,42 @@ dev-reload: dev-build dev-load dev-deploy
 # deployments.
 dev-reload-all: dev-reload dev-load-images
 
-# Build the workspace desktop images locally (docker build via the
-# waas-images repo's own Makefile). The existence check is a make-time
-# conditional so `make -n` graph checks still resolve without the clone.
+# Build LOCAL_IMAGES locally (docker build via the waas-images repo's own
+# Makefile). No-op when LOCAL_IMAGES is empty — the default flow needs no
+# local checkout at all. The existence check is a make-time conditional so
+# `make -n` graph checks still resolve without the clone.
 dev-build-images:
+ifneq ($(strip $(LOCAL_IMAGES)),)
 ifeq ($(wildcard $(WAAS_IMAGES_DIR)/Makefile),)
 	@echo "error: waas-images repo not found at '$(WAAS_IMAGES_DIR)' (split out of this monorepo 2026-07-10)." >&2
 	@echo "  clone it first:  git clone git@github.com:XoRHub/waas-images.git $(WAAS_IMAGES_DIR)" >&2
 	@echo "  or point WAAS_IMAGES_DIR at an existing checkout:  make dev-build-images WAAS_IMAGES_DIR=/path/to/waas-images" >&2
 	@exit 1
 else
-	@for img in $(WORKSPACE_BASE_IMAGES) $(WORKSPACE_IMAGES); do \
+	@for img in $(LOCAL_IMAGES); do \
 		echo "==> build $$img"; \
 		$(MAKE) -C $(WAAS_IMAGES_DIR) build IMAGE=$$img || exit 1; \
 	done
 endif
+endif
 
-# Import the leaf workspace images into k3d and seed the dev catalog
-# (WorkspaceImage/WorkspaceTemplate pointed at waas-local:dev tags) plus the
-# real WorkspacePolicy seeds (image names match, no dev variant needed).
-# Requires the $(DEV_NAMESPACE) namespace, i.e. run after dev-deploy.
+# Seed the dev catalog (WorkspaceImage/WorkspaceTemplate pointed at the
+# published registry by default) plus the real WorkspacePolicy seeds (image
+# names match, no dev variant needed). Requires the $(DEV_NAMESPACE)
+# namespace, i.e. run after dev-deploy. Pass LOCAL_IMAGES to additionally
+# build and k3d-import specific waas-local:dev tags on top of that — point
+# the matching WorkspaceTemplate's `image:` at the tag yourself to run it:
+#   make dev-load-images LOCAL_IMAGES="firefox devtools"
 dev-load-images: dev-build-images
-	@for img in $(WORKSPACE_IMAGES); do \
-		echo "==> import waas-local/$$img:dev"; \
-		k3d image import waas-local/$$img:dev -c $(CLUSTER_NAME) || exit 1; \
-	done
 	sh hack/dev/seed-ssh-secret.sh $(DEV_NAMESPACE)
 	kubectl -n $(DEV_NAMESPACE) apply \
 		-f hack/dev/images-dev.yaml \
 		-f hack/dev/templates-dev.yaml \
 		-f gitops/governance/policies.yaml
+	@for img in $(LOCAL_IMAGES); do \
+		echo "==> import waas-local/$$img:dev"; \
+		k3d image import waas-local/$$img:dev -c $(CLUSTER_NAME) || exit 1; \
+	done
 	@echo "==> workspace images + templates loaded into $(DEV_NAMESPACE)."
 
 dev-status:

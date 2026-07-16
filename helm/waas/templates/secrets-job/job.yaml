@@ -1,0 +1,161 @@
+{{- if .Values.secretsJob.enabled }}
+{{- /*
+Release secrets WITHOUT `lookup`: ArgoCD's repo-server renders charts
+with no access to the destination cluster, where lookup always returns
+an empty map — template-time generation would re-roll every secret at
+every sync (postgres password diverging from the PVC, internal-token
+breaking wwt→api-server). This pre-install/pre-upgrade hook Job runs IN
+the target cluster instead — identical behaviour under `helm install`
+and under ArgoCD (which maps helm hooks to PreSync) — and idempotently
+ensures `{{ .Release.Name }}-app-secrets`:
+
+  - generated-once keys (postgres-password, internal-token): created on
+    first run, NEVER regenerated or overwritten afterwards;
+  - values-driven keys (database-url, admin-password): recomputed each
+    run so values changes propagate;
+  - migration: values found in the legacy chart-rendered
+    `{{ .Release.Name }}-secrets` (pre-hook chart versions) are carried
+    over, including a manually-added oidc-client-secret.
+
+The JWT signing key lives in its own hook Job/Secret instead
+(templates/jwt-job/job.yaml) — it's never disableable, unlike this one,
+so it can't share this Job's `secretsJob.enabled` gate.
+
+`helm template` renders NO secret material: only operator-provided
+values (postgres.password, apiServer.adminPassword, externalURL) appear
+in the Job env — the same exposure class as the values file itself.
+The merge patch touches only the keys above, so extra keys added by
+hand survive.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-secrets-job
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    # before-hook-creation keeps the finished Job around for debugging;
+    # the next install/upgrade replaces it.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waas-secrets-job
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-secrets-job
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: ensure-secrets
+          image: {{ .Values.secretsJob.image | quote }}
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          env:
+            - name: SECRET_NAME
+              value: {{ .Release.Name }}-app-secrets
+            - name: LEGACY_SECRET_NAME
+              value: {{ .Release.Name }}-secrets
+            - name: POSTGRES_ENABLED
+              value: {{ .Values.postgres.enabled | quote }}
+            {{- if .Values.postgres.enabled }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.username | quote }}
+            - name: POSTGRES_HOST
+              value: {{ .Release.Name }}-postgres
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            {{- else if not .Values.postgres.externalURLSecretRef.name }}
+            # Only needed when nothing else already provides the full URL:
+            # externalURLSecretRef makes api-server read it directly and
+            # this job no longer needs to know it.
+            - name: EXTERNAL_DATABASE_URL
+              value: {{ required "postgres.externalURL or postgres.externalURLSecretRef is required when postgres.enabled=false" .Values.postgres.externalURL | quote }}
+            {{- end }}
+            {{- if .Values.postgres.passwordSecretRef.name }}
+            - name: PG_PASSWORD_OVERRIDE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.passwordSecretRef.name }}
+                  key: {{ .Values.postgres.passwordSecretRef.key | default "postgres-password" }}
+            {{- else if .Values.postgres.password }}
+            - name: PG_PASSWORD_OVERRIDE
+              value: {{ .Values.postgres.password | quote }}
+            {{- end }}
+            {{- if .Values.apiServer.adminPassword }}
+            - name: ADMIN_PASSWORD
+              value: {{ .Values.apiServer.adminPassword | quote }}
+            {{- end }}
+          command:
+            - bash
+            - -ec
+            - |
+              set -uo pipefail
+
+              b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+              genpw() { tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$1"; }
+              livekey() { kubectl get secret "$1" -o "jsonpath={.data['$2']}" 2>/dev/null || true; }
+
+              gen_pg() { genpw 32; }
+              gen_token() { genpw 48; }
+
+              # Generated-once keys: the live value wins, then the legacy
+              # chart-rendered secret (migration), then a fresh value.
+              ensure() {
+                local v
+                v=$(livekey "$SECRET_NAME" "$1")
+                [ -n "$v" ] || v=$(livekey "$LEGACY_SECRET_NAME" "$1")
+                [ -n "$v" ] || v=$(b64 "$($2)")
+                printf '%s' "$v"
+              }
+
+              pg_b64=$(ensure postgres-password gen_pg)
+              if [ -n "${PG_PASSWORD_OVERRIDE:-}" ]; then
+                pg_b64=$(b64 "$PG_PASSWORD_OVERRIDE")
+              fi
+              token_b64=$(ensure internal-token gen_token)
+
+              if [ "$POSTGRES_ENABLED" = "true" ]; then
+                dburl="postgres://${POSTGRES_USER}:$(printf '%s' "$pg_b64" | base64 -d)@${POSTGRES_HOST}:5432/${POSTGRES_DB}?sslmode=disable"
+              else
+                dburl="$EXTERNAL_DATABASE_URL"
+              fi
+
+              patch='{"data":{'
+              patch+="\"postgres-password\":\"$pg_b64\","
+              patch+="\"internal-token\":\"$token_b64\","
+              patch+="\"database-url\":\"$(b64 "$dburl")\""
+              if [ -n "${ADMIN_PASSWORD:-}" ]; then
+                patch+=",\"admin-password\":\"$(b64 "$ADMIN_PASSWORD")\""
+              fi
+              # oidc-client-secret has no chart-side source (added by the
+              # operator or referenced via oidc.clientSecretRef): carry it
+              # over from the legacy secret so existing SSO keeps working.
+              oidc=$(livekey "$SECRET_NAME" oidc-client-secret)
+              [ -n "$oidc" ] || oidc=$(livekey "$LEGACY_SECRET_NAME" oidc-client-secret)
+              if [ -n "$oidc" ]; then
+                patch+=",\"oidc-client-secret\":\"$oidc\""
+              fi
+              patch+='}}'
+
+              if ! kubectl get secret "$SECRET_NAME" >/dev/null 2>&1; then
+                kubectl create secret generic "$SECRET_NAME"
+                kubectl label secret "$SECRET_NAME" \
+                  app.kubernetes.io/managed-by=waas-secrets-job \
+                  app.kubernetes.io/instance={{ .Release.Name }} --overwrite
+              fi
+              kubectl patch secret "$SECRET_NAME" --type=merge -p "$patch"
+              echo "secret $SECRET_NAME ensured"
+{{- end }}

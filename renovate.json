@@ -4,7 +4,26 @@
   "extends": [
     "config:recommended",
     "docker:pinDigests",
-    "helpers:pinGitHubActionDigests"
+    "helpers:pinGitHubActionDigests",
+    "mergeConfidence:all-badges"
+  ],
+  "packageRules": [
+    {
+      "description": "One PR for all GitHub Actions patch/minor/digest bumps, automerged once required checks pass.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch", "minor", "digest", "pinDigest"],
+      "groupName": "github-actions",
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "description": "Go/TS patch and minor bumps automerge once required checks pass, the release is >=10 days old, and Renovate's merge confidence is neutral or better.",
+      "matchManagers": ["gomod", "npm"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "minimumReleaseAge": "10 days",
+      "automerge": true,
+      "platformAutomerge": true
+    }
   ],
   "customManagers": [
     {
@@ -64,6 +83,18 @@
         "go run (?<depName>github\\.com/gzuidhof/tygo)@(?<currentValue>v[0-9.]+)"
       ],
       "datasourceTemplate": "go"
+    },
+    {
+      "customType": "regex",
+      "description": "helm-unittest pin in .mise.toml's postinstall hook (a helm plugin, not a [tools] entry — the built-in mise manager that bumps everything else in that file can't see it).",
+      "managerFilePatterns": [
+        "/^\\.mise\\.toml$/"
+      ],
+      "matchStrings": [
+        "helm-unittest --version (?<currentValue>v[0-9.]+)"
+      ],
+      "depNameTemplate": "helm-unittest/helm-unittest",
+      "datasourceTemplate": "github-releases"
     }
   ]
 }

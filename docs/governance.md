@@ -56,13 +56,27 @@ Canonical channel: `gitops/governance/policies.yaml`; the chart can
 render the equivalent (`adminPolicy.*`, disabled by default) when it is
 the sole governance source — never enable both for the same name.
 
+### Bootstrap default policy
+
+Fail-closed cuts both ways: with zero policies in the cluster (no
+GitOps, `adminPolicy` off), **no one** can create a workspace, not even
+regular users — "no matching policy = DENY" applies uniformly.
+`defaultPolicy.*` (`values.yaml`) renders a catch-all `WorkspacePolicy`
+at priority 0 (the CRD's own "default fallback" convention, no
+`subjects` = every authenticated user) with a modest quota (3
+workspaces, per-workspace/aggregate caps, 2h idle-suspend, 14-day
+max-lifetime). Defaults **on**, same doctrine as `adminPolicy` and the
+catalogs above: a visible, auditable CR, editable/removable afterwards,
+disabled once `gitops/governance/policies.yaml` defines the equivalent
+— never both at once for the same name.
+
 ### Bootstrap catalog entries
 
 Same doctrine, for the catalog side: the chart can render the two
 official registry-wide `WorkspaceImage` entries (`catalogs.*` in
 `values.yaml`) so a first install already has a non-empty picker
 instead of waiting on GitOps. `catalogs.waasImages` (registry
-`ghcr.io/xorhub/waas-images`) defaults **on**; `catalogs.kasm`
+`docker.io/xorhub`) defaults **on**; `catalogs.kasm`
 (registry `docker.io/kasmweb`, `kasmvnc`-only) defaults **off** since
 it's an extra data plane an admin opts into. Both sync their picker
 metadata live from the `catalog-*.yaml` manifests published by the

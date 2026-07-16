@@ -90,7 +90,7 @@ order:
    them. Ship the Secret with External Secrets/Vault. The same Secret
    typically also feeds the pod via env `valueFrom` (e.g. `VNC_PW`,
    `WAAS_SSH_AUTHORIZED_KEYS`) so both sides of the connection agree;
-   see `waas-images/examples/workspacetemplate-dev-ssh.yaml` for the
+   see `waas-images/examples/workspacetemplate-ssh.yaml` for the
    complete pattern.
 2. **Generated per-workspace password** — the default for `vnc`, `rdp`
    and `kasmvnc` when nothing explicit is provided: the operator
@@ -115,12 +115,15 @@ images).
 ### SSH
 
 `ssh` is a first-class protocol: guacd renders the terminal, so the
-portal needs nothing special. The `dev-ssh` image (waas-images) ships a
-fully non-root sshd on port 2222, public-key only (an unprivileged sshd
-cannot read /etc/shadow, so password auth is impossible by
-construction); authorized keys and the guacd private key come from the
-same credentials Secret. Terminal look (`font-size`, `color-scheme`) is
-user-tunable via `userParams`.
+portal needs nothing special. SSH is a capability of any OS-only
+waas-images desktop built with `INSTALL_SSH=1` (`ubuntu-desktop-noble`,
+`debian-desktop-13`, `fedora-desktop-43` — never `apps/*` images, which
+are VNC-only), opted into a given workspace with `WAAS_SSH_ENABLED=1`.
+It ships a fully non-root sshd on port 2222, public-key only (an
+unprivileged sshd cannot read /etc/shadow, so password auth is
+impossible by construction); authorized keys and the guacd private key
+come from the same credentials Secret. Terminal look (`font-size`,
+`color-scheme`) is user-tunable via `userParams`.
 
 - The workspace **Service exposes every declared port**; status carries
   the full list (`status.protocols`) plus the effective default.

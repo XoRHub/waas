@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-wwt
+  labels:
+    app.kubernetes.io/name: waas-wwt
+    {{- include "waas.labels" . | nindent 4 }}
+    {{- with .Values.wwt.deploymentLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with include "waas.deploymentAnnotations" (dict "root" $ "annotations" .Values.wwt.deploymentAnnotations) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.wwt.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waas-wwt
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waas-wwt
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with include "waas.podLabels" (dict "root" $ "podLabels" .Values.wwt.podLabels) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with include "waas.podAnnotations" (dict "root" $ "podAnnotations" .Values.wwt.podAnnotations "port" 8081) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: wwt
+          image: "{{ .Values.image.registry }}/wwt:{{ include "waas.tag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: WWT_LISTEN_ADDR
+              value: ":8081"
+            - name: WWT_GUACD_ADDR
+              value: "{{ .Release.Name }}-guacd:4822"
+            - name: WWT_API_URL
+              value: "http://{{ .Release.Name }}-api-server:8080"
+            - name: WWT_JWT_ISSUER
+              value: {{ .Values.apiServer.jwtIssuer | quote }}
+            - name: WWT_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.internalTokenSecretRef.name | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: {{ .Values.internalTokenSecretRef.key | default "internal-token" }}
+            {{- if .Values.metrics.enabled }}
+            # Serves Prometheus /metrics on the app port (cluster-internal
+            # only — the ingress allow-list never routes it).
+            - name: WWT_METRICS_ENABLED
+              value: "true"
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8081
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          resources:
+            {{- toYaml .Values.wwt.resources | nindent 12 }}

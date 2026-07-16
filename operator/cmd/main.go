@@ -4,7 +4,6 @@ import (
 	"flag"
 	"os"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -141,30 +140,6 @@ func main() {
 		Recorder:          mgr.GetEventRecorderFor("waas-operator"), //nolint:staticcheck // SA1019: see above
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NamespaceJanitor")
-		os.Exit(1)
-	}
-
-	// Catalog sync cadence for WorkspaceImage.spec.catalog (live URL
-	// re-fetch AND static ConfigMap/Secret re-read, same tick). An
-	// invalid duration is a refusal to start, NOT a silent fallback —
-	// same doctrine as the namespace pattern above; the chart always
-	// provides a valid value.
-	catalogSyncInterval := 6 * time.Hour
-	if raw := os.Getenv("WAAS_CATALOG_SYNC_INTERVAL"); raw != "" {
-		parsed, err := time.ParseDuration(raw)
-		if err != nil || parsed <= 0 {
-			setupLog.Error(err, "invalid WAAS_CATALOG_SYNC_INTERVAL — refusing to start", "value", raw)
-			os.Exit(1)
-		}
-		catalogSyncInterval = parsed
-	}
-	setupLog.Info("image catalog sync configured", "interval", catalogSyncInterval)
-	if err := (&controller.WorkspaceImageCatalogReconciler{
-		Client:       mgr.GetClient(),
-		Recorder:     mgr.GetEventRecorderFor("waas-operator"), //nolint:staticcheck // SA1019: see above
-		SyncInterval: catalogSyncInterval,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "WorkspaceImageCatalog")
 		os.Exit(1)
 	}
 

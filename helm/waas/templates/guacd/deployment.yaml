@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-guacd
+  labels:
+    app.kubernetes.io/name: waas-guacd
+    {{- include "waas.labels" . | nindent 4 }}
+    {{- with .Values.guacd.deploymentLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with include "waas.deploymentAnnotations" (dict "root" $ "annotations" .Values.guacd.deploymentAnnotations) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.guacd.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waas-guacd
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waas-guacd
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with include "waas.podLabels" (dict "root" $ "podLabels" .Values.guacd.podLabels) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with include "waas.podAnnotations" (dict "root" $ "podAnnotations" .Values.guacd.podAnnotations) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: guacd
+          image: {{ .Values.guacd.image | quote }}
+          ports:
+            - name: guacd
+              containerPort: 4822
+          livenessProbe:
+            tcpSocket: { port: guacd }
+            initialDelaySeconds: 10
+          readinessProbe:
+            tcpSocket: { port: guacd }
+            initialDelaySeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          resources:
+            {{- toYaml .Values.guacd.resources | nindent 12 }}

@@ -111,6 +111,6 @@ so the operation is idempotent. Audit: `remote_workspace.woke`.
   example only covers in-cluster traffic).
 - The api-server's Role gained `create/update/delete` on Secrets
   in the workspaces namespace (still without `list`/`watch`) — see
-  `helm/waas/templates/api-server.yaml`.
+  `helm/waas/templates/api-server/roles.yaml`.
 - Clipboard policies (`WorkspacePolicy.spec.clipboard`) also apply
   to remote sessions (same token, same wwt filter).

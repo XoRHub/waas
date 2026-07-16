@@ -1,0 +1,37 @@
+# Per-component coverage (see docs/ci-github.md). Flags mirror the images
+# built by ci-images.yml (operator, api-server, wwt, frontend) plus
+# "shared", a Go module with no image of its own.
+#
+# carryforward: true is required because ci-go.yml/ci-frontend.yml only
+# test the modules a commit actually touched (see the `changes` job in
+# ci.yml) — without it, an untouched component's coverage would drop to
+# 0%/missing on every PR that doesn't happen to touch it.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch: off
+
+flags:
+  operator:
+    paths: [operator/]
+    carryforward: true
+  api-server:
+    paths: [api-server/]
+    carryforward: true
+  wwt:
+    paths: [wwt/]
+    carryforward: true
+  frontend:
+    paths: [frontend/src/]
+    carryforward: true
+  shared:
+    paths: [shared/]
+    carryforward: true
+
+comment:
+  layout: "condensed_header, diff, flags, condensed_footer"
+  behavior: default
+  require_changes: false

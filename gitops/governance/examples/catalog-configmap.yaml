@@ -1,10 +1,10 @@
 # EXAMPLE — not applied by default (not referenced by the governance
 # kustomization). Static catalog source for a registry-mode
-# WorkspaceImage: the operator re-reads this ConfigMap every
-# operator.catalogSyncInterval (no watch, by design) and publishes the
-# entries on the WorkspaceImage's status.catalog for the portal picker
-# — display metadata only, never an approval (the registry prefix on
-# the WorkspaceImage is what approves).
+# WorkspaceImage: the api-server's CatalogSyncWorker re-reads this
+# ConfigMap every apiServer.catalogSyncInterval (no watch, by design)
+# and writes the entries into the catalog_entries table for the portal
+# picker — display metadata only, never an approval (the registry
+# prefix on the WorkspaceImage is what approves).
 #
 # An admin enabling catalog mode picks ONE source: either a live URL
 # (spec.catalog.from.url, e.g. the catalog published by the registry)
@@ -15,21 +15,21 @@ metadata:
   name: waas-images-catalog
   namespace: waas
 data:
-  # Default key read by the operator when from.configMapKeyRef.key is
-  # empty. The $schema line is editor comfort only (yaml-language-server
-  # validation while editing) — the operator never fetches it; pin a
-  # release tag, never main.
+  # Default key read by CatalogSyncWorker when from.configMapKeyRef.key
+  # is empty. The $schema line is editor comfort only
+  # (yaml-language-server validation while editing) — it is never
+  # fetched at runtime; pin a release tag, never main.
   catalog.yaml: |
-    # yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/v0.1.0/operator/pkg/catalog/schema/v1.schema.json
+    # yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/v0.1.0/shared/catalog/schema/v1.schema.json
     apiVersion: waas.xorhub.io/catalog/v1
     images:
-      - image: ghcr.io/xorhub/waas-images/ubuntu-xfce:1.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
         os: linux
         app: ubuntu-xfce
         version: "1.1.0"
         icon: ubuntu-linux
         displayName: "Ubuntu 24.04 — XFCE"
-      - image: ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      - image: docker.io/xorhub/firefox:1.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
         os: linux
         app: firefox
         version: "1.0.0"
@@ -43,7 +43,7 @@ data:
 #   namespace: waas
 # spec:
 #   displayName: "XorHub images"
-#   registry: ghcr.io/xorhub/waas-images
+#   registry: docker.io/xorhub
 #   protocols: [kasmvnc]
 #   enabled: true
 #   catalog:

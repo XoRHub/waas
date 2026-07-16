@@ -12,16 +12,24 @@ permissions:
 jobs:
   frontend:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless Codecov upload (OIDC, no stored token)
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          node-version: 22.17.0
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          install_args: node # version pinned in .mise.toml
+      # setup-node's built-in npm cache (~/.npm), now explicit —
+      # mise-action only caches the toolchain itself, not npm downloads.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
@@ -31,9 +39,23 @@ jobs:
         # version so the lockfile stays untouched.
         # --coverage.all + include counts every src/ file, not just the
         # ones already imported by a test (audit-2 C14).
+        # lcov, on top of the human-readable text-summary, is what the
+        # Codecov upload below reads.
         run: |
           npm install --no-save "@vitest/coverage-v8@$(node -p "require('vitest/package.json').version")"
-          npx vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=text-summary \
+          npx vitest run --coverage.enabled --coverage.provider=v8 \
+            --coverage.reporter=text-summary --coverage.reporter=lcov \
             --coverage.all --coverage.include='src/**/*.{ts,tsx}' \
             --coverage.exclude='src/**/*.test.{ts,tsx}' \
             --coverage.exclude='src/types*.ts' --coverage.exclude='**/*.d.ts'
+      # Per-component coverage (see codecov.yml): flag = frontend, so the
+      # PR comment and README badge break down independently from
+      # operator/api-server/wwt. OIDC, not a stored token — same posture
+      # as the promote job's keyless cosign.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: frontend/coverage/lcov.info
+          flags: frontend
+          fail_ci_if_error: false

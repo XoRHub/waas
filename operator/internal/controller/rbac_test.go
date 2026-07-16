@@ -34,9 +34,9 @@ func loadGeneratedRole(t *testing.T) *rbacv1.ClusterRole {
 // metadata, never in rules, so dropping them leaves parseable YAML.
 func loadChartOperatorRole(t *testing.T) *rbacv1.ClusterRole {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "helm", "waas", "templates", "operator.yaml"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "helm", "waas", "templates", "operator", "roles.yaml"))
 	if err != nil {
-		t.Fatalf("reading chart operator.yaml: %v", err)
+		t.Fatalf("reading chart operator/roles.yaml: %v", err)
 	}
 	for _, doc := range strings.Split(string(raw), "\n---") {
 		if !strings.Contains(doc, "kind: ClusterRole\n") {
@@ -55,7 +55,7 @@ func loadChartOperatorRole(t *testing.T) *rbacv1.ClusterRole {
 		}
 		return role
 	}
-	t.Fatal("no ClusterRole found in helm/waas/templates/operator.yaml")
+	t.Fatal("no ClusterRole found in helm/waas/templates/operator/roles.yaml")
 	return nil
 }
 

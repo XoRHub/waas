@@ -6,17 +6,19 @@
 #          change scopes) — lint + tests + security
 #          + image builds (NOT pushed, amd64 scanned locally)
 #   main:  same gates, ALL images built and pushed as <short-sha>
-#          (+ moving `main` tag) — a release PROMOTES the images of the
+#          (+ moving `edge` tag) — a release PROMOTES the images of the
 #          released SHA, so every main commit must carry the full set
 #   release: release-please (manifest mode) runs at the END of the main
 #          pipeline; when its release PR merges it tags vX.Y.Z and the
 #          promote job re-tags the already-built-and-scanned <short-sha>
 #          manifest lists — never a rebuild — then cosign-signs the
-#          digests (keyless OIDC) and appends the digest table to the
-#          GitHub Release. Chaining promotion in the SAME workflow run
-#          (gated on the release_created output) sidesteps the
-#          GITHUB_TOKEN anti-recursion rule — no PAT/App needed — and
-#          guarantees the <short-sha> images exist before promotion.
+#          digests (keyless OIDC), adds a moving `latest` tag (the newest
+#          official release only — never confused with the `edge` dev
+#          pointer above) and appends the digest table to the GitHub
+#          Release. Chaining promotion in the SAME workflow run (gated on
+#          the release_created output) sidesteps the GITHUB_TOKEN
+#          anti-recursion rule — no PAT/App needed — and guarantees the
+#          <short-sha> images exist before promotion.
 #
 # This file is the orchestrator: path filtering (`changes`) plus the
 # jobs that must stay HERE — chart-oci (must not gate release-please;
@@ -194,7 +196,12 @@ jobs:
 
           echo "frontend=${F_FRONTEND}" >> "$GITHUB_OUTPUT"
           echo "helm=${F_HELM}" >> "$GITHUB_OUTPUT"
-          echo "drift=${F_OPERATOR}" >> "$GITHUB_OUTPUT"
+          # shared/catalog feeds the generated CRD/schema drift check
+          # (gen-catalog-schema) just like operator/api/v1alpha1 does.
+          DRIFT=false
+          [ "$F_OPERATOR" = "true" ] && DRIFT=true
+          [ "$F_SHARED" = "true" ] && DRIFT=true
+          echo "drift=${DRIFT}" >> "$GITHUB_OUTPUT"
 
   # ------------------------------------------------------------------
   # Delegated domains — see ci-*.yml. Each call job's `if` mirrors the
@@ -203,6 +210,9 @@ jobs:
   go:
     needs: changes
     if: needs.changes.outputs.go_lint != '[]' || needs.changes.outputs.go_test != '[]' || needs.changes.outputs.drift == 'true'
+    permissions:
+      contents: read
+      id-token: write # passed through to ci-go.yml's keyless Codecov upload
     uses: ./.github/workflows/ci-go.yml
     with:
       go_lint: ${{ needs.changes.outputs.go_lint }}
@@ -212,6 +222,9 @@ jobs:
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
+    permissions:
+      contents: read
+      id-token: write # passed through to ci-frontend.yml's keyless Codecov upload
     uses: ./.github/workflows/ci-frontend.yml
 
   helm:
@@ -257,9 +270,14 @@ jobs:
         run: |
           echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          version: v3.17.3
+          install_args: helm # version pinned in .mise.toml
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Package and push dev chart
         run: |
           set -euo pipefail
@@ -268,6 +286,17 @@ jobs:
           DEV_VERSION="${CHART_VERSION}-main.${{ steps.vars.outputs.sha }}"
           helm package helm/waas --version "$DEV_VERSION" -d dist
           helm push "dist/waas-${DEV_VERSION}.tgz" "oci://$REGISTRY/${{ steps.vars.outputs.repo }}/charts"
+          # Moving `0.0.0-edge` tag: same convenience pointer as the images'
+          # `edge` tag (ci-images.yml), mirrored onto the chart artifact.
+          # Unlike the images (untagged, no SemVer to satisfy), a bare
+          # `edge` tag isn't valid SemVer, so `helm pull --version edge`
+          # (and kustomize's helmCharts, which goes through the same Helm
+          # SDK validation) reject it outright. `0.0.0-edge` is a valid
+          # SemVer prerelease with a fixed name — stable regardless of
+          # Chart.yaml's own version bumps.
+          docker buildx imagetools create \
+            -t "$REGISTRY/${{ steps.vars.outputs.repo }}/charts/waas:0.0.0-edge" \
+            "$REGISTRY/${{ steps.vars.outputs.repo }}/charts/waas:$DEV_VERSION"
 
   # ------------------------------------------------------------------
   # Release. release-please (manifest mode, SemVer, conventional commits)
@@ -367,6 +396,10 @@ jobs:
             cosign sign --yes \
               -a version="$TAG" -a revision="$GITHUB_SHA" \
               "$IMAGE@$DIGEST"
+            # `latest` always points at the newest OFFICIAL release only —
+            # never the `edge` dev pointer (ci-images.yml). Same digest as
+            # $TAG, so no separate cosign signature is needed.
+            docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$TAG"
             printf '| %s | `%s@%s` |\n' "$c" "$IMAGE" "$DIGEST" >> release-images.md
           done
       - name: Append digest table to the Release notes
@@ -395,13 +428,24 @@ jobs:
       CHART_TAG: ${{ needs.release-please.outputs.chart_tag_name }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          version: v3.17.3
+          install_args: helm # version pinned in .mise.toml
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Package and push the chart
         run: |
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+          CHART_VERSION="$(helm show chart helm/waas | awk '/^version:/{print $2}')"
           helm package helm/waas -d dist
           helm push dist/waas-*.tgz "oci://$REGISTRY/${GITHUB_REPOSITORY,,}/charts"
-          echo "Pushed chart for $CHART_TAG"
+          # `latest` always points at the newest OFFICIAL chart release —
+          # distinct from the `edge` dev pointer (chart-oci job).
+          docker buildx imagetools create \
+            -t "$REGISTRY/${GITHUB_REPOSITORY,,}/charts/waas:latest" \
+            "$REGISTRY/${GITHUB_REPOSITORY,,}/charts/waas:$CHART_VERSION"
+          echo "Pushed chart $CHART_VERSION for $CHART_TAG"

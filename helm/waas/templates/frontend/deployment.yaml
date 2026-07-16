@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-frontend
+  labels:
+    app.kubernetes.io/name: waas-frontend
+    {{- include "waas.labels" . | nindent 4 }}
+    {{- with .Values.frontend.deploymentLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with include "waas.deploymentAnnotations" (dict "root" $ "annotations" .Values.frontend.deploymentAnnotations) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: waas-frontend
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waas-frontend
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with include "waas.podLabels" (dict "root" $ "podLabels" .Values.frontend.podLabels) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with include "waas.podAnnotations" (dict "root" $ "podAnnotations" .Values.frontend.podAnnotations) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: frontend
+          image: "{{ .Values.image.registry }}/frontend:{{ include "waas.tag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}

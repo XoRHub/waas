@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-operator
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+---
+# Mirrors the +kubebuilder:rbac markers (operator/config/rbac/role.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-operator
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    # update: volume retention — detaching (retained labels) and adopting
+    # (relabel live) home volumes mutate PVC metadata in place.
+    verbs: [create, delete, get, list, update, watch]
+  - apiGroups: [""]
+    resources: [pods, services]
+    verbs: [create, delete, get, list, watch]
+  # Generated desktop credentials (KasmVNC and vnc/rdp): one Secret next
+  # to the CR (resolver copy, owner-ref'd) + one in the pod namespace
+  # (VNC_PW secretKeyRef);
+  # update keeps the pod copy converged on the resolver copy. Also the
+  # per-namespace copies of registry pull secrets (imagePullSecretRef).
+  # Secret reads bypass the cache (see cmd/main.go) — no watch.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, delete, get, list, update]
+  # Per-workspace KasmVNC config (template.kasmvncConfig), mounted at
+  # ~/.vnc/kasmvnc.yaml. Uncached reads too.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create, delete, get, list, update]
+  # Placement: the operator creates the per-user workload namespaces and
+  # their bootstrap (quota from the owner's policy, default-deny ingress);
+  # delete only fires from the namespace janitor for the opt-in
+  # DeleteWhenEmpty cleanup policy; update back-fills the frozen
+  # cleanup-policy label on namespaces created before it existed.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create, delete, get, list, update, watch]
+  - apiGroups: [""]
+    resources: [resourcequotas]
+    verbs: [create, get, list, watch]
+  # update: the operator's default ingress policy is desired-state (it
+  # heals policies stamped before the platform namespace was known —
+  # without the platform peer, guacd is locked out of placed desktops).
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create, get, list, update, watch]
+  # update: pause/resume and the uptime/downtime crons scale the workload
+  # in place (spec.replicas 0/1, VM spec.running) — without it every
+  # scale is Forbidden and pause/resume silently stops working.
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [create, delete, get, list, update, watch]
+  - apiGroups: [kubevirt.io]
+    resources: [virtualmachines]
+    verbs: [create, delete, get, list, update, watch]
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspacetemplates, workspaceimages, workspacepolicies]
+    verbs: [get, list, watch]
+  # update: the teardown finalizer of cross-namespace placements.
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspaces]
+    verbs: [delete, get, list, update, watch]
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspaces/status]
+    verbs: [get, patch, update]
+  # Catalog sync results (status.catalog) — display metadata only,
+  # never read by enforcement.
+  - apiGroups: [waas.xorhub.io]
+    resources: [workspaceimages/status]
+    verbs: [get, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-operator
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-operator
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-operator
+    namespace: {{ .Release.Namespace }}
+---
+# Leader election.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-operator-leader-election
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-operator-leader-election
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-operator-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-operator
+    namespace: {{ .Release.Namespace }}

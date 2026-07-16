@@ -8,8 +8,8 @@ duplicated.
 
 Follow the [Quickstart in the README](README.md#quickstart-local-dev).
 Toolchain versions are pinned in [`.mise.toml`](.mise.toml) (`mise install`
-sets everything up) — they intentionally match CI exactly, so don't bump
-them independently.
+sets everything up) — CI installs from the same file (`jdx/mise-action`),
+so local and CI can't drift.
 
 ## Before opening a PR
 
