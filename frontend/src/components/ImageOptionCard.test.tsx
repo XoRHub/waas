@@ -2,8 +2,13 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import i18n from '@/i18n';
 import { DASHBOARD_ICONS_CDN } from '@/lib/icon';
 import { AppIcon, ImageOptionCard } from './ImageOptionCard';
+
+// The profile badge renders translated text; the language detector must
+// not pick the developer's locale.
+void i18n.changeLanguage('en');
 
 afterEach(cleanup);
 
@@ -100,5 +105,21 @@ describe('ImageOptionCard', () => {
     expect(screen.getByText('unavailable (image not allowed by your policy)')).toBeTruthy();
     await userEvent.click(screen.getByRole('option', { name: /Firefox/ }));
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('renders the Hardened badge for profile="hardened"', () => {
+    render(<ImageOptionCard title="Ubuntu XFCE" profile="hardened" />);
+    expect(screen.getByText('Hardened')).toBeTruthy();
+  });
+
+  it('renders the Normal badge for profile="normal"', () => {
+    render(<ImageOptionCard title="Ubuntu XFCE" profile="normal" />);
+    expect(screen.getByText('Normal')).toBeTruthy();
+  });
+
+  it('renders no badge for an unrecognized profile value (stale-row defense-in-depth)', () => {
+    render(<ImageOptionCard title="Ubuntu XFCE" profile="banana" />);
+    expect(screen.queryByText('Hardened')).toBeNull();
+    expect(screen.queryByText('Normal')).toBeNull();
   });
 });

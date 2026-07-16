@@ -98,7 +98,13 @@ export function ImageOptionCard({
           <span className="truncate text-sm font-medium text-slate-900 dark:text-white">
             {title}
           </span>
-          {profile && (
+          {/* Only the two known values ever render a badge: this prop is
+              synced-but-untrusted catalog data (see
+              docs/image-catalog.md), and a row synced before a given
+              sync pass rewrites it can still hold an arbitrary string —
+              anything else silently shows nothing rather than a
+              confidently wrong label. */}
+          {(profile === 'hardened' || profile === 'normal') && (
             <span
               className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
                 profile === 'hardened'
