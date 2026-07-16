@@ -104,8 +104,8 @@ validation history and the api-server's `CatalogSyncWorker` need the
 same parser with no cross-module dependency between the two.
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/<tag>/shared/catalog/schema/v1.schema.json
-# (pin a release tag for shared files; a branch is fine while iterating locally)
+# yaml-language-server: $schema=https://raw.githubusercontent.com/XoRHub/waas/main/shared/catalog/schema/v1.schema.json
+# (no vX.Y.Z release tag exists yet; pin one for shared files once it does — a branch is fine while iterating locally)
 apiVersion: waas.xorhub.io/catalog/v1
 images:
   - image: docker.io/xorhub/firefox:1.0.0@sha256:...

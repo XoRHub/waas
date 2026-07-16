@@ -18,9 +18,10 @@ data:
   # Default key read by CatalogSyncWorker when from.configMapKeyRef.key
   # is empty. The $schema line is editor comfort only
   # (yaml-language-server validation while editing) — it is never
-  # fetched at runtime; pin a release tag, never main.
+  # fetched at runtime; points at main until the first vX.Y.Z release
+  # tag exists, then pin that tag instead.
   catalog.yaml: |
-    # yaml-language-server: $schema=https://raw.githubusercontent.com/xorhub/waas-fable/v0.1.0/shared/catalog/schema/v1.schema.json
+    # yaml-language-server: $schema=https://raw.githubusercontent.com/XoRHub/waas/main/shared/catalog/schema/v1.schema.json
     apiVersion: waas.xorhub.io/catalog/v1
     images:
       - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
