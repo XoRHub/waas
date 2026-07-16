@@ -42,6 +42,13 @@ manifests:
 	# The Helm chart ships the CRDs; keep them in sync automatically.
 	mkdir -p ../helm/waas/crds
 	cp config/crd/bases/*.yaml ../helm/waas/crds/
+	# ../helm/waas/templates/operator/roles.yaml is a hand-maintained
+	# mirror of this same rbac:roleName=waas-operator-role output (every
+	# grant there carries a comment explaining why the operator needs
+	# it, which controller-gen can't produce) — so it's checked here
+	# instead of copied, catching drift like a removed code path leaving
+	# a grant behind.
+	uv run ../hack/ci/check_operator_rbac.py ../helm/waas/templates/operator/roles.yaml config/rbac/role.yaml
 
 docker-build:
 	docker build -t ghcr.io/xorhub/waas/operator:dev .

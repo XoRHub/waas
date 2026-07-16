@@ -41,6 +41,13 @@ jobs:
         # The script declares its own pyyaml pin (PEP 723 inline
         # metadata); uv resolves it into an ephemeral env.
         run: uv run hack/ci/crd_to_jsonschema.py helm/waas/crds crd-schemas
+      - name: Operator ClusterRole vs generated RBAC
+        # `make manifests` (operator/Makefile) runs this same check, but
+        # its go-generated-drift caller only fires on operator/**+shared/**
+        # changes; a helm/**-only edit to the hand-maintained
+        # roles.yaml mirror would otherwise dodge it. This job's path
+        # filter (helm/**, operator/config/**) covers exactly that gap.
+        run: uv run hack/ci/check_operator_rbac.py helm/waas/templates/operator/roles.yaml operator/config/rbac/role.yaml
       - name: kubeconform
         # -skip CustomResourceDefinition: no usable upstream schema for the
         # CRD kind itself; CRDs are drift-checked and every CR validates

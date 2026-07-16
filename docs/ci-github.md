@@ -44,6 +44,7 @@ PR — selective by path (job `changes`, dorny/paths-filter)
 ├─ ci-frontend.yml          typecheck + vitest (frontend/**)
 ├─ ci-helm.yml              lint + render + helm-docs drift + helm unittest
 │                            + kubeconform vs CRDs of THIS commit
+│                            + operator ClusterRole vs generated RBAC
 ├─ ci-security.yml          gitleaks, trivy fs, hadolint, shellcheck — ALWAYS
 └─ ci-images.yml            build-images per impacted component × {amd64, arm64},
                             push:false, local trivy scan (amd64)
