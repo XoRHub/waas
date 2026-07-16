@@ -179,6 +179,63 @@ func TestCatalogSyncWorkerCopiesRecommendation(t *testing.T) {
 	}
 }
 
+const workerProfileManifest = `apiVersion: waas.xorhub.io/catalog/v1
+images:
+  - image: docker.io/xorhub/firefox:1.0.0@sha256:def
+    os: linux
+    app: firefox
+    profile: hardened
+  - image: docker.io/xorhub/chrome:1.0.0@sha256:ghi
+    os: linux
+    app: chrome
+    profile: normal
+  - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc
+    os: linux
+    app: ubuntu-xfce
+    profile: banana
+  - image: docker.io/xorhub/ubuntu-mate:1.1.0@sha256:jkl
+    os: linux
+    app: ubuntu-mate
+    profile: Hardened
+`
+
+func TestCatalogSyncWorkerNormalizesUnknownProfile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(workerProfileManifest))
+	}))
+	defer srv.Close()
+
+	img := workerRegistryImage("waas-images", workerURLSource(srv.URL))
+	w, _, catalogRepo := catalogWorkerFixture(t, img)
+	ctx := context.Background()
+
+	w.syncAll(ctx)
+
+	entries, err := catalogRepo.ListEntries(ctx, "waas-images")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 4 {
+		t.Fatalf("catalog_entries = %+v, want 4 rows", entries)
+	}
+	want := map[string]string{
+		"docker.io/xorhub/firefox:1.0.0@sha256:def":     "hardened",
+		"docker.io/xorhub/chrome:1.0.0@sha256:ghi":      "normal",
+		"docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc": "", // unknown value
+		"docker.io/xorhub/ubuntu-mate:1.1.0@sha256:jkl": "", // wrong case
+	}
+	for _, e := range entries {
+		got, ok := want[e.Image]
+		if !ok {
+			t.Errorf("unexpected catalog entry %s", e.Image)
+			continue
+		}
+		if e.Profile != got {
+			t.Errorf("%s: profile = %q, want %q", e.Image, e.Profile, got)
+		}
+	}
+}
+
 func TestCatalogSyncWorkerFailureLeavesTableUntouched(t *testing.T) {
 	healthy := true
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

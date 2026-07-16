@@ -146,7 +146,9 @@ format (`shared/catalog.Entry`) and on `catalog_entries`
 (`profile`/`recommended` columns, the latter JSON text — not JSONB,
 since this table round-trips on both the Postgres and SQLite backends)
 exactly like `os`/`app`/`icon`; nothing on `WorkspaceImageSpec` or any
-CRD carries them, and no webhook validates or requires them.
+CRD carries them, and no webhook validates or requires them. Like an
+unknown `os`, a `profile` outside `hardened`/`normal` is dropped to
+empty by the sync worker rather than propagated to the picker.
 
 ```yaml
 apiVersion: waas.xorhub.io/catalog/v1

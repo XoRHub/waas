@@ -20,6 +20,15 @@ import (
 // parser support — published versions are frozen, additive-only.
 const APIVersion = "waas.xorhub.io/catalog/v1"
 
+// ProfileHardened and ProfileNormal are the only non-empty Entry.Profile
+// values a consumer keeps; anything else is degraded to "" at the sync
+// boundary (see CatalogSyncWorker's normalizeProfile), the same
+// enum-safe treatment OS gets.
+const (
+	ProfileHardened = "hardened"
+	ProfileNormal   = "normal"
+)
+
 // File is one catalog.yaml manifest.
 type File struct {
 	// APIVersion must be exactly APIVersion above.

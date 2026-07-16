@@ -145,7 +145,7 @@ func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.Works
 			Version:     e.Version,
 			Icon:        e.Icon,
 			DisplayName: e.DisplayName,
-			Profile:     e.Profile,
+			Profile:     normalizeProfile(e.Profile),
 			Recommended: marshalRecommended(e.Recommended),
 			SyncedAt:    now,
 		})
@@ -186,6 +186,18 @@ func normalizeOS(os string) string {
 		return ""
 	}
 	return os
+}
+
+// normalizeProfile degrades an unrecognized profile value to "" (no
+// badge shown by the frontend) instead of propagating it — same
+// untrusted-manifest guard as normalizeOS, for the same reason: the
+// badge would otherwise render a confidently wrong label for a typo'd
+// or malicious value.
+func normalizeProfile(profile string) string {
+	if profile != catalog.ProfileHardened && profile != catalog.ProfileNormal {
+		return ""
+	}
+	return profile
 }
 
 // fetchAndParse loads and parses the manifest from the configured
