@@ -300,7 +300,7 @@ remains in this repo:
 - the catalog **format contract** above: waas-images (the producer)
   publishes `catalog.yaml` files for `docker.io/xorhub` (migrated from
   `ghcr.io/xorhub/waas-images` — Docker Hub has no nested path, so each
-  image is its own top-level `xorhub/<image>` repo); waas-fable (the
+  image is its own top-level `xorhub/<image>` repo); waas (the
   reader) owns the schema. `docker.io/kasmweb` gets the same treatment
   (see `docs/kasmvnc.md` for that registry's specifics).
   An example ConfigMap-source manifest lives under

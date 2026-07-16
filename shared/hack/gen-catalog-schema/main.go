@@ -1,6 +1,6 @@
 // gen-catalog-schema writes the versioned JSON Schema of the shared
 // catalog.yaml wire-format (catalog) to
-// catalog/schema/v1.schema.json. waas-fable is the READER of that
+// catalog/schema/v1.schema.json. waas is the READER of that
 // format and therefore its single source of truth: the schema is
 // generated from the same Go struct the parser unmarshals, never
 // written by hand, so the two cannot silently diverge. Editors
