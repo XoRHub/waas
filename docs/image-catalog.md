@@ -212,6 +212,17 @@ injected values are visible before saving, and merges `env` hints into
 the template's env list by name without overwriting an already-present
 entry.
 
+The `profile` badge is scoped to this admin form: `ImageOptionCard`
+only renders it when passed a `profile`, and `CatalogImageField.tsx` is
+the only caller that does. The end-user create-workspace flow lists
+templates, not catalog entries — it looks up the backing catalog entry
+only to borrow its icon, deliberately not its profile, since a template
+is an admin-curated artifact whose workload may already have diverged
+from the catalog recommendation (the admin can edit the prefilled
+`securityContext` after applying, or never apply it at all); resurfacing
+"hardened" on the end-user picker could assert a hardening the template
+no longer has.
+
 **Explored and explicitly rejected**: letting the catalog trigger an
 operator-side secret generation (e.g. an SSH keypair), addressed by env
 var name or by an enumerated generator id. `env`/`recommended` stays
