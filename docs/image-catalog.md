@@ -143,8 +143,8 @@ and hardening. **These fields follow the exact same regime as every
 other discovered field above: purely cosmetic, never read by
 `enforce()`/`buildPodTemplate`, prefill-only.** They live on the wire
 format (`shared/catalog.Entry`) and on `catalog_entries`
-(`profile`/`recommended` columns, the latter JSON text — not JSONB,
-since this table round-trips on both the Postgres and SQLite backends)
+(`profile`/`recommended` columns, the latter `JSONB` — SQLite's type
+affinity stores it as text unchanged, so it round-trips there too)
 exactly like `os`/`app`/`icon`; nothing on `WorkspaceImageSpec` or any
 CRD carries them, and no webhook validates or requires them. Like an
 unknown `os`, a `profile` outside `hardened`/`normal` is dropped to
