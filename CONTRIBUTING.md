@@ -27,7 +27,8 @@ make test-go / test-frontend     # unit tests (make test = both)
 make lint-go / lint-frontend     # golangci-lint / eslint + prettier check + tsc
 make format                      # rewrite: prettier + the Go formatters
 make generate-check              # regenerate CRDs/RBAC/docs/types, fail on drift
-helm lint helm/waas && make helm-unittest && make helm-docs   # if the chart changed
+make helm-check                  # if the chart changed: every ci-helm.yml gate
+make coverage                    # local coverage reports, same flags as CI/Codecov
 ```
 
 The testing strategy (which tier a new test belongs to, and how to run

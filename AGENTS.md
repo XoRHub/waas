@@ -67,7 +67,7 @@ refactor!: split waas-images/ out into its own repository
 Before reporting a task finished, run what CI runs: `make check`
 (Go + frontend lint/format/typecheck/tests + generated-code drift;
 granular: `test-go`/`test-frontend`, `lint-go`/`lint-frontend`,
-`format`, `generate-check`); for the chart: `helm lint helm/waas`,
-`make helm-unittest`, `make helm-docs`.
+`format`, `generate-check`); for the chart: `make helm-check`
+(every ci-helm.yml gate — needs docker and network).
 For behavior changes, verify on the k3d dev env (`make dev-bootstrap`,
 then `make dev-reload` as inner loop; `make smoke` gates real sessions).
