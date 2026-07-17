@@ -25,3 +25,11 @@ ingress:
 apiServer:
   # Fixed for dev convenience instead of grepping the generated one from logs.
   adminPassword: admin123
+
+# Same rule as adminPolicy (values.yaml): never chart AND gitops for the
+# same policy name. Dev governance comes from the real seeds
+# (gitops/governance/policies.yaml, applied by dev-deploy) — the chart's
+# bootstrap default policy would fight helm's server-side apply over
+# every field where the two diverge.
+defaultPolicy:
+  enabled: false

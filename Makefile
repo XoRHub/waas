@@ -142,6 +142,13 @@ dev-deploy:
 	# and the default workloads ns (pods resolve secretKeyRef in their
 	# own namespace) — re-run here so redeploys never leave them apart.
 	sh hack/dev/seed-ssh-secret.sh $(DEV_NAMESPACE)
+	# Governance seeds live here, not in dev-load-images: the chart's
+	# bootstrap default policy is disabled in dev (values-dev.yaml) so
+	# kubectl stays the SINGLE field manager of the policies — helm and
+	# kubectl both applying `default` is how dev-deploy used to fail with
+	# server-side-apply conflicts. Applied on every deploy so a plain
+	# dev-reload never leaves the env without a default policy (fail-closed).
+	kubectl -n $(DEV_NAMESPACE) apply -f gitops/governance/policies.yaml
 	@$(MAKE) dev-url
 
 # Rebuild, reimport, re-render the chart and restart — the inner loop
@@ -182,9 +189,9 @@ endif
 endif
 
 # Seed the dev catalog (WorkspaceImage/WorkspaceTemplate pointed at the
-# published registry by default) plus the real WorkspacePolicy seeds (image
-# names match, no dev variant needed). Requires the $(DEV_NAMESPACE)
-# namespace, i.e. run after dev-deploy. Pass LOCAL_IMAGES to additionally
+# published registry by default). The WorkspacePolicy seeds are applied by
+# dev-deploy (single field manager — see the note there). Requires the
+# $(DEV_NAMESPACE) namespace, i.e. run after dev-deploy. Pass LOCAL_IMAGES to additionally
 # build and k3d-import specific waas-local:dev tags on top of that — point
 # the matching WorkspaceTemplate's `image:` at the tag yourself to run it:
 #   make dev-load-images LOCAL_IMAGES="firefox devtools"
@@ -192,8 +199,7 @@ dev-load-images: dev-build-images
 	sh hack/dev/seed-ssh-secret.sh $(DEV_NAMESPACE)
 	kubectl -n $(DEV_NAMESPACE) apply \
 		-f hack/dev/images-dev.yaml \
-		-f hack/dev/templates-dev.yaml \
-		-f gitops/governance/policies.yaml
+		-f hack/dev/templates-dev.yaml
 	@for img in $(LOCAL_IMAGES); do \
 		echo "==> import waas-local/$$img:dev"; \
 		k3d image import waas-local/$$img:dev -c $(CLUSTER_NAME) || exit 1; \
