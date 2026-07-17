@@ -204,6 +204,11 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 				Ports:           ports,
 				SecurityContext: securityContext,
 				VolumeMounts:    mounts,
+				// TCPSocket for every protocol, kasmvnc included: KasmVNC
+				// serves everything behind Basic auth, so an HTTPGet probe
+				// would 401 and the pod would never turn Ready (the empty
+				// connects KasmVNC logs at debug are documented in
+				// docs/kasmvnc.md).
 				ReadinessProbe: &corev1.Probe{
 					ProbeHandler: corev1.ProbeHandler{
 						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(probePort)},
