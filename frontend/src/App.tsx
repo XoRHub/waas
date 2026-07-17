@@ -1,5 +1,10 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router';
+import {
+  createBrowserRouter,
+  createRoutesFromElements,
+  Route,
+  RouterProvider,
+} from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { applyTheme, storedTheme, watchSystemTheme } from '@/lib/theme';
@@ -40,32 +45,40 @@ function useTheme() {
   }, [theme]);
 }
 
+// Data router (not declarative <BrowserRouter>): the viewTransition
+// navigate option only works through RouterProvider, which is what
+// animates opening a workspace. Module scope — created once, never
+// per App render.
+const router = createBrowserRouter(
+  createRoutesFromElements(
+    <>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route element={<ProtectedRoute />}>
+        <Route path="/" element={<PortalPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/workspaces/:id/connect" element={<ConnectPage />} />
+        <Route path="/remote/:id/connect" element={<ConnectPage kind="remote" />} />
+        <Route path="/view" element={<SplitViewPage />} />
+      </Route>
+      <Route element={<ProtectedRoute adminOnly />}>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<FleetPage />} />
+          <Route path="templates" element={<TemplatesPage />} />
+          <Route path="users" element={<UsersPage />} />
+          <Route path="governance" element={<GovernancePage />} />
+          <Route path="audit" element={<AuditPage />} />
+        </Route>
+      </Route>
+    </>,
+  ),
+);
+
 export function App() {
   useTheme();
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/auth/callback" element={<AuthCallbackPage />} />
-          <Route element={<ProtectedRoute />}>
-            <Route path="/" element={<PortalPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/workspaces/:id/connect" element={<ConnectPage />} />
-            <Route path="/remote/:id/connect" element={<ConnectPage kind="remote" />} />
-            <Route path="/view" element={<SplitViewPage />} />
-          </Route>
-          <Route element={<ProtectedRoute adminOnly />}>
-            <Route path="/admin" element={<AdminLayout />}>
-              <Route index element={<FleetPage />} />
-              <Route path="templates" element={<TemplatesPage />} />
-              <Route path="users" element={<UsersPage />} />
-              <Route path="governance" element={<GovernancePage />} />
-              <Route path="audit" element={<AuditPage />} />
-            </Route>
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   );
 }
