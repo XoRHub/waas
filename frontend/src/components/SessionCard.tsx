@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppIcon } from '@/components/ImageOptionCard';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -28,8 +28,12 @@ export function SessionCard({
   onDelete,
   deletePending,
   deleteConfirm,
+  ref,
 }: {
   target: SessionTarget;
+  /** Root-element ref — the open flow tags the clicked card with a
+   * view-transition-name so it morphs into the connect screen. */
+  ref?: Ref<HTMLDivElement>;
   /** Effective lifecycle phase; only shown when capabilities.hasPhase. */
   phase?: EffectivePhase;
   message?: string;
@@ -82,7 +86,7 @@ export function SessionCard({
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800">
+    <div ref={ref} className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800">
       <div className="flex items-start justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <AppIcon icon={target.icon} os={target.os} size={32} />

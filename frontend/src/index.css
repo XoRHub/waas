@@ -17,3 +17,35 @@
   background-size: cover;
   background-position: center;
 }
+
+/* Card → fullscreen morph when opening a workspace in the same tab.
+   The clicked card is tagged view-transition-name: workspace-open right
+   before navigate({ viewTransition: true }) (WorkspacesSection /
+   RemoteWorkspacesSection); the connect screens carry the same name
+   statically (ConnectPage). openWorkspace feature-detects support and
+   prefers-reduced-motion; the media query below is belt and braces. */
+::view-transition-group(workspace-open) {
+  animation-duration: 350ms;
+  /* Ease-out: fast growth out of the card, settling into place. */
+  animation-timing-function: cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+::view-transition-old(workspace-open),
+::view-transition-new(workspace-open) {
+  animation-duration: 350ms;
+  /* Keep both snapshots filling the morphing group box — the card and
+     the fullscreen surface have very different aspect ratios. */
+  height: 100%;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  /* Keep the page cross-fade in step with the morph. */
+  animation-duration: 300ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-image-pair(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

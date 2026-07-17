@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { FolderedGrid, SessionCard } from '@/components/SessionCard';
@@ -85,8 +86,18 @@ function RemoteCard({ remote, onEdit }: { remote: RemoteWorkspace; onEdit: () =>
 
   const target = targetFromRemote(remote);
 
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Same card→connect morph as WorkspaceCard: tag only the clicked
+  // card right before a same-tab navigation (see WorkspacesSection).
+  const connect = () => {
+    const newTab = user?.preferences?.openWorkspaceInNewTab ?? false;
+    if (!newTab) cardRef.current?.style.setProperty('view-transition-name', 'workspace-open');
+    openWorkspace(target.connectUrl, newTab, navigate);
+  };
+
   return (
     <SessionCard
+      ref={cardRef}
       target={target}
       footerNote={
         <p className="text-xs text-slate-400 dark:text-slate-500">
@@ -100,13 +111,7 @@ function RemoteCard({ remote, onEdit }: { remote: RemoteWorkspace; onEdit: () =>
       buttons={
         <>
           <button
-            onClick={() =>
-              openWorkspace(
-                target.connectUrl,
-                user?.preferences?.openWorkspaceInNewTab ?? false,
-                navigate,
-              )
-            }
+            onClick={connect}
             className="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
           >
             {t('remote.connect')}

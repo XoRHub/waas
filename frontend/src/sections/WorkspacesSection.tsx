@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { EventsDialog } from '@/components/EventsDialog';
@@ -105,6 +105,16 @@ function WorkspaceCard({ workspace, icon }: { workspace: Workspace; icon?: strin
   const settling = phase === 'Pausing' || phase === 'Resuming' || phase === 'Terminating';
   const [deleting, setDeleting] = useState(false);
 
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Tag ONLY the clicked card, synchronously before the same-tab
+  // navigation: view-transition-name must be unique per document, and
+  // the tag dies with the card's unmount (a return to the portal
+  // remounts it untagged).
+  const open = (newTab: boolean) => {
+    if (!newTab) cardRef.current?.style.setProperty('view-transition-name', 'workspace-open');
+    openWorkspace(target.connectUrl, newTab, navigate);
+  };
+
   const onOpen = () => {
     const pref = user?.preferences?.openWorkspaceInNewTab;
     if (pref == null) {
@@ -112,7 +122,7 @@ function WorkspaceCard({ workspace, icon }: { workspace: Workspace; icon?: strin
       setAsking(true);
       return;
     }
-    openWorkspace(target.connectUrl, pref, navigate);
+    open(pref);
   };
 
   const onChoice = (newTab: boolean, remember: boolean) => {
@@ -122,12 +132,13 @@ function WorkspaceCard({ workspace, icon }: { workspace: Workspace; icon?: strin
         preferences: { ...user?.preferences, openWorkspaceInNewTab: newTab },
       });
     }
-    openWorkspace(target.connectUrl, newTab, navigate);
+    open(newTab);
   };
 
   return (
     <>
       <SessionCard
+        ref={cardRef}
         target={target}
         phase={phase}
         message={workspace.message}

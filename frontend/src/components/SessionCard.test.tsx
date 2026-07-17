@@ -53,6 +53,26 @@ const renderCard = (t: SessionTarget, phase: 'Running' | 'Paused' = 'Running') =
   );
 };
 
+describe('SessionCard ref', () => {
+  it('exposes the card root element (the open flow tags it for the view transition)', () => {
+    signIn({ username: 'marc' });
+    let root: HTMLDivElement | null = null;
+    renderWithProviders(
+      <SessionCard
+        ref={(el) => {
+          root = el;
+        }}
+        target={target()}
+        phase="Running"
+        buttons={<></>}
+        onDelete={() => {}}
+        deletePending={false}
+      />,
+    );
+    expect(root).toBeInstanceOf(HTMLDivElement);
+  });
+});
+
 describe('SessionCard drift badge', () => {
   it('reloads a running reload-capable target after confirmation', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);

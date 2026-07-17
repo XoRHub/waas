@@ -212,7 +212,10 @@ function DesktopView({
   };
 
   return (
-    <div className="relative h-screen bg-black">
+    // [view-transition-name:workspace-open] (also on WaitScreen and
+    // ErrorScreen — exactly one of the three renders at a time): the
+    // landing surface the tagged portal card morphs into.
+    <div className="relative h-screen bg-black [view-transition-name:workspace-open]">
       {state === 'connected' && (
         // pointer-events-none on the wrapper: it spans the full viewport
         // width and its hit-box is NOT shrunk by the label's
@@ -264,7 +267,7 @@ function DesktopView({
 
 function WaitScreen({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-black text-white">
+    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-black text-white [view-transition-name:workspace-open]">
       <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white" />
       <p className="text-sm">{title}</p>
       {subtitle && <p className="max-w-sm text-center text-xs text-white/50">{subtitle}</p>}
@@ -286,7 +289,7 @@ function ErrorScreen({
   onSecondary?: () => void;
 }) {
   return (
-    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-black text-white">
+    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-black text-white [view-transition-name:workspace-open]">
       <p className="max-w-md text-center text-sm text-white/80">{message}</p>
       <div className="flex gap-2">
         {secondaryLabel && onSecondary && (
