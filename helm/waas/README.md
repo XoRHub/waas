@@ -97,7 +97,7 @@ table is a quick *what*.
 | catalogs.kasm.name | string | `"kasm"` | Name of the bootstrap WorkspaceImage for this catalog. |
 | catalogs.kasm.displayName | string | `"Kasm official images"` | Display name shown in the portal picker. |
 | catalogs.kasm.registry | string | `"docker.io/kasmweb"` | Registry prefix this catalog approves images from. |
-| catalogs.kasm.tagPolicy | string | `"digest"` | Tag discipline enforced for this registry (`tag` | `digest` | `any`). |
+| catalogs.kasm.tagPolicy | string | `"tag"` | Tag discipline enforced for this registry (`tag` | `digest` | `any`). `tag` matches upstream: kasmweb publishes fixed release tags (1.19.0) and the synced catalog references them by tag, not digest. |
 | catalogs.kasm.protocols | list | `["kasmvnc"]` | Protocols this catalog's images support. |
 | catalogs.kasm.catalogURL | string | `"https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-kasmweb.yaml"` | URL of the published catalog.yaml for this registry. |
 | ingress.enabled | bool | `true` | Deploy an Ingress in front of the frontend/api-server/wwt. |

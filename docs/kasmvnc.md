@@ -158,8 +158,15 @@ admin's. Full precedence map across both data planes:
 
 ## Images, placement, licensing
 
-- Catalog entries for `docker.io/kasmweb/*` are pinned by digest
-  (upstream tags roll). Some images are multi-arch
+- Catalog entries for `docker.io/kasmweb/*` are approved by **fixed
+  release tag** (`tagPolicy: tag`, the bootstrap default in
+  `helm/waas/values.yaml`): upstream publishes versioned tags
+  (`1.19.0`) and `catalog-kasmweb.yaml` references them by tag. A
+  digest requirement was tried first and dropped — it denied every
+  entry of the synced catalog (which carries tags, not digests) for no
+  real gain; admins who want immutability can still pin `@sha256:…`
+  per entry or set `tagPolicy: digest` themselves. Some images are
+  multi-arch
   (`core-ubuntu-*`, `ubuntu-noble-desktop`, `firefox`, `vs-code`,
   `terminal`), some amd64-only (`desktop`, `chrome`) — the existing
   `Architectures` → nodeAffinity placement covers this.

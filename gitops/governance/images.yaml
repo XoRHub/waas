@@ -73,9 +73,12 @@ spec:
     max:     { cpu: "4",  memory: 8Gi }
 ---
 # Images Kasm officielles (docker.io/kasmweb) — accès KasmVNC natif,
-# proxifié par wwt. Pinnées tag@digest (Renovate bump les deux d'un
-# coup — le template DOIT porter la même chaîne, match verbatim) ;
-# tagPolicy digest verrouille la discipline même si la ref change.
+# proxifié par wwt. Référencées par tag de release fixe (1.19.0),
+# comme les autres entrées et comme catalog-kasmweb.yaml : le tag
+# suffit, l'obligation de digest a été abandonnée (elle refusait tout
+# le catalogue synchronisé, publié en tags). Renovate bump le tag ; le
+# template DOIT porter la même chaîne (match verbatim). Un digest
+# @sha256 reste possible par entrée si l'immutabilité prime.
 #
 # Alternative « registry » : une seule entrée peut approuver tout un
 # préfixe au lieu d'une image exacte — utile pour ouvrir kasmweb/* en
@@ -85,7 +88,7 @@ spec:
 #
 #   spec:
 #     registry: docker.io/kasmweb
-#     tagPolicy: digest        # tag (défaut) | digest | any (:latest)
+#     tagPolicy: tag           # tag (défaut) | digest | any (:latest)
 #     protocols: [kasmvnc]
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceImage
@@ -94,8 +97,7 @@ metadata:
 spec:
   displayName: "Kasm Terminal"
   description: "Terminal web (image officielle kasmweb, KasmVNC natif)."
-  image: docker.io/kasmweb/terminal:1.19.0@sha256:4403ce7d6980a44187a8a64046fdbc352abc2d7cb15f904988c2a0927fcd8417
-  tagPolicy: digest
+  image: docker.io/kasmweb/terminal:1.19.0
   protocols: [kasmvnc]
   architectures: [amd64, arm64]
   enabled: true
@@ -111,8 +113,7 @@ metadata:
 spec:
   displayName: "Kasm Firefox"
   description: "Firefox (image officielle kasmweb, KasmVNC natif)."
-  image: docker.io/kasmweb/firefox:1.19.0@sha256:0ae54ed42da4141f93b21a19ed38fbda168415de56dc983197f8ac26c6ee6d28
-  tagPolicy: digest
+  image: docker.io/kasmweb/firefox:1.19.0
   protocols: [kasmvnc]
   architectures: [amd64, arm64]
   enabled: true

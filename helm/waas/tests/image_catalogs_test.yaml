@@ -41,7 +41,7 @@ tests:
       catalogs.kasm.enabled: true
       catalogs.kasm.name: test-kasm
       catalogs.kasm.registry: docker.io/kasmweb
-      catalogs.kasm.tagPolicy: digest
+      catalogs.kasm.tagPolicy: tag
       catalogs.kasm.protocols: [kasmvnc]
       catalogs.kasm.catalogURL: https://example.com/kasm-catalog.yaml
     documentIndex: 0
@@ -56,4 +56,4 @@ tests:
           value: docker.io/kasmweb
       - equal:
           path: spec.tagPolicy
-          value: digest
+          value: tag

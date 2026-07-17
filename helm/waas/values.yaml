@@ -234,7 +234,9 @@ catalogs:
     # -- Registry prefix this catalog approves images from.
     registry: docker.io/kasmweb
     # -- Tag discipline enforced for this registry (`tag` | `digest` | `any`).
-    tagPolicy: digest
+    # `tag` matches upstream: kasmweb publishes fixed release tags (1.19.0)
+    # and the synced catalog references them by tag, not digest.
+    tagPolicy: tag
     # -- Protocols this catalog's images support.
     protocols: [kasmvnc]
     # -- URL of the published catalog.yaml for this registry.

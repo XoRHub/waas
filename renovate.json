@@ -39,7 +39,7 @@
     },
     {
       "customType": "regex",
-      "description": "Official kasmweb images referenced by the workspace catalog and templates (tag@digest bumped together — the catalog matches templates verbatim).",
+      "description": "Official kasmweb images referenced by the workspace catalog and templates (fixed release tags, optional @digest bumped together — the catalog matches templates verbatim).",
       "managerFilePatterns": [
         "/^gitops/governance/images\\.ya?ml$/",
         "/^hack/dev/(images|templates)-dev\\.ya?ml$/"
