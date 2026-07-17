@@ -1,10 +1,5 @@
 import { useEffect } from 'react';
-import {
-  createBrowserRouter,
-  createRoutesFromElements,
-  Route,
-  RouterProvider,
-} from 'react-router';
+import { createBrowserRouter, createRoutesFromElements, Route, RouterProvider } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { applyTheme, storedTheme, watchSystemTheme } from '@/lib/theme';

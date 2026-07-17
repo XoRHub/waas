@@ -130,7 +130,8 @@ export function TemplateDialog({
     const byName = new Map(hints.map((h) => [h.name, h]));
     const applied = new Map<string, RecommendedEnvVar>();
     const queue = hints.filter(
-      (h) => !h.protocols?.length || targetSet.size === 0 || h.protocols.some((p) => targetSet.has(p)),
+      (h) =>
+        !h.protocols?.length || targetSet.size === 0 || h.protocols.some((p) => targetSet.has(p)),
     );
     while (queue.length > 0) {
       const hint = queue.shift()!;
