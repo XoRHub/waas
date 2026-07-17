@@ -6,6 +6,63 @@ import { renderWithProviders } from '@/test/render';
 import en from '@/i18n/locales/en.json';
 import { EnvFieldset } from './EnvFieldset';
 
+describe('EnvFieldset rows', () => {
+  it('toggling from Secret swaps the literal value for a secretKeyRef', async () => {
+    const onChange = vi.fn();
+    renderWithProviders(<EnvFieldset env={[{ name: 'TOKEN', value: 'abc' }]} onChange={onChange} />);
+
+    await userEvent.click(screen.getByRole('checkbox'));
+    expect(onChange).toHaveBeenCalledWith([
+      { name: 'TOKEN', valueFrom: { secretKeyRef: { name: '', key: '' } } },
+    ]);
+  });
+
+  it('edits the secret reference name and key', async () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <EnvFieldset
+        env={[{ name: 'TOKEN', valueFrom: { secretKeyRef: { name: 'creds', key: 'token' } } }]}
+        onChange={onChange}
+      />,
+    );
+
+    await userEvent.type(screen.getByDisplayValue('creds'), 'x');
+    expect(onChange).toHaveBeenLastCalledWith([
+      { name: 'TOKEN', valueFrom: { secretKeyRef: { name: 'credsx', key: 'token' } } },
+    ]);
+
+    await userEvent.type(screen.getByDisplayValue('token'), 'x');
+    expect(onChange).toHaveBeenLastCalledWith([
+      { name: 'TOKEN', valueFrom: { secretKeyRef: { name: 'creds', key: 'tokenx' } } },
+    ]);
+  });
+
+  it('removes a row with ✕ and appends an empty one with add', async () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <EnvFieldset
+        env={[
+          { name: 'A', value: '1' },
+          { name: 'B', value: '2' },
+        ]}
+        onChange={onChange}
+      />,
+    );
+
+    await userEvent.click(screen.getAllByRole('button', { name: '✕' })[0]);
+    expect(onChange).toHaveBeenCalledWith([{ name: 'B', value: '2' }]);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: `+ ${en.admin.templatesPage.addEnv}` }),
+    );
+    expect(onChange).toHaveBeenLastCalledWith([
+      { name: 'A', value: '1' },
+      { name: 'B', value: '2' },
+      { name: '', value: '' },
+    ]);
+  });
+});
+
 describe('EnvFieldset suggestions', () => {
   it('renders nothing suggestion-related when the props are omitted', () => {
     renderWithProviders(<EnvFieldset env={[{ name: 'A', value: '1' }]} onChange={() => {}} />);
