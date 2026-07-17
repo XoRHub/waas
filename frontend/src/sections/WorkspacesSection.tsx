@@ -9,7 +9,9 @@ import { ConnectionSettingsDialog } from '@/dialogs/ConnectionSettingsDialog';
 import { DeleteWorkspaceDialog } from '@/dialogs/DeleteWorkspaceDialog';
 import { OpenChoiceDialog } from '@/dialogs/OpenChoiceDialog';
 import {
+  useCatalog,
   useDeleteWorkspace,
+  useTemplates,
   useUpdateProfile,
   useWorkspaceAction,
   useWorkspaces,
@@ -17,12 +19,18 @@ import {
 import { effectivePhase } from '@/lib/lifecycle';
 import { openWorkspace } from '@/lib/openWorkspace';
 import { targetFromWorkspace } from '@/lib/target';
+import { templateIcon } from '@/lib/templates';
 import { useAuthStore } from '@/stores/authStore';
 import type { Workspace } from '@/types';
 
 export function WorkspacesSection({ onCreate }: { onCreate: () => void }) {
   const { t } = useTranslation();
   const workspaces = useWorkspaces();
+  // Card logos: the same template/catalog join as the create picker
+  // (templateIcon). Both queries are best-effort — while loading or on
+  // failure the cards degrade to the OS fallback, never block the grid.
+  const templates = useTemplates();
+  const catalog = useCatalog();
 
   // Three distinct states: skeletons while fetching, an explicit error
   // with a retry, and a first-run empty state with a call to action.
@@ -59,7 +67,16 @@ export function WorkspacesSection({ onCreate }: { onCreate: () => void }) {
   return (
     <FolderedGrid
       items={workspaces.data.data}
-      renderCard={(ws) => <WorkspaceCard key={ws.id} workspace={ws} />}
+      renderCard={(ws) => (
+        <WorkspaceCard
+          key={ws.id}
+          workspace={ws}
+          icon={templateIcon(
+            templates.data?.data.find((tpl) => tpl.name === ws.templateRef),
+            catalog.data?.data,
+          )}
+        />
+      )}
     />
   );
 }
@@ -67,7 +84,7 @@ export function WorkspacesSection({ onCreate }: { onCreate: () => void }) {
 // WorkspaceCard: the in-cluster wrapper around the shared SessionCard —
 // it only contributes what is specific to provisioned workspaces
 // (lifecycle actions, connection settings, split view, next transition).
-function WorkspaceCard({ workspace }: { workspace: Workspace }) {
+function WorkspaceCard({ workspace, icon }: { workspace: Workspace; icon?: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const action = useWorkspaceAction();
@@ -79,7 +96,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [eventsOpen, setEventsOpen] = useState(false);
 
-  const target = targetFromWorkspace(workspace);
+  const target = targetFromWorkspace(workspace, icon);
   // Badge and buttons follow the DERIVED phase: between a lifecycle
   // action and the operator's reconcile, intent and status disagree and
   // the card shows the transition (Pausing…/Resuming…) instead of a

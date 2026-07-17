@@ -216,7 +216,10 @@ The `profile` badge is scoped to this admin form: `ImageOptionCard`
 only renders it when passed a `profile`, and `CatalogImageField.tsx` is
 the only caller that does. The end-user create-workspace flow lists
 templates, not catalog entries — it looks up the backing catalog entry
-only to borrow its icon, deliberately not its profile, since a template
+only to borrow its icon (`templateIcon` in `lib/templates.ts`, a join
+the portal's workspace cards share so a running workspace keeps the
+logo of the picker entry it was created from), deliberately not its
+profile, since a template
 is an admin-curated artifact whose workload may already have diverged
 from the catalog recommendation (the admin can edit the prefilled
 `securityContext` after applying, or never apply it at all); resurfacing

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { templateAvailability } from './templates';
+import { templateAvailability, templateIcon } from './templates';
 import type { CatalogImage, WorkspaceTemplate } from '@/types';
 
 const tpl = (name: string, protocol: string): WorkspaceTemplate => ({
@@ -45,5 +45,44 @@ describe('templateAvailability', () => {
   it('treats a missing catalog (loading/error) as all-available', () => {
     const out = templateAvailability([tpl('t-ssh', 'ssh')], undefined);
     expect(out[0].available).toBe(true);
+  });
+});
+
+describe('templateIcon', () => {
+  const catalog = [
+    {
+      ...img('cat-vnc', ['t-vnc']),
+      discovered: [
+        { image: 'reg/other:1', icon: 'other-icon' },
+        { image: 'reg/t-vnc:1', icon: 'firefox' },
+      ],
+    },
+  ];
+
+  it('prefers the explicit spec.logo over the catalog icon', () => {
+    expect(templateIcon({ ...tpl('t-vnc', 'vnc'), logo: 'https://x/logo.png' }, catalog)).toBe(
+      'https://x/logo.png',
+    );
+  });
+
+  it('falls back to the discovered entry matching the template image', () => {
+    expect(templateIcon(tpl('t-vnc', 'vnc'), catalog)).toBe('firefox');
+  });
+
+  it('finds the icon on another entry than the one listing the template', () => {
+    // Real k3d-dev topology: the template is attributed to a
+    // single-image CatalogImage (no discovered list) while the icons
+    // live on the registry-mode entry's discovered list.
+    const split = [
+      img('single', ['t-vnc']),
+      { ...img('registry', []), discovered: [{ image: 'reg/t-vnc:1', icon: 'firefox' }] },
+    ];
+    expect(templateIcon(tpl('t-vnc', 'vnc'), split)).toBe('firefox');
+  });
+
+  it('resolves to undefined (OS fallback) when both are absent or the template is gone', () => {
+    expect(templateIcon(tpl('t-vnc', 'vnc'), [img('cat-vnc', ['t-vnc'])])).toBeUndefined();
+    expect(templateIcon(tpl('t-vnc', 'vnc'), undefined)).toBeUndefined();
+    expect(templateIcon(undefined, catalog)).toBeUndefined();
   });
 });

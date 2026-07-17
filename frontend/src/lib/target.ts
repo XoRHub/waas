@@ -58,9 +58,13 @@ export interface SessionTarget {
   /** OS family ("linux"/"windows") for the card logo; absent (remote
    *  machines) renders the linux fallback. */
   os?: string;
+  /** Icon reference for the card logo (template spec.logo or catalog
+   *  icon, resolved by the caller via templateIcon); absent = the OS
+   *  fallback. */
+  icon?: string;
 }
 
-export function targetFromWorkspace(ws: Workspace): SessionTarget {
+export function targetFromWorkspace(ws: Workspace, icon?: string): SessionTarget {
   const protocols: TargetProtocol[] = (ws.protocols ?? []).map((p) => ({
     name: p.name,
     port: p.port,
@@ -78,6 +82,7 @@ export function targetFromWorkspace(ws: Workspace): SessionTarget {
     defaultProtocol: protocols.find((p) => p.default)?.name ?? ws.protocol ?? '',
     templateDrifted: ws.templateDrifted,
     os: ws.os,
+    icon,
     capabilities: {
       pause: true,
       wake: false,

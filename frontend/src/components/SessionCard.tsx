@@ -85,7 +85,7 @@ export function SessionCard({
     <div className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm dark:bg-slate-800">
       <div className="flex items-start justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <AppIcon os={target.os} size={32} />
+          <AppIcon icon={target.icon} os={target.os} size={32} />
           <div className="min-w-0">
             <h2 className="truncate font-medium text-slate-900 dark:text-white">
               {target.displayName}

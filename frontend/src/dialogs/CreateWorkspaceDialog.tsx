@@ -16,7 +16,7 @@ import {
 } from '@/hooks/useApi';
 import { useAuthStore } from '@/stores/authStore';
 import { canOverrideField } from '@/lib/overrides';
-import { templateAvailability } from '@/lib/templates';
+import { templateAvailability, templateIcon } from '@/lib/templates';
 import {
   displayCpu,
   displayMemory,
@@ -107,14 +107,6 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const image = catalog.isSuccess
     ? catalog.data.data.find((img) => img.templates?.includes(templateRef))
     : undefined;
-  // Catalog-sync icon of a template: the discovered entry (of its
-  // approving CatalogImage) whose exact reference matches the
-  // template's image. Fallback only — an explicit spec.logo wins over
-  // it; both absent = the card falls back to the OS icon.
-  const discoveredIconFor = (name: string, imageRef: string) =>
-    catalog.data?.data
-      .find((img) => img.templates?.includes(name))
-      ?.discovered?.find((d) => d.image === imageRef)?.icon;
   const q = quota.isSuccess ? quota.data.data : undefined;
 
   // Remaining aggregate = policy aggregate cap minus current usage.
@@ -286,7 +278,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
             onChange={selectTemplate}
             options={availability.map(({ template: tpl, available }) => ({
               id: tpl.name,
-              icon: tpl.logo || discoveredIconFor(tpl.name, tpl.image),
+              icon: templateIcon(tpl, catalog.data?.data),
               os: tpl.os,
               title: tpl.displayName,
               subtitle: `${tpl.os}${
