@@ -190,7 +190,9 @@ which is why the `vnc-audio` smoke subtest exists
 (`docs/smoke-connections.md`). Like the session ports it stays
 cluster-internal (ClusterIP), never on the Ingress. In the portal the
 field only surfaces once `enable-audio` is turned on in the protocol
-form. Service ports converge on every reconcile, so enabling it reaches
+form, inside the form's audio section (right below the parameter that
+gates it), falling back to the bottom of the form when no audio
+section renders (user dialogs whose allow-list has no audio params). Service ports converge on every reconcile, so enabling it reaches
 already-provisioned workspaces without recreating them
 (`docs/adr/0001-template-boundary-convergence.md`, exception note).
 

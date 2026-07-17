@@ -294,6 +294,35 @@ export function ProtocolParamsForm({
   // param gating one CR field — NOT a generic inter-field dependency
   // mechanism; revisit if more of these appear.
   const showAudioPort = audioEnabled(protocol, values, placeholders);
+  // Rendered INSIDE the audio section (right below enable-audio) so the
+  // control is seen where the decision is made; the audio section can be
+  // absent while showAudioPort is true (allow-list without audio params
+  // but template-locked enable-audio) — bottom-of-form fallback then.
+  const audioPortControl = !showAudioPort ? null : onAudioPortChange ? (
+    <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={audioPortExposed ?? false}
+        onChange={(e) => onAudioPortChange(e.target.checked)}
+      />
+      <span>
+        {t('protocolTabs.exposeAudioPort')}
+        <span className="block text-xs text-slate-400 dark:text-slate-500">
+          {t('protocolTabs.exposeAudioPortHint')}
+        </span>
+      </span>
+    </label>
+  ) : audioPortExposed ? (
+    <p className="text-xs text-slate-500 dark:text-slate-400">
+      {t('protocolTabs.audioPortExposed')}
+    </p>
+  ) : (
+    <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+      {t('protocolTabs.audioPortMissing')}
+    </p>
+  );
+  const hasAudioSection = sections.some((s) => s.category === 'audio');
 
   const renderField = (pm: ParamMeta) => (
     <div key={pm.name} className="space-y-1">
@@ -327,6 +356,7 @@ export function ProtocolParamsForm({
               {section.simple.length > 0 && (
                 <div className={gridClass}>{section.simple.map(renderField)}</div>
               )}
+              {section.category === 'audio' && audioPortControl}
               {open && section.advanced.length > 0 && (
                 <div className={gridClass}>{section.advanced.map(renderField)}</div>
               )}
@@ -348,31 +378,7 @@ export function ProtocolParamsForm({
       ) : (
         <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.noTunableParams')}</p>
       )}
-      {showAudioPort &&
-        (onAudioPortChange ? (
-          <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={audioPortExposed ?? false}
-              onChange={(e) => onAudioPortChange(e.target.checked)}
-            />
-            <span>
-              {t('protocolTabs.exposeAudioPort')}
-              <span className="block text-xs text-slate-400 dark:text-slate-500">
-                {t('protocolTabs.exposeAudioPortHint')}
-              </span>
-            </span>
-          </label>
-        ) : audioPortExposed ? (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {t('protocolTabs.audioPortExposed')}
-          </p>
-        ) : (
-          <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-            {t('protocolTabs.audioPortMissing')}
-          </p>
-        ))}
+      {!hasAudioSection && audioPortControl}
     </div>
   );
 }

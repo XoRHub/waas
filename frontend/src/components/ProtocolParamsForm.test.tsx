@@ -272,6 +272,40 @@ describe('ProtocolParamsForm — conditional audio-port section', () => {
     expect(screen.getByText(/exposes the audio port \(4713\)/)).toBeInTheDocument();
   });
 
+  it('renders inside the audio section when one exists, not at the bottom of the form', () => {
+    renderWithProviders(
+      <ProtocolParamsForm
+        meta={sectionedMeta}
+        protocol="vnc"
+        values={{ 'enable-audio': 'true' }}
+        onChange={() => {}}
+        audioPortExposed
+      />,
+    );
+    const status = screen.getByText(/exposes the audio port \(4713\)/);
+    const section = status.closest('section');
+    expect(section).not.toBeNull();
+    expect(section).toContainElement(screen.getByRole('heading', { level: 4, name: 'Audio' }));
+  });
+
+  it('falls back to the bottom of the form when no audio section renders', () => {
+    // Allow-list keeps only a display param: no audio section, but the
+    // template-locked enable-audio still calls for the port status.
+    renderWithProviders(
+      <ProtocolParamsForm
+        meta={sectionedMeta}
+        protocol="vnc"
+        values={{}}
+        onChange={() => {}}
+        allowList={['color-depth']}
+        placeholders={{ 'enable-audio': 'true' }}
+        audioPortExposed={false}
+      />,
+    );
+    const status = screen.getByText(/does not expose the audio port \(4713\)/);
+    expect(status.closest('section')).toBeNull();
+  });
+
   it('renders the editable checkbox in template-editor mode and reports toggles', async () => {
     const onAudioPortChange = vi.fn();
     renderWithProviders(
