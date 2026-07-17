@@ -88,28 +88,29 @@ generate-check: generate manifests docs-params generate-types
 # Every ci-helm.yml gate, in one command — run when the chart changed
 # (CI only fires them on helm/** changes, so check does not chain this).
 # kubeconform needs docker and network (datreeio CRD catalog fallback).
-# Renders and schemas are written at the repo root exactly like CI and
-# cleaned on success; leftovers after a failure are debugging material.
+# Renders and schemas go under dist/ (gitignored) — NOT the repo-root
+# crd-schemas/ path CI uses, which collides with a tracked directory.
 helm-check:
 	helm lint helm/waas
-	helm template waas helm/waas > rendered-default.yaml
-	helm template waas helm/waas -f hack/dev/values-dev.yaml > rendered-dev.yaml
+	mkdir -p dist
+	helm template waas helm/waas > dist/rendered-default.yaml
+	helm template waas helm/waas -f hack/dev/values-dev.yaml > dist/rendered-dev.yaml
 	$(MAKE) helm-docs
 	@git diff --exit-code helm/waas/README.md \
 		|| { echo "FATAL helm/waas/README.md is stale — commit the helm-docs result"; exit 1; }
 	helm unittest helm/waas
-	uv run hack/ci/crd_to_jsonschema.py helm/waas/crds crd-schemas
+	uv run hack/ci/crd_to_jsonschema.py helm/waas/crds dist/crd-schemas
 	uv run hack/ci/check_operator_rbac.py helm/waas/templates/operator/roles.yaml operator/config/rbac/role.yaml
 	docker run --rm -v "$$PWD:/work" -w /work \
 		ghcr.io/yannh/kubeconform:v0.6.7-alpine \
 		-strict -summary \
 		-skip CustomResourceDefinition \
 		-schema-location default \
-		-schema-location 'crd-schemas/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+		-schema-location 'dist/crd-schemas/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
 		-schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
-		rendered-default.yaml rendered-dev.yaml \
+		dist/rendered-default.yaml dist/rendered-dev.yaml \
 		gitops/governance/images.yaml gitops/governance/policies.yaml
-	rm -rf rendered-default.yaml rendered-dev.yaml crd-schemas
+	rm -rf dist/rendered-default.yaml dist/rendered-dev.yaml dist/crd-schemas
 
 # --- coverage --------------------------------------------------------------
 # Same flags as CI (ci-go.yml / ci-frontend.yml) so the numbers match
