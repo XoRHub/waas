@@ -18,7 +18,7 @@ func NewSQLCatalogRepository(db *database.DB) *SQLCatalogRepository {
 	return &SQLCatalogRepository{db: db}
 }
 
-const catalogEntryColumns = "image, os, app, version, icon, display_name, profile, recommended, synced_at"
+const catalogEntryColumns = "image, os, app, version, icon, display_name, profile, recommended, architectures, synced_at"
 
 // ReplaceEntries deletes every existing row of workspaceImageName and
 // inserts entries in the same transaction, so a picker read never
@@ -34,11 +34,11 @@ func (r *SQLCatalogRepository) ReplaceEntries(ctx context.Context, workspaceImag
 		return fmt.Errorf("clearing catalog entries of %s: %w", workspaceImageName, err)
 	}
 
-	insert := r.db.Rebind(`INSERT INTO catalog_entries (workspace_image_name, ` + catalogEntryColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	insert := r.db.Rebind(`INSERT INTO catalog_entries (workspace_image_name, ` + catalogEntryColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	for _, e := range entries {
 		if _, err := tx.ExecContext(ctx, insert,
 			workspaceImageName, e.Image, nullable(e.OS), nullable(e.App), nullable(e.Version), nullable(e.Icon), nullable(e.DisplayName),
-			nullable(e.Profile), nullableJSON(e.Recommended), timeArg(e.SyncedAt)); err != nil {
+			nullable(e.Profile), nullableJSON(e.Recommended), marshalArchitectures(e.Architectures), timeArg(e.SyncedAt)); err != nil {
 			return fmt.Errorf("inserting catalog entry %s/%s: %w", workspaceImageName, e.Image, err)
 		}
 	}
@@ -72,9 +72,9 @@ func scanCatalogEntry(row rowScanner) (*CatalogEntry, error) {
 	var (
 		e                                     CatalogEntry
 		os, app, version, icon, name, profile sql.NullString
-		recommended                           sql.NullString
+		recommended, architectures            sql.NullString
 	)
-	if err := row.Scan(&e.Image, &os, &app, &version, &icon, &name, &profile, &recommended, scanTime{&e.SyncedAt}); err != nil {
+	if err := row.Scan(&e.Image, &os, &app, &version, &icon, &name, &profile, &recommended, &architectures, scanTime{&e.SyncedAt}); err != nil {
 		return nil, err
 	}
 	e.OS, e.App, e.Version, e.Icon, e.DisplayName = os.String, app.String, version.String, icon.String, name.String
@@ -82,7 +82,26 @@ func scanCatalogEntry(row rowScanner) (*CatalogEntry, error) {
 	if recommended.Valid {
 		e.Recommended = json.RawMessage(recommended.String)
 	}
+	if architectures.String != "" && architectures.String != "[]" {
+		if err := json.Unmarshal([]byte(architectures.String), &e.Architectures); err != nil {
+			return nil, fmt.Errorf("decoding architectures of %s: %w", e.Image, err)
+		}
+	}
 	return &e, nil
+}
+
+// marshalArchitectures stores the list as a JSON array (same pattern as
+// remote_workspaces.protocols); nil/empty stays SQL NULL so "unknown"
+// survives the round trip.
+func marshalArchitectures(archs []string) any {
+	if len(archs) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(archs)
+	if err != nil {
+		return nil
+	}
+	return string(b)
 }
 
 // nullableJSON stores an empty/nil json.RawMessage as SQL NULL, never

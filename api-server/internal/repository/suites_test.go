@@ -279,7 +279,7 @@ func TestCatalogRepositorySuite(t *testing.T) {
 		}
 
 		first := []CatalogEntry{
-			{Image: "docker.io/xorhub/ubuntu-xfce:1.0.0", OS: "linux", App: "ubuntu-xfce", Version: "1.0.0", Icon: "linux", DisplayName: "Ubuntu XFCE", Profile: "hardened", Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000}}`), SyncedAt: synced},
+			{Image: "docker.io/xorhub/ubuntu-xfce:1.0.0", OS: "linux", App: "ubuntu-xfce", Version: "1.0.0", Icon: "linux", DisplayName: "Ubuntu XFCE", Profile: "hardened", Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000}}`), Architectures: []string{"amd64"}, SyncedAt: synced},
 			{Image: "docker.io/xorhub/firefox:1.0.0", App: "firefox", SyncedAt: synced},
 		}
 		if err := repo.ReplaceEntries(ctx, "ubuntu-xfce", first); err != nil {
@@ -326,6 +326,12 @@ func TestCatalogRepositorySuite(t *testing.T) {
 		}
 		if got[0].Profile != "" || got[0].Recommended != nil {
 			t.Fatalf("absent profile/recommended should stay zero: %+v", got[0])
+		}
+		if len(got[1].Architectures) != 1 || got[1].Architectures[0] != "amd64" {
+			t.Fatalf("architectures round-trip: %+v", got[1].Architectures)
+		}
+		if got[0].Architectures != nil {
+			t.Fatalf("absent architectures should stay nil: %+v", got[0].Architectures)
 		}
 		if !got[1].SyncedAt.Equal(synced) {
 			t.Fatalf("synced_at round-trip: want %v got %v", synced, got[1].SyncedAt)

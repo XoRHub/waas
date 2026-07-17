@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -232,6 +233,51 @@ func TestCatalogSyncWorkerNormalizesUnknownProfile(t *testing.T) {
 		}
 		if e.Profile != got {
 			t.Errorf("%s: profile = %q, want %q", e.Image, e.Profile, got)
+		}
+	}
+}
+
+const workerArchManifest = `apiVersion: waas.xorhub.io/catalog/v1
+images:
+  - image: docker.io/xorhub/firefox:1.0.0@sha256:def
+    architectures: [amd64]
+  - image: docker.io/xorhub/chrome:1.0.0@sha256:ghi
+    architectures: [amd64, arm64, riscv64, amd64]
+  - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc
+`
+
+func TestCatalogSyncWorkerNormalizesArchitectures(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(workerArchManifest))
+	}))
+	defer srv.Close()
+
+	img := workerRegistryImage("waas-images", workerURLSource(srv.URL))
+	w, _, catalogRepo := catalogWorkerFixture(t, img)
+	ctx := context.Background()
+
+	w.syncAll(ctx)
+
+	entries, err := catalogRepo.ListEntries(ctx, "waas-images")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("catalog_entries = %+v, want 3 rows", entries)
+	}
+	want := map[string][]string{
+		"docker.io/xorhub/firefox:1.0.0@sha256:def":     {"amd64"},
+		"docker.io/xorhub/chrome:1.0.0@sha256:ghi":      {"amd64", "arm64"}, // unknown + duplicate dropped
+		"docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc": nil,                // absent = unknown
+	}
+	for _, e := range entries {
+		got, ok := want[e.Image]
+		if !ok {
+			t.Errorf("unexpected catalog entry %s", e.Image)
+			continue
+		}
+		if !slices.Equal(e.Architectures, got) {
+			t.Errorf("%s: architectures = %v, want %v", e.Image, e.Architectures, got)
 		}
 	}
 }

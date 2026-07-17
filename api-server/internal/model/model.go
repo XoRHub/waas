@@ -408,6 +408,12 @@ type DiscoveredImage struct {
 	// Profile is a display badge ("hardened"/"normal"); empty shows no
 	// badge.
 	Profile string `json:"profile,omitempty"`
+	// Architectures this exact image is published for (amd64/arm64) —
+	// per image, unlike the parent CatalogImage.Architectures. Drives
+	// the template form's nodeSelector prefill (kubernetes.io/arch when
+	// exactly one is listed); empty = unknown, the parent's list is the
+	// fallback hint.
+	Architectures []string `json:"architectures,omitempty"`
 	// Recommended is an optional deployment-prefill hint the admin
 	// template form may copy into a Workload on explicit request —
 	// never applied automatically, never enforced. Deliberately its

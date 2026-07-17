@@ -713,14 +713,15 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 	}
 	for _, e := range entries {
 		m.Discovered = append(m.Discovered, model.DiscoveredImage{
-			Image:       e.Image,
-			OS:          e.OS,
-			App:         e.App,
-			Version:     e.Version,
-			Icon:        e.Icon,
-			DisplayName: e.DisplayName,
-			Profile:     e.Profile,
-			Recommended: unmarshalRecommended(e.Recommended),
+			Image:         e.Image,
+			OS:            e.OS,
+			App:           e.App,
+			Version:       e.Version,
+			Icon:          e.Icon,
+			DisplayName:   e.DisplayName,
+			Profile:       e.Profile,
+			Recommended:   unmarshalRecommended(e.Recommended),
+			Architectures: e.Architectures,
 		})
 	}
 	return m, nil

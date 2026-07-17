@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -139,15 +140,16 @@ func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.Works
 	repoEntries := make([]repository.CatalogEntry, 0, len(entries))
 	for _, e := range entries {
 		repoEntries = append(repoEntries, repository.CatalogEntry{
-			Image:       e.Image,
-			OS:          normalizeOS(e.OS),
-			App:         e.App,
-			Version:     e.Version,
-			Icon:        e.Icon,
-			DisplayName: e.DisplayName,
-			Profile:     normalizeProfile(e.Profile),
-			Recommended: marshalRecommended(e.Recommended),
-			SyncedAt:    now,
+			Image:         e.Image,
+			OS:            normalizeOS(e.OS),
+			App:           e.App,
+			Version:       e.Version,
+			Icon:          e.Icon,
+			DisplayName:   e.DisplayName,
+			Profile:       normalizeProfile(e.Profile),
+			Recommended:   marshalRecommended(e.Recommended),
+			Architectures: normalizeArchitectures(e.Architectures),
+			SyncedAt:      now,
 		})
 	}
 	if err := w.catalog.ReplaceEntries(ctx, img.Name, repoEntries); err != nil {
@@ -198,6 +200,21 @@ func normalizeProfile(profile string) string {
 		return ""
 	}
 	return profile
+}
+
+// normalizeArchitectures drops any value that is not a known
+// architecture instead of propagating it — same untrusted-manifest
+// guard as normalizeOS/normalizeProfile: a typo'd arch would otherwise
+// end up prefilled into a template's nodeSelector. Nothing valid left
+// = nil (unknown, no hint).
+func normalizeArchitectures(archs []string) []string {
+	var out []string
+	for _, a := range archs {
+		if (a == "amd64" || a == "arm64") && !slices.Contains(out, a) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // fetchAndParse loads and parses the manifest from the configured

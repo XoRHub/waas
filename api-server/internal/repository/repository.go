@@ -119,5 +119,9 @@ type CatalogEntry struct {
 	// API model's compatibility cadence.
 	Profile     string
 	Recommended json.RawMessage
-	SyncedAt    time.Time
+	// Architectures the image is published for (amd64/arm64), per
+	// image — a template-form prefill hint, never enforcement. Nil =
+	// unknown (manifest without the field).
+	Architectures []string
+	SyncedAt      time.Time
 }
