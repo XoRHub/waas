@@ -93,27 +93,55 @@ order:
    of the connection agree;
    see `waas-images/examples/workspacetemplate-ssh.yaml` for the
    complete pattern.
-2. **Generated per-workspace password** — the default for `vnc`, `rdp`
-   and `kasmvnc` when nothing explicit is provided: the operator
-   generates a random password per workspace (never shared between
-   tenants), stores it in a Secret (`waas-desktop-<name>` for vnc/rdp,
-   `waas-kasm-<name>` for kasmvnc), injects it into the pod via
-   `secretKeyRef` — as `WAAS_DESKTOP_PASSWORD` for waas-images, as
-   `VNC_PW` for kasmvnc (the kasmweb images' own vocabulary) — and the
-   api-server resolves the same Secret at connect time. Zero template
-   configuration. vnc and rdp on one
-   workspace share one password (the container has a single session
-   secret); at most one Secret is generated per workspace.
+2. **Generated per-workspace credentials** — the default for `vnc`,
+   `rdp`, `kasmvnc` **and `ssh`** when nothing explicit is provided:
+   the operator generates a random credential per workspace (never
+   shared between tenants), stores it in a Secret next to the CR,
+   wires it into the pod, and the api-server resolves the same Secret
+   at connect time. Zero template configuration.
+   - *Passwords* (`vnc`/`rdp`: `waas-desktop-<name>`; `kasmvnc`:
+     `waas-kasm-<name>`): injected via `secretKeyRef` — as
+     `WAAS_DESKTOP_PASSWORD` for waas-images, as `VNC_PW` for kasmvnc
+     (the kasmweb images' own vocabulary). vnc and rdp on one
+     workspace share one password (the container has a single session
+     secret); at most one password Secret is generated per workspace.
+   - *SSH keypair* (`waas-ssh-<name>`): generated when an `ssh`
+     protocol entry has no `credentialsSecretRef` and the merged env
+     carries no `WAAS_SSH_AUTHORIZED_KEYS(_FILE)` — providing either
+     is the opt-out. The resolver copy holds `private-key` (OpenSSH
+     PEM, handed to guacd at connect) and `public-key`; a
+     **public-key-only** pod copy (`<workload>-ssh`) is mounted
+     read-only and pointed at via `WAAS_SSH_AUTHORIZED_KEYS_FILE`,
+     with `WAAS_SSH_ENABLED=1` injected unless the template takes an
+     explicit position. The private key never exists in the pod's
+     namespace — and it serves the **portal path only**: pod-to-pod
+     ssh still needs an admin-shipped Secret, since the per-workspace
+     resolver copy is not referenceable from template-level volumes.
+   - *Rotation* (both kinds): create-only — delete the resolver copy
+     and roll the workload; the operator never rotates on its own.
 3. **Literal `WAAS_DESKTOP_PASSWORD` with `docker run`** — the
    standalone path for running a waas-images build outside the
    platform, unrelated to the CRs. Literal env passwords in a
    `WorkspaceTemplate` are **not** read by the platform.
 
 Usernames are defaulted per protocol family when no credentials Secret
-sets one: `waas_user` for `vnc`/`rdp` (the fixed system account of
-waas-images builds, also presented to guacd by their `xrdp.ini`) and
-`kasm_user` for `kasmvnc` (the fixed HTTP Basic identity of kasmweb/*
-images).
+sets one: `waas_user` for `vnc`/`rdp`/`ssh` (the fixed system account
+of waas-images builds — presented to guacd by their `xrdp.ini`, pinned
+by sshd's `AllowUsers`) and `kasm_user` for `kasmvnc` (the fixed HTTP
+Basic identity of kasmweb/* images).
+
+**Image env contract (for third-party image builders)**: every
+variable the platform injects or a waas-images entrypoint interprets
+is `WAAS_`-prefixed; ecosystem-inherited names survive only on foreign
+boundaries (today: `VNC_PW`, confined to kasmweb images). What the
+operator injects, and when: `WAAS_DESKTOP_PASSWORD` via `secretKeyRef`
+when a vnc/rdp password is generated (level 2 above); `VNC_PW` the
+same way for kasmvnc; `WAAS_SSH_AUTHORIZED_KEYS_FILE` +
+`WAAS_SSH_ENABLED=1` when an ssh keypair is generated. Images run as
+uid 1000 (`waas_user`); a conforming image must fail closed when a
+required credential is missing. The image-side half of the contract
+(ports, tombstones for legacy names, cosmetic aliases) lives in the
+[waas-images README](https://github.com/XoRHub/waas-images).
 
 ### SSH
 
@@ -121,12 +149,16 @@ images).
 portal needs nothing special. SSH is a capability of any OS-only
 waas-images desktop built with `INSTALL_SSH=1` (`ubuntu-desktop-noble`,
 `debian-desktop-13`, `fedora-desktop-43` — never `apps/*` images, which
-are VNC-only), opted into a given workspace with `WAAS_SSH_ENABLED=1`.
-It ships a fully non-root sshd on port 2222, public-key only (an
-unprivileged sshd cannot read /etc/shadow, so password auth is
-impossible by construction); authorized keys and the guacd private key
-come from the same credentials Secret. Terminal look (`font-size`,
-`color-scheme`) is user-tunable via `userParams`.
+are VNC-only). It ships a fully non-root sshd on port 2222, public-key
+only (an unprivileged sshd cannot read /etc/shadow, so password auth is
+impossible by construction). Declaring the `ssh` protocol on a template
+is enough: with no explicit credential source the operator generates
+the keypair and turns sshd on (precedence level 2 above — public key to
+the pod, private key to guacd at connect). With a
+`credentialsSecretRef`, authorized keys and the guacd private key come
+from that one Secret instead, and `WAAS_SSH_ENABLED=1` must be set
+explicitly. Terminal look (`font-size`, `color-scheme`) is user-tunable
+via `userParams`.
 
 - The workspace **Service exposes every declared port**; status carries
   the full list (`status.protocols`) plus the effective default.

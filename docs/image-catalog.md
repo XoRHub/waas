@@ -232,6 +232,13 @@ belongs on `WorkspaceTemplateSpec` itself (near
 validation and operator logic — never as an extension of the catalog
 recommendation.
 
+*Resolution (2026-07)*: the mechanism landed as an **implicit
+level-2 default** on the protocol signal itself (ssh declared + no
+explicit source ⇒ generated keypair — see
+[templates-and-protocols.md](templates-and-protocols.md) §
+Credentials), so the catalog needed no change at all: there is
+nothing to suggest when generation is the default.
+
 ## Visibility and the portal picker
 
 - `GET /api/v1/catalog` nests discovered entries on the parent:
