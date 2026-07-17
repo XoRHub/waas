@@ -148,8 +148,9 @@ export function CatalogImageField({
               type="button"
               onClick={() => onApplyRecommendation(selectedDiscovered.recommended!)}
               title={t('admin.templatesPage.applyRecommendationHint')}
-              className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700"
             >
+              <span aria-hidden="true">✨</span>
               {t('admin.templatesPage.applyRecommendation')}
             </button>
           )}
