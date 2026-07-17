@@ -37,8 +37,10 @@ func WorkspaceContentGVKs() []schema.GroupVersionKind {
 		{Group: "", Version: "v1", Kind: "Pod"},
 		{Group: "", Version: "v1", Kind: "Service"},
 		{Group: "", Version: "v1", Kind: "PersistentVolumeClaim"},
-		// Generated KasmVNC credentials (pod-namespace copy, named like
-		// the workload so the name-based teardown sweep catches it).
+		// Generated credentials pod-namespace copies: the kasm/desktop
+		// password Secret is named like the workload (the name-based
+		// teardown sweep catches it); the generated-ssh public-key copy
+		// is "<workload>-ssh" and teardownPlacement deletes it explicitly.
 		{Group: "", Version: "v1", Kind: "Secret"},
 		// User-level KasmVNC config, same naming convention.
 		{Group: "", Version: "v1", Kind: "ConfigMap"},

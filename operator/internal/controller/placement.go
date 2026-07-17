@@ -281,5 +281,12 @@ func (r *WorkspaceReconciler) teardownPlacement(ctx context.Context, ws *waasv1a
 			return fmt.Errorf("deleting %s %s: %w", gvk.Kind, key.Name, err)
 		}
 	}
+	// The generated-ssh pod copy is the one content object NOT named
+	// after the workload (suffixed, since ssh coexists with vnc/rdp and
+	// cannot share the bare name) — the loop above misses it.
+	sshCopy := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: key.Namespace, Name: sshPodSecretName(ws)}}
+	if err := r.Delete(ctx, sshCopy); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("deleting Secret %s: %w", sshCopy.Name, err)
+	}
 	return nil
 }

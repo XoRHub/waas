@@ -80,10 +80,10 @@ func TestDesktopCredentialsGeneratedAndInjected(t *testing.T) {
 		t.Fatalf("expected exactly one WAAS_DESKTOP_PASSWORD entry, got %d", seen)
 	}
 	if pwEnv.ValueFrom == nil || pwEnv.ValueFrom.SecretKeyRef == nil {
-		t.Fatalf("expected VNC_PW from a secretKeyRef, got %+v", pwEnv)
+		t.Fatalf("expected WAAS_DESKTOP_PASSWORD from a secretKeyRef, got %+v", pwEnv)
 	}
 	if pwEnv.ValueFrom.SecretKeyRef.Name != "ws-marc" || pwEnv.ValueFrom.SecretKeyRef.Key != "password" {
-		t.Fatalf("VNC_PW must read the pod-namespace copy, got %+v", pwEnv.ValueFrom.SecretKeyRef)
+		t.Fatalf("WAAS_DESKTOP_PASSWORD must read the pod-namespace copy, got %+v", pwEnv.ValueFrom.SecretKeyRef)
 	}
 
 	// Idempotent: a second pass must not rotate the password.

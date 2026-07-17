@@ -230,6 +230,9 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := r.ensureKasmCredentials(ctx, ws, tpl); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}
+	if err := r.ensureSSHCredentials(ctx, ws, tpl); err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+	}
 	if err := r.ensureDesktopCredentials(ctx, ws, tpl); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}

@@ -141,6 +141,28 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 			})
 	}
 
+	// Generated ssh keypair: mount the pod-copy Secret's authorized_keys
+	// read-only, outside the home PVC (the entrypoint copies it to tmpfs
+	// and re-chmods — only uid-1000 readability matters, hence 0444).
+	if sshKeyGenerated(ws, tpl) {
+		mode := int32(0o444)
+		volumes = append(volumes, corev1.Volume{
+			Name: sshCredentialsVolume,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  sshPodSecretName(ws),
+					Items:       []corev1.KeyToPath{{Key: sshPublicKeyKey, Path: sshAuthorizedKeysFile}},
+					DefaultMode: &mode,
+				},
+			},
+		})
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      sshCredentialsVolume,
+			MountPath: sshCredentialsMountPath,
+			ReadOnly:  true,
+		})
+	}
+
 	securityContext := wl.SecurityContext
 	if ov.SecurityContext != nil {
 		securityContext = ov.SecurityContext
@@ -421,6 +443,11 @@ func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate,
 	}
 	if desktopPasswordGenerated(ws, tpl) {
 		env = append(env, desktopCredentialsEnv(ws))
+	}
+	// Generated ssh keypair wiring — independent of the password
+	// mechanisms: ssh coexists with vnc/rdp, so both may fire.
+	if sshKeyGenerated(ws, tpl) {
+		env = append(env, sshCredentialsEnv(env)...)
 	}
 	return env
 }
