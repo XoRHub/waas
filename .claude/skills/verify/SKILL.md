@@ -44,6 +44,10 @@ cached in `~/.cache/ms-playwright`. Gotchas that cost time:
   reach the user portal (where "New workspace" lives).
 - Guacamole canvas is black in headless screenshots (known); regular DOM
   screenshots are fine.
+- **Register `page.on('dialog', d => d.accept())` before driving the
+  session menu**: the protocol switch is gated by `window.confirm`, and
+  headless Playwright silently dismisses dialogs — the click then looks
+  like a no-op (this false-alarmed a "switch is broken" bug report).
 - Seed data: `hack/dev/images-dev.yaml` (re-apply with `-n waas` after deleting
   test WorkspaceImages), templates seeded by the chart.
 
