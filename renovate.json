@@ -7,7 +7,14 @@
     "helpers:pinGitHubActionDigests",
     "mergeConfidence:all-badges"
   ],
+  "postUpdateOptions": ["gomodTidy"],
   "packageRules": [
+    {
+      "description": "Bump indirect Go deps too (off by Renovate default): the Trivy gate blocks main on HIGH/CRITICAL CVEs in go.mod, and x/net-style CVEs live in indirect deps.",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["indirect"],
+      "enabled": true
+    },
     {
       "description": "One PR for all GitHub Actions patch/minor/digest bumps, automerged once required checks pass.",
       "matchManagers": ["github-actions"],
