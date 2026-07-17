@@ -45,7 +45,7 @@ func TestUpdateOverridesReplacesProvidedFields(t *testing.T) {
 		t.Fatalf("empty payload must be a bad request, got %v", err)
 	}
 
-	env := []corev1.EnvVar{{Name: "VNC_PW", Value: "super-secret"}, {Name: "HTTP_PROXY", Value: "http://proxy:3128"}}
+	env := []corev1.EnvVar{{Name: "WAAS_DESKTOP_PASSWORD", Value: "super-secret"}, {Name: "HTTP_PROXY", Value: "http://proxy:3128"}}
 	sel := map[string]string{"zone": "a"}
 	res := map[string]string{"cpu": "2", "memory": "4Gi"}
 	got, err := f.workspace.UpdateOverrides(ctx, actor, id, UpdateOverridesInput{
@@ -119,7 +119,7 @@ func TestUpdateOverridesReplacesProvidedFields(t *testing.T) {
 	for _, l := range logs {
 		joined += l.Detail + "\n"
 	}
-	if !strings.Contains(joined, "env=VNC_PW,HTTP_PROXY") {
+	if !strings.Contains(joined, "env=WAAS_DESKTOP_PASSWORD,HTTP_PROXY") {
 		t.Fatalf("audit must name the env vars, got %q", joined)
 	}
 	if strings.Contains(joined, "super-secret") || strings.Contains(joined, "proxy:3128") {

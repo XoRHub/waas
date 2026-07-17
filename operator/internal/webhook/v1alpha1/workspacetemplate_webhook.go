@@ -91,8 +91,9 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 		return nil, v.deny(tpl, "at most one protocol may be marked default")
 	}
 	// kasmvnc is exclusive: it bypasses guacd, and its generated-password
-	// mechanism and the vnc/rdp one both inject VNC_PW under the same
-	// pod-copy Secret name — only one connection stack per template.
+	// mechanism and the vnc/rdp one share the same pod-copy Secret name
+	// (though not the env name: kasmweb's VNC_PW vs the waas-images
+	// WAAS_DESKTOP_PASSWORD) — only one connection stack per template.
 	if seen[string(waasv1alpha1.ProtocolKasmVNC)] && len(seen) > 1 {
 		return nil, v.deny(tpl, "protocol kasmvnc cannot be combined with vnc/rdp/ssh: it bypasses guacd and must be the template's only protocol")
 	}

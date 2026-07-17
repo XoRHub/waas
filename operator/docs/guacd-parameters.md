@@ -94,7 +94,7 @@ parameters at connect time.
 | `read-only` | security | ui | bool |  | false |  | View-only session: display without mouse/keyboard input. |
 | `ignore-cert` | security | advanced | bool |  | true |  | Accept the RDP server certificate unverified. Acceptable in-cluster (self-signed VM certs); the connection never leaves the cluster network. |
 | `security` | security | advanced | enum | any, nla, tls, rdp | any |  | RDP security negotiation mode; in-cluster Windows VMs may need a specific one. |
-| `disable-auth` | security | platform | bool |  |  |  | Disables RDP authentication entirely — banned: authentication is platform policy (see RDP_AUTH_ENABLED image contract). |
+| `disable-auth` | security | platform | bool |  |  |  | Disables RDP authentication entirely — banned: authentication is platform policy (see WAAS_RDP_AUTH_ENABLED image contract). |
 | `domain` | connection | platform | string |  |  |  | RDP credential — comes from the protocol's credentials Secret, never from a CR param. |
 | `gateway-hostname` | connection | platform | string |  |  |  | RDP gateway — banned: workspace traffic never leaves the cluster network. |
 | `gateway-password` | connection | platform | string |  |  |  | RDP gateway credential — banned (see gateway-hostname). |

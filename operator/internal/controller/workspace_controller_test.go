@@ -229,14 +229,14 @@ func TestReconcileMultiProtocolServiceAndStatus(t *testing.T) {
 		SecurityContext: &corev1.SecurityContext{RunAsUser: ptrInt64(1000)},
 		NodeSelector:    map[string]string{"zone": "a"},
 	}
-	tpl.Spec.Env = []corev1.EnvVar{{Name: "VNC_PW", Value: "tpl"}, {Name: "KEEP", Value: "yes"}}
+	tpl.Spec.Env = []corev1.EnvVar{{Name: "WAAS_DESKTOP_PASSWORD", Value: "tpl"}, {Name: "KEEP", Value: "yes"}}
 	tpl.Spec.Protocols = []waasv1alpha1.WorkspaceProtocol{
 		{Name: "vnc", Port: 5901},
 		{Name: "ssh", Port: 2222, Default: true},
 	}
 	ws := workspace()
 	ws.Spec.Overrides = &waasv1alpha1.WorkspaceOverrides{
-		Env:      []corev1.EnvVar{{Name: "VNC_PW", Value: "override"}},
+		Env:      []corev1.EnvVar{{Name: "WAAS_DESKTOP_PASSWORD", Value: "override"}},
 		Protocol: "vnc",
 	}
 	r, c := newFixture(t, tpl, ws)
@@ -267,7 +267,7 @@ func TestReconcileMultiProtocolServiceAndStatus(t *testing.T) {
 	for _, e := range podSpec.Containers[0].Env {
 		env[e.Name] = e.Value
 	}
-	if env["VNC_PW"] != "override" || env["KEEP"] != "yes" {
+	if env["WAAS_DESKTOP_PASSWORD"] != "override" || env["KEEP"] != "yes" {
 		t.Fatalf("override env must win by name and keep the rest, got %v", env)
 	}
 

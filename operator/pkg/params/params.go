@@ -420,7 +420,7 @@ var registry = []Param{
 	},
 	{
 		Name: "disable-auth", Protocols: []string{"rdp"}, Kind: KindBool, Tier: TierPlatform, Category: CategorySecurity,
-		Description: "Disables RDP authentication entirely — banned: authentication is platform policy (see RDP_AUTH_ENABLED image contract).",
+		Description: "Disables RDP authentication entirely — banned: authentication is platform policy (see WAAS_RDP_AUTH_ENABLED image contract).",
 	},
 	{
 		Name: "static-channels", Protocols: []string{"rdp"}, Kind: KindString, Tier: TierPlatform, Category: CategorySession,

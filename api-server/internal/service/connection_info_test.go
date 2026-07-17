@@ -162,12 +162,12 @@ func TestConnectionInfoExplicitSecretWins(t *testing.T) {
 }
 
 // Literal env passwords are dead on the platform: a template carrying
-// VNC_PW as a literal is NOT read, and without any Secret the resolution
+// WAAS_DESKTOP_PASSWORD as a literal is NOT read, and without any Secret the resolution
 // fails hard instead of silently connecting with a legacy value.
 func TestConnectionInfoIgnoresLiteralTemplateEnv(t *testing.T) {
 	svc, kube, sessions := newConnectionFixture(t)
 	tpl := desktopServiceTemplate()
-	tpl.Spec.Env = []corev1.EnvVar{{Name: "VNC_PW", Value: "legacy-literal"}}
+	tpl.Spec.Env = []corev1.EnvVar{{Name: "WAAS_DESKTOP_PASSWORD", Value: "legacy-literal"}}
 	seedDesktopWorkspace(t, kube, sessions, tpl, "vnc")
 
 	info, err := svc.ConnectionInfo(context.Background(), "s-vnc")

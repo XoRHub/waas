@@ -29,8 +29,9 @@ import (
 //   - waas-desktop-<workspace> in the CR namespace: the copy the
 //     api-server resolves at connect time. Owner-referenced to the
 //     Workspace, so it is garbage-collected with the CR.
-//   - <workloadName> in the pod namespace: what the pod's VNC_PW
-//     secretKeyRef reads. Same name and key as the kasm pod copy — safe
+//   - <workloadName> in the pod namespace: what the pod's
+//     WAAS_DESKTOP_PASSWORD secretKeyRef reads. Same name and key as
+//     the kasm pod copy — safe
 //     because the two mechanisms are mutually exclusive (see
 //     desktopPasswordGenerated), and required so the teardown
 //     finalizer's name-based sweep deletes it and the namespace janitor
@@ -56,7 +57,8 @@ func desktopPasswordGenerated(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.Work
 	if tpl.Spec.OS == waasv1alpha1.OSWindows {
 		return false
 	}
-	// Mutually exclusive with the kasm mechanism: both inject VNC_PW and
+	// Mutually exclusive with the kasm mechanism: they inject different
+	// env names (WAAS_DESKTOP_PASSWORD here, kasmweb's VNC_PW there) but
 	// share the pod-copy Secret name, so only one may generate. The
 	// webhook now rejects kasmvnc+vnc/rdp templates at admission, but a
 	// template stored before that rule can still combine them — kasm
@@ -80,7 +82,7 @@ func desktopPasswordGenerated(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.Work
 		overrides = ws.Spec.Overrides.Env
 	}
 	for _, env := range mergeEnv(tpl.Spec.Env, overrides) {
-		if env.Name == "VNC_PW" {
+		if env.Name == "WAAS_DESKTOP_PASSWORD" {
 			return false
 		}
 	}
@@ -167,13 +169,15 @@ func (r *WorkspaceReconciler) ensureDesktopCredentials(ctx context.Context, ws *
 	return nil
 }
 
-// desktopCredentialsEnv is the VNC_PW injection for generated-password
-// vnc/rdp workspaces. Identical wiring to kasmEnv — the pod copy shares
-// the workload name — kept as its own function so each mechanism reads
-// standalone.
+// desktopCredentialsEnv is the WAAS_DESKTOP_PASSWORD injection for
+// generated-password vnc/rdp workspaces. Same wiring as kasmEnv — the
+// pod copy shares the workload name — but NOT the same env name: kasm
+// speaks the kasmweb images' vocabulary (VNC_PW), this speaks the
+// waas-images WAAS_ contract. Kept as its own function so each
+// mechanism reads standalone.
 func desktopCredentialsEnv(ws *waasv1alpha1.Workspace) corev1.EnvVar {
 	return corev1.EnvVar{
-		Name: "VNC_PW",
+		Name: "WAAS_DESKTOP_PASSWORD",
 		ValueFrom: &corev1.EnvVarSource{
 			SecretKeyRef: &corev1.SecretKeySelector{
 				LocalObjectReference: corev1.LocalObjectReference{Name: computeName(ws)},

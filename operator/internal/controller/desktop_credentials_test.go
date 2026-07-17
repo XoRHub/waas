@@ -61,29 +61,29 @@ func TestDesktopCredentialsGeneratedAndInjected(t *testing.T) {
 		t.Fatal("pod copy must carry the workspace content labels")
 	}
 
-	// The container reads it through VNC_PW, never a literal value — and
+	// The container reads it through WAAS_DESKTOP_PASSWORD, never a literal value — and
 	// exactly once, even with both protocols declared.
 	dep := &appsv1.Deployment{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
 		t.Fatalf("expected desktop deployment: %v", err)
 	}
 	container := dep.Spec.Template.Spec.Containers[0]
-	var vncPW *corev1.EnvVar
+	var pwEnv *corev1.EnvVar
 	seen := 0
 	for i := range container.Env {
-		if container.Env[i].Name == "VNC_PW" {
-			vncPW = &container.Env[i]
+		if container.Env[i].Name == "WAAS_DESKTOP_PASSWORD" {
+			pwEnv = &container.Env[i]
 			seen++
 		}
 	}
 	if seen != 1 {
-		t.Fatalf("expected exactly one VNC_PW entry, got %d", seen)
+		t.Fatalf("expected exactly one WAAS_DESKTOP_PASSWORD entry, got %d", seen)
 	}
-	if vncPW.ValueFrom == nil || vncPW.ValueFrom.SecretKeyRef == nil {
-		t.Fatalf("expected VNC_PW from a secretKeyRef, got %+v", vncPW)
+	if pwEnv.ValueFrom == nil || pwEnv.ValueFrom.SecretKeyRef == nil {
+		t.Fatalf("expected VNC_PW from a secretKeyRef, got %+v", pwEnv)
 	}
-	if vncPW.ValueFrom.SecretKeyRef.Name != "ws-marc" || vncPW.ValueFrom.SecretKeyRef.Key != "password" {
-		t.Fatalf("VNC_PW must read the pod-namespace copy, got %+v", vncPW.ValueFrom.SecretKeyRef)
+	if pwEnv.ValueFrom.SecretKeyRef.Name != "ws-marc" || pwEnv.ValueFrom.SecretKeyRef.Key != "password" {
+		t.Fatalf("VNC_PW must read the pod-namespace copy, got %+v", pwEnv.ValueFrom.SecretKeyRef)
 	}
 
 	// Idempotent: a second pass must not rotate the password.
@@ -124,8 +124,8 @@ func TestDesktopCredentialsGeneratedForSynthesizedVNC(t *testing.T) {
 
 func TestDesktopCredentialsSkippedWhenExplicit(t *testing.T) {
 	for name, mutate := range map[string]func(*waasv1alpha1.WorkspaceTemplate){
-		"literal VNC_PW": func(tpl *waasv1alpha1.WorkspaceTemplate) {
-			tpl.Spec.Env = []corev1.EnvVar{{Name: "VNC_PW", Value: "static-pw"}}
+		"literal WAAS_DESKTOP_PASSWORD": func(tpl *waasv1alpha1.WorkspaceTemplate) {
+			tpl.Spec.Env = []corev1.EnvVar{{Name: "WAAS_DESKTOP_PASSWORD", Value: "static-pw"}}
 		},
 		"credentialsSecretRef": func(tpl *waasv1alpha1.WorkspaceTemplate) {
 			for i := range tpl.Spec.Protocols {

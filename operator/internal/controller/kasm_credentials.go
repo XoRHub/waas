@@ -26,7 +26,9 @@ import (
 // yields to this one (see desktopPasswordGenerated).
 //
 // kasmweb/* images authenticate their web endpoint with HTTP Basic
-// (fixed user kasm_user, password from the VNC_PW env). When a template
+// (fixed user kasm_user, password from the VNC_PW env — deliberately
+// NOT renamed to the WAAS_ contract: VNC_PW is the kasmweb images'
+// vocabulary, a foreign boundary we do not own). When a template
 // serves the kasmvnc protocol WITHOUT an explicit password source
 // (template/override env, credentialsSecretRef), the operator generates
 // a random per-workspace password so that no two workspaces share one

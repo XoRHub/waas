@@ -88,23 +88,26 @@ order:
    The api-server resolves it server-side when a session starts and
    hands the values to guacd via the proxy — the browser never sees
    them. Ship the Secret with External Secrets/Vault. The same Secret
-   typically also feeds the pod via env `valueFrom` (e.g. `VNC_PW`,
-   `WAAS_SSH_AUTHORIZED_KEYS`) so both sides of the connection agree;
+   typically also feeds the pod via env `valueFrom` (e.g.
+   `WAAS_DESKTOP_PASSWORD`, `WAAS_SSH_AUTHORIZED_KEYS`) so both sides
+   of the connection agree;
    see `waas-images/examples/workspacetemplate-ssh.yaml` for the
    complete pattern.
 2. **Generated per-workspace password** — the default for `vnc`, `rdp`
    and `kasmvnc` when nothing explicit is provided: the operator
    generates a random password per workspace (never shared between
    tenants), stores it in a Secret (`waas-desktop-<name>` for vnc/rdp,
-   `waas-kasm-<name>` for kasmvnc), injects it into the pod as `VNC_PW`
-   via `secretKeyRef`, and the api-server resolves the same Secret at
-   connect time. Zero template configuration. vnc and rdp on one
+   `waas-kasm-<name>` for kasmvnc), injects it into the pod via
+   `secretKeyRef` — as `WAAS_DESKTOP_PASSWORD` for waas-images, as
+   `VNC_PW` for kasmvnc (the kasmweb images' own vocabulary) — and the
+   api-server resolves the same Secret at connect time. Zero template
+   configuration. vnc and rdp on one
    workspace share one password (the container has a single session
    secret); at most one Secret is generated per workspace.
-3. **Literal `VNC_PW` with `docker run`** — the standalone path for
-   running a waas-images build outside the platform, unrelated to the
-   CRs. Literal env passwords in a `WorkspaceTemplate` are **not** read
-   by the platform.
+3. **Literal `WAAS_DESKTOP_PASSWORD` with `docker run`** — the
+   standalone path for running a waas-images build outside the
+   platform, unrelated to the CRs. Literal env passwords in a
+   `WorkspaceTemplate` are **not** read by the platform.
 
 Usernames are defaulted per protocol family when no credentials Secret
 sets one: `waas_user` for `vnc`/`rdp` (the fixed system account of

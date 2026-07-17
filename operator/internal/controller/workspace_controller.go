@@ -225,7 +225,8 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Generated credentials (KasmVNC and vnc/rdp) must exist before the
-	// workload: its VNC_PW secretKeyRef references the pod-namespace copy.
+	// workload: its password secretKeyRef (VNC_PW / WAAS_DESKTOP_PASSWORD)
+	// references the pod-namespace copy.
 	if err := r.ensureKasmCredentials(ctx, ws, tpl); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
 	}
