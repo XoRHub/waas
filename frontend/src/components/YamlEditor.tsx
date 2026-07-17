@@ -1,4 +1,4 @@
-import { useMemo, useRef, type ReactNode } from 'react';
+import { useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { parseDocument, LineCounter } from 'yaml';
 
 export interface YamlIssue {
@@ -34,6 +34,64 @@ export function parseYaml(
   }
   const value: unknown = doc.toJS();
   return { value, issues: validate ? validate(value) : [] };
+}
+
+/** One Tab/Shift+Tab edit: replace [replaceStart, replaceEnd) with
+ * `insert`, then select [selStart, selEnd). */
+export interface TabEdit {
+  replaceStart: number;
+  replaceEnd: number;
+  insert: string;
+  selStart: number;
+  selEnd: number;
+}
+
+/**
+ * computeTabEdit maps a Tab keypress onto a 2-space indent edit: a
+ * caret (or intra-line selection) gets two spaces inserted in place; a
+ * multi-line selection — and any Shift+Tab — works on whole lines,
+ * indenting or dedenting every line the selection touches. Returns null
+ * when a dedent finds nothing to remove. Exported for unit tests.
+ */
+export function computeTabEdit(
+  value: string,
+  selStart: number,
+  selEnd: number,
+  shift: boolean,
+): TabEdit | null {
+  if (!shift && !value.slice(selStart, selEnd).includes('\n')) {
+    return {
+      replaceStart: selStart,
+      replaceEnd: selEnd,
+      insert: '  ',
+      selStart: selStart + 2,
+      selEnd: selStart + 2,
+    };
+  }
+  const lineStart = value.lastIndexOf('\n', selStart - 1) + 1;
+  const afterEnd = value.indexOf('\n', selEnd);
+  const lineEnd = afterEnd === -1 ? value.length : afterEnd;
+  const lines = value.slice(lineStart, lineEnd).split('\n');
+  if (!shift) {
+    return {
+      replaceStart: lineStart,
+      replaceEnd: lineEnd,
+      insert: lines.map((line) => '  ' + line).join('\n'),
+      selStart: selStart + 2,
+      selEnd: selEnd + 2 * lines.length,
+    };
+  }
+  const removed = lines.map((line) => Math.min(2, /^ */.exec(line)![0].length));
+  const total = removed.reduce((sum, n) => sum + n, 0);
+  if (total === 0) return null;
+  const nextStart = Math.max(lineStart, selStart - removed[0]);
+  return {
+    replaceStart: lineStart,
+    replaceEnd: lineEnd,
+    insert: lines.map((line, i) => line.slice(removed[i])).join('\n'),
+    selStart: nextStart,
+    selEnd: Math.max(nextStart, selEnd - total),
+  };
 }
 
 // Minimal YAML syntax highlighting: line comments, keys, and scalar
@@ -113,6 +171,31 @@ export function YamlEditor({
     }
   };
 
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Modified Tab keeps its native meaning (focus traversal etc.), and
+    // a readOnly editor must stay tabbable-through.
+    if (readOnly || e.key !== 'Tab' || e.altKey || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    const edit = computeTabEdit(el.value, el.selectionStart, el.selectionEnd, e.shiftKey);
+    if (!edit) return;
+    el.setSelectionRange(edit.replaceStart, edit.replaceEnd);
+    // execCommand is deprecated but is the only route that keeps the
+    // browser's native undo stack (it also fires the input event React's
+    // onChange listens to); anywhere it is missing or refuses (jsdom),
+    // fall back to setRangeText + a manual onChange, losing undo only.
+    const viaCommand =
+      typeof document.execCommand === 'function' &&
+      (edit.insert === ''
+        ? document.execCommand('delete', false)
+        : document.execCommand('insertText', false, edit.insert));
+    if (!viaCommand) {
+      el.setRangeText(edit.insert, edit.replaceStart, edit.replaceEnd, 'end');
+      onChange(el.value);
+    }
+    el.setSelectionRange(edit.selStart, edit.selEnd);
+  };
+
   return (
     <div>
       <div
@@ -141,6 +224,7 @@ export function YamlEditor({
           ref={textareaRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
           onScroll={syncScroll}
           rows={rows}
           readOnly={readOnly}
