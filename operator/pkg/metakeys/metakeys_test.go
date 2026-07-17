@@ -36,6 +36,29 @@ func TestCheckKey(t *testing.T) {
 	}
 }
 
+func TestCheckMapReportsFirstReservedKey(t *testing.T) {
+	if err := Check(map[string]string{"team": "red", "cost-center": "42"}); err != nil {
+		t.Fatalf("clean map rejected: %v", err)
+	}
+	if err := Check(map[string]string{"team": "red", "kubernetes.io/arch": "amd64"}); err == nil {
+		t.Fatal("reserved key must fail the whole map")
+	}
+	if err := Check(nil); err != nil {
+		t.Fatalf("empty map rejected: %v", err)
+	}
+}
+
+func TestMergeAllowedEmptyStaysNil(t *testing.T) {
+	// nil in, nil out — callers stamp the result straight into
+	// ObjectMeta, where nil and {} serialize differently.
+	if out := MergeAllowed(nil, nil); out != nil {
+		t.Fatalf("MergeAllowed(nil, nil) = %v, want nil", out)
+	}
+	if out := MergeAllowed(map[string]string{}, nil); out != nil {
+		t.Fatalf("MergeAllowed({}, nil) = %v, want nil", out)
+	}
+}
+
 func TestMergeAllowedPlatformWins(t *testing.T) {
 	out := MergeAllowed(
 		map[string]string{
