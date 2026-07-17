@@ -9,7 +9,9 @@ import { EnvFieldset } from './EnvFieldset';
 describe('EnvFieldset rows', () => {
   it('toggling from Secret swaps the literal value for a secretKeyRef', async () => {
     const onChange = vi.fn();
-    renderWithProviders(<EnvFieldset env={[{ name: 'TOKEN', value: 'abc' }]} onChange={onChange} />);
+    renderWithProviders(
+      <EnvFieldset env={[{ name: 'TOKEN', value: 'abc' }]} onChange={onChange} />,
+    );
 
     await userEvent.click(screen.getByRole('checkbox'));
     expect(onChange).toHaveBeenCalledWith([

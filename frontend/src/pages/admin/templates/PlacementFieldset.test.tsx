@@ -10,7 +10,11 @@ describe('PlacementFieldset', () => {
   it('edits the namespace pattern, empty input clearing it to undefined', async () => {
     const onChange = vi.fn();
     renderWithProviders(
-      <PlacementFieldset placement={{ namespace: 'waas-{user}' }} placeholders={[]} onChange={onChange} />,
+      <PlacementFieldset
+        placement={{ namespace: 'waas-{user}' }}
+        placeholders={[]}
+        onChange={onChange}
+      />,
     );
 
     const input = screen.getByDisplayValue('waas-{user}');
@@ -23,7 +27,9 @@ describe('PlacementFieldset', () => {
 
   it('selects the cleanup policy', async () => {
     const onChange = vi.fn();
-    renderWithProviders(<PlacementFieldset placement={undefined} placeholders={[]} onChange={onChange} />);
+    renderWithProviders(
+      <PlacementFieldset placement={undefined} placeholders={[]} onChange={onChange} />,
+    );
 
     await userEvent.selectOptions(screen.getByRole('combobox'), 'DeleteWhenEmpty');
     expect(onChange).toHaveBeenLastCalledWith({ cleanup: 'DeleteWhenEmpty' });
