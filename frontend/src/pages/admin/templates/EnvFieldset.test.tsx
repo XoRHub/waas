@@ -23,7 +23,9 @@ describe('EnvFieldset suggestions', () => {
       />,
     );
     const suggestion = screen.getByRole('button', { name: /SSH_KEYS_FILE/ });
-    expect(suggestion).toHaveAttribute('title', en.admin.templatesPage.envSuggestionTooltip);
+    const title = suggestion.getAttribute('title') ?? '';
+    expect(title).toContain('Where the keys live');
+    expect(title).toContain(en.admin.templatesPage.envSuggestionTooltip);
     expect(within(suggestion).getByText('Where the keys live')).toBeInTheDocument();
     expect(screen.getByText(en.admin.templatesPage.envSuggestionHint)).toBeInTheDocument();
   });

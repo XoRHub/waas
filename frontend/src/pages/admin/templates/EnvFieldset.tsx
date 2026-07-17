@@ -23,7 +23,11 @@ export function EnvFieldset({
   const vars = env ?? [];
 
   return (
-    <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+    // min-w-0 overrides the fieldset default min-inline-size:
+    // min-content — the nowrap (truncate) suggestion text would
+    // otherwise widen the whole fieldset to the untruncated line and
+    // push the dialog into horizontal scroll.
+    <fieldset className="min-w-0 space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
       <legend className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
         {t('admin.templatesPage.env')}
       </legend>
@@ -44,18 +48,26 @@ export function EnvFieldset({
           key={s.name}
           type="button"
           onClick={() => onAdopt?.(s.name)}
-          title={t('admin.templatesPage.envSuggestionTooltip')}
-          className="flex w-full items-center gap-2 rounded-md border border-dashed border-slate-300 px-2 py-1.5 text-left opacity-50 transition-opacity hover:opacity-100 dark:border-slate-600"
+          title={
+            s.description
+              ? `${s.description}\n\n${t('admin.templatesPage.envSuggestionTooltip')}`
+              : t('admin.templatesPage.envSuggestionTooltip')
+          }
+          className="flex w-full flex-col gap-0.5 rounded-md border border-dashed border-slate-300 px-2 py-1.5 text-left opacity-50 transition-opacity hover:opacity-100 dark:border-slate-600"
         >
-          <span className="font-mono text-xs text-slate-700 dark:text-slate-200">{s.name}</span>
+          <span className="flex w-full items-center gap-2">
+            <span className="min-w-0 truncate font-mono text-xs text-slate-700 dark:text-slate-200">
+              {s.name}
+            </span>
+            <span className="ml-auto shrink-0 text-xs font-medium text-blue-600 dark:text-blue-400">
+              + {t('admin.templatesPage.envSuggestionAdopt')}
+            </span>
+          </span>
           {s.description && (
-            <span className="truncate text-xs text-slate-500 dark:text-slate-400">
+            <span className="block w-full truncate text-xs text-slate-500 dark:text-slate-400">
               {s.description}
             </span>
           )}
-          <span className="ml-auto shrink-0 text-xs font-medium text-blue-600 dark:text-blue-400">
-            + {t('admin.templatesPage.envSuggestionAdopt')}
-          </span>
         </button>
       ))}
       {(suggestions?.length ?? 0) > 0 && (
