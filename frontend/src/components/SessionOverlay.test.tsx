@@ -114,9 +114,14 @@ describe('SessionOverlay protocol quick switch', () => {
     apiMock.api.post.mockImplementation(() => Promise.reject(new Error('halt at connect')));
     // PATCH /me answers like the server: the updated user, preferences
     // included — what useUpdateProfile feeds back into the auth store.
-    apiMock.api.patch.mockImplementation((_path: string, input: { preferences?: unknown }) =>
+    apiMock.api.patch.mockImplementation((_path, input) =>
       Promise.resolve({
-        data: { id: 'u1', username: 'marc', role: 'user', preferences: input.preferences },
+        data: {
+          id: 'u1',
+          username: 'marc',
+          role: 'user',
+          preferences: (input as { preferences?: unknown }).preferences,
+        },
       }),
     );
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -124,10 +129,7 @@ describe('SessionOverlay protocol quick switch', () => {
     signIn({ username: 'marc' });
     const ws: Workspace = {
       ...workspace('ssh'),
-      protocols: [
-        { name: 'ssh', default: true },
-        { name: 'vnc' },
-      ],
+      protocols: [{ name: 'ssh', default: true }, { name: 'vnc' }],
     };
     const pane = createRef<DesktopPaneHandle>();
     renderWithProviders(
@@ -176,10 +178,7 @@ describe('SessionOverlay protocol quick switch', () => {
     signIn({ username: 'marc' });
     const ws: Workspace = {
       ...workspace('ssh'),
-      protocols: [
-        { name: 'ssh', default: true },
-        { name: 'vnc' },
-      ],
+      protocols: [{ name: 'ssh', default: true }, { name: 'vnc' }],
     };
     const pane = createRef<DesktopPaneHandle>();
     renderWithProviders(

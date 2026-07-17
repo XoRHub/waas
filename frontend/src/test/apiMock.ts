@@ -19,7 +19,12 @@ export function createApiMock(routes: Record<string, unknown> = {}) {
     }
     return Promise.reject(new Error(`unmocked GET ${path}`));
   });
-  const mutate = () => vi.fn(() => Promise.resolve({ data: {} }));
+  // Same (path, body) shape as the real api, so tests can replace the
+  // implementation with a handler that reads its arguments.
+  const mutate = () =>
+    vi.fn<(path: string, body?: unknown) => Promise<{ data: unknown }>>(() =>
+      Promise.resolve({ data: {} }),
+    );
   return {
     /** Add or replace a GET route after creation. */
     route(path: string, data: unknown) {
