@@ -22,7 +22,8 @@ DEV_IMAGES       := operator api-server wwt frontend
 WAAS_IMAGES_DIR ?= ../waas-images
 LOCAL_IMAGES    ?=
 
-.PHONY: all build test lint generate manifests docs-params frontend-build docker-build \
+.PHONY: all build check test test-go test-frontend lint lint-go lint-frontend format \
+	generate-check generate manifests docs-params generate-types frontend-build docker-build \
 	dev-up dev-down dev-reset dev-bootstrap dev-build dev-load dev-deploy \
 	dev-reload dev-reload-all dev-build-images dev-load-images \
 	dev-status dev-logs dev-url tidy helm-docs helm-unittest
@@ -35,11 +36,53 @@ build:
 		(cd $$m && go build ./...) || exit 1; \
 	done
 
-test:
+# --- quality gates ---------------------------------------------------------
+# check = run before pushing: every blocking CI gate that can be
+# reproduced locally (Go + frontend lint/format/typecheck/tests +
+# generated-code drift). Helm gates stay separate (helm-unittest,
+# helm-docs) — run them when the chart changed. See docs/ci-github.md.
+check: lint test generate-check
+	@echo "==> all local gates green"
+
+test: test-go test-frontend
+
+test-go:
 	@for m in $(GO_MODULES); do \
 		echo "==> test $$m"; \
 		(cd $$m && go test ./...) || exit 1; \
 	done
+
+test-frontend:
+	cd frontend && npm test
+
+lint: lint-go lint-frontend
+
+# golangci-lint includes the gofmt formatter check (same config as CI).
+lint-go:
+	@for m in $(GO_MODULES); do \
+		echo "==> lint $$m"; \
+		(cd $$m && golangci-lint run) || exit 1; \
+	done
+
+# Mirrors ci-frontend.yml: eslint + prettier check + tsc. The prettier
+# gate is the one a pure-editor workflow misses — run `make format`
+# to fix instead of reading the CI failure.
+lint-frontend:
+	cd frontend && npm run lint && npm run format:check && npm run typecheck
+
+# Rewrites instead of checking: prettier on the frontend, the
+# golangci-lint formatters (gofmt) on the Go modules.
+format:
+	cd frontend && npm run format
+	@for m in $(GO_MODULES); do \
+		echo "==> fmt $$m"; \
+		(cd $$m && golangci-lint fmt) || exit 1; \
+	done
+
+# Generated code must be committed: regenerating is a no-op or the CI
+# drift gate fails (CRDs, RBAC, deepcopy, guacd docs, types.gen.ts).
+generate-check: generate manifests docs-params generate-types
+	git diff --exit-code -- operator shared helm/waas/crds frontend/src/types.gen.ts
 
 tidy:
 	@for m in $(GO_MODULES); do \
