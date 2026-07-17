@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { createRef } from 'react';
-import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, signIn } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
-import type { DesktopPaneHandle } from '@/components/DesktopPane';
+import { DesktopPane, type DesktopPaneHandle } from '@/components/DesktopPane';
 import type { SessionCapabilities, Workspace } from '@/types';
 import { SessionOverlay } from './SessionOverlay';
 
@@ -90,6 +90,118 @@ describe('SessionOverlay clipboard section by protocol', () => {
 
     expect(screen.getByTitle(/Disabled by your connection settings/)).toBeInTheDocument();
     expect(screen.getByTitle('Denied by your policy')).toBeInTheDocument();
+  });
+});
+
+describe('SessionOverlay protocol quick switch', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    // mockReset restores the vi.fn defaults set in createApiMock.
+    apiMock.api.post.mockReset();
+    apiMock.api.patch.mockReset();
+  });
+
+  // Full chain behind the overlay's protocol buttons, with the REAL
+  // DesktopPane: click VNC → window.confirm gate → the choice is PATCHed
+  // to the profile (workspaceSettings[id].protocol) → setUser re-runs the
+  // pane's connection effect → the reconnect POST carries the protocol
+  // the user clicked. A field report claimed the button reconnected with
+  // the OLD protocol; live reproduction showed the automation had
+  // auto-dismissed the confirm dialog — this pins the real behavior.
+  it('clicking VNC stores the preference and reconnects with protocol vnc', async () => {
+    // Stop the pane at the connect POST (the assertion target) so the
+    // test never reaches the Guacamole tunnel.
+    apiMock.api.post.mockImplementation(() => Promise.reject(new Error('halt at connect')));
+    // PATCH /me answers like the server: the updated user, preferences
+    // included — what useUpdateProfile feeds back into the auth store.
+    apiMock.api.patch.mockImplementation((_path: string, input: { preferences?: unknown }) =>
+      Promise.resolve({
+        data: { id: 'u1', username: 'marc', role: 'user', preferences: input.preferences },
+      }),
+    );
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    signIn({ username: 'marc' });
+    const ws: Workspace = {
+      ...workspace('ssh'),
+      protocols: [
+        { name: 'ssh', default: true },
+        { name: 'vnc' },
+      ],
+    };
+    const pane = createRef<DesktopPaneHandle>();
+    renderWithProviders(
+      <>
+        <DesktopPane ref={pane} workspaceId="w1" />
+        <SessionOverlay
+          workspace={ws}
+          capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+          pane={pane}
+        />
+      </>,
+    );
+
+    // Initial connect: no stored preference — no body, server default.
+    await waitFor(() =>
+      expect(apiMock.api.post).toHaveBeenCalledWith('/api/v1/workspaces/w1/connect', undefined),
+    );
+
+    await userEvent.click(screen.getByTitle(/session menu/i));
+    await userEvent.click(screen.getByRole('button', { name: /^vnc$/i }));
+
+    // The switch is confirm-gated (an unhandled dialog in automation
+    // cancels it — the false-alarm bug report).
+    expect(window.confirm).toHaveBeenCalledOnce();
+    await waitFor(() =>
+      expect(apiMock.api.patch).toHaveBeenCalledWith('/api/v1/me', {
+        preferences: expect.objectContaining({
+          workspaceSettings: { w1: expect.objectContaining({ protocol: 'vnc' }) },
+        }),
+      }),
+    );
+    // The reconnect carries the protocol that was clicked.
+    await waitFor(() =>
+      expect(apiMock.api.post).toHaveBeenCalledWith('/api/v1/workspaces/w1/connect', {
+        protocol: 'vnc',
+      }),
+    );
+    // And the overlay now marks VNC active (bg-blue-600 = selected).
+    expect(screen.getByRole('button', { name: /^vnc$/i }).className).toContain('bg-blue-600');
+  });
+
+  it('a dismissed confirm switches nothing', async () => {
+    apiMock.api.post.mockImplementation(() => Promise.reject(new Error('halt at connect')));
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    signIn({ username: 'marc' });
+    const ws: Workspace = {
+      ...workspace('ssh'),
+      protocols: [
+        { name: 'ssh', default: true },
+        { name: 'vnc' },
+      ],
+    };
+    const pane = createRef<DesktopPaneHandle>();
+    renderWithProviders(
+      <>
+        <DesktopPane ref={pane} workspaceId="w1" />
+        <SessionOverlay
+          workspace={ws}
+          capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+          pane={pane}
+        />
+      </>,
+    );
+    await waitFor(() => expect(apiMock.api.post).toHaveBeenCalledOnce());
+
+    await userEvent.click(screen.getByTitle(/session menu/i));
+    await userEvent.click(screen.getByRole('button', { name: /^vnc$/i }));
+
+    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(apiMock.api.patch).not.toHaveBeenCalled();
+    // No preference change — the pane never reconnects.
+    expect(apiMock.api.post).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: /^ssh$/i }).className).toContain('bg-blue-600');
   });
 });
 
