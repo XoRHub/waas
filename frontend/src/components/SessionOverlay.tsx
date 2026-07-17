@@ -127,6 +127,12 @@ export function SessionOverlay({
   // In-cluster tuning lives in the profile; remote tuning lives on the
   // chosen endpoint server-side.
   const savedParams = isRemote ? (entry?.params ?? {}) : (saved?.params ?? {});
+  // Template-locked values are the session's inherited defaults: surfaced
+  // on the "Default" segment exactly like the connection-settings dialog
+  // does (ProtocolParamsForm placeholders) — otherwise the two menus show
+  // contradictory defaults for the same param. Remote machines have no
+  // template layer: entry.params ARE the saved values there.
+  const lockedParams = isRemote ? undefined : entry?.params;
   // Reconnect-scoped tunables (live ones — the clipboard — have their own
   // switches above).
   const reconnectParams = paramsFor(
@@ -389,7 +395,7 @@ export function SessionOverlay({
               {reconnectParams.map((pm) => (
                 <ParamField
                   key={pm.name}
-                  meta={pm}
+                  meta={lockedParams?.[pm.name] ? { ...pm, default: lockedParams[pm.name] } : pm}
                   value={paramDraft[pm.name] ?? savedParams[pm.name] ?? ''}
                   onChange={(value) => setParamDraft((d) => ({ ...d, [pm.name]: value }))}
                 />

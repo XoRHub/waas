@@ -204,6 +204,64 @@ describe('SessionOverlay protocol quick switch', () => {
   });
 });
 
+describe('SessionOverlay reconnect params', () => {
+  afterEach(() => {
+    apiMock.route('/api/v1/meta/protocols', []);
+  });
+
+  // The overlay and the connection-settings dialog read the same profile
+  // values, but the dialog also surfaces the template-locked value as the
+  // "Default (X)" segment (ProtocolParamsForm placeholders). The overlay
+  // used to render the raw registry default instead, so a template with
+  // enable-audio=true read "Default (true)" in the dialog and
+  // "Default (false)" in the session menu — the same param, two stories.
+  it('shows a template-locked value as the inherited default, like the dialog', async () => {
+    apiMock.route('/api/v1/meta/protocols', [
+      {
+        name: 'vnc',
+        params: [
+          {
+            name: 'enable-audio',
+            protocols: ['vnc'],
+            kind: 'bool',
+            default: 'false',
+            tier: 'ui',
+            category: 'audio',
+            live: false,
+            description: 'Stream audio from the workspace.',
+          },
+        ],
+      },
+    ]);
+    signIn({ username: 'marc' });
+    const ws: Workspace = {
+      ...workspace('vnc'),
+      protocols: [
+        {
+          name: 'vnc',
+          default: true,
+          params: { 'enable-audio': 'true' },
+          resolvedUserParams: ['enable-audio'],
+        },
+      ],
+    };
+    renderWithProviders(
+      <SessionOverlay
+        workspace={ws}
+        capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+        pane={createRef<DesktopPaneHandle>()}
+      />,
+    );
+    await userEvent.click(screen.getByTitle(/session menu/i));
+
+    // No profile override ("" = inherit): the selected segment must carry
+    // the template's value, not the registry's.
+    const inherit = await screen.findByRole('button', { name: 'Default (true)' });
+    expect(inherit).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: 'Default (false)' })).toBeNull();
+  });
+});
+
 describe('SessionOverlay kasmvnc effective config', () => {
   it('shows the operator-materialized config read-only on kasmvnc', async () => {
     // The effective kasmvnc.yaml (template + policy layer) fetched from
