@@ -23,6 +23,7 @@ WAAS_IMAGES_DIR ?= ../waas-images
 LOCAL_IMAGES    ?=
 
 .PHONY: all build check test test-go test-frontend lint lint-go lint-frontend format \
+	helm-check coverage coverage-go coverage-frontend \
 	generate-check generate manifests docs-params generate-types frontend-build docker-build \
 	dev-up dev-down dev-reset dev-bootstrap dev-build dev-load dev-deploy \
 	dev-reload dev-reload-all dev-build-images dev-load-images \
@@ -83,6 +84,52 @@ format:
 # drift gate fails (CRDs, RBAC, deepcopy, guacd docs, types.gen.ts).
 generate-check: generate manifests docs-params generate-types
 	git diff --exit-code -- operator shared helm/waas/crds frontend/src/types.gen.ts
+
+# Every ci-helm.yml gate, in one command — run when the chart changed
+# (CI only fires them on helm/** changes, so check does not chain this).
+# kubeconform needs docker and network (datreeio CRD catalog fallback).
+# Renders and schemas are written at the repo root exactly like CI and
+# cleaned on success; leftovers after a failure are debugging material.
+helm-check:
+	helm lint helm/waas
+	helm template waas helm/waas > rendered-default.yaml
+	helm template waas helm/waas -f hack/dev/values-dev.yaml > rendered-dev.yaml
+	$(MAKE) helm-docs
+	@git diff --exit-code helm/waas/README.md \
+		|| { echo "FATAL helm/waas/README.md is stale — commit the helm-docs result"; exit 1; }
+	helm unittest helm/waas
+	uv run hack/ci/crd_to_jsonschema.py helm/waas/crds crd-schemas
+	uv run hack/ci/check_operator_rbac.py helm/waas/templates/operator/roles.yaml operator/config/rbac/role.yaml
+	docker run --rm -v "$$PWD:/work" -w /work \
+		ghcr.io/yannh/kubeconform:v0.6.7-alpine \
+		-strict -summary \
+		-skip CustomResourceDefinition \
+		-schema-location default \
+		-schema-location 'crd-schemas/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+		-schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+		rendered-default.yaml rendered-dev.yaml \
+		gitops/governance/images.yaml gitops/governance/policies.yaml
+	rm -rf rendered-default.yaml rendered-dev.yaml crd-schemas
+
+# --- coverage --------------------------------------------------------------
+# Same flags as CI (ci-go.yml / ci-frontend.yml) so the numbers match
+# what Codecov and the ratchet see. Profiles land in <module>/coverage.out
+# (gitignored); the frontend prints a text summary only.
+coverage: coverage-go coverage-frontend
+
+coverage-go:
+	@for m in $(GO_MODULES); do \
+		echo "==> coverage $$m"; \
+		(cd $$m && go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./... \
+			&& go tool cover -func=coverage.out | tail -n 1) || exit 1; \
+	done
+
+coverage-frontend:
+	cd frontend && npx vitest run --coverage.enabled --coverage.provider=v8 \
+		--coverage.reporter=text-summary \
+		--coverage.all --coverage.include='src/**/*.{ts,tsx}' \
+		--coverage.exclude='src/**/*.test.{ts,tsx}' \
+		--coverage.exclude='src/types*.ts' --coverage.exclude='**/*.d.ts'
 
 tidy:
 	@for m in $(GO_MODULES); do \
