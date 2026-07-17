@@ -31,6 +31,7 @@ const catalogs: CatalogImage[] = [
     registry: 'ghcr.io/acme/',
     enabled: true,
     architectures: ['amd64', 'arm64'],
+    protocols: ['ssh'],
     discovered: [
       {
         image: 'ghcr.io/acme/firefox:128',
@@ -76,7 +77,7 @@ function Harness({
 }: {
   initial: string;
   onChange: (v: string) => void;
-  onApplyRecommendation?: (recommended: DeploymentRecommendation) => void;
+  onApplyRecommendation?: (recommended: DeploymentRecommendation, imageProtocols: string[]) => void;
   onArchitectures?: (architectures: string[]) => void;
 }) {
   const [image, setImage] = useState(initial);
@@ -218,7 +219,8 @@ describe('CatalogImageField', () => {
       name: en.admin.templatesPage.applyRecommendation,
     });
     await userEvent.click(applyButton);
-    expect(onApplyRecommendation).toHaveBeenCalledWith(firefoxRecommendation);
+    // The catalog ENTRY's supported protocols ride along.
+    expect(onApplyRecommendation).toHaveBeenCalledWith(firefoxRecommendation, ['ssh']);
 
     // Chromium has no recommendation: no button once it's the current value.
     await userEvent.clear(imageInput());

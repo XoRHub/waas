@@ -22,7 +22,8 @@ export function IdentityFields({
   input: TemplateInput;
   isNew: boolean;
   onPatch: (patch: Partial<TemplateInput>) => void;
-  onApplyRecommendation?: (recommended: DeploymentRecommendation) => void;
+  /** See CatalogImageField.onApplyRecommendation. */
+  onApplyRecommendation?: (recommended: DeploymentRecommendation, imageProtocols: string[]) => void;
   /** See CatalogImageField.onArchitectures. */
   onArchitectures?: (architectures: string[]) => void;
 }) {

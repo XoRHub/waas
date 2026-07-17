@@ -11,7 +11,7 @@ import {
 } from '@/hooks/useApi';
 import { Dialog } from '@/components/Dialog';
 import { parseYaml } from '@/components/YamlEditor';
-import type { DeploymentRecommendation } from '@/types';
+import type { DeploymentRecommendation, RecommendedEnvVar } from '@/types';
 import { EnvFieldset } from './EnvFieldset';
 import { IdentityFields } from './IdentityFields';
 import { KasmVNCConfigFieldset } from './KasmVNCConfigFieldset';
@@ -64,13 +64,29 @@ export function TemplateDialog({
 
   const set = (patch: Partial<TemplateInput>) => setInput((prev) => ({ ...prev, ...patch }));
 
+  // Env hints the catalog recommends WITHOUT a default: offered as
+  // greyed suggestions in EnvFieldset instead of real env rows, so an
+  // empty var never supersedes the operator's own injection — the
+  // admin adopts one explicitly (adoptSuggestion). Transient UI state:
+  // never persisted, gone on dialog reopen.
+  const [envSuggestions, setEnvSuggestions] = useState<
+    { name: string; description?: string; adopted: boolean }[]
+  >([]);
+  const adoptSuggestion = (name: string) => {
+    setEnvSuggestions((prev) => prev.map((s) => (s.name === name ? { ...s, adopted: true } : s)));
+    set({ env: [...(input.env ?? []), { name, value: '' }] });
+  };
+
   // Explicit "apply catalog recommendation" action (CatalogImageField's
   // button) — never triggered by selecting an image. Unlike a silent
   // auto-fill, an explicit click overwriting existing YAML is not a
   // surprise, so podSecurityContext/securityContext/volumes are set
   // unconditionally; env is merged by name so an already-configured
   // var is never clobbered (see EnvFieldset/mergeEnv doctrine).
-  const applyRecommendation = (recommended: DeploymentRecommendation) => {
+  // Protocol-aware: on a template with no protocols yet, the image's
+  // supported protocols are added first; env hints are then filtered
+  // to the protocols the template actually uses.
+  const applyRecommendation = (recommended: DeploymentRecommendation, imageProtocols: string[]) => {
     const { value } = parseYaml(workloadText);
     const base = (
       value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -91,13 +107,59 @@ export function TemplateDialog({
     }
     setWorkloadText(yamlStringify(next));
 
-    if (recommended.env?.length) {
-      const existingNames = new Set((input.env ?? []).map((e) => e.name));
-      const additions = recommended.env
-        .filter((e) => !existingNames.has(e.name))
-        .map((e) => ({ name: e.name, value: e.default ?? '' }));
-      if (additions.length > 0) set({ env: [...(input.env ?? []), ...additions] });
+    let nextProtocols = protocols;
+    if (protocols.length === 0 && imageProtocols.length > 0) {
+      // kasmvnc exclusivity (webhook-enforced): a mixed supported list
+      // keeps only the guacd protocols; kasmvnc-only adds kasmvnc.
+      const guacd = imageProtocols.filter((p) => p !== 'kasmvnc');
+      const names = [...new Set(guacd.length > 0 ? guacd : imageProtocols)];
+      nextProtocols = names.map((name, i) => ({
+        name,
+        port: DEFAULT_PORTS[name] ?? 0,
+        default: i === 0,
+      }));
+      setActiveProto(names[0]);
     }
+    const targetSet = new Set(nextProtocols.map((p) => p.name));
+
+    // A hint is relevant when protocol-unscoped or intersecting the
+    // target protocols (none at all ⇒ everything applies). Relevance
+    // then closes over `requires`: a required sibling is pulled in
+    // regardless of its own protocols.
+    const hints = recommended.env ?? [];
+    const byName = new Map(hints.map((h) => [h.name, h]));
+    const applied = new Map<string, RecommendedEnvVar>();
+    const queue = hints.filter(
+      (h) => !h.protocols?.length || targetSet.size === 0 || h.protocols.some((p) => targetSet.has(p)),
+    );
+    while (queue.length > 0) {
+      const hint = queue.shift()!;
+      if (applied.has(hint.name)) continue;
+      applied.set(hint.name, hint);
+      for (const req of hint.requires ?? []) {
+        const sibling = byName.get(req);
+        if (sibling) queue.push(sibling);
+      }
+    }
+
+    const existingNames = new Set((input.env ?? []).map((e) => e.name));
+    const additions = [...applied.values()]
+      .filter((h) => h.default != null && !existingNames.has(h.name))
+      .map((h) => ({ name: h.name, value: h.default! }));
+    const suggested = [...applied.values()]
+      .filter((h) => h.default == null && !existingNames.has(h.name))
+      .map((h) => ({ name: h.name, description: h.description, adopted: false }));
+    set({
+      ...(nextProtocols !== protocols ? { protocols: nextProtocols } : {}),
+      ...(additions.length > 0 ? { env: [...(input.env ?? []), ...additions] } : {}),
+    });
+    // Re-deriving drops stale non-adopted suggestions; adopted ones
+    // stay recorded so their description keeps feeding the value
+    // placeholder of the row they became.
+    setEnvSuggestions((prev) => [
+      ...prev.filter((s) => s.adopted),
+      ...suggested.filter((s) => !prev.some((p) => p.adopted && p.name === s.name)),
+    ]);
 
     setWorkloadOpen(true);
   };
@@ -257,7 +319,15 @@ export function TemplateDialog({
         />
       )}
 
-      <EnvFieldset env={input.env} onChange={(env) => set({ env })} />
+      <EnvFieldset
+        env={input.env}
+        onChange={(env) => set({ env })}
+        suggestions={envSuggestions.filter((s) => !s.adopted)}
+        onAdopt={adoptSuggestion}
+        valuePlaceholders={Object.fromEntries(
+          envSuggestions.filter((s) => s.description).map((s) => [s.name, s.description!]),
+        )}
+      />
 
       <OverridesFieldset
         overrides={input.overrides}

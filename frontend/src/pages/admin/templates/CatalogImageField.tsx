@@ -44,8 +44,11 @@ export function CatalogImageField({
   onChange: (image: string) => void;
   /** Explicit "apply the catalog's recommendation" action — never
    * triggered by onSelect/onChange, only by the button rendered when
-   * the currently selected discovered image carries one. */
-  onApplyRecommendation?: (recommended: DeploymentRecommendation) => void;
+   * the currently selected discovered image carries one. Passes the
+   * catalog ENTRY's supported protocols alongside (protocols are
+   * entry-level, not per discovered image) so the recommendation can
+   * be applied protocol-aware. */
+  onApplyRecommendation?: (recommended: DeploymentRecommendation, imageProtocols: string[]) => void;
   /** Fired on explicit picker selections (a discovered card, or a
    * single-image catalog) with the architectures the pick is published
    * for — the per-image list when the manifest carries one, else the
@@ -146,7 +149,9 @@ export function CatalogImageField({
           {selectedDiscovered?.recommended && onApplyRecommendation && (
             <button
               type="button"
-              onClick={() => onApplyRecommendation(selectedDiscovered.recommended!)}
+              onClick={() =>
+                onApplyRecommendation(selectedDiscovered.recommended!, selected?.protocols ?? [])
+              }
               title={t('admin.templatesPage.applyRecommendationHint')}
               className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700"
             >

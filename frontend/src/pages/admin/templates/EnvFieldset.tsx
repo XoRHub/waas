@@ -6,9 +6,18 @@ import { fieldSm } from './fields';
 export function EnvFieldset({
   env,
   onChange,
+  suggestions,
+  onAdopt,
+  valuePlaceholders,
 }: {
   env: TemplateEnvVar[] | undefined;
   onChange: (env: TemplateEnvVar[]) => void;
+  /** Catalog-recommended vars without a default: rendered greyed and
+   * inert (never part of the template) until adopted with a click. */
+  suggestions?: { name: string; description?: string }[];
+  onAdopt?: (name: string) => void;
+  /** Per-name placeholder for the value input (hint descriptions). */
+  valuePlaceholders?: Record<string, string>;
 }) {
   const { t } = useTranslation();
   const vars = env ?? [];
@@ -25,10 +34,35 @@ export function EnvFieldset({
         <EnvRow
           key={i}
           env={v}
+          valuePlaceholder={valuePlaceholders?.[v.name]}
           onChange={(next) => onChange(vars.map((e, j) => (j === i ? next : e)))}
           onRemove={() => onChange(vars.filter((_, j) => j !== i))}
         />
       ))}
+      {(suggestions ?? []).map((s) => (
+        <button
+          key={s.name}
+          type="button"
+          onClick={() => onAdopt?.(s.name)}
+          title={t('admin.templatesPage.envSuggestionTooltip')}
+          className="flex w-full items-center gap-2 rounded-md border border-dashed border-slate-300 px-2 py-1.5 text-left opacity-50 transition-opacity hover:opacity-100 dark:border-slate-600"
+        >
+          <span className="font-mono text-xs text-slate-700 dark:text-slate-200">{s.name}</span>
+          {s.description && (
+            <span className="truncate text-xs text-slate-500 dark:text-slate-400">
+              {s.description}
+            </span>
+          )}
+          <span className="ml-auto shrink-0 text-xs font-medium text-blue-600 dark:text-blue-400">
+            + {t('admin.templatesPage.envSuggestionAdopt')}
+          </span>
+        </button>
+      ))}
+      {(suggestions?.length ?? 0) > 0 && (
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          {t('admin.templatesPage.envSuggestionHint')}
+        </p>
+      )}
       <button
         type="button"
         onClick={() => onChange([...vars, { name: '', value: '' }])}
@@ -44,10 +78,12 @@ export function EnvFieldset({
 // so what the form writes is exactly what the CR stores.
 function EnvRow({
   env,
+  valuePlaceholder,
   onChange,
   onRemove,
 }: {
   env: TemplateEnvVar;
+  valuePlaceholder?: string;
   onChange: (env: TemplateEnvVar) => void;
   onRemove: () => void;
 }) {
@@ -126,6 +162,7 @@ function EnvRow({
           <input
             className={fieldSm}
             value={env.value ?? ''}
+            placeholder={valuePlaceholder}
             onChange={(e) => onChange({ ...env, value: e.target.value })}
           />
         </label>
