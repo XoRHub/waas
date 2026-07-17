@@ -175,3 +175,114 @@ func TestConnectionInfoIgnoresLiteralTemplateEnv(t *testing.T) {
 		t.Fatalf("literal template env must not resolve a connection, got %+v", info)
 	}
 }
+
+// --- Generated ssh keypair fallback (shared predicate with the operator) ---
+
+func sshServiceTemplate() *waasv1alpha1.WorkspaceTemplate {
+	tpl := desktopServiceTemplate()
+	tpl.Spec.Protocols = []waasv1alpha1.WorkspaceProtocol{
+		{Name: "ssh", Port: 2222, Default: true},
+		{Name: "vnc", Port: 5901},
+	}
+	return tpl
+}
+
+// seedSSHWorkspace is seedDesktopWorkspace with ssh in the status list.
+func seedSSHWorkspace(t *testing.T, kube client.WithWatch, sessions repository.SessionRepository,
+	tpl *waasv1alpha1.WorkspaceTemplate) *waasv1alpha1.Workspace {
+	t.Helper()
+	ws := seedDesktopWorkspace(t, kube, sessions, tpl, "ssh")
+	ws.Status.Protocols = append(ws.Status.Protocols, waasv1alpha1.WorkspaceProtocolStatus{Name: "ssh", Port: 2222})
+	if err := kube.Status().Update(context.Background(), ws); err != nil {
+		t.Fatalf("adding ssh to status: %v", err)
+	}
+	return ws
+}
+
+// With no explicit source, ssh resolves the operator's waas-ssh-<name>
+// Secret: the private key lands in guacd params and the username
+// defaults to the waas-images system account.
+func TestConnectionInfoGeneratedSSHKey(t *testing.T) {
+	svc, kube, sessions := newConnectionFixture(t)
+	ctx := context.Background()
+	ws := seedSSHWorkspace(t, kube, sessions, sshServiceTemplate())
+	if err := kube.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "waas-ssh-" + ws.Name, Namespace: testNS},
+		Data: map[string][]byte{
+			"private-key": []byte("PEM-PRIVATE"),
+			"public-key":  []byte("ssh-ed25519 AAAA generated"),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := svc.ConnectionInfo(ctx, "s-ssh")
+	if err != nil {
+		t.Fatalf("ConnectionInfo: %v", err)
+	}
+	if info.Protocol != "ssh" || info.Port != 2222 {
+		t.Fatalf("expected the ssh endpoint, got %s:%d", info.Protocol, info.Port)
+	}
+	if info.Params["private-key"] != "PEM-PRIVATE" {
+		t.Fatalf("expected the generated private key in guacd params, got %q", info.Params["private-key"])
+	}
+	if info.Username != "waas_user" {
+		t.Fatalf("ssh must default to the waas-images system account, got %q", info.Username)
+	}
+}
+
+// An explicit credentialsSecretRef still wins: the generated fallback
+// must not overwrite it (nor even be consulted — private-key is set).
+func TestConnectionInfoSSHCredentialsSecretWins(t *testing.T) {
+	svc, kube, sessions := newConnectionFixture(t)
+	ctx := context.Background()
+	tpl := sshServiceTemplate()
+	tpl.Spec.Protocols[0].CredentialsSecretRef = "ssh-creds"
+	ws := seedSSHWorkspace(t, kube, sessions, tpl)
+	for name, key := range map[string]string{"ssh-creds": "EXPLICIT", "waas-ssh-" + ws.Name: "GENERATED"} {
+		if err := kube.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS},
+			Data:       map[string][]byte{"private-key": []byte(key), "username": []byte("admin")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	info, err := svc.ConnectionInfo(ctx, "s-ssh")
+	if err != nil {
+		t.Fatalf("ConnectionInfo: %v", err)
+	}
+	if info.Params["private-key"] != "EXPLICIT" || info.Username != "admin" {
+		t.Fatalf("credentialsSecretRef must win, got key=%q user=%q", info.Params["private-key"], info.Username)
+	}
+}
+
+// A template with an explicit WAAS_SSH_AUTHORIZED_KEYS env flips the
+// shared predicate: the fallback never touches the (absent) Secret and
+// the connection proceeds without a private key instead of hard-failing.
+func TestConnectionInfoSSHExplicitEnvSkipsFallback(t *testing.T) {
+	svc, kube, sessions := newConnectionFixture(t)
+	tpl := sshServiceTemplate()
+	tpl.Spec.Env = []corev1.EnvVar{{Name: "WAAS_SSH_AUTHORIZED_KEYS", Value: "ssh-ed25519 AAAA admin"}}
+	seedSSHWorkspace(t, kube, sessions, tpl)
+
+	info, err := svc.ConnectionInfo(context.Background(), "s-ssh")
+	if err != nil {
+		t.Fatalf("a false predicate must not hard-fail on the absent Secret: %v", err)
+	}
+	if got := info.Params["private-key"]; got != "" {
+		t.Fatalf("no key may be resolved, got %q", got)
+	}
+}
+
+// When the predicate says a keypair was generated, a missing Secret is a
+// hard error — connecting keyless when the pod authorizes a generated
+// key would be worse.
+func TestConnectionInfoSSHMissingSecretFails(t *testing.T) {
+	svc, kube, sessions := newConnectionFixture(t)
+	seedSSHWorkspace(t, kube, sessions, sshServiceTemplate())
+
+	if info, err := svc.ConnectionInfo(context.Background(), "s-ssh"); err == nil {
+		t.Fatalf("expected a hard error on the missing generated Secret, got %+v", info)
+	}
+}

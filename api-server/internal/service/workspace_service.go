@@ -764,6 +764,16 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 			return nil, err
 		}
 	}
+	// Generated ssh keypair: the third sibling — but its predicate and
+	// Secret name are SHARED with the operator (v1alpha1.SSHKeyGenerated)
+	// instead of comment-aligned, so this only fires when generation
+	// actually happened; a missing Secret is then a hard error like the
+	// others. Its private-key maps into guacd's vocabulary verbatim.
+	if info.Protocol == "ssh" && info.Params["private-key"] == "" && sshKeyGeneratedFor(ws, tpl) {
+		if err := s.applyCredentialsSecret(ctx, waasv1alpha1.SSHSecretName(ws.Name), info); err != nil {
+			return nil, err
+		}
+	}
 	kasmDefaults(info)
 	desktopDefaults(info)
 	return info, nil
@@ -779,16 +789,28 @@ func kasmDefaults(info *model.ConnectionInfo) {
 	}
 }
 
-// desktopDefaults is kasmDefaults' vnc/rdp sibling: waas-images run the
-// fixed system account "waas_user" (xrdp.ini presents the same identity
-// to guacd) — only the password is per-workspace. A credentials Secret
-// with an explicit username still wins. Cluster workspaces only — never
-// applied to remoteConnectionInfo, whose machines are outside the
-// waas-images contract.
+// desktopDefaults is kasmDefaults' vnc/rdp/ssh sibling: waas-images run
+// the fixed system account "waas_user" (xrdp.ini presents the same
+// identity to guacd, sshd's AllowUsers pins it too) — only the
+// credential is per-workspace. A credentials Secret with an explicit
+// username still wins. Cluster workspaces only — never applied to
+// remoteConnectionInfo, whose machines are outside the waas-images
+// contract.
 func desktopDefaults(info *model.ConnectionInfo) {
-	if (info.Protocol == "vnc" || info.Protocol == "rdp") && info.Username == "" {
+	if (info.Protocol == "vnc" || info.Protocol == "rdp" || info.Protocol == "ssh") && info.Username == "" {
 		info.Username = "waas_user"
 	}
+}
+
+// sshKeyGeneratedFor adapts the shared predicate to the api-server's
+// view: only env NAMES matter to it, so template env and override env
+// are passed concatenated rather than merged.
+func sshKeyGeneratedFor(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) bool {
+	env := tpl.Spec.Env
+	if ws.Spec.Overrides != nil && len(ws.Spec.Overrides.Env) > 0 {
+		env = append(append([]corev1.EnvVar{}, env...), ws.Spec.Overrides.Env...)
+	}
+	return waasv1alpha1.SSHKeyGenerated(tpl, env)
 }
 
 // remoteConnectionInfo resolves a remote-workspace session: target from
