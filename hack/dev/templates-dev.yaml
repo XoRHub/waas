@@ -136,6 +136,36 @@ spec:
   overrides:
     allowedFields: [protocol, protocolParams, resources, schedule]
 ---
+# The generated-credentials twin of dev-ssh: NO env, NO Secret, NO seed
+# script — declaring the ssh protocol is enough. The operator generates
+# the keypair (waas-ssh-<ws> + public-key-only pod copy), turns sshd on
+# and guacd receives the private key at connect. Keep BOTH templates:
+# dev-ssh exercises the explicit credentialsSecretRef path, this one the
+# implicit level-2 path (docs/templates-and-protocols.md § Credentials).
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: dev-ssh-generated
+spec:
+  displayName: "Dev env — SSH (generated keys)"
+  description: "Same terminal dev env, platform-generated ssh keypair — zero credential config."
+  os: linux
+  image: docker.io/xorhub/ubuntu-desktop-noble:2.0.0
+  homeSize: 10Gi
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 4Gi }
+  protocols:
+    - name: ssh
+      port: 2222
+      default: true
+      userParams: [font-size, color-scheme, read-only, scrollback, server-alive-interval]
+    - name: vnc
+      port: 5901
+      userParams: [color-depth, read-only]
+  overrides:
+    allowedFields: [protocol, protocolParams, resources, schedule]
+---
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceTemplate
 metadata:
