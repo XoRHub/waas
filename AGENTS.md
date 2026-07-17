@@ -64,10 +64,10 @@ refactor!: split waas-images/ out into its own repository
 
 ## Definition of done
 
-Before reporting a task finished, run what CI runs:
-`make build test`; `golangci-lint run` in each touched Go module;
-`make generate manifests docs-params generate-types` + clean
-`git diff`; for `frontend/`: `npm run lint && npm run format:check &&
-npm run typecheck && npm test`; for the chart: `helm lint helm/waas`.
+Before reporting a task finished, run what CI runs: `make check`
+(Go + frontend lint/format/typecheck/tests + generated-code drift;
+granular: `test-go`/`test-frontend`, `lint-go`/`lint-frontend`,
+`format`, `generate-check`); for the chart: `helm lint helm/waas`,
+`make helm-unittest`, `make helm-docs`.
 For behavior changes, verify on the k3d dev env (`make dev-bootstrap`,
 then `make dev-reload` as inner loop; `make smoke` gates real sessions).

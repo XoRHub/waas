@@ -13,22 +13,21 @@ so local and CI can't drift.
 
 ## Before opening a PR
 
-Run locally what CI will run (details: [docs/ci-github.md](docs/ci-github.md)):
+One command reproduces every blocking CI gate that runs locally
+(details: [docs/ci-github.md](docs/ci-github.md)):
 
 ```sh
-make build test                  # all Go modules (unit tier)
-(cd <module> && golangci-lint run)   # per touched Go module: shared, operator, api-server, wwt
-                                     # (includes the gofmt formatter check)
-make generate manifests docs-params generate-types
-git diff --exit-code             # generated code must be committed (CRDs, RBAC, types.gen.ts)
-helm lint helm/waas              # if the chart changed
+make check                       # lint + test + generated-code drift, Go AND frontend
 ```
 
-Frontend, if touched:
+Granular targets when iterating on one side only:
 
 ```sh
-cd frontend
-npm run lint && npm run format:check && npm run typecheck && npm test
+make test-go / test-frontend     # unit tests (make test = both)
+make lint-go / lint-frontend     # golangci-lint / eslint + prettier check + tsc
+make format                      # rewrite: prettier + the Go formatters
+make generate-check              # regenerate CRDs/RBAC/docs/types, fail on drift
+helm lint helm/waas && make helm-unittest && make helm-docs   # if the chart changed
 ```
 
 The testing strategy (which tier a new test belongs to, and how to run

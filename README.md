@@ -47,7 +47,7 @@ Hard boundaries (non-negotiable):
 
 ```sh
 mise install            # every pinned tool (Go, Node, Helm, …) — the exact versions CI installs
-make build test         # all Go modules
+make build check        # build all Go modules + every local CI gate (Go and frontend)
 make generate manifests # operator codegen (CRDs, RBAC, deepcopy)
 make frontend-build
 
