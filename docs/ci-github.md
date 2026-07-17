@@ -40,7 +40,8 @@ PR — selective by path (job `changes`, dorny/paths-filter)
 │  ├─ go-lint / go-test     DYNAMIC matrix per module, follows the real graph:
 │  │                        api-server ← operator + shared ; wwt ← shared ;
 │  │                        test/smoke ← operator (lint only, tests = cluster)
-│  └─ go-generated-drift    operator/** — regenerating must be a no-op
+│  └─ go-generated-drift    operator/** + crd-schemas/** — regenerating
+│                            must be a no-op (incl. editor CRD schemas)
 ├─ ci-frontend.yml          typecheck + vitest (frontend/**)
 ├─ ci-helm.yml              lint + render + helm-docs drift + helm unittest
 │                            + kubeconform vs CRDs of THIS commit

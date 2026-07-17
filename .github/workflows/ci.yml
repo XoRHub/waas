@@ -109,6 +109,11 @@ jobs:
             smoke:
               - *go-global
               - 'test/smoke/**'
+            # Editor CRD schemas: a hand edit must face the same drift
+            # gate a CRD change does (see the DRIFT composition below).
+            crd-schemas:
+              - *ci
+              - 'crd-schemas/**'
             frontend:
               - *ci
               - 'frontend/**'
@@ -149,6 +154,7 @@ jobs:
           F_API: ${{ steps.filter.outputs.api-server }}
           F_WWT: ${{ steps.filter.outputs.wwt }}
           F_SMOKE: ${{ steps.filter.outputs.smoke }}
+          F_CRDSCHEMAS: ${{ steps.filter.outputs.crd-schemas }}
           F_FRONTEND: ${{ steps.filter.outputs.frontend }}
           F_HELM: ${{ steps.filter.outputs.helm }}
           F_IMG_OPERATOR: ${{ steps.filter.outputs.image-operator }}
@@ -201,6 +207,9 @@ jobs:
           DRIFT=false
           [ "$F_OPERATOR" = "true" ] && DRIFT=true
           [ "$F_SHARED" = "true" ] && DRIFT=true
+          # crd-schemas/ is drift-checked output: a hand edit alone must
+          # not dodge the gate (push runs always set DRIFT via operator).
+          [ "$F_CRDSCHEMAS" = "true" ] && DRIFT=true
           echo "drift=${DRIFT}" >> "$GITHUB_OUTPUT"
 
   # ------------------------------------------------------------------

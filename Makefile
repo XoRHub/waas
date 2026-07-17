@@ -23,7 +23,7 @@ WAAS_IMAGES_DIR ?= ../waas-images
 LOCAL_IMAGES    ?=
 
 .PHONY: all build check test test-go test-frontend lint lint-go lint-frontend format \
-	helm-check coverage coverage-go coverage-frontend \
+	helm-check coverage coverage-go coverage-frontend crd-schemas \
 	generate-check generate manifests docs-params generate-types frontend-build docker-build \
 	dev-up dev-down dev-reset dev-bootstrap dev-build dev-load dev-deploy \
 	dev-reload dev-reload-all dev-build-images dev-load-images \
@@ -80,10 +80,17 @@ format:
 		(cd $$m && golangci-lint fmt) || exit 1; \
 	done
 
+# crd-schemas/ is the committed copy of the CRD JSON Schemas — it feeds
+# yaml-language-server CRD completion in editors, so it must follow the
+# CRDs. Regenerated in place and drift-checked below like the rest.
+crd-schemas:
+	uv run hack/ci/crd_to_jsonschema.py helm/waas/crds crd-schemas
+
 # Generated code must be committed: regenerating is a no-op or the CI
-# drift gate fails (CRDs, RBAC, deepcopy, guacd docs, types.gen.ts).
-generate-check: generate manifests docs-params generate-types
-	git diff --exit-code -- operator shared helm/waas/crds frontend/src/types.gen.ts
+# drift gate fails (CRDs, RBAC, deepcopy, guacd docs, types.gen.ts,
+# editor CRD schemas).
+generate-check: generate manifests docs-params generate-types crd-schemas
+	git diff --exit-code -- operator shared helm/waas/crds frontend/src/types.gen.ts crd-schemas
 
 # Every ci-helm.yml gate, in one command — run when the chart changed
 # (CI only fires them on helm/** changes, so check does not chain this).
