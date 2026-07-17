@@ -89,7 +89,9 @@ generate-check: generate manifests docs-params generate-types
 # (CI only fires them on helm/** changes, so check does not chain this).
 # kubeconform needs docker and network (datreeio CRD catalog fallback).
 # Renders and schemas go under dist/ (gitignored) — NOT the repo-root
-# crd-schemas/ path CI uses, which collides with a tracked directory.
+# crd-schemas/ path CI uses: that directory is tracked on purpose (the
+# committed copy feeds yaml-language-server CRD completion in editors)
+# and must never be clobbered or cleaned here.
 helm-check:
 	helm lint helm/waas
 	mkdir -p dist
