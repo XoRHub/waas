@@ -202,10 +202,11 @@ per entry. It never covers configMap/secret-backed mounts (e.g. an
 init.d script volume) — those stay the admin's call via the free-form
 `Workload.volumes`/`volumeMounts` override, never suggested by the
 catalog. `env[].requires` names another hint of the *same*
-recommendation that makes no sense without this one; it is purely
-descriptive (lets the prefill UI group/warn together) — never
-validated, never enforced, the admin can still apply one without the
-other exactly like today.
+recommendation that makes no sense without this one; the prefill UI
+follows it (a relevant hint pulls its required siblings into the offer
+even when their own `protocols` don't match the template's) but it
+stays purely descriptive server-side — never validated, never
+enforced, the admin can still apply one without the other.
 
 The admin template form (`CatalogImageField.tsx`) offers an explicit
 **"Apply catalog recommendations"** button next to the image field once
@@ -213,9 +214,20 @@ a registry-mode discovered image carrying a `recommended` block is
 selected — never an automatic prefill on selection, so an admin can
 never save a `securityContext` they didn't consciously see. Clicking it
 expands the (collapsed-by-default) Workload YAML section so the
-injected values are visible before saving, and merges `env` hints into
-the template's env list by name without overwriting an already-present
-entry.
+injected values are visible before saving. The env part is
+**protocol-aware**: on a template with no protocols configured yet, the
+entry's supported protocols are added first (with their registry
+default ports; a list mixing `kasmvnc` with guacd protocols keeps only
+the guacd ones — kasmvnc exclusivity); a template that already has
+protocols keeps them untouched. Hints are then filtered to those
+protocols (`env[].protocols`, unscoped = always relevant, plus the
+`requires` closure above). A relevant hint **with** a `default` merges
+into the template's env list by name without overwriting an
+already-present entry; one **without** a default is only *offered* — a
+greyed suggestion row in the env fieldset the admin adopts with a
+click (its `description` becomes the value placeholder) — so an empty
+literal never sneaks into the CR and supersedes the operator's own
+credential injection.
 
 ## Architecture prefill (`architectures`) — the one on-selection write
 
