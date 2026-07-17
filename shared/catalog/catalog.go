@@ -61,6 +61,13 @@ type Entry struct {
 	// no badge is shown. Purely cosmetic — never read by enforce() or
 	// buildPodTemplate.
 	Profile string `json:"profile,omitempty" jsonschema:"enum=,enum=hardened,enum=normal"`
+	// Architectures this exact image is published for (amd64/arm64) —
+	// PER IMAGE, unlike WorkspaceImage.spec.architectures which covers
+	// the whole registry entry. A prefill hint for the admin template
+	// form (nodeSelector kubernetes.io/arch when exactly one is listed);
+	// never read by the operator's archAffinity, which stays entry-level.
+	// Empty = unknown, no hint.
+	Architectures []string `json:"architectures,omitempty" jsonschema:"enum=amd64,enum=arm64"`
 	// Recommended is an optional deployment-prefill hint for the admin
 	// template form — never merged into a built pod, never validated by
 	// a webhook. See docs/image-catalog.md.

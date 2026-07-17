@@ -54,6 +54,29 @@ images:
 	if e.Profile != "" || e.Recommended != nil {
 		t.Errorf("profile/recommended should be zero values: %+v", e)
 	}
+	if e.Architectures != nil {
+		t.Errorf("absent architectures should stay nil: %+v", e)
+	}
+}
+
+func TestParseArchitectures(t *testing.T) {
+	f, err := Parse([]byte(`
+apiVersion: waas.xorhub.io/catalog/v1
+images:
+  - image: ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:def
+    architectures: [amd64]
+  - image: ghcr.io/xorhub/waas-images/terminal:1.2.0@sha256:abc
+    architectures: [amd64, arm64]
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := f.Images[0].Architectures; len(got) != 1 || got[0] != "amd64" {
+		t.Errorf("architectures = %v, want [amd64]", got)
+	}
+	if got := f.Images[1].Architectures; len(got) != 2 {
+		t.Errorf("architectures = %v, want [amd64 arm64]", got)
+	}
 }
 
 func TestParseRecommendation(t *testing.T) {

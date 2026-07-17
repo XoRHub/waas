@@ -67,6 +67,16 @@
             "normal"
           ]
         },
+        "architectures": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "amd64",
+              "arm64"
+            ]
+          },
+          "type": "array"
+        },
         "recommended": {
           "$ref": "#/$defs/Recommendation"
         }
