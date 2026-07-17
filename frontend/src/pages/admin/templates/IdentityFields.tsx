@@ -17,11 +17,14 @@ export function IdentityFields({
   isNew,
   onPatch,
   onApplyRecommendation,
+  onArchitectures,
 }: {
   input: TemplateInput;
   isNew: boolean;
   onPatch: (patch: Partial<TemplateInput>) => void;
   onApplyRecommendation?: (recommended: DeploymentRecommendation) => void;
+  /** See CatalogImageField.onArchitectures. */
+  onArchitectures?: (architectures: string[]) => void;
 }) {
   const { t } = useTranslation();
 
@@ -92,6 +95,7 @@ export function IdentityFields({
         image={input.image}
         onChange={(image) => onPatch({ image })}
         onApplyRecommendation={onApplyRecommendation}
+        onArchitectures={onArchitectures}
       />
 
       <label className="block">

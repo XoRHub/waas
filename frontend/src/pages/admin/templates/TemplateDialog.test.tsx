@@ -30,6 +30,7 @@ const catalogs: CatalogImage[] = [
         version: '128',
         os: 'linux',
         profile: 'hardened',
+        architectures: ['amd64'],
         recommended: {
           podSecurityContext: { runAsUser: 1000 },
           securityContext: { readOnlyRootFilesystem: true },
@@ -39,6 +40,14 @@ const catalogs: CatalogImage[] = [
             { name: 'WAAS_SSH_AUTHORIZED_KEYS_FILE' },
           ],
         },
+      },
+      {
+        image: 'ghcr.io/acme/chromium:126',
+        app: 'chromium',
+        displayName: 'Chromium',
+        version: '126',
+        os: 'linux',
+        architectures: ['amd64', 'arm64'],
       },
     ],
   },
@@ -115,5 +124,55 @@ describe('TemplateDialog — apply catalog recommendation', () => {
 
     // The non-colliding hint is still added.
     expect(screen.getByDisplayValue('WAAS_SSH_AUTHORIZED_KEYS_FILE')).toBeInTheDocument();
+  });
+});
+
+describe('TemplateDialog — architecture nodeSelector prefill', () => {
+  const workloadYaml = () =>
+    (document.querySelector('details')?.querySelector('textarea') as HTMLTextAreaElement).value;
+
+  const selectImage = async (name: RegExp) => {
+    await userEvent.click(await screen.findByRole('option', { name }));
+  };
+
+  it('stamps kubernetes.io/arch on single-arch selection and drops it on a multi-arch one', async () => {
+    renderWithProviders(<TemplateDialog isNew initial={initial} onClose={() => {}} />);
+    await userEvent.click(
+      screen.getByRole('button', { name: en.admin.templatesPage.imageCatalog }),
+    );
+    await userEvent.click(await screen.findByRole('option', { name: /Browsers/ }));
+
+    // Firefox is amd64-only: the label lands in the workload YAML and
+    // the collapsed section opens to show it.
+    await selectImage(/Firefox/);
+    expect(workloadYaml()).toContain('kubernetes.io/arch: amd64');
+    expect(document.querySelector('details')?.open).toBe(true);
+
+    // Chromium is multi-arch: the stale constraint is removed (and the
+    // now-empty workload text clears entirely).
+    await userEvent.clear(screen.getByRole('textbox', { name: en.admin.templatesPage.image }));
+    await selectImage(/Chromium/);
+    expect(workloadYaml()).not.toContain('kubernetes.io/arch');
+  });
+
+  it('never touches other nodeSelector keys', async () => {
+    const withWorkload: TemplateInput = {
+      ...initial,
+      workload: { nodeSelector: { zone: 'eu-west' } },
+    };
+    renderWithProviders(<TemplateDialog isNew initial={withWorkload} onClose={() => {}} />);
+    await userEvent.click(
+      screen.getByRole('button', { name: en.admin.templatesPage.imageCatalog }),
+    );
+    await userEvent.click(await screen.findByRole('option', { name: /Browsers/ }));
+
+    await selectImage(/Firefox/);
+    expect(workloadYaml()).toContain('zone: eu-west');
+    expect(workloadYaml()).toContain('kubernetes.io/arch: amd64');
+
+    await userEvent.clear(screen.getByRole('textbox', { name: en.admin.templatesPage.image }));
+    await selectImage(/Chromium/);
+    expect(workloadYaml()).toContain('zone: eu-west');
+    expect(workloadYaml()).not.toContain('kubernetes.io/arch');
   });
 });

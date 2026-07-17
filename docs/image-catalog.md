@@ -114,6 +114,11 @@ images:
     version: "1.0.0"
     icon: firefox    # dashboard-icons slug — also accepts an absolute
                      # https URL or file:<path> (see the picker section)
+    architectures: [amd64]   # optional, PER IMAGE (amd64/arm64) — a
+                             # nodeSelector prefill hint for the admin
+                             # template form; absent = unknown, the
+                             # entry-level spec.architectures is the
+                             # fallback hint (see § architecture prefill)
 ```
 
 The parser is tolerant (absent optional fields = zero values) but
@@ -211,6 +216,29 @@ expands the (collapsed-by-default) Workload YAML section so the
 injected values are visible before saving, and merges `env` hints into
 the template's env list by name without overwriting an already-present
 entry.
+
+## Architecture prefill (`architectures`) — the one on-selection write
+
+A catalog entry can also list the `architectures` (amd64/arm64) that
+exact image is published for — per image, unlike
+`WorkspaceImageSpec.Architectures` which covers the whole registry
+entry and which the operator already turns into node affinity
+(`archAffinity`, entry-level, unchanged by this field). The sync worker
+normalizes the list like `os`/`profile` (unknown values and duplicates
+dropped, nothing valid left = NULL = unknown) into the
+`catalog_entries.architectures` column (JSON text).
+
+The template form consumes it as the **single deliberate exception** to
+the no-prefill-on-selection doctrine above: picking an image in the
+catalog picker (a discovered card, or a single-image catalog — never
+free typing) with exactly **one** published architecture stamps
+`kubernetes.io/arch: <arch>` into the workload's `nodeSelector` and
+expands the Workload section to show it; a multi-arch or unknown pick
+removes a stale `kubernetes.io/arch` instead. Only that one
+platform-derived key is ever written — other `nodeSelector` keys and
+the rest of the YAML are never touched, and unparseable YAML is left
+alone. Per-image list wins; the entry-level `spec.architectures` is the
+fallback when the manifest doesn't carry the field.
 
 The `profile` badge is scoped to this admin form: `ImageOptionCard`
 only renders it when passed a `profile`, and `CatalogImageField.tsx` is

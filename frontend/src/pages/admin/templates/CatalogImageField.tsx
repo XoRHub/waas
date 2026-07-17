@@ -38,6 +38,7 @@ export function CatalogImageField({
   image,
   onChange,
   onApplyRecommendation,
+  onArchitectures,
 }: {
   image: string;
   onChange: (image: string) => void;
@@ -45,6 +46,12 @@ export function CatalogImageField({
    * triggered by onSelect/onChange, only by the button rendered when
    * the currently selected discovered image carries one. */
   onApplyRecommendation?: (recommended: DeploymentRecommendation) => void;
+  /** Fired on explicit picker selections (a discovered card, or a
+   * single-image catalog) with the architectures the pick is published
+   * for — the per-image list when the manifest carries one, else the
+   * entry-level one; [] = unknown. Never fired on free typing: a pasted
+   * reference has no arch info to offer. */
+  onArchitectures?: (architectures: string[]) => void;
 }) {
   const { t } = useTranslation();
   const images = useAdminImages();
@@ -81,6 +88,7 @@ export function CatalogImageField({
       // Single-image mode: there is exactly one image to offer, no
       // suggestions to browse — fill the field right away.
       onChange(catalog.image);
+      onArchitectures?.(catalog.architectures ?? []);
       setOpen(false);
       return;
     }
@@ -180,6 +188,9 @@ export function CatalogImageField({
                 selected={d.image === image}
                 onSelect={() => {
                   onChange(d.image);
+                  onArchitectures?.(
+                    d.architectures?.length ? d.architectures : (selected?.architectures ?? []),
+                  );
                   setOpen(false);
                 }}
               />

@@ -101,6 +101,46 @@ export function TemplateDialog({
 
     setWorkloadOpen(true);
   };
+
+  /** The standard architecture scheduling label (kubernetes.io/arch). */
+  const ARCH_LABEL = 'kubernetes.io/arch';
+  // Arch prefill on catalog selection: exactly one published
+  // architecture stamps the standard label into the workload's
+  // nodeSelector; a multi-arch (or unknown) pick removes a stale
+  // ARCH_LABEL instead — other nodeSelector keys are never touched.
+  // Narrow, deliberate exception to the no-silent-autofill doctrine
+  // above: the picker click is itself the explicit action, and only
+  // this single platform-derived key is ever written. (The operator
+  // already constrains scheduling from the ENTRY-level architectures
+  // via node affinity; this makes the per-image constraint visible and
+  // editable on the template.)
+  const applyArchitectures = (archs: string[]) => {
+    const { value, issues } = parseYaml(workloadText);
+    // Never rewrite YAML the admin has left unparseable.
+    if (issues.length > 0) return;
+    const base = (
+      value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+    ) as Record<string, unknown>;
+    const rawSel = base.nodeSelector;
+    const sel = {
+      ...((rawSel && typeof rawSel === 'object' && !Array.isArray(rawSel) ? rawSel : {}) as Record<
+        string,
+        unknown
+      >),
+    };
+    if (archs.length === 1) {
+      if (sel[ARCH_LABEL] === archs[0]) return;
+      sel[ARCH_LABEL] = archs[0];
+    } else {
+      if (!(ARCH_LABEL in sel)) return;
+      delete sel[ARCH_LABEL];
+    }
+    const next = { ...base };
+    if (Object.keys(sel).length > 0) next.nodeSelector = sel;
+    else delete next.nodeSelector;
+    setWorkloadText(Object.keys(next).length > 0 ? yamlStringify(next) : '');
+    setWorkloadOpen(true);
+  };
   const protocols = input.protocols ?? [];
   const [activeProto, setActiveProto] = useState(protocols[0]?.name ?? '');
   const patchActive = (patch: Partial<TemplateProtocolInput>) => {
@@ -188,6 +228,7 @@ export function TemplateDialog({
         isNew={isNew}
         onPatch={set}
         onApplyRecommendation={applyRecommendation}
+        onArchitectures={applyArchitectures}
       />
 
       <ResourcesFieldset requests={input.requests} limits={input.limits} onPatch={set} />

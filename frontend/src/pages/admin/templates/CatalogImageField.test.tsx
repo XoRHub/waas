@@ -30,6 +30,7 @@ const catalogs: CatalogImage[] = [
     displayName: 'Browsers',
     registry: 'ghcr.io/acme/',
     enabled: true,
+    architectures: ['amd64', 'arm64'],
     discovered: [
       {
         image: 'ghcr.io/acme/firefox:128',
@@ -38,6 +39,7 @@ const catalogs: CatalogImage[] = [
         version: '128',
         os: 'linux',
         profile: 'hardened',
+        architectures: ['amd64'],
         recommended: firefoxRecommendation,
       },
       {
@@ -54,6 +56,7 @@ const catalogs: CatalogImage[] = [
     displayName: 'Ubuntu Desktop',
     image: 'docker.io/acme/ubuntu:24.04',
     enabled: true,
+    architectures: ['arm64'],
   },
   {
     name: 'legacy',
@@ -69,10 +72,12 @@ function Harness({
   initial,
   onChange,
   onApplyRecommendation,
+  onArchitectures,
 }: {
   initial: string;
   onChange: (v: string) => void;
   onApplyRecommendation?: (recommended: DeploymentRecommendation) => void;
+  onArchitectures?: (architectures: string[]) => void;
 }) {
   const [image, setImage] = useState(initial);
   return (
@@ -83,6 +88,7 @@ function Harness({
         setImage(v);
       }}
       onApplyRecommendation={onApplyRecommendation}
+      onArchitectures={onArchitectures}
     />
   );
 }
@@ -90,10 +96,16 @@ function Harness({
 function renderField(initial = '') {
   const onChange = vi.fn();
   const onApplyRecommendation = vi.fn();
+  const onArchitectures = vi.fn();
   renderWithProviders(
-    <Harness initial={initial} onChange={onChange} onApplyRecommendation={onApplyRecommendation} />,
+    <Harness
+      initial={initial}
+      onChange={onChange}
+      onApplyRecommendation={onApplyRecommendation}
+      onArchitectures={onArchitectures}
+    />,
   );
-  return { onChange, onApplyRecommendation };
+  return { onChange, onApplyRecommendation, onArchitectures };
 }
 
 // A string name is an exact match: never collides with "Image catalog".
@@ -165,6 +177,34 @@ describe('CatalogImageField', () => {
     expect(screen.queryByRole('listbox', { name: en.admin.templatesPage.image })).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
     expect(imageInput()).toHaveValue('docker.io/current');
+  });
+
+  it('reports the per-image architectures on selection, entry-level as fallback', async () => {
+    const { onArchitectures } = renderField();
+    await openPicker();
+    await userEvent.click(await screen.findByRole('option', { name: /Browsers/ }));
+
+    // Firefox carries its own list.
+    await userEvent.click(screen.getByRole('option', { name: /Firefox/ }));
+    expect(onArchitectures).toHaveBeenLastCalledWith(['amd64']);
+
+    // Chromium has none: the entry-level list applies.
+    await userEvent.clear(imageInput());
+    await userEvent.click(await screen.findByRole('option', { name: /Chromium/ }));
+    expect(onArchitectures).toHaveBeenLastCalledWith(['amd64', 'arm64']);
+
+    // Free typing never reports architectures.
+    onArchitectures.mockClear();
+    await userEvent.clear(imageInput());
+    await userEvent.type(imageInput(), 'docker.io/zzz');
+    expect(onArchitectures).not.toHaveBeenCalled();
+  });
+
+  it('single-image mode reports the entry-level architectures', async () => {
+    const { onArchitectures } = renderField();
+    await openPicker();
+    await userEvent.click(await screen.findByRole('option', { name: /Ubuntu Desktop/ }));
+    expect(onArchitectures).toHaveBeenCalledWith(['arm64']);
   });
 
   it('shows an apply-recommendation button only for a discovered image carrying one', async () => {
