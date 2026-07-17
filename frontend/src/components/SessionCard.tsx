@@ -184,7 +184,7 @@ export function SessionCard({
         </div>
       </div>
 
-      {target.protocols.length > 1 && (
+      {target.protocols.length > 0 && (
         <div className="flex items-center gap-1" title={t('portal.switchProtocolHint')}>
           {target.protocols.map((p) => (
             <button
