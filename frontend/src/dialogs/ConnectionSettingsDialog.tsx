@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog } from '@/components/Dialog';
 import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
+import { TabbedPanels } from '@/components/TabbedPanels';
 import {
   useProtocolMeta,
   useUpdateProfile,
@@ -129,92 +130,89 @@ export function ConnectionSettingsDialog({
         )
       }
     >
-      {/* Top-level sections (same look as the protocol tabs below, but
-          these are labelled sections, not protocol names). */}
-      <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-700">
-        {(
-          [
-            ['connection', t('portal.settingsTabConnection')],
-            ['workspace', t('portal.settingsTabWorkspace')],
-          ] as const
-        ).map(([section, label]) => (
-          <button
-            key={section}
-            type="button"
-            onClick={() => setTopTab(section)}
-            className={`-mb-px rounded-t-md border-x border-t px-3 py-1.5 text-sm font-medium ${
-              section === topTab
-                ? 'border-slate-200 bg-white text-blue-600 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {topTab === 'workspace' ? (
-        <WorkspaceRuntimeForm
-          workspace={workspace}
-          formId={RUNTIME_FORM_ID}
-          onApply={(input) => {
-            if (!input) {
-              onClose();
-              return;
-            }
-            updateOverrides.mutate({ id: workspace.id, input }, { onSuccess: onClose });
-          }}
-        />
-      ) : names.length > 0 ? (
-        <>
-          <ProtocolTabs
-            protocols={names}
-            active={tab}
-            onSelect={setTab}
-            badge={(p) => (p === chosen ? <span className="text-[10px]">●</span> : null)}
-          />
-          {selected && (
-            <div className="space-y-3">
-              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                <input
-                  type="radio"
-                  name="chosen-protocol"
-                  checked={chosen === tab}
-                  onChange={() => setChosen(tab)}
-                />
-                {t('portal.useThisProtocol')}
-                {tab === defaultProtocol && (
-                  <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
-                )}
-              </label>
-              <ProtocolParamsForm
-                key={tab}
-                meta={meta.data?.data}
-                protocol={tab}
-                values={paramsByProto[tab] ?? {}}
-                onChange={(name, value) =>
-                  setParamsByProto((prev) => ({
-                    ...prev,
-                    [tab]: { ...prev[tab], [name]: value },
-                  }))
-                }
-                allowList={isAdmin ? undefined : (selected.resolvedUserParams ?? [])}
-                placeholders={selected.params}
-                columns={1}
-                audioPortExposed={selected.exposeAudioPort ?? false}
-                kasmvncConfig={
-                  tab === 'kasmvnc'
-                    ? { content: kasmCfg.data?.data.config ?? '', variant: 'effective' }
-                    : undefined
-                }
+      {/* Controlled: the dialog footer depends on the active section
+          (Save profile vs Apply overrides). */}
+      <TabbedPanels
+        active={topTab}
+        onSelect={(id) => setTopTab(id as 'connection' | 'workspace')}
+        tabs={[
+          {
+            id: 'connection',
+            label: t('portal.settingsTabConnection'),
+            content:
+              names.length > 0 ? (
+                <>
+                  <ProtocolTabs
+                    protocols={names}
+                    active={tab}
+                    onSelect={setTab}
+                    badge={(p) => (p === chosen ? <span className="text-[10px]">●</span> : null)}
+                  />
+                  {selected && (
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <input
+                          type="radio"
+                          name="chosen-protocol"
+                          checked={chosen === tab}
+                          onChange={() => setChosen(tab)}
+                        />
+                        {t('portal.useThisProtocol')}
+                        {tab === defaultProtocol && (
+                          <span className="text-xs text-slate-400">
+                            ({t('portal.protocolDefault')})
+                          </span>
+                        )}
+                      </label>
+                      <ProtocolParamsForm
+                        key={tab}
+                        meta={meta.data?.data}
+                        protocol={tab}
+                        values={paramsByProto[tab] ?? {}}
+                        onChange={(name, value) =>
+                          setParamsByProto((prev) => ({
+                            ...prev,
+                            [tab]: { ...prev[tab], [name]: value },
+                          }))
+                        }
+                        allowList={isAdmin ? undefined : (selected.resolvedUserParams ?? [])}
+                        placeholders={selected.params}
+                        columns={1}
+                        audioPortExposed={selected.exposeAudioPort ?? false}
+                        kasmvncConfig={
+                          tab === 'kasmvnc'
+                            ? { content: kasmCfg.data?.data.config ?? '', variant: 'effective' }
+                            : undefined
+                        }
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {t('portal.protocol')}: {(workspace.protocol || 'vnc').toUpperCase()}
+                </p>
+              ),
+          },
+          {
+            id: 'workspace',
+            label: t('portal.settingsTabWorkspace'),
+            content: (
+              <WorkspaceRuntimeForm
+                workspace={workspace}
+                formId={RUNTIME_FORM_ID}
+                onApply={(input) => {
+                  if (!input) {
+                    onClose();
+                    return;
+                  }
+                  updateOverrides.mutate({ id: workspace.id, input }, { onSuccess: onClose });
+                }}
               />
-            </div>
-          )}
-        </>
-      ) : (
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          {t('portal.protocol')}: {(workspace.protocol || 'vnc').toUpperCase()}
-        </p>
-      )}
+            ),
+          },
+        ]}
+      />
     </Dialog>
   );
 }
