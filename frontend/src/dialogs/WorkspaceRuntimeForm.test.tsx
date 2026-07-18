@@ -63,14 +63,30 @@ describe('WorkspaceRuntimeForm', () => {
     ]);
   });
 
-  it('locks every group when the template delegates nothing', async () => {
+  it('right-less groups lose their tab, unless a value is stored (then read-only)', async () => {
     apiMock.route('/api/v1/workspace-templates', [template([])]);
     const onApply = renderForm(workspace({ labels: { team: 'blue' } }));
 
-    expect(await screen.findAllByText(/not allowed by this template/)).toHaveLength(6);
+    // Only metadata has a stored override: its tab shows, locked; every
+    // other group has no right and nothing stored — no tab at all.
+    const metaTab = await screen.findByRole('button', { name: /Metadata/ });
+    expect(metaTab.textContent).toContain('🔒');
+    expect(screen.queryByRole('button', { name: 'Environment' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Node placement' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Schedule' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resources' })).toBeNull();
     // Locked metadata still SHOWS the stored override, read-only.
     expect(screen.getByDisplayValue('team')).toBeDisabled();
 
+    await submit();
+    expect(onApply).toHaveBeenCalledWith(null);
+  });
+
+  it('shows the empty hint when nothing is delegated nor stored', async () => {
+    apiMock.route('/api/v1/workspace-templates', [template([])]);
+    const onApply = renderForm(workspace(undefined));
+
+    expect(await screen.findByText(/delegates no runtime setting/)).toBeInTheDocument();
     await submit();
     expect(onApply).toHaveBeenCalledWith(null);
   });
@@ -86,6 +102,7 @@ describe('WorkspaceRuntimeForm', () => {
 
   it('metadata edits travel alone — only the changed fields', async () => {
     const onApply = renderForm(workspace({ labels: { team: 'blue' } }));
+    await userEvent.click(await screen.findByRole('button', { name: /Metadata/ }));
     // The rights arrive with the templates query: editable once loaded.
     await waitFor(() => expect(screen.getByDisplayValue('blue')).toBeEnabled());
 
@@ -100,6 +117,7 @@ describe('WorkspaceRuntimeForm', () => {
     const onApply = renderForm(
       workspace({ schedule: { timezone: 'Europe/Paris', uptime: ['0 9 * * *'] } }),
     );
+    await userEvent.click(await screen.findByRole('button', { name: /Schedule/ }));
     const tz = await screen.findByDisplayValue('Europe/Paris');
     await waitFor(() => expect(tz).toBeEnabled());
     await userEvent.clear(screen.getByDisplayValue('0 9 * * *'));
@@ -110,6 +128,8 @@ describe('WorkspaceRuntimeForm', () => {
 
   it('editing the schedule sends the full schedule', async () => {
     const onApply = renderForm(workspace(undefined));
+    // The Schedule tab only exists once the rights load (nothing stored).
+    await userEvent.click(await screen.findByRole('button', { name: /Schedule/ }));
     // Seeded from the effective (template) schedule.
     const uptime = await screen.findByDisplayValue('0 8 * * 1-5');
     await waitFor(() => expect(uptime).toBeEnabled());

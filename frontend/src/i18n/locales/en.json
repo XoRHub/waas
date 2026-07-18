@@ -154,7 +154,10 @@
       "metaValue": "value",
       "addLabel": "Add label",
       "addAnnotation": "Add annotation",
-      "metadataHint": "Merged under the workload's own metadata (platform keys always win). Reserved domains are rejected server-side."
+      "metadataHint": "Merged under the workload's own metadata (platform keys always win). Reserved domains are rejected server-side.",
+      "environment": "Environment",
+      "schedule": "Schedule",
+      "nothingEditable": "This template delegates no runtime setting you can reconfigure."
     }
   },
   "remote": {

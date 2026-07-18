@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { KeyValueEditor, addButton, removeButton, rowInput } from '@/components/KeyValueEditor';
 import { ScheduleEditor } from '@/components/ScheduleEditor';
+import { TabbedPanels, type PanelTab } from '@/components/TabbedPanels';
 import {
   CPU_FLOOR,
   CPU_STEP,
@@ -222,17 +223,27 @@ export function WorkspaceRuntimeForm({
   const resEditable = canOverride('resources');
   const metaEditable = canOverride('metadata');
   const schedEditable = canOverride('schedule');
+  const placementEditable = selEditable || tolEditable;
 
-  return (
-    <form id={formId} onSubmit={onSubmit} className="space-y-4">
-      <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.runtime.hint')}</p>
+  // One tab per group. A group gets its tab when the right is delegated
+  // OR a value is already stored — a stored override with the right
+  // revoked shows read-only (🔒): hiding it would keep it silently
+  // applying with no UI trace. No right and nothing stored = no tab.
+  const stored = {
+    env: (runtime?.env?.length ?? 0) > 0,
+    placement:
+      Object.keys(runtime?.nodeSelector ?? {}).length > 0 ||
+      (runtime?.tolerations?.length ?? 0) > 0,
+    metadata:
+      Object.keys(runtime?.labels ?? {}).length > 0 ||
+      Object.keys(runtime?.annotations ?? {}).length > 0,
+    schedule: Boolean(runtime?.schedule),
+    resources: hadResources,
+  };
 
-      <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-        <legend className="flex items-center gap-2 px-1 text-sm text-slate-600 dark:text-slate-300">
-          {t('portal.envOverrides')}
-          {!envEditable && locked}
-        </legend>
-        {envRows.map((row, i) => (
+  const envContent = (
+    <>
+      {envRows.map((row, i) => (
           <div key={i} className="flex gap-2">
             <input
               className={`w-2/5 ${rowInput}`}
@@ -268,28 +279,27 @@ export function WorkspaceRuntimeForm({
             )}
           </div>
         ))}
-        {envEditable && (
-          <button
-            type="button"
-            onClick={() => setEnvRows((rows) => [...rows, { name: '', value: '' }])}
-            className={addButton}
-          >
-            + {t('portal.addEnvVar')}
-          </button>
-        )}
-      </fieldset>
+      {envEditable && (
+        <button
+          type="button"
+          onClick={() => setEnvRows((rows) => [...rows, { name: '', value: '' }])}
+          className={addButton}
+        >
+          + {t('portal.addEnvVar')}
+        </button>
+      )}
+    </>
+  );
 
-      <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-        <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
-          {t('portal.runtime.placement')}
-        </legend>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            {t('portal.runtime.nodeSelector')}
-          </span>
-          {!selEditable && locked}
-        </div>
-        <KeyValueEditor
+  const placementContent = (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          {t('portal.runtime.nodeSelector')}
+        </span>
+        {!selEditable && placementEditable && locked}
+      </div>
+      <KeyValueEditor
           value={nodeSel}
           onChange={setNodeSel}
           disabled={!selEditable}
@@ -298,13 +308,13 @@ export function WorkspaceRuntimeForm({
           addLabel={t('portal.runtime.addSelector')}
         />
 
-        <div className="flex items-center gap-2 pt-1">
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            {t('portal.runtime.tolerations')}
-          </span>
-          {!tolEditable && locked}
-        </div>
-        {tolRows.map((tol, i) => (
+      <div className="flex items-center gap-2 pt-1">
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          {t('portal.runtime.tolerations')}
+        </span>
+        {!tolEditable && placementEditable && locked}
+      </div>
+      {tolRows.map((tol, i) => (
           <div key={i} className="flex gap-1">
             <input
               className={`w-1/4 ${rowInput}`}
@@ -374,25 +384,23 @@ export function WorkspaceRuntimeForm({
             )}
           </div>
         ))}
-        {tolEditable && (
-          <button
-            type="button"
-            onClick={() => setTolRows((rows) => [...rows, { operator: 'Equal' }])}
-            className={addButton}
-          >
-            + {t('portal.runtime.addToleration')}
-          </button>
-        )}
-      </fieldset>
+      {tolEditable && (
+        <button
+          type="button"
+          onClick={() => setTolRows((rows) => [...rows, { operator: 'Equal' }])}
+          className={addButton}
+        >
+          + {t('portal.runtime.addToleration')}
+        </button>
+      )}
+    </div>
+  );
 
-      <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-        <legend className="flex items-center gap-2 px-1 text-sm text-slate-600 dark:text-slate-300">
-          {t('portal.runtime.metadata')}
-          {!metaEditable && locked}
-        </legend>
-        <span className="text-xs text-slate-500 dark:text-slate-400">
-          {t('portal.runtime.labels')}
-        </span>
+  const metadataContent = (
+    <div className="space-y-2">
+      <span className="text-xs text-slate-500 dark:text-slate-400">
+        {t('portal.runtime.labels')}
+      </span>
         <KeyValueEditor
           value={labels}
           onChange={setLabels}
@@ -412,25 +420,15 @@ export function WorkspaceRuntimeForm({
           valuePlaceholder={t('portal.runtime.metaValue')}
           addLabel={t('portal.runtime.addAnnotation')}
         />
-        <p className="text-xs text-slate-400 dark:text-slate-500">
-          {t('portal.runtime.metadataHint')}
-        </p>
-      </fieldset>
+      <p className="text-xs text-slate-400 dark:text-slate-500">
+        {t('portal.runtime.metadataHint')}
+      </p>
+    </div>
+  );
 
-      <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-        <legend className="flex items-center gap-2 px-1 text-sm text-slate-600 dark:text-slate-300">
-          {t('schedule.title')}
-          {!schedEditable && locked}
-        </legend>
-        <ScheduleEditor value={schedule} onChange={setSchedule} disabled={!schedEditable} />
-      </fieldset>
-
-      <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-        <legend className="flex items-center gap-2 px-1 text-sm text-slate-600 dark:text-slate-300">
-          {t('portal.runtime.resources')}
-          {!resEditable && locked}
-        </legend>
-        {resEditable ? (
+  const resourcesContent = (
+    <div className="space-y-3">
+      {resEditable ? (
           <>
             <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input
@@ -475,7 +473,74 @@ export function WorkspaceRuntimeForm({
             })}
           </p>
         )}
-      </fieldset>
+    </div>
+  );
+
+  const tabs: PanelTab[] = [
+    ...(envEditable || stored.env
+      ? [
+          {
+            id: 'env',
+            label: t('portal.runtime.environment'),
+            locked: !envEditable,
+            content: envContent,
+          },
+        ]
+      : []),
+    ...(placementEditable || stored.placement
+      ? [
+          {
+            id: 'placement',
+            label: t('portal.runtime.placement'),
+            locked: !placementEditable,
+            content: placementContent,
+          },
+        ]
+      : []),
+    ...(metaEditable || stored.metadata
+      ? [
+          {
+            id: 'metadata',
+            label: t('portal.runtime.metadata'),
+            locked: !metaEditable,
+            content: metadataContent,
+          },
+        ]
+      : []),
+    ...(schedEditable || stored.schedule
+      ? [
+          {
+            id: 'schedule',
+            label: t('portal.runtime.schedule'),
+            locked: !schedEditable,
+            content: (
+              <ScheduleEditor value={schedule} onChange={setSchedule} disabled={!schedEditable} />
+            ),
+          },
+        ]
+      : []),
+    ...(resEditable || stored.resources
+      ? [
+          {
+            id: 'resources',
+            label: t('portal.runtime.resources'),
+            locked: !resEditable,
+            content: resourcesContent,
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <form id={formId} onSubmit={onSubmit} className="space-y-4">
+      <p className="text-xs text-slate-400 dark:text-slate-500">{t('portal.runtime.hint')}</p>
+      {tabs.length > 0 ? (
+        <TabbedPanels tabs={tabs} />
+      ) : (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {t('portal.runtime.nothingEditable')}
+        </p>
+      )}
     </form>
   );
 }

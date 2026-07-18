@@ -89,14 +89,15 @@ describe('ConnectionSettingsDialog — Workspace tab', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
 
-    // env is allowed by the template: editable, seeded with the current
-    // override. nodeSelector/tolerations/metadata/schedule/resources are
-    // not: locked note on each.
+    // env is allowed by the template: its tab exists and is editable,
+    // seeded with the current override. The right-less groups with
+    // nothing stored get NO tab at all.
     const addVar = await screen.findByRole('button', { name: /Add variable/ });
     expect(screen.getByDisplayValue('HTTP_PROXY')).toBeInTheDocument();
-    expect(screen.getAllByText(/not allowed by this template or your policy/).length).toBe(5);
-    expect(screen.queryByRole('button', { name: /Add selector/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Add toleration/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Node placement' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Metadata' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Schedule' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resources' })).toBeNull();
 
     await userEvent.click(addVar);
     const names = screen.getAllByPlaceholderText('NAME');

@@ -154,7 +154,10 @@
       "metaValue": "valeur",
       "addLabel": "Ajouter un label",
       "addAnnotation": "Ajouter une annotation",
-      "metadataHint": "Fusionnées sous les métadonnées du workload (les clés de la plateforme gagnent toujours). Les domaines réservés sont refusés côté serveur."
+      "metadataHint": "Fusionnées sous les métadonnées du workload (les clés de la plateforme gagnent toujours). Les domaines réservés sont refusés côté serveur.",
+      "environment": "Environnement",
+      "schedule": "Planification",
+      "nothingEditable": "Ce template ne délègue aucun réglage modifiable à l'exécution."
     }
   },
   "remote": {
