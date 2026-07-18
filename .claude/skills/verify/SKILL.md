@@ -18,7 +18,17 @@ description: Drive the WaaS portal on the local k3d dev env to verify a change e
 
 - `http://waas.127.0.0.1.nip.io:8080` — smoke tests, no secure context.
 - `https://waas.127.0.0.1.nip.io:8443` — self-signed, needed for clipboard flows.
-- Login `admin` / `admin123` (from `hack/dev/values-dev.yaml`).
+- Login `admin` / `admin123` (from `hack/dev/values-dev.yaml`) — governed
+  by the no-limits `admins` policy and bypasses feature gates: WRONG
+  account for policy/quota tests.
+- Governed accounts (seeded by `hack/dev/seed-users.sh`, re-seed with
+  `make dev-seed-users`):
+  - `dev` / `dev123` — group `nymphe:dev` → `power-user` policy
+    (maxWorkspaces 5, maxRunningWorkspaces 2, overrides, remotes);
+  - `user` / `user123` — no groups → restrictive `default` policy
+    (maxWorkspaces 1, no remotes).
+  Prefer these for quota, override and feature-gate smoke tests — no
+  policy patching needed.
 
 ## API driving
 

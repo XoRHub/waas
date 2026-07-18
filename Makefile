@@ -27,7 +27,7 @@ LOCAL_IMAGES    ?=
 	generate-check generate manifests docs-params generate-types frontend-build docker-build \
 	dev-up dev-down dev-reset dev-bootstrap dev-build dev-load dev-deploy \
 	dev-reload dev-reload-all dev-build-images dev-load-images \
-	dev-status dev-logs dev-url tidy helm-docs helm-unittest
+	dev-status dev-logs dev-url dev-seed-users tidy helm-docs helm-unittest
 
 all: build
 
@@ -249,7 +249,16 @@ dev-deploy:
 	# server-side-apply conflicts. Applied on every deploy so a plain
 	# dev-reload never leaves the env without a default policy (fail-closed).
 	kubectl -n $(DEV_NAMESPACE) apply -f gitops/governance/policies.yaml
+	# Governed non-admin accounts (dev/dev123, user/user123) so smoke
+	# tests hit the gitops policies without patching them; soft-fails
+	# while the api-server is still rolling out on a cold bootstrap.
+	sh hack/dev/seed-users.sh
 	@$(MAKE) dev-url
+
+# Re-run just the dev account seeding (e.g. after the soft-fail of a
+# cold bootstrap, or after deleting a test account).
+dev-seed-users:
+	sh hack/dev/seed-users.sh
 
 # Rebuild, reimport, re-render the chart and restart — the inner loop
 # while coding. dev-deploy is NOT optional here: a rollout restart alone
