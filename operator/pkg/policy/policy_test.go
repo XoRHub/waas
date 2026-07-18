@@ -225,6 +225,47 @@ func TestCheckLimits(t *testing.T) {
 	}
 }
 
+func TestCheckLimitsMaxRunning(t *testing.T) {
+	image := img("x", "r/x:1", true)
+	one, five := int32(1), int32(5)
+	p := pol("running", 0)
+	p.Spec.Limits = waasv1alpha1.PolicyLimits{
+		MaxWorkspaces:        &five,
+		MaxRunningWorkspaces: &one,
+	}
+
+	base := Load{CPU: resource.MustParse("1"), Memory: resource.MustParse("1Gi"), Storage: resource.MustParse("10Gi")}
+	pausedLoad := base
+	pausedLoad.Paused = true
+	pausedOther := base
+	pausedOther.Paused = true
+	detachedOther := base
+	detachedOther.Detached = true
+
+	cases := []struct {
+		name   string
+		load   Load
+		others []Load
+		deny   bool
+	}{
+		{"below limit", base, nil, false},
+		{"limit reached by running other", base, []Load{base}, true},
+		{"paused other frees the slot", base, []Load{pausedOther}, false},
+		{"detached volume does not count", base, []Load{detachedOther}, false},
+		{"paused load exempt at limit", pausedLoad, []Load{base}, false},
+	}
+	for _, tc := range cases {
+		d := CheckLimits(tc.load, true, &image, &p, tc.others)
+		if tc.deny {
+			if d == nil || d.Reason != ReasonQuotaExceeded || !strings.Contains(d.Message, "running workspace quota") {
+				t.Errorf("%s: want running quota denial, got %v", tc.name, d)
+			}
+		} else if d != nil {
+			t.Errorf("%s: want admit, got %v", tc.name, d)
+		}
+	}
+}
+
 func TestCheckProtocol(t *testing.T) {
 	image := img("x", "r/x:1", true) // vnc only
 	rdpTpl := &waasv1alpha1.WorkspaceTemplate{
