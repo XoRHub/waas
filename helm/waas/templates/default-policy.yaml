@@ -18,7 +18,15 @@ spec:
   {{- end }}
   images:
     {{- toYaml .Values.defaultPolicy.images | nindent 4 }}
-  {{- with .Values.defaultPolicy.limits }}
+  {{- /* Null limits (e.g. the default maxRunningWorkspaces) mean
+      "unlimited" and must be OMITTED: Helm 4 prunes them but Helm 3
+      and helm-unittest would render an explicit null the API server
+      rejects. */}}
+  {{- $limits := dict }}
+  {{- range $k, $v := .Values.defaultPolicy.limits }}
+    {{- if not (kindIs "invalid" $v) }}{{- $_ := set $limits $k $v }}{{- end }}
+  {{- end }}
+  {{- with $limits }}
   limits:
     {{- toYaml . | nindent 4 }}
   {{- end }}

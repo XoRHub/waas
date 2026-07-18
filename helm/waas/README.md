@@ -64,8 +64,9 @@ table is a quick *what*.
 | defaultPolicy.priority | int | `0` | Priority of the bootstrap default WorkspacePolicy (0 = fallback, per the CRD's own convention). |
 | defaultPolicy.subjects | list | `[]` | Subjects (users/groups) this policy applies to; empty = every authenticated user (the point of a "default" policy). |
 | defaultPolicy.images | list | `[]` | Catalog subset this policy allows; empty = the whole enabled catalog. |
-| defaultPolicy.limits | object | `{"aggregate":{"cpu":"2","memory":"3Gi","storage":"15Gi"},"defaults":{"cpu":"500m","memory":"0.5Mi"},"maxWorkspaces":3,"perWorkspace":{"cpu":"1","home":"5Gi","memory":"1Gi"}}` | Caps on what a matched user can consume; empty = unlimited. |
+| defaultPolicy.limits | object | `{"aggregate":{"cpu":"2","memory":"3Gi","storage":"15Gi"},"defaults":{"cpu":"500m","memory":"0.5Mi"},"maxRunningWorkspaces":null,"maxWorkspaces":3,"perWorkspace":{"cpu":"1","home":"5Gi","memory":"1Gi"}}` | Caps on what a matched user can consume; empty = unlimited. |
 | defaultPolicy.limits.maxWorkspaces | int | `3` | Max concurrent workspaces per matched user. |
+| defaultPolicy.limits.maxRunningWorkspaces | string | `nil` | Max simultaneously RUNNING (compute active) workspaces per matched user; paused workspaces don't count. null = unlimited (the key is omitted from the rendered policy). |
 | defaultPolicy.limits.perWorkspace | object | `{"cpu":"1","home":"5Gi","memory":"1Gi"}` | Per-workspace caps (cpu/memory/home volume size). |
 | defaultPolicy.limits.aggregate | object | `{"cpu":"2","memory":"3Gi","storage":"15Gi"}` | Caps on the SUM across all of the matched user's workspaces (cpu/memory/home storage). |
 | defaultPolicy.limits.defaults | object | `{"cpu":"500m","memory":"0.5Mi"}` | Sizing the portal proposes when the user doesn't choose; display-only, never enforced (a per-image default takes precedence). |

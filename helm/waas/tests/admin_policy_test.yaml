@@ -60,7 +60,7 @@ tests:
   - it: renders limits/lifecycle/clipboard/overrides when set, for full bootstrap customization
     set:
       adminPolicy.enabled: true
-      adminPolicy.limits: { maxWorkspaces: 10 }
+      adminPolicy.limits: { maxWorkspaces: 10, maxRunningWorkspaces: 4 }
       adminPolicy.lifecycle: { idleSuspendAfter: 4h }
       adminPolicy.clipboard: { copyFromWorkspace: false }
       adminPolicy.overrides: { allowedFields: [env] }
@@ -68,6 +68,9 @@ tests:
       - equal:
           path: spec.limits.maxWorkspaces
           value: 10
+      - equal:
+          path: spec.limits.maxRunningWorkspaces
+          value: 4
       - equal:
           path: spec.lifecycle.idleSuspendAfter
           value: 4h

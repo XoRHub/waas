@@ -121,6 +121,8 @@ defaultPolicy:
   limits:
     # -- Max concurrent workspaces per matched user.
     maxWorkspaces: 3
+    # -- Max simultaneously RUNNING (compute active) workspaces per matched user; paused workspaces don't count. null = unlimited (the key is omitted from the rendered policy).
+    maxRunningWorkspaces: null
     # -- Per-workspace caps (cpu/memory/home volume size).
     perWorkspace: { cpu: "1", memory: 1Gi, home: 5Gi }
     # -- Caps on the SUM across all of the matched user's workspaces (cpu/memory/home storage).

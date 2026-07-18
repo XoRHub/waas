@@ -18,7 +18,13 @@ spec:
   {{- end }}
   images:
     {{- toYaml .Values.adminPolicy.images | nindent 4 }}
-  {{- with .Values.adminPolicy.limits }}
+  {{- /* Null limits mean "unlimited" and must be OMITTED — see
+      default-policy.yaml. */}}
+  {{- $limits := dict }}
+  {{- range $k, $v := .Values.adminPolicy.limits }}
+    {{- if not (kindIs "invalid" $v) }}{{- $_ := set $limits $k $v }}{{- end }}
+  {{- end }}
+  {{- with $limits }}
   limits:
     {{- toYaml . | nindent 4 }}
   {{- end }}

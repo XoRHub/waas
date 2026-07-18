@@ -18,6 +18,7 @@ tests:
       defaultPolicy.images: []
       defaultPolicy.limits:
         maxWorkspaces: 7
+        maxRunningWorkspaces: 2
         perWorkspace: { cpu: "2", memory: 2Gi, home: 10Gi }
         aggregate: { cpu: "4", memory: 6Gi, storage: 30Gi }
         defaults: { cpu: 250m, memory: 256Mi }
@@ -44,6 +45,9 @@ tests:
           path: spec.limits.maxWorkspaces
           value: 7
       - equal:
+          path: spec.limits.maxRunningWorkspaces
+          value: 2
+      - equal:
           path: spec.limits.perWorkspace
           value: { cpu: "2", memory: 2Gi, home: 10Gi }
       - equal:
@@ -66,6 +70,16 @@ tests:
       - equal:
           path: spec.remoteWorkspaces
           value: false
+
+  - it: the chart default maxRunningWorkspaces (null = unlimited) is omitted from the rendered policy
+    set:
+      defaultPolicy.enabled: true
+    asserts:
+      - equal:
+          path: spec.limits.maxWorkspaces
+          value: 3
+      - notExists:
+          path: spec.limits.maxRunningWorkspaces
 
   - it: restricting subjects and enabling overrides/remoteWorkspaces are supported for full bootstrap customization
     set:
