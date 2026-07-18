@@ -71,7 +71,7 @@ enforcement to the client.
 |---|---|---|
 | Creation | tabs + params/protocol + "connect with" radio (locked if not overridable) | tabs + port/endpoint + default + "add protocol" |
 | Card | switch chips (if >1 protocol served) + clickable drift badge (confirmed reload, if Running) | switch chips (if >1 endpoint); no drift badge |
-| Connection settings | two levels: "Connection" tab (protocol tabs + params, userParams allow-list, admin bypass) + "Workspace" tab (env / placement / resources, template ∩ policy gating via `lib/overrides`) | via the edit dialog (same protocol tabs); no Workspace tab (nothing instantiated) |
+| Connection settings | two levels: "Connection" tab (protocol tabs + params, userParams allow-list, admin bypass) + "Workspace" tab (env / placement / metadata / schedule / resources, template ∩ policy gating via `lib/overrides`) | via the edit dialog (same protocol tabs); no Workspace tab (nothing instantiated) |
 | Session (overlay) | confirmed switch + reconnect params (prefs) | confirmed switch + reconnect params (server endpoint) |
 | Admin template | tabs + params + user-overridable checkbox | n/a (no template) |
 
