@@ -115,6 +115,26 @@ once that takes over, same never-both-at-once rule as `adminPolicy`.
   that is the `default`-policy-for-everyone symptom, not a priority
   bug.
 
+### SSO identity: subject binding, PKCE, nonce
+
+- The durable SSO identity is the id_token's **`sub` claim**, pinned in
+  `users.oidc_subject` at the first login (unique index). The username
+  claim is only a display/provisioning hint: an unknown subject whose
+  username claim collides with **any** existing account is refused
+  (audit `user.sso_link_conflict`) — many IdPs let users pick their own
+  username claim, so a collision is treated as an attempted takeover,
+  never as a match. The fix for a legitimate collision is an admin
+  renaming or deleting the conflicting account.
+- Consequence: the IdP's subject must stay **stable**. In Authentik
+  terms, never change the provider's `sub_mode` once users have logged
+  in — every account would unbind and logins would be refused as
+  collisions.
+- The authorization flow always sends **PKCE (S256)** and a **nonce**,
+  and verifies both at the callback. Pure OIDC/OAuth standards
+  (RFC 7636, OIDC Core §3.1.2.1) — nothing IdP-specific; providers may
+  therefore mark the client public *or* confidential (the client secret
+  is still always sent).
+
 ### OIDC-only login (`WAAS_LOGIN_OIDC_ONLY`)
 
 `WAAS_LOGIN_OIDC_ONLY` (Helm: `apiServer.oidc.disableLocalLogin`)
