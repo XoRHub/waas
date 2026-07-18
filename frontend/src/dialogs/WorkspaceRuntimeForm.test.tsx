@@ -114,10 +114,7 @@ describe('WorkspaceRuntimeForm', () => {
     const uptime = await screen.findByDisplayValue('0 8 * * 1-5');
     await waitFor(() => expect(uptime).toBeEnabled());
     await userEvent.clear(uptime);
-    // Paste, not type: the editor trims per keystroke, eating the
-    // in-progress trailing spaces of a cron typed character by character.
-    await userEvent.click(uptime);
-    await userEvent.paste('0 9 * * 1-5');
+    await userEvent.type(uptime, '0 9 * * 1-5');
     await submit();
     expect(onApply).toHaveBeenCalledWith({
       schedule: { timezone: 'Europe/Paris', uptime: ['0 9 * * 1-5'] },

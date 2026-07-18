@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nextOccurrence, validateCron, validateTimezone } from '@/lib/cron';
 import type { WorkspaceSchedule } from '@/types';
@@ -11,6 +12,54 @@ function linesToCrons(text: string): string[] {
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l !== '');
+}
+
+/**
+ * Textarea for one cron list, keeping ITS OWN text draft: the parsed
+ * value trims every line, so a controlled textarea re-rendered from it
+ * ate the trailing space of a cron as it was typed — keyboard entry was
+ * impossible, only pasting worked. The draft re-seeds only when the
+ * parent value diverges from what the draft parses to (an external
+ * change, e.g. a template switch) — never mid-typing, where trailing
+ * spaces and blank lines must survive in the box.
+ */
+function CronLinesField({
+  label,
+  placeholder,
+  crons,
+  disabled,
+  onChange,
+  status,
+}: {
+  label: string;
+  placeholder: string;
+  crons: string[] | undefined;
+  disabled?: boolean;
+  onChange: (crons: string[]) => void;
+  status: ReactNode;
+}) {
+  const [draft, setDraft] = useState(() => (crons ?? []).join('\n'));
+  if (JSON.stringify(linesToCrons(draft)) !== JSON.stringify(crons ?? [])) {
+    setDraft((crons ?? []).join('\n'));
+  }
+  return (
+    <label className="block">
+      <span className="text-sm text-slate-600 dark:text-slate-300">{label}</span>
+      <textarea
+        className={`${fieldSm} font-mono`}
+        rows={3}
+        spellCheck={false}
+        disabled={disabled}
+        placeholder={placeholder}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          onChange(linesToCrons(e.target.value));
+        }}
+      />
+      {status}
+    </label>
+  );
 }
 
 /**
@@ -88,34 +137,22 @@ export function ScheduleEditor({
         )}
       </label>
       <div className="grid grid-cols-2 gap-3">
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">{t('schedule.uptime')}</span>
-          <textarea
-            className={`${fieldSm} font-mono`}
-            rows={3}
-            spellCheck={false}
-            disabled={disabled}
-            placeholder={'0 8 * * 1-5'}
-            value={(schedule.uptime ?? []).join('\n')}
-            onChange={(e) => patch({ ...schedule, uptime: linesToCrons(e.target.value) })}
-          />
-          {sideStatus(schedule.uptime, true)}
-        </label>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('schedule.downtime')}
-          </span>
-          <textarea
-            className={`${fieldSm} font-mono`}
-            rows={3}
-            spellCheck={false}
-            disabled={disabled}
-            placeholder={'0 20 * * *'}
-            value={(schedule.downtime ?? []).join('\n')}
-            onChange={(e) => patch({ ...schedule, downtime: linesToCrons(e.target.value) })}
-          />
-          {sideStatus(schedule.downtime, false)}
-        </label>
+        <CronLinesField
+          label={t('schedule.uptime')}
+          placeholder={'0 8 * * 1-5'}
+          crons={schedule.uptime}
+          disabled={disabled}
+          onChange={(uptime) => patch({ ...schedule, uptime })}
+          status={sideStatus(schedule.uptime, true)}
+        />
+        <CronLinesField
+          label={t('schedule.downtime')}
+          placeholder={'0 20 * * *'}
+          crons={schedule.downtime}
+          disabled={disabled}
+          onChange={(downtime) => patch({ ...schedule, downtime })}
+          status={sideStatus(schedule.downtime, false)}
+        />
       </div>
     </div>
   );
