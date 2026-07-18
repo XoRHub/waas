@@ -70,6 +70,28 @@ describe('TabbedPanels', () => {
     expect(onSelect).toHaveBeenCalledWith('a');
   });
 
+  it('shows clickable overflow indicators when the single-line row scrolls', () => {
+    renderWithProviders(<TabbedPanels tabs={twoTabs} />);
+    const row = screen.getByRole('button', { name: 'Alpha' }).parentElement as HTMLElement;
+    row.scrollBy = vi.fn();
+
+    // No layout in jsdom: simulate a row wider than its viewport.
+    Object.defineProperty(row, 'scrollWidth', { value: 600, configurable: true });
+    Object.defineProperty(row, 'clientWidth', { value: 200, configurable: true });
+    fireEvent.scroll(row);
+
+    // At the far left only the right indicator shows; clicking it scrolls.
+    expect(screen.queryByRole('button', { name: 'More tabs to the left' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'More tabs to the right' }));
+    expect(row.scrollBy).toHaveBeenCalledWith({ left: 160, behavior: 'smooth' });
+
+    // Scrolled into the middle: both sides overflow.
+    Object.defineProperty(row, 'scrollLeft', { value: 100, configurable: true });
+    fireEvent.scroll(row);
+    expect(screen.getByRole('button', { name: 'More tabs to the left' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More tabs to the right' })).toBeInTheDocument();
+  });
+
   it('activates the panel owning an invalid control on submit', () => {
     renderWithProviders(
       <form>

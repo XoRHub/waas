@@ -455,6 +455,10 @@
     "invalidCron": "Invalid cron expression: {{cron}}",
     "invalidTimezone": "Unknown IANA timezone"
   },
+  "tabs": {
+    "scrollLeft": "More tabs to the left",
+    "scrollRight": "More tabs to the right"
+  },
   "protocolTabs": {
     "add": "Add a protocol",
     "remove": "Remove {{protocol}}",
