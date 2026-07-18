@@ -67,6 +67,27 @@ export function TemplateDialog({
   // would otherwise block the save invisibly.
   const [section, setSection] = useState('general');
   const [workspaceTab, setWorkspaceTab] = useState('resources');
+  // ● on the Workspace/Workload tabs after a catalog prefill touched the
+  // YAML from another section — cleared once the editor is visited. The
+  // clearing lives in the navigation handlers (not an effect): every
+  // path to the editor goes through selectSection/selectWorkspaceTab.
+  const [workloadTouched, setWorkloadTouched] = useState(false);
+  const selectSection = (id: string) => {
+    setSection(id);
+    if (id === 'workspace' && workspaceTab === 'workload') setWorkloadTouched(false);
+  };
+  const selectWorkspaceTab = (id: string) => {
+    setWorkspaceTab(id);
+    if (id === 'workload') setWorkloadTouched(false);
+  };
+  const injectedBadge = workloadTouched ? (
+    <span
+      className="text-[10px] text-blue-600 dark:text-blue-400"
+      title={t('admin.templatesPage.workloadInjected')}
+    >
+      ●
+    </span>
+  ) : undefined;
 
   const set = (patch: Partial<TemplateInput>) => setInput((prev) => ({ ...prev, ...patch }));
 
@@ -112,6 +133,7 @@ export function TemplateDialog({
       }));
     }
     setWorkloadText(yamlStringify(next));
+    setWorkloadTouched(true);
 
     let nextProtocols = protocols;
     if (protocols.length === 0 && imageProtocols.length > 0) {
@@ -206,6 +228,7 @@ export function TemplateDialog({
     if (Object.keys(sel).length > 0) next.nodeSelector = sel;
     else delete next.nodeSelector;
     setWorkloadText(Object.keys(next).length > 0 ? yamlStringify(next) : '');
+    setWorkloadTouched(true);
   };
   const protocols = input.protocols ?? [];
   const [activeProto, setActiveProto] = useState(protocols[0]?.name ?? '');
@@ -256,7 +279,7 @@ export function TemplateDialog({
         // Jump to the failing editor: an error left in a hidden panel
         // would block the save invisibly.
         setSection('workspace');
-        setWorkspaceTab('workload');
+        selectWorkspaceTab('workload');
         return;
       }
       workload = value as Record<string, unknown>;
@@ -297,7 +320,7 @@ export function TemplateDialog({
 
       <TabbedPanels
         active={section}
-        onSelect={setSection}
+        onSelect={selectSection}
         tabs={[
           {
             id: 'general',
@@ -346,10 +369,11 @@ export function TemplateDialog({
           {
             id: 'workspace',
             label: t('admin.templatesPage.tabWorkspace'),
+            badge: injectedBadge,
             content: (
               <TabbedPanels
                 active={workspaceTab}
-                onSelect={setWorkspaceTab}
+                onSelect={selectWorkspaceTab}
                 tabs={[
                   {
                     id: 'resources',
@@ -424,6 +448,7 @@ export function TemplateDialog({
                   {
                     id: 'workload',
                     label: t('admin.templatesPage.workload'),
+                    badge: injectedBadge,
                     content: (
                       <WorkloadSection
                         text={workloadText}

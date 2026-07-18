@@ -336,6 +336,7 @@
       "tabGeneral": "General",
       "tabWorkspace": "Workspace",
       "tabSchedule": "Schedule",
+      "workloadInjected": "The catalog prefilled this workload — review it before saving",
       "homeVolume": "Home volume metadata",
       "homeVolumeLabels": "PVC labels",
       "homeVolumeAnnotations": "PVC annotations",

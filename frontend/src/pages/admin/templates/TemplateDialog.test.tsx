@@ -79,10 +79,13 @@ beforeEach(() => {
   apiMock.route('/api/v1/meta/protocols', []);
 });
 
-/** Navigate the sectioned dialog: Workspace section, then one inner tab. */
+/** Navigate the sectioned dialog: Workspace section, then one inner tab.
+ * Regex names: the ● injection badge joins the tab's accessible name. */
 const openWorkspaceTab = async (inner: string) => {
-  await userEvent.click(screen.getByRole('button', { name: en.admin.templatesPage.tabWorkspace }));
-  await userEvent.click(screen.getByRole('button', { name: inner }));
+  await userEvent.click(
+    screen.getByRole('button', { name: new RegExp(en.admin.templatesPage.tabWorkspace) }),
+  );
+  await userEvent.click(screen.getByRole('button', { name: new RegExp(inner) }));
 };
 
 const openProtocolsTab = async () => {
@@ -242,6 +245,34 @@ describe('TemplateDialog — apply catalog recommendation', () => {
 });
 
 describe('TemplateDialog — sectioned form', () => {
+  it('a catalog prefill marks the Workspace/Workload tabs with ●, cleared on visit', async () => {
+    renderWithProviders(<TemplateDialog isNew initial={initial} onClose={() => {}} />);
+
+    const workspaceTab = () =>
+      screen.getByRole('button', { name: new RegExp(en.admin.templatesPage.tabWorkspace) });
+    expect(workspaceTab().textContent).not.toContain('●');
+
+    await userEvent.click(
+      screen.getByRole('button', { name: en.admin.templatesPage.imageCatalog }),
+    );
+    await userEvent.click(await screen.findByRole('option', { name: /Browsers/ }));
+    await userEvent.click(await screen.findByRole('option', { name: /Firefox/ }));
+    await userEvent.click(
+      screen.getByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
+    );
+
+    // The YAML landed in a hidden tab: both levels signal it.
+    expect(workspaceTab().textContent).toContain('●');
+    await userEvent.click(workspaceTab());
+    const workloadTab = screen.getByRole('button', { name: /Workload \(advanced\)/ });
+    expect(workloadTab.textContent).toContain('●');
+
+    // Visiting the editor acknowledges the injection.
+    await userEvent.click(workloadTab);
+    expect(workloadTab.textContent).not.toContain('●');
+    expect(workspaceTab().textContent).not.toContain('●');
+  });
+
   it('a submit with invalid workload YAML jumps to Workspace › Workload', async () => {
     renderWithProviders(
       <TemplateDialog isNew initial={{ ...initial, image: 'img:1' }} onClose={() => {}} />,
