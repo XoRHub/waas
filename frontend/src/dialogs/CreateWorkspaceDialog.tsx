@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog } from '@/components/Dialog';
 import { ImagePicker } from '@/components/ImagePicker';
+import { KeyValueEditor } from '@/components/KeyValueEditor';
 import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
 import { ScheduleEditor } from '@/components/ScheduleEditor';
 import {
@@ -84,6 +85,8 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const [scheduleOverride, setScheduleOverride] = useState<WorkspaceSchedule | undefined>(
     undefined,
   );
+  const [labelsOv, setLabelsOv] = useState<Record<string, string>>({});
+  const [annotationsOv, setAnnotationsOv] = useState<Record<string, string>>({});
   const [homeVolumeName, setHomeVolumeName] = useState('');
   const nsPreview = useNamespacePreview(templateRef, displayName);
   const volumes = useVolumes();
@@ -164,6 +167,8 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     setProtoParamsByProto({});
     setEnvRows([]);
     setScheduleOverride(undefined);
+    setLabelsOv({});
+    setAnnotationsOv({});
   };
 
   // Protocol section: what the template declares, gated by its override
@@ -201,12 +206,17 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
       .filter((row) => row.name.trim() !== '')
       .map((row) => ({ name: row.name.trim(), value: row.value }));
     const scheduleOv = canOverride('schedule') ? scheduleOverride : undefined;
+    const labels = canOverride('metadata') && Object.keys(labelsOv).length > 0 ? labelsOv : undefined;
+    const annotations =
+      canOverride('metadata') && Object.keys(annotationsOv).length > 0 ? annotationsOv : undefined;
     const overrides =
-      chosenProtocol || env.length > 0 || scheduleOv
+      chosenProtocol || env.length > 0 || scheduleOv || labels || annotations
         ? {
             protocol: chosenProtocol,
             env: env.length > 0 ? env : undefined,
             schedule: scheduleOv,
+            labels,
+            annotations,
           }
         : undefined;
     create.mutate(
@@ -463,7 +473,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
       {/* Advanced panel (template overrides): only rendered for users
             whose template ∩ policy rights (or admin role) allow at least
             one overridable field — invisible to everyone else. */}
-      {template && (canOverride('env') || canOverride('schedule')) && (
+      {template && (canOverride('env') || canOverride('schedule') || canOverride('metadata')) && (
         <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
           <legend className="px-1">
             <button
@@ -524,6 +534,40 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                   >
                     + {t('portal.addEnvVar')}
                   </button>
+                </div>
+              )}
+              {canOverride('metadata') && (
+                <div className="space-y-2">
+                  <span className="text-sm text-slate-600 dark:text-slate-300">
+                    {t('portal.runtime.metadata')}
+                  </span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">
+                    {t('portal.runtime.labels')}
+                  </span>
+                  {/* Keyed on the template: switching templates re-seeds
+                      the editors like the other override drafts. */}
+                  <KeyValueEditor
+                    key={`labels-${templateRef}`}
+                    value={labelsOv}
+                    onChange={setLabelsOv}
+                    keyPlaceholder={t('portal.runtime.metaKey')}
+                    valuePlaceholder={t('portal.runtime.metaValue')}
+                    addLabel={t('portal.runtime.addLabel')}
+                  />
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">
+                    {t('portal.runtime.annotations')}
+                  </span>
+                  <KeyValueEditor
+                    key={`annotations-${templateRef}`}
+                    value={annotationsOv}
+                    onChange={setAnnotationsOv}
+                    keyPlaceholder={t('portal.runtime.metaKey')}
+                    valuePlaceholder={t('portal.runtime.metaValue')}
+                    addLabel={t('portal.runtime.addAnnotation')}
+                  />
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    {t('portal.runtime.metadataHint')}
+                  </p>
                 </div>
               )}
               {canOverride('schedule') && (

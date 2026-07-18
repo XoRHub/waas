@@ -146,7 +146,15 @@
       "valueFromRef": "valeur issue d'une référence Secret/ConfigMap",
       "resources": "Ressources",
       "customSizing": "Dimensionnement personnalisé",
-      "templateSizing": "Le dimensionnement du modèle s'applique."
+      "templateSizing": "Le dimensionnement du modèle s'applique.",
+      "metadata": "Métadonnées",
+      "labels": "Labels",
+      "annotations": "Annotations",
+      "metaKey": "clé",
+      "metaValue": "valeur",
+      "addLabel": "Ajouter un label",
+      "addAnnotation": "Ajouter une annotation",
+      "metadataHint": "Fusionnées sous les métadonnées du workload (les clés de la plateforme gagnent toujours). Les domaines réservés sont refusés côté serveur."
     }
   },
   "remote": {

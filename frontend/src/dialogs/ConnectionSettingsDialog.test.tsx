@@ -90,10 +90,11 @@ describe('ConnectionSettingsDialog — Workspace tab', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
 
     // env is allowed by the template: editable, seeded with the current
-    // override. nodeSelector/tolerations/resources are not: locked note.
+    // override. nodeSelector/tolerations/metadata/schedule/resources are
+    // not: locked note on each.
     const addVar = await screen.findByRole('button', { name: /Add variable/ });
     expect(screen.getByDisplayValue('HTTP_PROXY')).toBeInTheDocument();
-    expect(screen.getAllByText(/not allowed by this template or your policy/).length).toBe(3);
+    expect(screen.getAllByText(/not allowed by this template or your policy/).length).toBe(5);
     expect(screen.queryByRole('button', { name: /Add selector/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Add toleration/ })).toBeNull();
 

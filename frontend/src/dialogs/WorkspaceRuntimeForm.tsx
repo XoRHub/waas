@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { KeyValueEditor, addButton, removeButton, rowInput } from '@/components/KeyValueEditor';
+import { ScheduleEditor } from '@/components/ScheduleEditor';
 import {
   CPU_FLOOR,
   CPU_STEP,
@@ -20,7 +21,7 @@ import {
   parseMemory,
 } from '@/lib/quantity';
 import { useAuthStore } from '@/stores/authStore';
-import type { EnvVar, Toleration, Workspace } from '@/types';
+import type { EnvVar, Toleration, Workspace, WorkspaceSchedule } from '@/types';
 
 const TOLERATION_OPERATORS = ['Equal', 'Exists'];
 const TOLERATION_EFFECTS = ['', 'NoSchedule', 'PreferNoSchedule', 'NoExecute'];
@@ -88,6 +89,16 @@ export function WorkspaceRuntimeForm({
   const [envRows, setEnvRows] = useState<EnvRow[]>(() => toEnvRows(runtime?.env ?? []));
   const [nodeSel, setNodeSel] = useState<Record<string, string>>(() => runtime?.nodeSelector ?? {});
   const [tolRows, setTolRows] = useState<Toleration[]>(() => runtime?.tolerations ?? []);
+  const [labels, setLabels] = useState<Record<string, string>>(() => runtime?.labels ?? {});
+  const [annotations, setAnnotations] = useState<Record<string, string>>(
+    () => runtime?.annotations ?? {},
+  );
+  // Displayed schedule: the stored override, else the EFFECTIVE schedule
+  // the model already resolved (workspace.schedule = override ?? template)
+  // — synchronous, unlike the templates query.
+  const [schedule, setSchedule] = useState<WorkspaceSchedule | undefined>(
+    () => runtime?.schedule ?? workspace.schedule,
+  );
   const hadResources = Boolean(runtime?.resources);
   const [customSizing, setCustomSizing] = useState(hadResources);
   const [cpu, setCpu] = useState<number | null>(null);
@@ -166,6 +177,23 @@ export function WorkspaceRuntimeForm({
         input.tolerations = tols;
       }
     }
+    if (canOverride('metadata')) {
+      if (JSON.stringify(labels) !== JSON.stringify(runtime?.labels ?? {})) {
+        input.labels = labels;
+      }
+      if (JSON.stringify(annotations) !== JSON.stringify(runtime?.annotations ?? {})) {
+        input.annotations = annotations;
+      }
+    }
+    if (canOverride('schedule')) {
+      // Compared against the DISPLAYED initial: untouched sends nothing;
+      // edited sends the full schedule; cleared sends {} — back to the
+      // template's schedule (presence = override).
+      const initial = runtime?.schedule ?? workspace.schedule;
+      if (JSON.stringify(schedule ?? null) !== JSON.stringify(initial ?? null)) {
+        input.schedule = schedule ?? {};
+      }
+    }
     if (canOverride('resources')) {
       if (customSizing) {
         const res = { cpu: formatCpu(cpuValue), memory: formatMemory(memValue) };
@@ -192,6 +220,8 @@ export function WorkspaceRuntimeForm({
   const selEditable = canOverride('nodeSelector');
   const tolEditable = canOverride('tolerations');
   const resEditable = canOverride('resources');
+  const metaEditable = canOverride('metadata');
+  const schedEditable = canOverride('schedule');
 
   return (
     <form id={formId} onSubmit={onSubmit} className="space-y-4">
@@ -353,6 +383,46 @@ export function WorkspaceRuntimeForm({
             + {t('portal.runtime.addToleration')}
           </button>
         )}
+      </fieldset>
+
+      <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <legend className="flex items-center gap-2 px-1 text-sm text-slate-600 dark:text-slate-300">
+          {t('portal.runtime.metadata')}
+          {!metaEditable && locked}
+        </legend>
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          {t('portal.runtime.labels')}
+        </span>
+        <KeyValueEditor
+          value={labels}
+          onChange={setLabels}
+          disabled={!metaEditable}
+          keyPlaceholder={t('portal.runtime.metaKey')}
+          valuePlaceholder={t('portal.runtime.metaValue')}
+          addLabel={t('portal.runtime.addLabel')}
+        />
+        <span className="block pt-1 text-xs text-slate-500 dark:text-slate-400">
+          {t('portal.runtime.annotations')}
+        </span>
+        <KeyValueEditor
+          value={annotations}
+          onChange={setAnnotations}
+          disabled={!metaEditable}
+          keyPlaceholder={t('portal.runtime.metaKey')}
+          valuePlaceholder={t('portal.runtime.metaValue')}
+          addLabel={t('portal.runtime.addAnnotation')}
+        />
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          {t('portal.runtime.metadataHint')}
+        </p>
+      </fieldset>
+
+      <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <legend className="flex items-center gap-2 px-1 text-sm text-slate-600 dark:text-slate-300">
+          {t('schedule.title')}
+          {!schedEditable && locked}
+        </legend>
+        <ScheduleEditor value={schedule} onChange={setSchedule} disabled={!schedEditable} />
       </fieldset>
 
       <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">

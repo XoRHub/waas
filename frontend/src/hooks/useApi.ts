@@ -25,6 +25,7 @@ import type {
   UserPreferences,
   UserUsage,
   Workspace,
+  WorkspaceSchedule,
   WorkspaceTemplate,
   WorkspaceWorkload,
 } from '@/types';
@@ -120,6 +121,8 @@ export function useCreateWorkspace() {
         protocol?: string;
         env?: TemplateEnvVar[];
         schedule?: { timezone?: string; uptime?: string[]; downtime?: string[] };
+        labels?: Record<string, string>;
+        annotations?: Record<string, string>;
       };
       /** Reattach a retained volume as home (webhook-vetted). */
       homeVolumeName?: string;
@@ -198,6 +201,10 @@ export interface UpdateOverridesInput {
   nodeSelector?: Record<string, string>;
   tolerations?: Toleration[];
   resources?: Record<string, string>;
+  labels?: Record<string, string>;
+  annotations?: Record<string, string>;
+  /** An empty struct clears the override (back to the template's). */
+  schedule?: WorkspaceSchedule;
 }
 
 // Reconfigures an instantiated workspace (env, node placement, sizing).

@@ -23,9 +23,12 @@ function linesToCrons(text: string): string[] {
 export function ScheduleEditor({
   value,
   onChange,
+  disabled,
 }: {
   value: WorkspaceSchedule | undefined;
   onChange: (schedule: WorkspaceSchedule | undefined) => void;
+  /** Read-only rendering (the caller shows its own 🔒 marker). */
+  disabled?: boolean;
 }) {
   const { t } = useTranslation();
   const schedule = value ?? {};
@@ -77,6 +80,7 @@ export function ScheduleEditor({
           className={fieldSm}
           placeholder="Europe/Paris"
           value={tz}
+          disabled={disabled}
           onChange={(e) => patch({ ...schedule, timezone: e.target.value })}
         />
         {tzInvalid && (
@@ -90,6 +94,7 @@ export function ScheduleEditor({
             className={`${fieldSm} font-mono`}
             rows={3}
             spellCheck={false}
+            disabled={disabled}
             placeholder={'0 8 * * 1-5'}
             value={(schedule.uptime ?? []).join('\n')}
             onChange={(e) => patch({ ...schedule, uptime: linesToCrons(e.target.value) })}
@@ -104,6 +109,7 @@ export function ScheduleEditor({
             className={`${fieldSm} font-mono`}
             rows={3}
             spellCheck={false}
+            disabled={disabled}
             placeholder={'0 20 * * *'}
             value={(schedule.downtime ?? []).join('\n')}
             onChange={(e) => patch({ ...schedule, downtime: linesToCrons(e.target.value) })}

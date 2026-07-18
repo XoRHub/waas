@@ -146,7 +146,15 @@
       "valueFromRef": "value from a Secret/ConfigMap reference",
       "resources": "Resources",
       "customSizing": "Custom sizing",
-      "templateSizing": "The template sizing applies."
+      "templateSizing": "The template sizing applies.",
+      "metadata": "Metadata",
+      "labels": "Labels",
+      "annotations": "Annotations",
+      "metaKey": "key",
+      "metaValue": "value",
+      "addLabel": "Add label",
+      "addAnnotation": "Add annotation",
+      "metadataHint": "Merged under the workload's own metadata (platform keys always win). Reserved domains are rejected server-side."
     }
   },
   "remote": {

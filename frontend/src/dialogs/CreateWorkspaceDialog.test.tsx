@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, signIn } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
@@ -101,5 +101,41 @@ describe('CreateWorkspaceDialog', () => {
     // No protocol/env/schedule touched: no overrides block at all.
     expect(input.overrides).toBeUndefined();
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('the metadata block is gated on the right and lands in the overrides', async () => {
+    signIn({ username: 'marc' });
+    renderWithProviders(<CreateWorkspaceDialog onClose={() => {}} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Template' }));
+    await userEvent.click(await screen.findByRole('option', { name: /XFCE Desktop/ }));
+    // 'resources' only: no advanced overrides panel at all.
+    expect(screen.queryByRole('button', { name: /Advanced/ })).toBeNull();
+
+    apiMock.route('/api/v1/workspace-templates', [
+      {
+        name: 'xfce',
+        displayName: 'XFCE Desktop',
+        os: 'linux',
+        allowedOverrides: ['metadata'],
+        protocols: [{ name: 'kasmvnc', port: 6901, default: true }],
+      },
+    ]);
+    cleanup();
+    renderWithProviders(<CreateWorkspaceDialog onClose={() => {}} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Template' }));
+    await userEvent.click(await screen.findByRole('option', { name: /XFCE Desktop/ }));
+
+    await userEvent.click(screen.getByRole('button', { name: /Advanced/ }));
+    await userEvent.click(screen.getByRole('button', { name: '+ Add label' }));
+    await userEvent.type(screen.getByPlaceholderText('key'), 'team');
+    await userEvent.type(screen.getByPlaceholderText('value'), 'blue');
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(apiMock.api.post).toHaveBeenCalled());
+    const [, input] = apiMock.api.post.mock.calls[0] as unknown as [
+      string,
+      { overrides?: { labels?: Record<string, string> } },
+    ];
+    expect(input.overrides).toEqual({ labels: { team: 'blue' } });
   });
 });
