@@ -615,6 +615,7 @@ func (r *WorkspaceReconciler) ensureHomePVC(ctx context.Context, ws *waasv1alpha
 		}
 		// Adoption: a retained volume becoming a live home again sheds its
 		// retained marker and regains the per-workspace labels.
+		adopted := false
 		if existing.Labels[waasv1alpha1.LabelRetained] == "true" || existing.Labels[labelWorkspace] != ws.Name {
 			if existing.Labels == nil {
 				existing.Labels = map[string]string{}
@@ -624,9 +625,27 @@ func (r *WorkspaceReconciler) ensureHomePVC(ctx context.Context, ws *waasv1alpha
 			}
 			delete(existing.Labels, waasv1alpha1.LabelRetained)
 			delete(existing.Annotations, waasv1alpha1.AnnotationRetainedAt)
+			adopted = true
+		}
+		// Template-driven PVC metadata converges IN PLACE (unlike the
+		// create-only namespace metadata): the use case is enabling
+		// backup on volumes provisioned long ago. Ownership guard as in
+		// finalizeHomeVolume: never mutate another workspace's volume
+		// during a delete/recreate race.
+		metaChanged := false
+		if existing.Labels[labelWorkspace] == ws.Name {
+			metaChanged = syncHomeVolumeMeta(existing, tpl)
+		}
+		if adopted || metaChanged {
 			if err := r.Update(ctx, existing); err != nil {
-				return "", fmt.Errorf("adopting pvc %s: %w", name, err)
+				return "", fmt.Errorf("updating pvc %s: %w", name, err)
 			}
+		}
+		if metaChanged {
+			// Auditable "the backup is armed" trail; silent on the steady
+			// state where every reconcile finds nothing to change.
+			r.recordEvent(ws, corev1.EventTypeNormal, "HomeVolumeMetaSynced",
+				fmt.Sprintf("synced template metadata on home volume %q", name))
 		}
 		return name, nil
 	}
@@ -652,6 +671,10 @@ func (r *WorkspaceReconciler) ensureHomePVC(ctx context.Context, ws *waasv1alpha
 			},
 		},
 	}
+	// Same single code path as convergence: stamps the template metadata
+	// under the platform labels above (denied domains can't collide) and
+	// writes the ledger, exactly as a later template edit would.
+	syncHomeVolumeMeta(pvc, tpl)
 	if err := r.Create(ctx, pvc); err != nil && !apierrors.IsAlreadyExists(err) {
 		return "", fmt.Errorf("creating pvc %s: %w", name, err)
 	}

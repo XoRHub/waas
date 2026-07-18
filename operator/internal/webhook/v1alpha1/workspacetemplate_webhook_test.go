@@ -282,3 +282,36 @@ func TestTemplateWebhookValidatesPlacement(t *testing.T) {
 		t.Fatalf("injector annotations must be denied, got %v", err)
 	}
 }
+
+func TestTemplateWebhookValidatesHomeVolumeMetadata(t *testing.T) {
+	v := &WorkspaceTemplateValidator{}
+	ctx := context.Background()
+
+	// The driving use case: Longhorn recurring-job enrollment by labels.
+	good := tplWith()
+	good.Spec.HomeVolume = &waasv1alpha1.WorkspaceHomeVolume{
+		Labels: map[string]string{
+			"recurring-job.longhorn.io/source":             "enabled",
+			"recurring-job-group.longhorn.io/backup-daily": "enabled",
+		},
+	}
+	if _, err := v.ValidateCreate(ctx, good); err != nil {
+		t.Fatalf("Longhorn backup labels must pass: %v", err)
+	}
+
+	badLabel := tplWith()
+	badLabel.Spec.HomeVolume = &waasv1alpha1.WorkspaceHomeVolume{
+		Labels: map[string]string{"waas.xorhub.io/retained": "true"},
+	}
+	if _, err := v.ValidateCreate(ctx, badLabel); err == nil || !strings.Contains(err.Error(), "homeVolume.labels") {
+		t.Fatalf("platform label through homeVolume.labels must be denied, got %v", err)
+	}
+
+	badAnnotation := tplWith()
+	badAnnotation.Spec.HomeVolume = &waasv1alpha1.WorkspaceHomeVolume{
+		Annotations: map[string]string{"kubectl.kubernetes.io/last-applied-configuration": "{}"},
+	}
+	if _, err := v.ValidateCreate(ctx, badAnnotation); err == nil || !strings.Contains(err.Error(), "homeVolume.annotations") {
+		t.Fatalf("reserved annotation through homeVolume.annotations must be denied, got %v", err)
+	}
+}

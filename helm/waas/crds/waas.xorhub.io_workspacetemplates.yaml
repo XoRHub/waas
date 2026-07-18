@@ -241,6 +241,28 @@ spec:
                   decoupled from the pod lifecycle: destroying a workspace keeps it.
                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                 x-kubernetes-int-or-string: true
+              homeVolume:
+                description: |-
+                  HomeVolume shapes the home PVC's metadata (labels/annotations),
+                  e.g. Longhorn recurring-job enrollment. Size, class and mount
+                  path remain the top-level homeSize/storageClassName/homeMountPath.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Labels/Annotations are stamped on the home PVC and kept in sync
+                      on every reconcile: template edits propagate to existing volumes
+                      and removed keys are removed (tracked via the template-meta
+                      ledger annotation). Reserved keys are rejected at admission;
+                      operator-owned labels always win. Admin-set keys outside the
+                      ledger are never touched.
+                    type: object
+                type: object
               image:
                 description: |-
                   Image is the container image (linux) or containerdisk image (windows)

@@ -36,6 +36,22 @@ func TestCheckKey(t *testing.T) {
 	}
 }
 
+// TestLonghornDomainStaysAllowed freezes the decision that longhorn.io
+// is NOT in deniedDomains: templates enroll home volumes into Longhorn
+// recurring backup jobs through these exact PVC labels
+// (spec.homeVolume.labels). Widening the denylist to longhorn.io would
+// silently break every existing backup template.
+func TestLonghornDomainStaysAllowed(t *testing.T) {
+	for _, key := range []string{
+		"recurring-job.longhorn.io/source",
+		"recurring-job-group.longhorn.io/backup-daily",
+	} {
+		if err := CheckKey(key); err != nil {
+			t.Errorf("CheckKey(%q): %v — the Longhorn domain must stay user-writable", key, err)
+		}
+	}
+}
+
 func TestCheckMapReportsFirstReservedKey(t *testing.T) {
 	if err := Check(map[string]string{"team": "red", "cost-center": "42"}); err != nil {
 		t.Fatalf("clean map rejected: %v", err)

@@ -195,6 +195,23 @@ type WorkspaceWorkload struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
+// WorkspaceHomeVolume shapes the home PVC beyond size and storage
+// class: metadata stamped on it, typically to enroll it into
+// storage-side machinery (Longhorn recurring backup jobs, monitoring,
+// DR tooling).
+type WorkspaceHomeVolume struct {
+	// Labels/Annotations are stamped on the home PVC and kept in sync
+	// on every reconcile: template edits propagate to existing volumes
+	// and removed keys are removed (tracked via the template-meta
+	// ledger annotation). Reserved keys are rejected at admission;
+	// operator-owned labels always win. Admin-set keys outside the
+	// ledger are never touched.
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
 // PulseAudioPort is the fixed TCP port the waas-images PulseAudio daemon
 // serves the native protocol on (module-native-protocol-tcp in
 // default.pa.tpl — baked into the image, not configurable). guacd dials
@@ -383,6 +400,12 @@ type WorkspaceTemplateSpec struct {
 	// and the pod spec passthrough (security contexts, volumes, ...).
 	// +optional
 	Workload *WorkspaceWorkload `json:"workload,omitempty"`
+
+	// HomeVolume shapes the home PVC's metadata (labels/annotations),
+	// e.g. Longhorn recurring-job enrollment. Size, class and mount
+	// path remain the top-level homeSize/storageClassName/homeMountPath.
+	// +optional
+	HomeVolume *WorkspaceHomeVolume `json:"homeVolume,omitempty"`
 
 	// Protocols are the connection protocols this workspace serves. When
 	// empty, one protocol is synthesized from OS and Port (linux → vnc,

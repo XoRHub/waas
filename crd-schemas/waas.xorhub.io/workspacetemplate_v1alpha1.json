@@ -193,6 +193,25 @@
           "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$",
           "x-kubernetes-int-or-string": true
         },
+        "homeVolume": {
+          "description": "HomeVolume shapes the home PVC's metadata (labels/annotations),\ne.g. Longhorn recurring-job enrollment. Size, class and mount\npath remain the top-level homeSize/storageClassName/homeMountPath.",
+          "properties": {
+            "annotations": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "labels": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Labels/Annotations are stamped on the home PVC and kept in sync\non every reconcile: template edits propagate to existing volumes\nand removed keys are removed (tracked via the template-meta\nledger annotation). Reserved keys are rejected at admission;\noperator-owned labels always win. Admin-set keys outside the\nledger are never touched.",
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
         "image": {
           "description": "Image is the container image (linux) or containerdisk image (windows)\nproviding the desktop environment.",
           "minLength": 1,

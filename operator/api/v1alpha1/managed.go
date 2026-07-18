@@ -17,6 +17,14 @@ const LabelCleanup = "waas.xorhub.io/cleanup"
 // DeleteWhenEmpty namespace), reclaimed by the namespace cascade.
 const LabelPullSecret = "waas.xorhub.io/pull-secret"
 
+// AnnotationTemplateMeta records, on the home PVC, which label and
+// annotation keys were stamped from the template's homeVolume block —
+// the removal ledger: a key present here but gone from the template is
+// removed at reconcile; keys an admin set by hand are never listed and
+// therefore never touched. Value: compact JSON
+// {"labels":[...],"annotations":[...]}, keys sorted.
+const AnnotationTemplateMeta = "waas.xorhub.io/template-meta"
+
 // VirtualMachineGVK identifies kubevirt.io/v1 VirtualMachine (KubeVirt is
 // an optional runtime dependency, managed unstructured).
 var VirtualMachineGVK = schema.GroupVersionKind{Group: "kubevirt.io", Version: "v1", Kind: "VirtualMachine"}

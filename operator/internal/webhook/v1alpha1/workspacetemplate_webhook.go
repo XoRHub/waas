@@ -147,6 +147,14 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 			return nil, v.deny(tpl, fmt.Sprintf("workload.annotations: %v", err))
 		}
 	}
+	if hv := tpl.Spec.HomeVolume; hv != nil {
+		if err := metakeys.Check(hv.Labels); err != nil {
+			return nil, v.deny(tpl, fmt.Sprintf("homeVolume.labels: %v", err))
+		}
+		if err := metakeys.Check(hv.Annotations); err != nil {
+			return nil, v.deny(tpl, fmt.Sprintf("homeVolume.annotations: %v", err))
+		}
+	}
 	return nil, nil
 }
 
