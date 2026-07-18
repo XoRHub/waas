@@ -90,12 +90,8 @@ const openProtocolsTab = async () => {
 };
 
 describe('TemplateDialog — apply catalog recommendation', () => {
-  it('prefills the workload YAML/env and expands the collapsed Workload section', async () => {
+  it('prefills the workload YAML/env', async () => {
     renderWithProviders(<TemplateDialog isNew initial={initial} onClose={() => {}} />);
-
-    // Workload starts collapsed (native <details>, no open prop).
-    const details = document.querySelector('details');
-    expect(details?.open).toBe(false);
 
     await userEvent.click(
       screen.getByRole('button', { name: en.admin.templatesPage.imageCatalog }),
@@ -106,8 +102,9 @@ describe('TemplateDialog — apply catalog recommendation', () => {
       screen.getByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
     );
 
-    expect(details?.open).toBe(true);
-    const workloadYaml = (details?.querySelector('textarea') as HTMLTextAreaElement).value;
+    const workloadYaml = (
+      document.querySelector('[data-panel="workload"] textarea') as HTMLTextAreaElement
+    ).value;
     expect(workloadYaml).toContain('runAsUser: 1000');
     expect(workloadYaml).toContain('readOnlyRootFilesystem: true');
     expect(workloadYaml).toContain('mountPath: /tmp');
@@ -253,7 +250,9 @@ describe('TemplateDialog — sectioned form', () => {
     // Type broken YAML into the (hidden) workload editor, then submit
     // from the default General section: the error must not stay burrowed
     // in an inactive tab.
-    const textarea = document.querySelector('details textarea') as HTMLTextAreaElement;
+    const textarea = document.querySelector(
+      '[data-panel="workload"] textarea',
+    ) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: '{bad' } });
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -264,7 +263,7 @@ describe('TemplateDialog — sectioned form', () => {
 
 describe('TemplateDialog — architecture nodeSelector prefill', () => {
   const workloadYaml = () =>
-    (document.querySelector('details')?.querySelector('textarea') as HTMLTextAreaElement).value;
+    (document.querySelector('[data-panel="workload"] textarea') as HTMLTextAreaElement).value;
 
   const selectImage = async (name: RegExp) => {
     await userEvent.click(await screen.findByRole('option', { name }));
@@ -277,11 +276,9 @@ describe('TemplateDialog — architecture nodeSelector prefill', () => {
     );
     await userEvent.click(await screen.findByRole('option', { name: /Browsers/ }));
 
-    // Firefox is amd64-only: the label lands in the workload YAML and
-    // the collapsed section opens to show it.
+    // Firefox is amd64-only: the label lands in the workload YAML.
     await selectImage(/Firefox/);
     expect(workloadYaml()).toContain('kubernetes.io/arch: amd64');
-    expect(document.querySelector('details')?.open).toBe(true);
 
     // Chromium is multi-arch: the stale constraint is removed (and the
     // now-empty workload text clears entirely).

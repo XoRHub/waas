@@ -62,7 +62,6 @@ export function TemplateDialog({
     initial.workload ? yamlStringify(initial.workload) : '',
   );
   const [workloadError, setWorkloadError] = useState('');
-  const [workloadOpen, setWorkloadOpen] = useState(false);
   // Controlled sections so the submit path can JUMP to the workload
   // editor when its YAML fails to parse — an error in a hidden tab
   // would otherwise block the save invisibly.
@@ -168,8 +167,6 @@ export function TemplateDialog({
       ...prev.filter((s) => s.adopted),
       ...suggested.filter((s) => !prev.some((p) => p.adopted && p.name === s.name)),
     ]);
-
-    setWorkloadOpen(true);
   };
 
   /** The standard architecture scheduling label (kubernetes.io/arch). */
@@ -209,7 +206,6 @@ export function TemplateDialog({
     if (Object.keys(sel).length > 0) next.nodeSelector = sel;
     else delete next.nodeSelector;
     setWorkloadText(Object.keys(next).length > 0 ? yamlStringify(next) : '');
-    setWorkloadOpen(true);
   };
   const protocols = input.protocols ?? [];
   const [activeProto, setActiveProto] = useState(protocols[0]?.name ?? '');
@@ -257,11 +253,10 @@ export function TemplateDialog({
       const { value, issues } = parseYaml(workloadText, validateWorkload);
       if (issues.length > 0 || value === undefined) {
         setWorkloadError(t('admin.templatesPage.workloadInvalid'));
-        // Jump to the failing editor — tab AND disclosure: an error left
-        // in a hidden panel would block the save invisibly.
+        // Jump to the failing editor: an error left in a hidden panel
+        // would block the save invisibly.
         setSection('workspace');
         setWorkspaceTab('workload');
-        setWorkloadOpen(true);
         return;
       }
       workload = value as Record<string, unknown>;
@@ -434,8 +429,6 @@ export function TemplateDialog({
                         text={workloadText}
                         onChange={setWorkloadText}
                         error={workloadError}
-                        open={workloadOpen}
-                        onToggle={setWorkloadOpen}
                       />
                     ),
                   },
