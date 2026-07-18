@@ -5,22 +5,65 @@ import { CatalogImageField } from './CatalogImageField';
 import { field } from './fields';
 
 /**
- * Identity + description of the template: the flat top-of-form fields
- * (name/displayName/os/homeSize/storageClass in a two-column grid,
- * then the catalog-assisted image field full-width — its picker and
- * search list don't fit a half column — and the free-text
- * description). Grouped in one section because they all edit flat
- * TemplateInput fields with no logic of their own.
+ * Name + display name: the always-visible identity header ABOVE the
+ * dialog's section tabs. Both are required — kept out of any tab so
+ * native validation always reaches a visible control.
+ */
+export function IdentityHeader({
+  input,
+  isNew,
+  onPatch,
+}: {
+  input: TemplateInput;
+  isNew: boolean;
+  onPatch: (patch: Partial<TemplateInput>) => void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('admin.templatesPage.name')}
+        </span>
+        <input
+          className={field}
+          value={input.name}
+          onChange={(e) => onPatch({ name: e.target.value })}
+          disabled={!isNew}
+          pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?"
+          required
+        />
+      </label>
+      <label className="block">
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          {t('admin.templatesPage.displayName')}
+        </span>
+        <input
+          className={field}
+          value={input.displayName}
+          onChange={(e) => onPatch({ displayName: e.target.value })}
+          required
+        />
+      </label>
+    </div>
+  );
+}
+
+/**
+ * The General section of the template editor: OS/storage in a
+ * two-column grid, then the catalog-assisted image field full-width —
+ * its picker and search list don't fit a half column — and the
+ * free-text description. Grouped in one section because they all edit
+ * flat TemplateInput fields with no logic of their own.
  */
 export function IdentityFields({
   input,
-  isNew,
   onPatch,
   onApplyRecommendation,
   onArchitectures,
 }: {
   input: TemplateInput;
-  isNew: boolean;
   onPatch: (patch: Partial<TemplateInput>) => void;
   /** See CatalogImageField.onApplyRecommendation. */
   onApplyRecommendation?: (recommended: DeploymentRecommendation, imageProtocols: string[]) => void;
@@ -32,30 +75,6 @@ export function IdentityFields({
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('admin.templatesPage.name')}
-          </span>
-          <input
-            className={field}
-            value={input.name}
-            onChange={(e) => onPatch({ name: e.target.value })}
-            disabled={!isNew}
-            pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?"
-            required
-          />
-        </label>
-        <label className="block">
-          <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('admin.templatesPage.displayName')}
-          </span>
-          <input
-            className={field}
-            value={input.displayName}
-            onChange={(e) => onPatch({ displayName: e.target.value })}
-            required
-          />
-        </label>
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">
             {t('admin.templatesPage.os')}

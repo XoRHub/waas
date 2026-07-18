@@ -30,21 +30,24 @@ const base = (protocol: string, kasmvncConfig?: string): TemplateInput => ({
   protocols: [{ name: protocol, port: protocol === 'kasmvnc' ? 6901 : 5901, default: true }],
 });
 
-const renderDialog = (input: TemplateInput) => {
+const renderDialog = async (input: TemplateInput) => {
   signIn({ username: 'admin', role: 'admin' });
   renderWithProviders(<TemplateDialog isNew initial={input} onClose={() => {}} />);
+  // Sectioned dialog: everything these tests exercise (protocol picker,
+  // kasmvnc config editor) lives in the Protocols section.
+  await userEvent.click(screen.getByRole('button', { name: en.admin.templatesPage.protocols }));
 };
 
 describe('TemplateDialog kasmvncConfig field', () => {
-  it('hides the textarea when no kasmvnc protocol is present', () => {
+  it('hides the textarea when no kasmvnc protocol is present', async () => {
     // The field is gated on the protocol list (synchronous), so a query
     // right after render is enough — no async settle needed.
-    renderDialog(base('vnc'));
+    await renderDialog(base('vnc'));
     expect(screen.queryByText('KasmVNC configuration')).toBeNull();
   });
 
   it('renders the textarea when kasmvnc is in the protocol list', async () => {
-    renderDialog(base('kasmvnc'));
+    await renderDialog(base('kasmvnc'));
     expect(await screen.findByText('KasmVNC configuration')).toBeInTheDocument();
     // The doc reference link is present.
     const link = screen.getByRole('link', { name: en.admin.templatesPage.kasmvncConfigDocLink });
@@ -55,7 +58,7 @@ describe('TemplateDialog kasmvncConfig field', () => {
   });
 
   it('round-trips the value and submits it', async () => {
-    renderDialog(base('kasmvnc', 'desktop:\n  resolution:\n    width: 800'));
+    await renderDialog(base('kasmvnc', 'desktop:\n  resolution:\n    width: 800'));
     const area = (await screen.findByPlaceholderText(/resolution/)) as HTMLTextAreaElement;
     // Reloads the saved value.
     expect(area.value).toContain('width: 800');
@@ -71,7 +74,7 @@ describe('TemplateDialog kasmvncConfig field', () => {
   });
 
   it('flags a non-mapping config live in the YAML editor', async () => {
-    renderDialog(base('kasmvnc'));
+    await renderDialog(base('kasmvnc'));
     const area = await screen.findByPlaceholderText(/resolution/);
     // A sequence parses fine as YAML but is not a mapping.
     await userEvent.type(area, '- item');
@@ -111,7 +114,7 @@ describe('TemplateDialog protocol picker kasmvnc exclusivity', () => {
   });
 
   it('offers rdp/ssh but not kasmvnc once vnc is configured', async () => {
-    renderDialog(withProtocols('vnc'));
+    await renderDialog(withProtocols('vnc'));
     await userEvent.click(await screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }));
     expect(screen.getByRole('button', { name: 'rdp' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'ssh' })).toBeInTheDocument();
@@ -119,7 +122,7 @@ describe('TemplateDialog protocol picker kasmvnc exclusivity', () => {
   });
 
   it('offers no other protocol once kasmvnc is configured', async () => {
-    renderDialog(withProtocols('kasmvnc'));
+    await renderDialog(withProtocols('kasmvnc'));
     // The registry query resolves async: the "+" menu must stay absent
     // even after it settles, so wait out a findBy instead of asserting
     // on the initial render only.
@@ -132,7 +135,7 @@ describe('TemplateDialog protocol picker kasmvnc exclusivity', () => {
     // kasmvnc-only is the worst case: exclusivity blocks any addition,
     // so removing the last protocol is the ONLY way to change course.
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    renderDialog({ ...withProtocols('kasmvnc'), kasmvncConfig: 'logging:\n  level: info' });
+    await renderDialog({ ...withProtocols('kasmvnc'), kasmvncConfig: 'logging:\n  level: info' });
 
     await userEvent.click(
       await screen.findByTitle(en.protocolTabs.remove.replace('{{protocol}}', 'KASMVNC')),

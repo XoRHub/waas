@@ -10,11 +10,12 @@ import {
   type TemplateProtocolInput,
 } from '@/hooks/useApi';
 import { Dialog } from '@/components/Dialog';
+import { TabbedPanels } from '@/components/TabbedPanels';
 import { parseYaml } from '@/components/YamlEditor';
 import type { DeploymentRecommendation, RecommendedEnvVar } from '@/types';
 import { EnvFieldset } from './EnvFieldset';
 import { HomeVolumeFieldset } from './HomeVolumeFieldset';
-import { IdentityFields } from './IdentityFields';
+import { IdentityFields, IdentityHeader } from './IdentityFields';
 import { KasmVNCConfigFieldset } from './KasmVNCConfigFieldset';
 import { OverridesFieldset } from './OverridesFieldset';
 import { PlacementFieldset } from './PlacementFieldset';
@@ -62,6 +63,11 @@ export function TemplateDialog({
   );
   const [workloadError, setWorkloadError] = useState('');
   const [workloadOpen, setWorkloadOpen] = useState(false);
+  // Controlled sections so the submit path can JUMP to the workload
+  // editor when its YAML fails to parse — an error in a hidden tab
+  // would otherwise block the save invisibly.
+  const [section, setSection] = useState('general');
+  const [workspaceTab, setWorkspaceTab] = useState('resources');
 
   const set = (patch: Partial<TemplateInput>) => setInput((prev) => ({ ...prev, ...patch }));
 
@@ -251,6 +257,11 @@ export function TemplateDialog({
       const { value, issues } = parseYaml(workloadText, validateWorkload);
       if (issues.length > 0 || value === undefined) {
         setWorkloadError(t('admin.templatesPage.workloadInvalid'));
+        // Jump to the failing editor — tab AND disclosure: an error left
+        // in a hidden panel would block the save invisibly.
+        setSection('workspace');
+        setWorkspaceTab('workload');
+        setWorkloadOpen(true);
         return;
       }
       workload = value as Record<string, unknown>;
@@ -287,75 +298,152 @@ export function TemplateDialog({
         </>
       }
     >
-      <IdentityFields
-        input={input}
-        isNew={isNew}
-        onPatch={set}
-        onApplyRecommendation={applyRecommendation}
-        onArchitectures={applyArchitectures}
-      />
+      <IdentityHeader input={input} isNew={isNew} onPatch={set} />
 
-      <ResourcesFieldset requests={input.requests} limits={input.limits} onPatch={set} />
-
-      <ProtocolsFieldset
-        protocols={protocols}
-        meta={meta.data?.data}
-        active={activeProto}
-        onSelect={setActiveProto}
-        addable={unusedProtocols}
-        onAdd={addProtocol}
-        onRemove={removeProtocol}
-        onPatchActive={patchActive}
-        onMakeDefault={() =>
-          set({ protocols: protocols.map((p) => ({ ...p, default: p.name === activeProto })) })
-        }
-      />
-
-      {/* Gated on the whole protocol list, not the active tab — same
-          guard the webhook enforces ("kasmvncConfig requires a kasmvnc
-          protocol entry"). */}
-      {protocols.some((p) => p.name === 'kasmvnc') && (
-        <KasmVNCConfigFieldset
-          value={input.kasmvncConfig ?? ''}
-          onChange={(text) => set({ kasmvncConfig: text })}
-        />
-      )}
-
-      <EnvFieldset
-        env={input.env}
-        onChange={(env) => set({ env })}
-        suggestions={envSuggestions.filter((s) => !s.adopted)}
-        onAdopt={adoptSuggestion}
-        valuePlaceholders={Object.fromEntries(
-          envSuggestions.filter((s) => s.description).map((s) => [s.name, s.description!]),
-        )}
-      />
-
-      <OverridesFieldset
-        overrides={input.overrides}
-        fields={overrideFields.data?.data ?? []}
-        onChange={(overrides) => set({ overrides })}
-      />
-
-      <PlacementFieldset
-        placement={input.placement}
-        placeholders={placeholders.data?.data ?? []}
-        onChange={(placement) => set({ placement })}
-      />
-
-      <HomeVolumeFieldset
-        homeVolume={input.homeVolume}
-        onChange={(homeVolume) => set({ homeVolume })}
-      />
-
-      <ScheduleFieldset value={input.schedule} onChange={(schedule) => set({ schedule })} />
-
-      <WorkloadSection
-        text={workloadText}
-        onChange={setWorkloadText}
-        error={workloadError}
-        open={workloadOpen}
-        onToggle={setWorkloadOpen}
+      <TabbedPanels
+        active={section}
+        onSelect={setSection}
+        tabs={[
+          {
+            id: 'general',
+            label: t('admin.templatesPage.tabGeneral'),
+            content: (
+              <IdentityFields
+                input={input}
+                onPatch={set}
+                onApplyRecommendation={applyRecommendation}
+                onArchitectures={applyArchitectures}
+              />
+            ),
+          },
+          {
+            id: 'protocols',
+            label: t('admin.templatesPage.protocols'),
+            content: (
+              <>
+                <ProtocolsFieldset
+                  protocols={protocols}
+                  meta={meta.data?.data}
+                  active={activeProto}
+                  onSelect={setActiveProto}
+                  addable={unusedProtocols}
+                  onAdd={addProtocol}
+                  onRemove={removeProtocol}
+                  onPatchActive={patchActive}
+                  onMakeDefault={() =>
+                    set({
+                      protocols: protocols.map((p) => ({ ...p, default: p.name === activeProto })),
+                    })
+                  }
+                />
+                {/* Gated on the whole protocol list, not the active tab
+                    — same guard the webhook enforces ("kasmvncConfig
+                    requires a kasmvnc protocol entry"). */}
+                {protocols.some((p) => p.name === 'kasmvnc') && (
+                  <KasmVNCConfigFieldset
+                    value={input.kasmvncConfig ?? ''}
+                    onChange={(text) => set({ kasmvncConfig: text })}
+                  />
+                )}
+              </>
+            ),
+          },
+          {
+            id: 'workspace',
+            label: t('admin.templatesPage.tabWorkspace'),
+            content: (
+              <TabbedPanels
+                active={workspaceTab}
+                onSelect={setWorkspaceTab}
+                tabs={[
+                  {
+                    id: 'resources',
+                    label: t('admin.templatesPage.resources'),
+                    content: (
+                      <ResourcesFieldset
+                        requests={input.requests}
+                        limits={input.limits}
+                        onPatch={set}
+                      />
+                    ),
+                  },
+                  {
+                    id: 'environment',
+                    label: t('admin.templatesPage.env'),
+                    content: (
+                      <EnvFieldset
+                        env={input.env}
+                        onChange={(env) => set({ env })}
+                        suggestions={envSuggestions.filter((s) => !s.adopted)}
+                        onAdopt={adoptSuggestion}
+                        valuePlaceholders={Object.fromEntries(
+                          envSuggestions
+                            .filter((s) => s.description)
+                            .map((s) => [s.name, s.description!]),
+                        )}
+                      />
+                    ),
+                  },
+                  {
+                    id: 'overrides',
+                    label: t('admin.templatesPage.overrides'),
+                    content: (
+                      <OverridesFieldset
+                        overrides={input.overrides}
+                        fields={overrideFields.data?.data ?? []}
+                        onChange={(overrides) => set({ overrides })}
+                      />
+                    ),
+                  },
+                  {
+                    id: 'placement',
+                    label: t('admin.templatesPage.placement'),
+                    content: (
+                      <PlacementFieldset
+                        placement={input.placement}
+                        placeholders={placeholders.data?.data ?? []}
+                        onChange={(placement) => set({ placement })}
+                      />
+                    ),
+                  },
+                  {
+                    id: 'homeVolume',
+                    label: t('admin.templatesPage.homeVolume'),
+                    content: (
+                      <HomeVolumeFieldset
+                        homeVolume={input.homeVolume}
+                        onChange={(homeVolume) => set({ homeVolume })}
+                      />
+                    ),
+                  },
+                  {
+                    id: 'schedule',
+                    label: t('admin.templatesPage.tabSchedule'),
+                    content: (
+                      <ScheduleFieldset
+                        value={input.schedule}
+                        onChange={(schedule) => set({ schedule })}
+                      />
+                    ),
+                  },
+                  {
+                    id: 'workload',
+                    label: t('admin.templatesPage.workload'),
+                    content: (
+                      <WorkloadSection
+                        text={workloadText}
+                        onChange={setWorkloadText}
+                        error={workloadError}
+                        open={workloadOpen}
+                        onToggle={setWorkloadOpen}
+                      />
+                    ),
+                  },
+                ]}
+              />
+            ),
+          },
+        ]}
       />
     </Dialog>
   );

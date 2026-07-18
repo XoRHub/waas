@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
@@ -79,6 +79,16 @@ beforeEach(() => {
   apiMock.route('/api/v1/meta/protocols', []);
 });
 
+/** Navigate the sectioned dialog: Workspace section, then one inner tab. */
+const openWorkspaceTab = async (inner: string) => {
+  await userEvent.click(screen.getByRole('button', { name: en.admin.templatesPage.tabWorkspace }));
+  await userEvent.click(screen.getByRole('button', { name: inner }));
+};
+
+const openProtocolsTab = async () => {
+  await userEvent.click(screen.getByRole('button', { name: en.admin.templatesPage.protocols }));
+};
+
 describe('TemplateDialog — apply catalog recommendation', () => {
   it('prefills the workload YAML/env and expands the collapsed Workload section', async () => {
     renderWithProviders(<TemplateDialog isNew initial={initial} onClose={() => {}} />);
@@ -103,6 +113,7 @@ describe('TemplateDialog — apply catalog recommendation', () => {
     expect(workloadYaml).toContain('mountPath: /tmp');
     // env goes to EnvFieldset's input.env, not the workload YAML.
     expect(workloadYaml).not.toContain('WAAS_SSH_ENABLED');
+    await openWorkspaceTab(en.admin.templatesPage.env);
     expect(screen.getByDisplayValue('WAAS_SSH_ENABLED')).toBeInTheDocument();
     // A hint without a default never becomes a real row — it shows up
     // as a greyed suggestion instead (adoption tested separately).
@@ -126,12 +137,14 @@ describe('TemplateDialog — apply catalog recommendation', () => {
 
     // vnc + ssh tabs appear (kasmvnc dropped by exclusivity), vnc is
     // active with its registry default port.
+    await openProtocolsTab();
     expect(screen.getByRole('button', { name: /vnc/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /ssh/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /kasmvnc/ })).toBeNull();
     expect(screen.getByDisplayValue('5901')).toBeInTheDocument();
 
     // rdp is not supported by the image: its hint never lands anywhere.
+    await openWorkspaceTab(en.admin.templatesPage.env);
     expect(screen.queryByDisplayValue('RDP_DOMAIN')).toBeNull();
     expect(screen.queryByRole('button', { name: /RDP_DOMAIN/ })).toBeNull();
 
@@ -158,9 +171,11 @@ describe('TemplateDialog — apply catalog recommendation', () => {
     );
 
     // The protocol list is not touched: no ssh tab was added.
+    await openProtocolsTab();
     expect(screen.queryByRole('button', { name: /ssh/ })).toBeNull();
 
     // ssh-only hints are filtered out entirely (row or suggestion).
+    await openWorkspaceTab(en.admin.templatesPage.env);
     expect(screen.queryByDisplayValue('WAAS_SSH_ENABLED')).toBeNull();
     expect(screen.queryByRole('button', { name: /WAAS_SSH_AUTHORIZED_KEYS_FILE/ })).toBeNull();
 
@@ -180,6 +195,7 @@ describe('TemplateDialog — apply catalog recommendation', () => {
       screen.getByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
     );
 
+    await openWorkspaceTab(en.admin.templatesPage.env);
     await userEvent.click(screen.getByRole('button', { name: /WAAS_SSH_AUTHORIZED_KEYS_FILE/ }));
 
     // Suggestion became a real (empty) row and left the suggestion list.
@@ -212,6 +228,7 @@ describe('TemplateDialog — apply catalog recommendation', () => {
     );
 
     // No duplicate row was appended for the colliding name.
+    await openWorkspaceTab(en.admin.templatesPage.env);
     expect(screen.getAllByDisplayValue('WAAS_SSH_ENABLED')).toHaveLength(1);
 
     // The pre-existing value survives untouched (not clobbered to the
@@ -224,6 +241,24 @@ describe('TemplateDialog — apply catalog recommendation', () => {
     expect(
       screen.getByRole('button', { name: /WAAS_SSH_AUTHORIZED_KEYS_FILE/ }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('TemplateDialog — sectioned form', () => {
+  it('a submit with invalid workload YAML jumps to Workspace › Workload', async () => {
+    renderWithProviders(
+      <TemplateDialog isNew initial={{ ...initial, image: 'img:1' }} onClose={() => {}} />,
+    );
+
+    // Type broken YAML into the (hidden) workload editor, then submit
+    // from the default General section: the error must not stay burrowed
+    // in an inactive tab.
+    const textarea = document.querySelector('details textarea') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: '{bad' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(screen.getByText(en.admin.templatesPage.workloadInvalid)).toBeVisible();
+    expect(textarea).toBeVisible();
   });
 });
 
