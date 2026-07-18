@@ -64,6 +64,14 @@ type UpdateOverridesInput struct {
 	// Resources is the user-chosen sizing ({"cpu","memory"} quantities);
 	// an empty map reverts to the template sizing.
 	Resources *map[string]string `json:"resources,omitempty"`
+	// Labels/Annotations are the workload-metadata override (the
+	// "metadata" right): merged under the template's workload metadata by
+	// the operator, reserved keys rejected by the webhook.
+	Labels      *map[string]string `json:"labels,omitempty"`
+	Annotations *map[string]string `json:"annotations,omitempty"`
+	// Schedule replaces the schedule override; a zero struct clears it
+	// (back to the template's schedule).
+	Schedule *waasv1alpha1.WorkspaceSchedule `json:"schedule,omitempty"`
 }
 
 // UpdateOverrides reconfigures an instantiated workspace's runtime
@@ -74,8 +82,9 @@ type UpdateOverridesInput struct {
 // reaches the live desktop at the next scale-up boundary or on manual
 // reload (docs/adr/0001); the drift badge flags it meanwhile.
 func (s *WorkspaceService) UpdateOverrides(ctx context.Context, actor Actor, id string, in UpdateOverridesInput) (*model.Workspace, error) {
-	if in.Env == nil && in.NodeSelector == nil && in.Tolerations == nil && in.Resources == nil {
-		return nil, apierror.BadRequest("no override field provided (env, nodeSelector, tolerations, resources)")
+	if in.Env == nil && in.NodeSelector == nil && in.Tolerations == nil && in.Resources == nil &&
+		in.Labels == nil && in.Annotations == nil && in.Schedule == nil {
+		return nil, apierror.BadRequest("no override field provided (env, nodeSelector, tolerations, resources, labels, annotations, schedule)")
 	}
 	ws, err := s.fetchByID(ctx, actor, id)
 	if err != nil {
@@ -103,6 +112,26 @@ func (s *WorkspaceService) UpdateOverrides(ctx context.Context, actor Actor, id 
 		ov.Tolerations = *in.Tolerations
 		if len(ov.Tolerations) == 0 {
 			ov.Tolerations = nil
+		}
+	}
+	if in.Labels != nil {
+		ov.Labels = *in.Labels
+		if len(ov.Labels) == 0 {
+			ov.Labels = nil
+		}
+	}
+	if in.Annotations != nil {
+		ov.Annotations = *in.Annotations
+		if len(ov.Annotations) == 0 {
+			ov.Annotations = nil
+		}
+	}
+	if in.Schedule != nil {
+		ov.Schedule = in.Schedule
+		// A zero struct clears the override, like the empty collections
+		// above: back to the template's schedule.
+		if reflect.DeepEqual(*in.Schedule, waasv1alpha1.WorkspaceSchedule{}) {
+			ov.Schedule = nil
 		}
 	}
 	// An all-empty overrides block means "no deviation": store nil, as a
@@ -153,6 +182,15 @@ func updateOverridesSummary(in UpdateOverridesInput) string {
 	}
 	if in.Resources != nil {
 		parts = append(parts, "resources")
+	}
+	if in.Labels != nil {
+		parts = append(parts, "labels")
+	}
+	if in.Annotations != nil {
+		parts = append(parts, "annotations")
+	}
+	if in.Schedule != nil {
+		parts = append(parts, "schedule")
 	}
 	return "updated: " + strings.Join(parts, " ")
 }

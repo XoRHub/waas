@@ -27,6 +27,7 @@ type remoteFixture struct {
 	workspace  *WorkspaceService
 	kube       client.Client
 	remotes    repository.RemoteWorkspaceRepository
+	users      repository.UserRepository
 	sessionsDB repository.SessionRepository
 	auditSvc   *AuditService
 	signer     *auth.Signer
@@ -79,6 +80,7 @@ func newRemoteFixture(t *testing.T, usersIn []model.User, policies []waasv1alpha
 			"waas-test", time.Minute).WithRemoteWorkspaces(remotes),
 		kube:       kube,
 		remotes:    remotes,
+		users:      users,
 		sessionsDB: sessions,
 		auditSvc:   audit,
 		signer:     signer,

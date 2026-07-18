@@ -266,6 +266,18 @@ export interface WorkspaceRuntime {
    * empty when the template sizing applies.
    */
   resources?: { [key: string]: string };
+  /**
+   * Labels/Annotations are the workload-metadata OVERRIDE as stored —
+   * not the merged result (the operator merges them under the
+   * template's workload metadata, platform keys winning).
+   */
+  labels?: { [key: string]: string };
+  annotations?: { [key: string]: string };
+  /**
+   * Schedule is the schedule OVERRIDE, nil when the template's applies
+   * (the workspace-level Schedule field carries the effective one).
+   */
+  schedule?: WorkspaceSchedule;
 }
 /**
  * HomeVolumeInfo is the display projection of a workspace's home volume.

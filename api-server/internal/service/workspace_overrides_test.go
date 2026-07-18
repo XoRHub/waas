@@ -2,12 +2,17 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/xorhub/waas/api-server/internal/apierror"
 	"github.com/xorhub/waas/api-server/internal/model"
@@ -124,6 +129,115 @@ func TestUpdateOverridesReplacesProvidedFields(t *testing.T) {
 	}
 	if strings.Contains(joined, "super-secret") || strings.Contains(joined, "proxy:3128") {
 		t.Fatalf("audit leaks env values: %q", joined)
+	}
+}
+
+// TestUpdateOverridesMetadataAndSchedule pins the same PATCH semantics
+// for the metadata (labels/annotations) and schedule overrides: a
+// provided field replaces the stored override, absent fields survive,
+// and an empty map / zero schedule struct clears — "cleared" and "never
+// set" are the same CR state.
+func TestUpdateOverridesMetadataAndSchedule(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{{ID: "u1", Username: "marc"}}, nil)
+	actor := Actor{ID: "u1", Username: "marc", Role: "user"}
+	ws := seedWorkspace(t, f, "marc-box", "u1")
+	id := string(ws.UID)
+
+	env := []corev1.EnvVar{{Name: "X", Value: "y"}}
+	sched := &waasv1alpha1.WorkspaceSchedule{Timezone: "Europe/Paris", Uptime: []string{"0 8 * * 1-5"}}
+	if _, err := f.workspace.UpdateOverrides(ctx, actor, id, UpdateOverridesInput{Env: &env, Schedule: sched}); err != nil {
+		t.Fatalf("seeding env+schedule overrides: %v", err)
+	}
+
+	// Labels alone: env and schedule must survive untouched.
+	labels := map[string]string{"team": "blue"}
+	got, err := f.workspace.UpdateOverrides(ctx, actor, id, UpdateOverridesInput{Labels: &labels})
+	if err != nil {
+		t.Fatalf("patching labels: %v", err)
+	}
+	if got.Runtime == nil || got.Runtime.Labels["team"] != "blue" ||
+		len(got.Runtime.Env) != 1 || got.Runtime.Schedule == nil {
+		t.Fatalf("labels must land, env and schedule must survive: %+v", got.Runtime)
+	}
+
+	fresh := &waasv1alpha1.Workspace{}
+	if err := f.kube.Get(ctx, types.NamespacedName{Namespace: testNS, Name: "marc-box"}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Spec.Overrides.Labels["team"] != "blue" || fresh.Spec.Overrides.Schedule == nil {
+		t.Fatalf("CR must carry labels AND the untouched schedule: %+v", fresh.Spec.Overrides)
+	}
+
+	// Annotations set + labels cleared with an empty map in one call.
+	ann := map[string]string{"waas.example.com/note": "hi"}
+	noLabels := map[string]string{}
+	if _, err := f.workspace.UpdateOverrides(ctx, actor, id, UpdateOverridesInput{Annotations: &ann, Labels: &noLabels}); err != nil {
+		t.Fatalf("annotations + label clear: %v", err)
+	}
+	if err := f.kube.Get(ctx, types.NamespacedName{Namespace: testNS, Name: "marc-box"}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Spec.Overrides.Labels != nil || fresh.Spec.Overrides.Annotations["waas.example.com/note"] != "hi" {
+		t.Fatalf("labels must clear to nil, annotations must land: %+v", fresh.Spec.Overrides)
+	}
+
+	// A ZERO schedule struct clears the override (absent would leave it).
+	if _, err := f.workspace.UpdateOverrides(ctx, actor, id, UpdateOverridesInput{Schedule: &waasv1alpha1.WorkspaceSchedule{}}); err != nil {
+		t.Fatalf("clearing schedule: %v", err)
+	}
+	if err := f.kube.Get(ctx, types.NamespacedName{Namespace: testNS, Name: "marc-box"}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Spec.Overrides == nil || fresh.Spec.Overrides.Schedule != nil {
+		t.Fatalf("zero schedule must clear the override only: %+v", fresh.Spec.Overrides)
+	}
+	if len(fresh.Spec.Overrides.Env) != 1 || fresh.Spec.Overrides.Annotations == nil {
+		t.Fatalf("env and annotations must survive the schedule clear: %+v", fresh.Spec.Overrides)
+	}
+}
+
+// denyingUpdate simulates the governance webhook: every Update comes
+// back Forbidden with the webhook's "[Reason] message" denial format.
+type denyingUpdate struct {
+	client.Client
+	denial string
+}
+
+func (d *denyingUpdate) Update(_ context.Context, _ client.Object, _ ...client.UpdateOption) error {
+	return apierrors.NewForbidden(
+		schema.GroupResource{Group: "waas.xorhub.io", Resource: "workspaces"}, "marc-box",
+		errors.New(d.denial))
+}
+
+// TestUpdateOverridesWebhookDenial: the service never judges override
+// rights itself — a webhook denial surfaces as a 403 carrying the
+// "[Reason] message" tail, and the denial is audited.
+func TestUpdateOverridesWebhookDenial(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{{ID: "u1", Username: "marc"}}, nil)
+	actor := Actor{ID: "u1", Username: "marc", Role: "user"}
+	ws := seedWorkspace(t, f, "marc-box", "u1")
+
+	denial := `admission webhook "vworkspace.kb.io" denied the request: [OverrideNotAllowed] template does not allow overriding "metadata"`
+	svc := NewWorkspaceService(&denyingUpdate{Client: f.kube, denial: denial}, testNS,
+		f.users, f.sessionsDB, f.auditSvc, f.signer, "waas-test", time.Minute)
+
+	labels := map[string]string{"team": "blue"}
+	_, err := svc.UpdateOverrides(ctx, actor, string(ws.UID), UpdateOverridesInput{Labels: &labels})
+	if !apierror.IsForbidden(err) {
+		t.Fatalf("webhook denial must surface as a 403, got %v", err)
+	}
+	if !strings.Contains(err.Error(), `[OverrideNotAllowed] template does not allow overriding "metadata"`) {
+		t.Fatalf("the denial must keep the webhook's [Reason] message, got %q", err.Error())
+	}
+
+	logs, _, err := f.auditSvc.List(ctx, repository.AuditFilter{Action: "workspace.denied"}, 1, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected one workspace.denied audit entry, got %d", len(logs))
 	}
 }
 

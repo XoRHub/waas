@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -989,6 +990,9 @@ func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTem
 		runtime.Env = ov.Env
 		runtime.NodeSelector = ov.NodeSelector
 		runtime.Tolerations = ov.Tolerations
+		runtime.Labels = ov.Labels
+		runtime.Annotations = ov.Annotations
+		runtime.Schedule = ov.Schedule
 	}
 	if ws.Spec.Resources != nil {
 		runtime.Resources = map[string]string{}
@@ -996,7 +1000,7 @@ func workspaceToModel(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTem
 			runtime.Resources[string(name)] = qty.String()
 		}
 	}
-	if runtime.Env != nil || runtime.NodeSelector != nil || runtime.Tolerations != nil || runtime.Resources != nil {
+	if !reflect.DeepEqual(*runtime, model.WorkspaceRuntime{}) {
 		m.Runtime = runtime
 	}
 	if m.Phase == "" {

@@ -229,6 +229,14 @@ type WorkspaceRuntime struct {
 	// Resources is the user-chosen sizing ({"cpu","memory"} quantities),
 	// empty when the template sizing applies.
 	Resources map[string]string `json:"resources,omitempty"`
+	// Labels/Annotations are the workload-metadata OVERRIDE as stored —
+	// not the merged result (the operator merges them under the
+	// template's workload metadata, platform keys winning).
+	Labels      map[string]string `json:"labels,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// Schedule is the schedule OVERRIDE, nil when the template's applies
+	// (the workspace-level Schedule field carries the effective one).
+	Schedule *waasv1alpha1.WorkspaceSchedule `json:"schedule,omitempty"`
 }
 
 // HomeVolumeInfo is the display projection of a workspace's home volume.
