@@ -1,8 +1,10 @@
 import { useTranslation } from 'react-i18next';
+import { KeyValueEditor } from '@/components/KeyValueEditor';
 import type { NamespacePlaceholder, TemplateInput } from '@/hooks/useApi';
 import { fieldSm } from './fields';
 
-/** Workload placement: namespace pattern + cleanup policy. */
+/** Workload placement: namespace pattern, namespace metadata + cleanup
+ * policy. */
 export function PlacementFieldset({
   placement,
   placeholders,
@@ -48,6 +50,49 @@ export function PlacementFieldset({
           </ul>
         </div>
       )}
+      <div>
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          {t('admin.templatesPage.placementLabels')}
+        </span>
+        <div className="mt-1">
+          <KeyValueEditor
+            value={placement?.namespaceLabels ?? {}}
+            onChange={(m) =>
+              // An emptied map leaves the CR entirely (never a persisted
+              // {}), like the pattern's `|| undefined` above.
+              onChange({
+                ...placement,
+                namespaceLabels: Object.keys(m).length > 0 ? m : undefined,
+              })
+            }
+            keyPlaceholder={t('admin.templatesPage.placementMetaKey')}
+            valuePlaceholder={t('admin.templatesPage.placementMetaValue')}
+            addLabel={t('admin.templatesPage.placementAddLabel')}
+          />
+        </div>
+      </div>
+      <div>
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          {t('admin.templatesPage.placementAnnotations')}
+        </span>
+        <div className="mt-1">
+          <KeyValueEditor
+            value={placement?.namespaceAnnotations ?? {}}
+            onChange={(m) =>
+              onChange({
+                ...placement,
+                namespaceAnnotations: Object.keys(m).length > 0 ? m : undefined,
+              })
+            }
+            keyPlaceholder={t('admin.templatesPage.placementMetaKey')}
+            valuePlaceholder={t('admin.templatesPage.placementMetaValue')}
+            addLabel={t('admin.templatesPage.placementAddAnnotation')}
+          />
+        </div>
+      </div>
+      <p className="text-xs text-slate-400 dark:text-slate-500">
+        {t('admin.templatesPage.placementMetaHint')}
+      </p>
       <label className="block">
         <span className="text-xs text-slate-500 dark:text-slate-400">
           {t('admin.templatesPage.placementCleanup')}

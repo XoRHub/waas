@@ -132,6 +132,7 @@ function toInput(tpl: WorkspaceTemplate): TemplateInput {
     os: tpl.os,
     image: tpl.image,
     homeSize: tpl.homeSize ?? '',
+    homeMountPath: tpl.homeMountPath,
     kasmvncConfig: tpl.kasmvncConfig ?? '',
     storageClassName: tpl.storageClassName ?? '',
     requests: tpl.requests,

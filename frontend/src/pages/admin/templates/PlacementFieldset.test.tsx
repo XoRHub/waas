@@ -35,6 +35,39 @@ describe('PlacementFieldset', () => {
     expect(onChange).toHaveBeenLastCalledWith({ cleanup: 'DeleteWhenEmpty' });
   });
 
+  it('shows existing namespace metadata and reports the full placement on edit', async () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <PlacementFieldset
+        placement={{ namespace: 'waas-{user}', namespaceLabels: { team: 'blue' } }}
+        placeholders={[]}
+        onChange={onChange}
+      />,
+    );
+
+    const value = screen.getByDisplayValue('blue');
+    await userEvent.type(value, 's');
+    // The whole placement travels: pattern preserved, labels updated.
+    expect(onChange).toHaveBeenLastCalledWith({
+      namespace: 'waas-{user}',
+      namespaceLabels: { team: 'blues' },
+    });
+  });
+
+  it('an emptied metadata map leaves the payload (undefined, never {})', async () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <PlacementFieldset
+        placement={{ namespaceAnnotations: { 'backup/policy': 'daily' } }}
+        placeholders={[]}
+        onChange={onChange}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: en.app.delete }));
+    expect(onChange).toHaveBeenLastCalledWith({ namespaceAnnotations: undefined });
+  });
+
   it('lists the server-provided placeholders, hidden when none', () => {
     const { unmount } = renderWithProviders(
       <PlacementFieldset

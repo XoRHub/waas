@@ -394,6 +394,9 @@ export interface TemplateInput {
   os: string;
   image: string;
   homeSize?: string;
+  /** Where the home volume mounts in the pod; empty = the platform
+   * default (/home/waas_user). Applies to pods deployed AFTER the save. */
+  homeMountPath?: string;
   // Raw ~/.vnc/kasmvnc.yaml override; only meaningful with a kasmvnc
   // protocol (the webhook enforces that). Clipboard DLP keys are
   // policy-owned and rejected server-side.

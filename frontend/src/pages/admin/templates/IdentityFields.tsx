@@ -90,6 +90,20 @@ export function IdentityFields({
             placeholder={t('admin.templatesPage.storageClassDefault')}
           />
         </label>
+        <label className="block">
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {t('admin.templatesPage.homeMountPath')}
+          </span>
+          <input
+            className={`${field} font-mono`}
+            value={input.homeMountPath ?? ''}
+            onChange={(e) => onPatch({ homeMountPath: e.target.value || undefined })}
+            placeholder="/home/waas_user"
+          />
+          <span className="mt-0.5 block text-xs text-slate-400 dark:text-slate-500">
+            {t('admin.templatesPage.homeMountPathHint')}
+          </span>
+        </label>
       </div>
 
       <CatalogImageField
