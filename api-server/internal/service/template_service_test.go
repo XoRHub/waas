@@ -3,6 +3,8 @@ package service
 import (
 	"strings"
 	"testing"
+
+	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
 
 // specFromInput mirrors the admission webhook's exposeAudioPort gates
@@ -143,5 +145,43 @@ func TestTemplateInputValidatesKasmVNCConfig(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 			t.Errorf("%s: expected error containing %q, got %v", tc.name, tc.wantErr, err)
 		}
+	}
+}
+
+// specFromInput mirrors the admission webhook's metadata denylist on the
+// homeVolume block with 400s, and passes clean metadata to the CR spec
+// verbatim. Create and Update both funnel through specFromInput, so this
+// covers template creation AND edition through the API.
+func TestTemplateInputValidatesHomeVolumeMetadata(t *testing.T) {
+	base := func() TemplateInput {
+		return TemplateInput{Name: "t", DisplayName: "T", OS: "linux", Image: "img:1"}
+	}
+
+	good := base()
+	good.HomeVolume = &waasv1alpha1.WorkspaceHomeVolume{Labels: map[string]string{
+		"recurring-job.longhorn.io/source": "enabled",
+	}}
+	spec, err := specFromInput(good)
+	if err != nil {
+		t.Fatalf("Longhorn backup label must pass: %v", err)
+	}
+	if spec.HomeVolume == nil || spec.HomeVolume.Labels["recurring-job.longhorn.io/source"] != "enabled" {
+		t.Fatalf("homeVolume must reach the CR spec verbatim, got %+v", spec.HomeVolume)
+	}
+
+	badLabel := base()
+	badLabel.HomeVolume = &waasv1alpha1.WorkspaceHomeVolume{Labels: map[string]string{
+		"waas.xorhub.io/retained": "true",
+	}}
+	if _, err := specFromInput(badLabel); err == nil || !strings.Contains(err.Error(), "homeVolume.labels") {
+		t.Fatalf("reserved label must be a 400 naming the field, got %v", err)
+	}
+
+	badAnnotation := base()
+	badAnnotation.HomeVolume = &waasv1alpha1.WorkspaceHomeVolume{Annotations: map[string]string{
+		"kubernetes.io/change-cause": "x",
+	}}
+	if _, err := specFromInput(badAnnotation); err == nil || !strings.Contains(err.Error(), "homeVolume.annotations") {
+		t.Fatalf("reserved annotation must be a 400 naming the field, got %v", err)
 	}
 }

@@ -445,6 +445,11 @@ export interface WorkspaceTemplate {
    * pattern, namespace metadata, cleanup policy).
    */
   placement?: WorkspacePlacement;
+  /**
+   * HomeVolume is the CR's homeVolume block verbatim (home PVC
+   * labels/annotations, e.g. Longhorn recurring-job enrollment).
+   */
+  homeVolume?: any /* waasv1alpha1.WorkspaceHomeVolume */;
 }
 /**
  * CatalogImage is the API projection of a WorkspaceImage CR, already

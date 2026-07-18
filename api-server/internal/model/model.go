@@ -362,6 +362,9 @@ type WorkspaceTemplate struct {
 	// Placement is the CR's placement block verbatim (target-namespace
 	// pattern, namespace metadata, cleanup policy).
 	Placement *waasv1alpha1.WorkspacePlacement `json:"placement,omitempty"`
+	// HomeVolume is the CR's homeVolume block verbatim (home PVC
+	// labels/annotations, e.g. Longhorn recurring-job enrollment).
+	HomeVolume *waasv1alpha1.WorkspaceHomeVolume `json:"homeVolume,omitempty"`
 }
 
 // CatalogImage is the API projection of a WorkspaceImage CR, already

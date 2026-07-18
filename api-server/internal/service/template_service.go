@@ -77,6 +77,10 @@ type TemplateInput struct {
 	// Placement is the CR field verbatim (target-namespace pattern,
 	// namespace metadata, cleanup policy).
 	Placement *waasv1alpha1.WorkspacePlacement `json:"placement,omitempty"`
+
+	// HomeVolume is the CR field verbatim (home PVC labels/annotations,
+	// e.g. Longhorn recurring-job enrollment).
+	HomeVolume *waasv1alpha1.WorkspaceHomeVolume `json:"homeVolume,omitempty"`
 }
 
 // TemplateProtocolInput mirrors WorkspaceProtocol.
@@ -369,6 +373,15 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 			return nil, apierror.BadRequest(fmt.Sprintf("workload.annotations: %v", err))
 		}
 	}
+	if in.HomeVolume != nil {
+		if err := metakeys.Check(in.HomeVolume.Labels); err != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("homeVolume.labels: %v", err))
+		}
+		if err := metakeys.Check(in.HomeVolume.Annotations); err != nil {
+			return nil, apierror.BadRequest(fmt.Sprintf("homeVolume.annotations: %v", err))
+		}
+		spec.HomeVolume = in.HomeVolume
+	}
 	return spec, nil
 }
 
@@ -445,5 +458,6 @@ func templateToModel(tpl *waasv1alpha1.WorkspaceTemplate) model.WorkspaceTemplat
 	}
 	m.Schedule = tpl.Spec.Schedule
 	m.Placement = tpl.Spec.Placement
+	m.HomeVolume = tpl.Spec.HomeVolume
 	return m
 }
