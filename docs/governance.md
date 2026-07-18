@@ -22,8 +22,14 @@ WorkspacePolicy ── images[] ───────────►  WorkspaceI
   `enabled` kill-switch, `allowedGroups` global restriction, and default/
   min/max sizing.
 - **`WorkspacePolicy`** (`wsp`): priority, subjects (`User`/`Group`),
-  image subset, limits (`maxWorkspaces`, `perWorkspace`, `aggregate`,
-  `defaults`), lifecycle (`idleSuspendAfter`, `maxLifetime`).
+  image subset, limits (`maxWorkspaces`, `maxRunningWorkspaces`,
+  `perWorkspace`, `aggregate`, `defaults`), lifecycle
+  (`idleSuspendAfter`, `maxLifetime`).
+  `maxWorkspaces` caps OWNERSHIP (paused workspaces count — their home
+  PVC still holds storage) while `maxRunningWorkspaces` caps compute
+  CONCURRENCY (paused workspaces and retained volumes don't count);
+  the latter is enforced at both transitions into compute: creating a
+  non-paused workspace and resuming a paused one.
   `limits.defaults` is the sizing the portal pre-selects on the creation
   sliders when the image declares no `resources.default` (image wins);
   it is display-only and never enforced.

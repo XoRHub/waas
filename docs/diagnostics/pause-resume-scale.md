@@ -63,3 +63,14 @@ the kubebuilder markers by hand — nothing tied the two together.
 The fix is purely RBAC: `helm upgrade` (or ArgoCD sync) is enough, no
 workspace restart needed. Workspaces stuck in
 pause/resume converge on the first reconcile after the upgrade.
+
+## Related: resume can now be DENIED by quota (expected, not this bug)
+
+Since `WorkspacePolicy.limits.maxRunningWorkspaces`, resuming is a
+governed transition: if the user's running slots are all taken, the
+admission webhook denies the `spec.paused` flip with
+`[QuotaExceeded] policy "…": running workspace quota reached (N/N);
+pause a workspace to free a slot`. The api-server surfaces it as 403
+Forbidden and the portal shows the message on the workspace card. A
+resume that returns this error is working as designed — nothing to
+diagnose; pausing (or deleting) another workspace frees the slot.

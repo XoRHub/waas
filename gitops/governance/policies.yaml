@@ -52,6 +52,9 @@ spec:
   images: []               # vide = tout le catalogue (allowedGroups s'applique toujours)
   limits:
     maxWorkspaces: 5
+    # Concurrence compute : 2 espaces démarrés à la fois maximum (les
+    # pausés ne comptent pas — pauser libère un slot).
+    maxRunningWorkspaces: 2
     perWorkspace: { cpu: "4", memory: 8Gi, home: 20Gi }
     aggregate:    { cpu: "8", memory: 16Gi, storage: 60Gi }
   lifecycle:
