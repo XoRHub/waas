@@ -8,7 +8,8 @@ export const rowInput =
   'rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-white';
 export const addButton =
   'rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700';
-export const removeButton = 'rounded px-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700';
+export const removeButton =
+  'rounded px-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700';
 
 interface Row {
   key: string;
@@ -70,7 +71,9 @@ export function KeyValueEditor({
             placeholder={keyPlaceholder}
             value={row.key}
             disabled={disabled}
-            onChange={(e) => patch(rows.map((r, j) => (j === i ? { ...r, key: e.target.value } : r)))}
+            onChange={(e) =>
+              patch(rows.map((r, j) => (j === i ? { ...r, key: e.target.value } : r)))
+            }
           />
           <input
             className={`flex-1 ${rowInput}`}

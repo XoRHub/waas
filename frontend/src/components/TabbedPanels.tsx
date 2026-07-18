@@ -168,12 +168,7 @@ export function TabbedPanels({
       </div>
       <div onInvalidCapture={onInvalidCapture}>
         {visible.map((tab) => (
-          <div
-            key={tab.id}
-            data-panel={tab.id}
-            hidden={tab.id !== effective}
-            className="space-y-4"
-          >
+          <div key={tab.id} data-panel={tab.id} hidden={tab.id !== effective} className="space-y-4">
             {tab.content}
           </div>
         ))}

@@ -206,7 +206,8 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
       .filter((row) => row.name.trim() !== '')
       .map((row) => ({ name: row.name.trim(), value: row.value }));
     const scheduleOv = canOverride('schedule') ? scheduleOverride : undefined;
-    const labels = canOverride('metadata') && Object.keys(labelsOv).length > 0 ? labelsOv : undefined;
+    const labels =
+      canOverride('metadata') && Object.keys(labelsOv).length > 0 ? labelsOv : undefined;
     const annotations =
       canOverride('metadata') && Object.keys(annotationsOv).length > 0 ? annotationsOv : undefined;
     const overrides =

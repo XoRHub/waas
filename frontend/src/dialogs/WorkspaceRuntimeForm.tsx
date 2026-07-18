@@ -244,41 +244,41 @@ export function WorkspaceRuntimeForm({
   const envContent = (
     <>
       {envRows.map((row, i) => (
-          <div key={i} className="flex gap-2">
-            <input
-              className={`w-2/5 ${rowInput}`}
-              placeholder={t('portal.envName')}
-              value={row.name}
-              disabled={!envEditable}
-              onChange={(e) =>
-                setEnvRows((rows) =>
-                  rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)),
-                )
-              }
-            />
-            <input
-              className={`flex-1 ${rowInput}`}
-              placeholder={row.valueFrom ? t('portal.runtime.valueFromRef') : t('portal.envValue')}
-              value={row.valueFrom ? '' : row.value}
-              disabled={!envEditable || Boolean(row.valueFrom)}
-              onChange={(e) =>
-                setEnvRows((rows) =>
-                  rows.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)),
-                )
-              }
-            />
-            {envEditable && (
-              <button
-                type="button"
-                onClick={() => setEnvRows((rows) => rows.filter((_, j) => j !== i))}
-                className={removeButton}
-                aria-label={t('app.delete')}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        ))}
+        <div key={i} className="flex gap-2">
+          <input
+            className={`w-2/5 ${rowInput}`}
+            placeholder={t('portal.envName')}
+            value={row.name}
+            disabled={!envEditable}
+            onChange={(e) =>
+              setEnvRows((rows) =>
+                rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)),
+              )
+            }
+          />
+          <input
+            className={`flex-1 ${rowInput}`}
+            placeholder={row.valueFrom ? t('portal.runtime.valueFromRef') : t('portal.envValue')}
+            value={row.valueFrom ? '' : row.value}
+            disabled={!envEditable || Boolean(row.valueFrom)}
+            onChange={(e) =>
+              setEnvRows((rows) =>
+                rows.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)),
+              )
+            }
+          />
+          {envEditable && (
+            <button
+              type="button"
+              onClick={() => setEnvRows((rows) => rows.filter((_, j) => j !== i))}
+              className={removeButton}
+              aria-label={t('app.delete')}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      ))}
       {envEditable && (
         <button
           type="button"
@@ -300,13 +300,13 @@ export function WorkspaceRuntimeForm({
         {!selEditable && placementEditable && locked}
       </div>
       <KeyValueEditor
-          value={nodeSel}
-          onChange={setNodeSel}
-          disabled={!selEditable}
-          keyPlaceholder={t('portal.runtime.selectorKey')}
-          valuePlaceholder={t('portal.runtime.selectorValue')}
-          addLabel={t('portal.runtime.addSelector')}
-        />
+        value={nodeSel}
+        onChange={setNodeSel}
+        disabled={!selEditable}
+        keyPlaceholder={t('portal.runtime.selectorKey')}
+        valuePlaceholder={t('portal.runtime.selectorValue')}
+        addLabel={t('portal.runtime.addSelector')}
+      />
 
       <div className="flex items-center gap-2 pt-1">
         <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -315,75 +315,75 @@ export function WorkspaceRuntimeForm({
         {!tolEditable && placementEditable && locked}
       </div>
       {tolRows.map((tol, i) => (
-          <div key={i} className="flex gap-1">
-            <input
-              className={`w-1/4 ${rowInput}`}
-              placeholder={t('portal.runtime.tolKey')}
-              value={tol.key ?? ''}
-              disabled={!tolEditable}
-              onChange={(e) =>
-                setTolRows((rows) =>
-                  rows.map((r, j) => (j === i ? { ...r, key: e.target.value || undefined } : r)),
-                )
-              }
-            />
-            <select
-              className={rowSelect}
-              aria-label={t('portal.runtime.tolOperator')}
-              value={tol.operator ?? 'Equal'}
-              disabled={!tolEditable}
-              onChange={(e) =>
-                setTolRows((rows) =>
-                  rows.map((r, j) => (j === i ? { ...r, operator: e.target.value } : r)),
-                )
-              }
+        <div key={i} className="flex gap-1">
+          <input
+            className={`w-1/4 ${rowInput}`}
+            placeholder={t('portal.runtime.tolKey')}
+            value={tol.key ?? ''}
+            disabled={!tolEditable}
+            onChange={(e) =>
+              setTolRows((rows) =>
+                rows.map((r, j) => (j === i ? { ...r, key: e.target.value || undefined } : r)),
+              )
+            }
+          />
+          <select
+            className={rowSelect}
+            aria-label={t('portal.runtime.tolOperator')}
+            value={tol.operator ?? 'Equal'}
+            disabled={!tolEditable}
+            onChange={(e) =>
+              setTolRows((rows) =>
+                rows.map((r, j) => (j === i ? { ...r, operator: e.target.value } : r)),
+              )
+            }
+          >
+            {TOLERATION_OPERATORS.map((op) => (
+              <option key={op} value={op}>
+                {op}
+              </option>
+            ))}
+          </select>
+          <input
+            className={`w-1/5 ${rowInput}`}
+            placeholder={t('portal.runtime.tolValue')}
+            value={tol.value ?? ''}
+            disabled={!tolEditable || tol.operator === 'Exists'}
+            onChange={(e) =>
+              setTolRows((rows) =>
+                rows.map((r, j) => (j === i ? { ...r, value: e.target.value || undefined } : r)),
+              )
+            }
+          />
+          <select
+            className={rowSelect}
+            aria-label={t('portal.runtime.tolEffect')}
+            value={tol.effect ?? ''}
+            disabled={!tolEditable}
+            onChange={(e) =>
+              setTolRows((rows) =>
+                rows.map((r, j) => (j === i ? { ...r, effect: e.target.value || undefined } : r)),
+              )
+            }
+          >
+            {TOLERATION_EFFECTS.map((effect) => (
+              <option key={effect} value={effect}>
+                {effect === '' ? t('portal.runtime.tolAnyEffect') : effect}
+              </option>
+            ))}
+          </select>
+          {tolEditable && (
+            <button
+              type="button"
+              onClick={() => setTolRows((rows) => rows.filter((_, j) => j !== i))}
+              className={removeButton}
+              aria-label={t('app.delete')}
             >
-              {TOLERATION_OPERATORS.map((op) => (
-                <option key={op} value={op}>
-                  {op}
-                </option>
-              ))}
-            </select>
-            <input
-              className={`w-1/5 ${rowInput}`}
-              placeholder={t('portal.runtime.tolValue')}
-              value={tol.value ?? ''}
-              disabled={!tolEditable || tol.operator === 'Exists'}
-              onChange={(e) =>
-                setTolRows((rows) =>
-                  rows.map((r, j) => (j === i ? { ...r, value: e.target.value || undefined } : r)),
-                )
-              }
-            />
-            <select
-              className={rowSelect}
-              aria-label={t('portal.runtime.tolEffect')}
-              value={tol.effect ?? ''}
-              disabled={!tolEditable}
-              onChange={(e) =>
-                setTolRows((rows) =>
-                  rows.map((r, j) => (j === i ? { ...r, effect: e.target.value || undefined } : r)),
-                )
-              }
-            >
-              {TOLERATION_EFFECTS.map((effect) => (
-                <option key={effect} value={effect}>
-                  {effect === '' ? t('portal.runtime.tolAnyEffect') : effect}
-                </option>
-              ))}
-            </select>
-            {tolEditable && (
-              <button
-                type="button"
-                onClick={() => setTolRows((rows) => rows.filter((_, j) => j !== i))}
-                className={removeButton}
-                aria-label={t('app.delete')}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        ))}
+              ✕
+            </button>
+          )}
+        </div>
+      ))}
       {tolEditable && (
         <button
           type="button"
@@ -401,25 +401,25 @@ export function WorkspaceRuntimeForm({
       <span className="text-xs text-slate-500 dark:text-slate-400">
         {t('portal.runtime.labels')}
       </span>
-        <KeyValueEditor
-          value={labels}
-          onChange={setLabels}
-          disabled={!metaEditable}
-          keyPlaceholder={t('portal.runtime.metaKey')}
-          valuePlaceholder={t('portal.runtime.metaValue')}
-          addLabel={t('portal.runtime.addLabel')}
-        />
-        <span className="block pt-1 text-xs text-slate-500 dark:text-slate-400">
-          {t('portal.runtime.annotations')}
-        </span>
-        <KeyValueEditor
-          value={annotations}
-          onChange={setAnnotations}
-          disabled={!metaEditable}
-          keyPlaceholder={t('portal.runtime.metaKey')}
-          valuePlaceholder={t('portal.runtime.metaValue')}
-          addLabel={t('portal.runtime.addAnnotation')}
-        />
+      <KeyValueEditor
+        value={labels}
+        onChange={setLabels}
+        disabled={!metaEditable}
+        keyPlaceholder={t('portal.runtime.metaKey')}
+        valuePlaceholder={t('portal.runtime.metaValue')}
+        addLabel={t('portal.runtime.addLabel')}
+      />
+      <span className="block pt-1 text-xs text-slate-500 dark:text-slate-400">
+        {t('portal.runtime.annotations')}
+      </span>
+      <KeyValueEditor
+        value={annotations}
+        onChange={setAnnotations}
+        disabled={!metaEditable}
+        keyPlaceholder={t('portal.runtime.metaKey')}
+        valuePlaceholder={t('portal.runtime.metaValue')}
+        addLabel={t('portal.runtime.addAnnotation')}
+      />
       <p className="text-xs text-slate-400 dark:text-slate-500">
         {t('portal.runtime.metadataHint')}
       </p>
@@ -429,50 +429,50 @@ export function WorkspaceRuntimeForm({
   const resourcesContent = (
     <div className="space-y-3">
       {resEditable ? (
-          <>
-            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={customSizing}
-                onChange={(e) => setCustomSizing(e.target.checked)}
+        <>
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={customSizing}
+              onChange={(e) => setCustomSizing(e.target.checked)}
+            />
+            {t('portal.runtime.customSizing')}
+          </label>
+          {customSizing ? (
+            <>
+              <ResourceSlider
+                label={t('portal.cpu')}
+                value={cpuValue}
+                bounds={cpuBounds}
+                step={CPU_STEP}
+                display={(v) => `${displayCpu(v)} vCPU`}
+                onChange={setCpu}
               />
-              {t('portal.runtime.customSizing')}
-            </label>
-            {customSizing ? (
-              <>
-                <ResourceSlider
-                  label={t('portal.cpu')}
-                  value={cpuValue}
-                  bounds={cpuBounds}
-                  step={CPU_STEP}
-                  display={(v) => `${displayCpu(v)} vCPU`}
-                  onChange={setCpu}
-                />
-                <ResourceSlider
-                  label={t('portal.memory')}
-                  value={memValue}
-                  bounds={memBounds}
-                  step={MEM_STEP}
-                  display={displayMemory}
-                  onChange={setMemory}
-                />
-              </>
-            ) : (
-              <p className="text-xs text-slate-400 dark:text-slate-500">
-                {t('portal.runtime.templateSizing')}
-              </p>
-            )}
-          </>
-        ) : (
-          // Same story as portal.fixedSizing at creation: display only,
-          // never a payload — presence would count as an override.
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {t('portal.fixedSizing', {
-              cpu: displayCpu(cpuBounds.initial),
-              memory: displayMemory(memBounds.initial),
-            })}
-          </p>
-        )}
+              <ResourceSlider
+                label={t('portal.memory')}
+                value={memValue}
+                bounds={memBounds}
+                step={MEM_STEP}
+                display={displayMemory}
+                onChange={setMemory}
+              />
+            </>
+          ) : (
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              {t('portal.runtime.templateSizing')}
+            </p>
+          )}
+        </>
+      ) : (
+        // Same story as portal.fixedSizing at creation: display only,
+        // never a payload — presence would count as an override.
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {t('portal.fixedSizing', {
+            cpu: displayCpu(cpuBounds.initial),
+            memory: displayMemory(memBounds.initial),
+          })}
+        </p>
+      )}
     </div>
   );
 
