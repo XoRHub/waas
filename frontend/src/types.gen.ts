@@ -586,6 +586,12 @@ export interface QuotaStatus {
   policyPriority: number /* int32 */;
   maxWorkspaces?: number /* int32 */;
   usedWorkspaces: number /* int */;
+  /**
+   * MaxRunningWorkspaces caps compute concurrency: paused workspaces
+   * and retained volumes do not count (unlike maxWorkspaces).
+   */
+  maxRunningWorkspaces?: number /* int32 */;
+  runningWorkspaces: number /* int */;
   limits?: { [key: string]: string }; // aggregate caps (cpu/memory/storage)
   used?: { [key: string]: string }; // current aggregates
   perWorkspace?: { [key: string]: string };
@@ -663,6 +669,7 @@ export interface PolicySubject {
  */
 export interface PolicyLimitsModel {
   maxWorkspaces?: number /* int32 */;
+  maxRunningWorkspaces?: number /* int32 */;
   perWorkspace?: { [key: string]: string };
   aggregate?: { [key: string]: string };
   defaults?: { [key: string]: string };

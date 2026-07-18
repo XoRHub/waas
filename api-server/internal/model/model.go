@@ -467,15 +467,19 @@ type RecommendedEnvVar struct {
 // limits, and current consumption — everything the portal needs to render
 // "2/3 workspaces, 6 Gi RAM left".
 type QuotaStatus struct {
-	Policy         string            `json:"policy"`
-	PolicyPriority int32             `json:"policyPriority"`
-	MaxWorkspaces  *int32            `json:"maxWorkspaces,omitempty"`
-	UsedWorkspaces int               `json:"usedWorkspaces"`
-	Limits         map[string]string `json:"limits,omitempty"` // aggregate caps (cpu/memory/storage)
-	Used           map[string]string `json:"used,omitempty"`   // current aggregates
-	PerWorkspace   map[string]string `json:"perWorkspace,omitempty"`
-	Defaults       map[string]string `json:"defaults,omitempty"`  // policy-proposed sizing (image defaults win)
-	Lifecycle      map[string]string `json:"lifecycle,omitempty"` // idleSuspendAfter / maxLifetime
+	Policy         string `json:"policy"`
+	PolicyPriority int32  `json:"policyPriority"`
+	MaxWorkspaces  *int32 `json:"maxWorkspaces,omitempty"`
+	UsedWorkspaces int    `json:"usedWorkspaces"`
+	// MaxRunningWorkspaces caps compute concurrency: paused workspaces
+	// and retained volumes do not count (unlike maxWorkspaces).
+	MaxRunningWorkspaces *int32            `json:"maxRunningWorkspaces,omitempty"`
+	RunningWorkspaces    int               `json:"runningWorkspaces"`
+	Limits               map[string]string `json:"limits,omitempty"` // aggregate caps (cpu/memory/storage)
+	Used                 map[string]string `json:"used,omitempty"`   // current aggregates
+	PerWorkspace         map[string]string `json:"perWorkspace,omitempty"`
+	Defaults             map[string]string `json:"defaults,omitempty"`  // policy-proposed sizing (image defaults win)
+	Lifecycle            map[string]string `json:"lifecycle,omitempty"` // idleSuspendAfter / maxLifetime
 	// Features flags what the resolved policy opts the user into (e.g.
 	// "remoteWorkspaces"); the UI hides gated tabs from it.
 	Features map[string]bool `json:"features,omitempty"`
@@ -530,10 +534,11 @@ type PolicySubject struct {
 
 // PolicyLimitsModel mirrors the CRD limits in string form.
 type PolicyLimitsModel struct {
-	MaxWorkspaces *int32            `json:"maxWorkspaces,omitempty"`
-	PerWorkspace  map[string]string `json:"perWorkspace,omitempty"`
-	Aggregate     map[string]string `json:"aggregate,omitempty"`
-	Defaults      map[string]string `json:"defaults,omitempty"`
+	MaxWorkspaces        *int32            `json:"maxWorkspaces,omitempty"`
+	MaxRunningWorkspaces *int32            `json:"maxRunningWorkspaces,omitempty"`
+	PerWorkspace         map[string]string `json:"perWorkspace,omitempty"`
+	Aggregate            map[string]string `json:"aggregate,omitempty"`
+	Defaults             map[string]string `json:"defaults,omitempty"`
 }
 
 // EffectivePolicy is the admin debug view answering "which policy governs

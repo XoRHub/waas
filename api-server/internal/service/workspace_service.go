@@ -110,6 +110,9 @@ type CreateWorkspaceInput struct {
 	// home ("start from an existing volume"). The webhook enforces
 	// ownership, namespace and retained state.
 	HomeVolumeName string `json:"homeVolumeName,omitempty"`
+	// Paused creates the workspace without starting it: it takes no
+	// maxRunningWorkspaces slot until resumed.
+	Paused bool `json:"paused,omitempty"`
 }
 
 // ConnectInput is the optional connect-time payload: a protocol choice and
@@ -251,6 +254,7 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 			TargetNamespace: targetNamespace,
 			WorkloadName:    workloadName,
 			HomeVolumeName:  in.HomeVolumeName,
+			Paused:          in.Paused,
 		},
 	}
 	rr, err := requirementsFrom(in.Resources)

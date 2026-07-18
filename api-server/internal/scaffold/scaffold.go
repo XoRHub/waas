@@ -55,6 +55,7 @@ var hints = map[string]hint{
 	"UpsertPolicyInput.images":               {comment: "catalog entry names; [] = the whole enabled catalog"},
 	"UpsertPolicyInput.lifecycle":            {comment: `Go durations; e.g. {idleSuspendAfter: 30m, maxLifetime: 720h}`},
 	"PolicyLimitsModel.maxWorkspaces":        {value: integer(3), comment: "simultaneous workspaces per user (paused included)"},
+	"PolicyLimitsModel.maxRunningWorkspaces": {comment: "running (compute active) workspaces per user; paused excluded"},
 	"PolicyLimitsModel.perWorkspace":         {comment: `e.g. {cpu: "2", memory: 4Gi, home: 20Gi}`},
 	"PolicyLimitsModel.aggregate":            {comment: `sum across the user's workspaces; e.g. {cpu: "8", memory: 32Gi, storage: 100Gi}`},
 	"PolicyLimitsModel.defaults":             {comment: `portal pre-selection (display-only); e.g. {cpu: "2", memory: 4Gi}`},

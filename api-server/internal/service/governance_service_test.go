@@ -322,6 +322,59 @@ func TestQuotaFollowsGroupMirror(t *testing.T) {
 	}
 }
 
+// TestQuotaCountsRunningWorkspaces: paused workspaces keep an ownership
+// slot (usedWorkspaces) but free a running slot (runningWorkspaces).
+func TestQuotaCountsRunningWorkspaces(t *testing.T) {
+	p := pol("default", 0, 5)
+	three := int32(3)
+	p.Spec.Limits.MaxRunningWorkspaces = &three
+	svc := newGovernanceFixture(t, []model.User{{ID: "u1", Username: "u1"}}, []waasv1alpha1.WorkspacePolicy{p})
+	ctx := context.Background()
+
+	for _, ws := range []struct {
+		name   string
+		paused bool
+	}{{"w-run-1", false}, {"w-run-2", false}, {"w-paused", true}} {
+		obj := &waasv1alpha1.Workspace{
+			ObjectMeta: metav1.ObjectMeta{Name: ws.name, Namespace: testNS},
+			Spec:       waasv1alpha1.WorkspaceSpec{TemplateRef: "xfce", Owner: "u1", Paused: ws.paused},
+		}
+		if err := svc.kube.Create(ctx, obj); err != nil {
+			t.Fatalf("seeding workspace %s: %v", ws.name, err)
+		}
+	}
+
+	quota, err := svc.Quota(ctx, Actor{ID: "u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quota.MaxRunningWorkspaces == nil || *quota.MaxRunningWorkspaces != 3 {
+		t.Fatalf("expected maxRunningWorkspaces=3, got %+v", quota.MaxRunningWorkspaces)
+	}
+	if quota.UsedWorkspaces != 3 {
+		t.Fatalf("paused workspaces must keep an ownership slot: got %d", quota.UsedWorkspaces)
+	}
+	if quota.RunningWorkspaces != 2 {
+		t.Fatalf("paused workspaces must not count as running: got %d", quota.RunningWorkspaces)
+	}
+}
+
+// TestUpsertPolicyRoundTripsMaxRunning pins the admin editor mapping in
+// both directions (model → CR spec → model).
+func TestUpsertPolicyRoundTripsMaxRunning(t *testing.T) {
+	svc := newGovernanceFixture(t, nil, nil)
+	two := int32(2)
+	m, err := svc.AdminUpsertPolicy(context.Background(), Actor{ID: "admin"}, "p1", UpsertPolicyInput{
+		Limits: model.PolicyLimitsModel{MaxRunningWorkspaces: &two},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Limits.MaxRunningWorkspaces == nil || *m.Limits.MaxRunningWorkspaces != 2 {
+		t.Fatalf("maxRunningWorkspaces must round-trip through the admin editor, got %+v", m.Limits.MaxRunningWorkspaces)
+	}
+}
+
 // TestCatalogSurfacesDiscoveredEntries: the discovered entries of a
 // registry-mode image (catalog_entries, written by CatalogSyncWorker)
 // ride on the SAME visibility gate as the CatalogImage itself

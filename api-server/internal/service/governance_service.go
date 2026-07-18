@@ -144,14 +144,16 @@ func (s *GovernanceService) Quota(ctx context.Context, actor Actor) (*model.Quot
 	}
 
 	status := &model.QuotaStatus{
-		Policy:          pol.Name,
-		PolicyPriority:  pol.Spec.Priority,
-		MaxWorkspaces:   pol.Spec.Limits.MaxWorkspaces,
-		UsedWorkspaces:  use.workspaces,
-		Used:            use.used,
-		RetainedVolumes: use.retainedVolumes,
-		RetainedStorage: use.retainedStorage,
-		Features:        featureFlags(pol, isAdmin),
+		Policy:               pol.Name,
+		PolicyPriority:       pol.Spec.Priority,
+		MaxWorkspaces:        pol.Spec.Limits.MaxWorkspaces,
+		UsedWorkspaces:       use.workspaces,
+		MaxRunningWorkspaces: pol.Spec.Limits.MaxRunningWorkspaces,
+		RunningWorkspaces:    use.running,
+		Used:                 use.used,
+		RetainedVolumes:      use.retainedVolumes,
+		RetainedStorage:      use.retainedStorage,
+		Features:             featureFlags(pol, isAdmin),
 	}
 	if pol.Spec.Overrides != nil {
 		status.AllowedOverrides = []string{}
@@ -208,7 +210,10 @@ func featureFlags(pol *waasv1alpha1.WorkspacePolicy, isAdmin bool) map[string]bo
 // displayed numbers can never diverge from what the webhook enforces).
 type usage struct {
 	workspaces int
-	used       map[string]string
+	// running excludes paused workspaces and retained volumes — the
+	// denominator of the maxRunningWorkspaces limit.
+	running int
+	used    map[string]string
 	// retained volumes: already inside used["storage"], broken out so the
 	// UI can say "dont X Gi conservés".
 	retainedVolumes int
@@ -253,6 +258,9 @@ func (s *GovernanceService) usageOf(ctx context.Context, ownerID string, catalog
 			retainedSto.Add(l.Storage)
 		} else {
 			out.workspaces++
+			if !l.Paused {
+				out.running++
+			}
 		}
 	}
 	out.used = map[string]string{
@@ -444,6 +452,7 @@ func (s *GovernanceService) AdminUpsertPolicy(ctx context.Context, actor Actor, 
 		spec.Subjects = append(spec.Subjects, waasv1alpha1.PolicySubject{Kind: kind, Name: sub.Name})
 	}
 	spec.Limits.MaxWorkspaces = in.Limits.MaxWorkspaces
+	spec.Limits.MaxRunningWorkspaces = in.Limits.MaxRunningWorkspaces
 	pw, err := parseCaps(in.Limits.PerWorkspace, "perWorkspace")
 	if err != nil {
 		return nil, err
@@ -747,7 +756,10 @@ func policyToModel(pol *waasv1alpha1.WorkspacePolicy) model.PolicyModel {
 		Name:     pol.Name,
 		Priority: pol.Spec.Priority,
 		Images:   pol.Spec.Images,
-		Limits:   model.PolicyLimitsModel{MaxWorkspaces: pol.Spec.Limits.MaxWorkspaces},
+		Limits: model.PolicyLimitsModel{
+			MaxWorkspaces:        pol.Spec.Limits.MaxWorkspaces,
+			MaxRunningWorkspaces: pol.Spec.Limits.MaxRunningWorkspaces,
+		},
 	}
 	for _, sub := range pol.Spec.Subjects {
 		m.Subjects = append(m.Subjects, model.PolicySubject{Kind: string(sub.Kind), Name: sub.Name})
