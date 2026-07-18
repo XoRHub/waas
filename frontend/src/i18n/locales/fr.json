@@ -336,7 +336,7 @@
       "tabGeneral": "Général",
       "tabWorkspace": "Workspace",
       "tabSchedule": "Planification",
-      "workloadInjected": "Le catalogue a prérempli ce workload — à relire avant d'enregistrer",
+      "prefillBadge": "Prérempli par le catalogue — à relire avant d'enregistrer",
       "homeVolume": "Métadonnées du volume home",
       "homeVolumeLabels": "Labels du PVC",
       "homeVolumeAnnotations": "Annotations du PVC",

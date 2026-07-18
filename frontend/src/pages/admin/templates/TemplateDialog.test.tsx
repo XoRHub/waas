@@ -261,15 +261,22 @@ describe('TemplateDialog — sectioned form', () => {
       screen.getByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
     );
 
-    // The YAML landed in a hidden tab: both levels signal it.
+    // YAML and env rows/suggestions landed in hidden tabs: the section
+    // and BOTH receiving tabs signal it.
     expect(workspaceTab().textContent).toContain('●');
     await userEvent.click(workspaceTab());
     const workloadTab = screen.getByRole('button', { name: /Workload \(advanced\)/ });
+    const envTab = screen.getByRole('button', { name: /Environment/ });
     expect(workloadTab.textContent).toContain('●');
+    expect(envTab.textContent).toContain('●');
 
-    // Visiting the editor acknowledges the injection.
+    // Visiting acknowledges tab by tab; the section badge holds until
+    // every touched tab was seen.
     await userEvent.click(workloadTab);
     expect(workloadTab.textContent).not.toContain('●');
+    expect(workspaceTab().textContent).toContain('●');
+    await userEvent.click(envTab);
+    expect(envTab.textContent).not.toContain('●');
     expect(workspaceTab().textContent).not.toContain('●');
   });
 

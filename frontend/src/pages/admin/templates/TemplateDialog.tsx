@@ -67,27 +67,35 @@ export function TemplateDialog({
   // would otherwise block the save invisibly.
   const [section, setSection] = useState('general');
   const [workspaceTab, setWorkspaceTab] = useState('resources');
-  // ● on the Workspace/Workload tabs after a catalog prefill touched the
-  // YAML from another section — cleared once the editor is visited. The
-  // clearing lives in the navigation handlers (not an effect): every
-  // path to the editor goes through selectSection/selectWorkspaceTab.
-  const [workloadTouched, setWorkloadTouched] = useState(false);
+  // ● on the tabs where a catalog prefill landed content out of sight
+  // (workload YAML, env rows/suggestions) — cleared once the tab is
+  // visited. The clearing lives in the navigation handlers (not an
+  // effect): every path to a tab goes through selectSection or
+  // selectWorkspaceTab.
+  const [touched, setTouched] = useState({ workload: false, environment: false });
+  const markTouched = (key: keyof typeof touched) =>
+    setTouched((prev) => ({ ...prev, [key]: true }));
+  const clearTouched = (id: string) =>
+    setTouched((prev) =>
+      id in prev && prev[id as keyof typeof prev] ? { ...prev, [id]: false } : prev,
+    );
   const selectSection = (id: string) => {
     setSection(id);
-    if (id === 'workspace' && workspaceTab === 'workload') setWorkloadTouched(false);
+    if (id === 'workspace') clearTouched(workspaceTab);
   };
   const selectWorkspaceTab = (id: string) => {
     setWorkspaceTab(id);
-    if (id === 'workload') setWorkloadTouched(false);
+    clearTouched(id);
   };
-  const injectedBadge = workloadTouched ? (
+  const badge = (
     <span
       className="text-[10px] text-blue-600 dark:text-blue-400"
-      title={t('admin.templatesPage.workloadInjected')}
+      title={t('admin.templatesPage.prefillBadge')}
     >
       ●
     </span>
-  ) : undefined;
+  );
+  const prefillBadge = (key: keyof typeof touched) => (touched[key] ? badge : undefined);
 
   const set = (patch: Partial<TemplateInput>) => setInput((prev) => ({ ...prev, ...patch }));
 
@@ -133,7 +141,7 @@ export function TemplateDialog({
       }));
     }
     setWorkloadText(yamlStringify(next));
-    setWorkloadTouched(true);
+    markTouched('workload');
 
     let nextProtocols = protocols;
     if (protocols.length === 0 && imageProtocols.length > 0) {
@@ -189,6 +197,7 @@ export function TemplateDialog({
       ...prev.filter((s) => s.adopted),
       ...suggested.filter((s) => !prev.some((p) => p.adopted && p.name === s.name)),
     ]);
+    if (additions.length > 0 || suggested.length > 0) markTouched('environment');
   };
 
   /** The standard architecture scheduling label (kubernetes.io/arch). */
@@ -228,7 +237,7 @@ export function TemplateDialog({
     if (Object.keys(sel).length > 0) next.nodeSelector = sel;
     else delete next.nodeSelector;
     setWorkloadText(Object.keys(next).length > 0 ? yamlStringify(next) : '');
-    setWorkloadTouched(true);
+    markTouched('workload');
   };
   const protocols = input.protocols ?? [];
   const [activeProto, setActiveProto] = useState(protocols[0]?.name ?? '');
@@ -369,7 +378,7 @@ export function TemplateDialog({
           {
             id: 'workspace',
             label: t('admin.templatesPage.tabWorkspace'),
-            badge: injectedBadge,
+            badge: touched.workload || touched.environment ? badge : undefined,
             content: (
               <TabbedPanels
                 active={workspaceTab}
@@ -389,6 +398,7 @@ export function TemplateDialog({
                   {
                     id: 'environment',
                     label: t('admin.templatesPage.env'),
+                    badge: prefillBadge('environment'),
                     content: (
                       <EnvFieldset
                         env={input.env}
@@ -448,7 +458,7 @@ export function TemplateDialog({
                   {
                     id: 'workload',
                     label: t('admin.templatesPage.workload'),
-                    badge: injectedBadge,
+                    badge: prefillBadge('workload'),
                     content: (
                       <WorkloadSection
                         text={workloadText}
