@@ -59,6 +59,16 @@
     },
     "quotaPolicy": "Policy:",
     "quotaWorkspaces": "Workspaces",
+    "quotaRunning": "Running",
+    "runningLimit": {
+      "title": "Running workspace limit reached",
+      "explain": "You are using {{running}}/{{max}} running workspace slots, so a new workspace cannot start right now.",
+      "createPaused": "Create it paused",
+      "createPausedHint": "The workspace is created stopped; resume it later once a slot is free.",
+      "pauseFirst": "Pause another workspace first",
+      "pauseFirstHint": "The selected workspace is paused, then the new one is created and started.",
+      "confirm": "Continue"
+    },
     "cpu": "CPU",
     "memory": "Memory",
     "max": "max {{value}}",

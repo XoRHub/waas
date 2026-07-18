@@ -143,11 +143,18 @@ function WorkspaceCard({ workspace, icon }: { workspace: Workspace; icon?: strin
         phase={phase}
         message={workspace.message}
         footerNote={
-          nextTransitionLabel(workspace.nextTransition) ? (
-            <p className="text-xs text-slate-400 dark:text-slate-500">
-              ⏰ {nextTransitionLabel(workspace.nextTransition)}
-            </p>
-          ) : undefined
+          <>
+            {/* Pause/resume denials (e.g. running workspace quota) would
+                otherwise be silent — the webhook message lands here. */}
+            {action.isError && (
+              <p className="text-xs text-red-600 dark:text-red-400">{action.error.message}</p>
+            )}
+            {nextTransitionLabel(workspace.nextTransition) && (
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                ⏰ {nextTransitionLabel(workspace.nextTransition)}
+              </p>
+            )}
+          </>
         }
         menuItems={[
           { label: t('portal.connectionSettings'), onClick: () => setSettingsOpen(true) },

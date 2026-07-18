@@ -21,6 +21,14 @@ export function QuotaBanner() {
           </span>
         </span>
       )}
+      {q.maxRunningWorkspaces != null && (
+        <span className="text-slate-500 dark:text-slate-400">
+          {t('portal.quotaRunning')}{' '}
+          <span className="font-medium text-slate-800 dark:text-slate-100">
+            {q.runningWorkspaces}/{q.maxRunningWorkspaces}
+          </span>
+        </span>
+      )}
       {q.limits?.memory && (
         <span className="text-slate-500 dark:text-slate-400">
           RAM{' '}

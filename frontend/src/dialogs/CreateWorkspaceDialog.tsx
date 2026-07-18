@@ -15,7 +15,10 @@ import {
   useTemplates,
   useUpdateProfile,
   useVolumes,
+  useWorkspaceAction,
+  useWorkspaces,
 } from '@/hooks/useApi';
+import { RunningLimitDialog } from '@/dialogs/RunningLimitDialog';
 import { useAuthStore } from '@/stores/authStore';
 import { canOverrideField } from '@/lib/overrides';
 import { templateAvailability, templateIcon } from '@/lib/templates';
@@ -88,6 +91,11 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const [labelsOv, setLabelsOv] = useState<Record<string, string>>({});
   const [annotationsOv, setAnnotationsOv] = useState<Record<string, string>>({});
   const [homeVolumeName, setHomeVolumeName] = useState('');
+  // Running-quota flow: when every running slot is taken, submission
+  // detours through a choice dialog (create paused / pause one first).
+  const [slotDialogOpen, setSlotDialogOpen] = useState(false);
+  const workspaces = useWorkspaces();
+  const pauseAction = useWorkspaceAction();
   const nsPreview = useNamespacePreview(templateRef, displayName);
   const volumes = useVolumes();
   // "Start from an existing volume": only retained volumes living in the
@@ -190,11 +198,23 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const tab = protoNames.includes(protoTab) ? protoTab : effectiveProtocol || protoNames[0] || '';
   const tabProto = tplProtocols.find((p) => p.name === tab);
 
+  const runningLimitReached =
+    q?.maxRunningWorkspaces != null && (q.runningWorkspaces ?? 0) >= q.maxRunningWorkspaces;
+  const runningWorkspaces = (workspaces.data?.data ?? []).filter((ws) => !ws.paused);
+
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     // The card grid has no native `required`: an empty selection just
     // refuses to submit (cards are the only way to pick).
     if (!templateRef) return;
+    if (runningLimitReached) {
+      setSlotDialogOpen(true);
+      return;
+    }
+    submitCreate(false);
+  };
+
+  const submitCreate = (paused: boolean) => {
     const chosenProtocol =
       protocolOverridable && effectiveProtocol !== defaultProtocol ? effectiveProtocol : undefined;
     const cleanedByProto: Record<string, Record<string, string>> = {};
@@ -231,6 +251,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
           : undefined,
         overrides,
         homeVolumeName: homeVolumeName || undefined,
+        paused: paused || undefined,
       },
       {
         onSuccess: ({ data: workspace }) => {
@@ -510,112 +531,147 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   ];
 
   return (
-    <Dialog
-      title={t('portal.newWorkspace')}
-      onClose={onClose}
-      onSubmit={onSubmit}
-      footer={
-        <>
-          {create.isError && <p className="mr-auto text-sm text-red-600">{create.error.message}</p>}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
-          >
-            {t('app.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={create.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {t('app.create')}
-          </button>
-        </>
-      }
-    >
-      <div>
-        <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.template')}</span>
-        <div className="mt-1">
-          <ImagePicker
-            label={t('portal.template')}
-            placeholder={t('portal.templatePlaceholder')}
-            value={templateRef}
-            onChange={selectTemplate}
-            options={availability.map(({ template: tpl, available }) => ({
-              id: tpl.name,
-              icon: templateIcon(tpl, catalog.data?.data),
-              os: tpl.os,
-              title: tpl.displayName,
-              subtitle: `${tpl.os}${
-                tpl.protocols?.length ? ` · ${tpl.protocols.map((p) => p.name).join('/')}` : ''
-              }`,
-              disabled: !available,
-              disabledReason: t('portal.templateUnavailable'),
-            }))}
-          />
+    <>
+      <Dialog
+        title={t('portal.newWorkspace')}
+        onClose={onClose}
+        onSubmit={onSubmit}
+        footer={
+          <>
+            {create.isError && (
+              <p className="mr-auto text-sm text-red-600">{create.error.message}</p>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-slate-300 px-4 py-2 text-sm dark:border-slate-600 dark:text-slate-200"
+            >
+              {t('app.cancel')}
+            </button>
+            <button
+              type="submit"
+              disabled={create.isPending}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {t('app.create')}
+            </button>
+          </>
+        }
+      >
+        <div>
+          <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.template')}</span>
+          <div className="mt-1">
+            <ImagePicker
+              label={t('portal.template')}
+              placeholder={t('portal.templatePlaceholder')}
+              value={templateRef}
+              onChange={selectTemplate}
+              options={availability.map(({ template: tpl, available }) => ({
+                id: tpl.name,
+                icon: templateIcon(tpl, catalog.data?.data),
+                os: tpl.os,
+                title: tpl.displayName,
+                subtitle: `${tpl.os}${
+                  tpl.protocols?.length ? ` · ${tpl.protocols.map((p) => p.name).join('/')}` : ''
+                }`,
+                disabled: !available,
+                disabledReason: t('portal.templateUnavailable'),
+              }))}
+            />
+          </div>
         </div>
-      </div>
-      <label className="block">
-        <span className="text-sm text-slate-600 dark:text-slate-300">
-          {t('portal.displayName')}
-        </span>
-        <input
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-        />
-      </label>
-      {/* Resolved server-side: what the precedence chain (template >
-            global > built-in) actually yields for THIS user — never
-            computed by the UI. */}
-      {template && nsPreview.data?.data.namespace && (
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          {t('portal.namespacePreview')}{' '}
-          <span className="font-mono text-slate-700 dark:text-slate-200">
-            {nsPreview.data.data.namespace}
-          </span>
-        </p>
-      )}
-      {/* Reattach a retained volume as the home of this workspace. */}
-      {template && attachableVolumes.length > 0 && (
         <label className="block">
           <span className="text-sm text-slate-600 dark:text-slate-300">
-            {t('volumes.attachExisting')}
+            {t('portal.displayName')}
           </span>
-          <select
+          <input
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-            value={homeVolumeName}
-            onChange={(e) => setHomeVolumeName(e.target.value)}
-          >
-            <option value="">{t('volumes.attachNone')}</option>
-            {attachableVolumes.map((v) => (
-              <option key={v.name} value={v.name}>
-                {v.name} — {v.size}
-                {v.originWorkspace ? ` (${v.originWorkspace})` : ''}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-slate-400 dark:text-slate-500">
-            {t('volumes.attachHint')}
-          </span>
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
         </label>
-      )}
+        {/* Resolved server-side: what the precedence chain (template >
+            global > built-in) actually yields for THIS user — never
+            computed by the UI. */}
+        {template && nsPreview.data?.data.namespace && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {t('portal.namespacePreview')}{' '}
+            <span className="font-mono text-slate-700 dark:text-slate-200">
+              {nsPreview.data.data.namespace}
+            </span>
+          </p>
+        )}
+        {/* Reattach a retained volume as the home of this workspace. */}
+        {template && attachableVolumes.length > 0 && (
+          <label className="block">
+            <span className="text-sm text-slate-600 dark:text-slate-300">
+              {t('volumes.attachExisting')}
+            </span>
+            <select
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+              value={homeVolumeName}
+              onChange={(e) => setHomeVolumeName(e.target.value)}
+            >
+              <option value="">{t('volumes.attachNone')}</option>
+              {attachableVolumes.map((v) => (
+                <option key={v.name} value={v.name}>
+                  {v.name} — {v.size}
+                  {v.originWorkspace ? ` (${v.originWorkspace})` : ''}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              {t('volumes.attachHint')}
+            </span>
+          </label>
+        )}
 
-      {template && !canOverride('resources') && (
-        // No "resources" right: the sizing is the template's and the
-        // payload OMITS spec.resources entirely — sending it (even with
-        // identical values) counts as an override and the webhook
-        // rejects it. Display only.
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          {t('portal.fixedSizing', {
-            cpu: displayCpu(cpuBounds.initial),
-            memory: displayMemory(memBounds.initial),
-          })}
-        </p>
+        {template && !canOverride('resources') && (
+          // No "resources" right: the sizing is the template's and the
+          // payload OMITS spec.resources entirely — sending it (even with
+          // identical values) counts as an override and the webhook
+          // rejects it. Display only.
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {t('portal.fixedSizing', {
+              cpu: displayCpu(cpuBounds.initial),
+              memory: displayMemory(memBounds.initial),
+            })}
+          </p>
+        )}
+        {template && sections.length > 0 && <TabbedPanels tabs={sections} />}
+      </Dialog>
+      {/* Sibling, never a child: the base Dialog is a <form> and forms
+          cannot nest. */}
+      {slotDialogOpen && q?.maxRunningWorkspaces != null && (
+        <RunningLimitDialog
+          running={q.runningWorkspaces ?? 0}
+          max={q.maxRunningWorkspaces}
+          workspaces={runningWorkspaces}
+          pending={pauseAction.isPending || create.isPending}
+          error={pauseAction.error?.message}
+          onConfirm={(choice) => {
+            if (choice.paused) {
+              setSlotDialogOpen(false);
+              submitCreate(true);
+            } else {
+              // Chain: pause the chosen sibling, then create. A lost race
+              // (another tab grabbed the slot) surfaces as the usual
+              // server denial in the create dialog footer.
+              pauseAction.mutate(
+                { id: choice.pauseId, action: 'pause' },
+                {
+                  onSuccess: () => {
+                    setSlotDialogOpen(false);
+                    submitCreate(false);
+                  },
+                },
+              );
+            }
+          }}
+          onClose={() => setSlotDialogOpen(false)}
+        />
       )}
-      {template && sections.length > 0 && <TabbedPanels tabs={sections} />}
-    </Dialog>
+    </>
   );
 }
 

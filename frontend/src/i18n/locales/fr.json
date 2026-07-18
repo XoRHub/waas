@@ -59,6 +59,16 @@
     },
     "quotaPolicy": "Politique :",
     "quotaWorkspaces": "Espaces",
+    "quotaRunning": "Actifs",
+    "runningLimit": {
+      "title": "Limite d'espaces actifs atteinte",
+      "explain": "Vous utilisez {{running}}/{{max}} emplacements d'espaces actifs : un nouvel espace ne peut pas démarrer maintenant.",
+      "createPaused": "Le créer en pause",
+      "createPausedHint": "L'espace est créé à l'arrêt ; reprenez-le plus tard quand un emplacement sera libre.",
+      "pauseFirst": "Mettre d'abord un autre espace en pause",
+      "pauseFirstHint": "L'espace sélectionné est mis en pause, puis le nouveau est créé et démarré.",
+      "confirm": "Continuer"
+    },
     "cpu": "CPU",
     "memory": "Mémoire",
     "max": "max {{value}}",

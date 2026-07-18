@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, signIn } from '@/test/render';
@@ -26,6 +26,7 @@ const apiMock = createApiMock({
   },
   '/api/v1/meta/protocols': [{ name: 'kasmvnc', params: [] }],
   '/api/v1/volumes': [],
+  '/api/v1/workspaces': [],
 });
 // The namespace preview carries query parameters: prefix-match it.
 const tableGet = apiMock.api.get.getMockImplementation()!;
@@ -142,5 +143,82 @@ describe('CreateWorkspaceDialog', () => {
       { overrides?: { labels?: Record<string, string> } },
     ];
     expect(input.overrides).toEqual({ labels: { team: 'blue' } });
+  });
+});
+
+describe('running workspace limit', () => {
+  const baseQuota = {
+    policy: 'default',
+    perWorkspace: { cpu: '2', memory: '4Gi' },
+    defaults: { cpu: '1', memory: '2Gi' },
+  };
+
+  beforeEach(() => {
+    apiMock.api.post.mockClear();
+    apiMock.route('/api/v1/me/quota', {
+      ...baseQuota,
+      maxRunningWorkspaces: 1,
+      runningWorkspaces: 1,
+    });
+    apiMock.route('/api/v1/workspaces', [
+      { id: 'w-busy', name: 'busy', displayName: 'Busy', phase: 'Running', paused: false },
+    ]);
+    apiMock.route('/api/v1/workspace-templates', [
+      {
+        name: 'xfce',
+        displayName: 'XFCE Desktop',
+        os: 'linux',
+        allowedOverrides: ['resources'],
+        protocols: [{ name: 'kasmvnc', port: 6901, default: true }],
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    apiMock.route('/api/v1/me/quota', baseQuota);
+    apiMock.route('/api/v1/workspaces', []);
+    cleanup();
+  });
+
+  const openAndSubmit = async () => {
+    signIn({ username: 'marc' });
+    renderWithProviders(<CreateWorkspaceDialog onClose={() => {}} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Template' }));
+    await userEvent.click(await screen.findByRole('option', { name: /XFCE Desktop/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+  };
+
+  it('detours through the choice dialog instead of submitting', async () => {
+    await openAndSubmit();
+
+    expect(await screen.findByText('Running workspace limit reached')).toBeInTheDocument();
+    expect(apiMock.api.post).not.toHaveBeenCalled();
+
+    // Default choice: create paused — the payload says so.
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(apiMock.api.post).toHaveBeenCalled());
+    const [path, input] = apiMock.api.post.mock.calls[0] as unknown as [
+      string,
+      { templateRef: string; paused?: boolean },
+    ];
+    expect(path).toBe('/api/v1/workspaces');
+    expect(input.paused).toBe(true);
+  });
+
+  it('pause-first chains the sibling pause, then creates running', async () => {
+    await openAndSubmit();
+
+    await screen.findByText('Running workspace limit reached');
+    await userEvent.click(screen.getByRole('radio', { name: /Pause another workspace first/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    await waitFor(() => expect(apiMock.api.post).toHaveBeenCalledTimes(2));
+    expect(apiMock.api.post.mock.calls[0][0]).toBe('/api/v1/workspaces/w-busy/pause');
+    const [path, input] = apiMock.api.post.mock.calls[1] as unknown as [
+      string,
+      { templateRef: string; paused?: boolean },
+    ];
+    expect(path).toBe('/api/v1/workspaces');
+    expect(input.paused).toBeUndefined();
   });
 });

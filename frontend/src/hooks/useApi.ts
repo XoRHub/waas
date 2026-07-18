@@ -126,6 +126,8 @@ export function useCreateWorkspace() {
       };
       /** Reattach a retained volume as home (webhook-vetted). */
       homeVolumeName?: string;
+      /** Create without starting: takes no running-quota slot. */
+      paused?: boolean;
     }) => api.post<Workspace>('/api/v1/workspaces', input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
@@ -178,7 +180,11 @@ export function useWorkspaceAction() {
   return useMutation({
     mutationFn: ({ id, action }: { id: string; action: 'pause' | 'resume' }) =>
       api.post<Workspace>(`/api/v1/workspaces/${id}/${action}`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      // Pause/resume moves the running-quota needle.
+      void queryClient.invalidateQueries({ queryKey: ['quota'] });
+    },
   });
 }
 
