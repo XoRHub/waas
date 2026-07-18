@@ -13,6 +13,7 @@ import { Dialog } from '@/components/Dialog';
 import { parseYaml } from '@/components/YamlEditor';
 import type { DeploymentRecommendation, RecommendedEnvVar } from '@/types';
 import { EnvFieldset } from './EnvFieldset';
+import { HomeVolumeFieldset } from './HomeVolumeFieldset';
 import { IdentityFields } from './IdentityFields';
 import { KasmVNCConfigFieldset } from './KasmVNCConfigFieldset';
 import { OverridesFieldset } from './OverridesFieldset';
@@ -340,6 +341,11 @@ export function TemplateDialog({
         placement={input.placement}
         placeholders={placeholders.data?.data ?? []}
         onChange={(placement) => set({ placement })}
+      />
+
+      <HomeVolumeFieldset
+        homeVolume={input.homeVolume}
+        onChange={(homeVolume) => set({ homeVolume })}
       />
 
       <ScheduleFieldset value={input.schedule} onChange={(schedule) => set({ schedule })} />

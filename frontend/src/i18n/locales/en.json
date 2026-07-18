@@ -331,6 +331,10 @@
       "placementAddLabel": "Add label",
       "placementAddAnnotation": "Add annotation",
       "placementMetaHint": "Stamped only on namespaces the operator CREATES — existing namespaces are never re-stamped. Reserved domains are rejected server-side.",
+      "homeVolume": "Home volume metadata",
+      "homeVolumeLabels": "PVC labels",
+      "homeVolumeAnnotations": "PVC annotations",
+      "homeVolumeHint": "Stamped on the home PVC and kept in sync on every reconcile — edits and removals reach existing volumes, e.g. Longhorn backup enrollment (recurring-job.longhorn.io/source: enabled). Reserved domains are rejected server-side.",
       "placeholdersTitle": "Available placeholders (each value is sanitized to DNS-1123):",
       "noProtocolsYet": "No protocol configured yet: add the ones this template must serve (without a protocols block, the legacy OS-derived entry applies)."
     },

@@ -424,6 +424,12 @@ export interface TemplateInput {
     namespaceAnnotations?: Record<string, string>;
     cleanup?: string;
   };
+  /** Home PVC metadata, e.g. Longhorn recurring-job enrollment; synced
+   * in place by the operator (removals included). */
+  homeVolume?: {
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+  };
 }
 
 export function useSaveTemplate() {

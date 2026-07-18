@@ -156,5 +156,6 @@ function toInput(tpl: WorkspaceTemplate): TemplateInput {
         : undefined,
     schedule: tpl.schedule,
     placement: tpl.placement,
+    homeVolume: tpl.homeVolume,
   };
 }
