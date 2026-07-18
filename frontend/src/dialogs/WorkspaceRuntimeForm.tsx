@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { KeyValueEditor, addButton, removeButton, rowInput } from '@/components/KeyValueEditor';
 import {
   CPU_FLOOR,
   CPU_STEP,
@@ -85,9 +86,7 @@ export function WorkspaceRuntimeForm({
 
   const runtime = workspace.runtime;
   const [envRows, setEnvRows] = useState<EnvRow[]>(() => toEnvRows(runtime?.env ?? []));
-  const [selRows, setSelRows] = useState<{ key: string; value: string }[]>(() =>
-    Object.entries(runtime?.nodeSelector ?? {}).map(([key, value]) => ({ key, value })),
-  );
+  const [nodeSel, setNodeSel] = useState<Record<string, string>>(() => runtime?.nodeSelector ?? {});
   const [tolRows, setTolRows] = useState<Toleration[]>(() => runtime?.tolerations ?? []);
   const hadResources = Boolean(runtime?.resources);
   const [customSizing, setCustomSizing] = useState(hadResources);
@@ -155,12 +154,8 @@ export function WorkspaceRuntimeForm({
       }
     }
     if (canOverride('nodeSelector')) {
-      const sel: Record<string, string> = {};
-      for (const row of selRows) {
-        if (row.key.trim() !== '') sel[row.key.trim()] = row.value;
-      }
-      if (JSON.stringify(sel) !== JSON.stringify(runtime?.nodeSelector ?? {})) {
-        input.nodeSelector = sel;
+      if (JSON.stringify(nodeSel) !== JSON.stringify(runtime?.nodeSelector ?? {})) {
+        input.nodeSelector = nodeSel;
       }
     }
     if (canOverride('tolerations')) {
@@ -190,13 +185,8 @@ export function WorkspaceRuntimeForm({
       🔒 {t('portal.runtime.locked')}
     </span>
   );
-  const rowInput =
-    'rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-white';
   const rowSelect =
     'rounded-md border border-slate-300 px-1 py-1.5 text-xs disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-white';
-  const addButton =
-    'rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700';
-  const removeButton = 'rounded px-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700';
 
   const envEditable = canOverride('env');
   const selEditable = canOverride('nodeSelector');
@@ -269,51 +259,14 @@ export function WorkspaceRuntimeForm({
           </span>
           {!selEditable && locked}
         </div>
-        {selRows.map((row, i) => (
-          <div key={i} className="flex gap-2">
-            <input
-              className={`w-2/5 ${rowInput}`}
-              placeholder={t('portal.runtime.selectorKey')}
-              value={row.key}
-              disabled={!selEditable}
-              onChange={(e) =>
-                setSelRows((rows) =>
-                  rows.map((r, j) => (j === i ? { ...r, key: e.target.value } : r)),
-                )
-              }
-            />
-            <input
-              className={`flex-1 ${rowInput}`}
-              placeholder={t('portal.runtime.selectorValue')}
-              value={row.value}
-              disabled={!selEditable}
-              onChange={(e) =>
-                setSelRows((rows) =>
-                  rows.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)),
-                )
-              }
-            />
-            {selEditable && (
-              <button
-                type="button"
-                onClick={() => setSelRows((rows) => rows.filter((_, j) => j !== i))}
-                className={removeButton}
-                aria-label={t('app.delete')}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        ))}
-        {selEditable && (
-          <button
-            type="button"
-            onClick={() => setSelRows((rows) => [...rows, { key: '', value: '' }])}
-            className={addButton}
-          >
-            + {t('portal.runtime.addSelector')}
-          </button>
-        )}
+        <KeyValueEditor
+          value={nodeSel}
+          onChange={setNodeSel}
+          disabled={!selEditable}
+          keyPlaceholder={t('portal.runtime.selectorKey')}
+          valuePlaceholder={t('portal.runtime.selectorValue')}
+          addLabel={t('portal.runtime.addSelector')}
+        />
 
         <div className="flex items-center gap-2 pt-1">
           <span className="text-xs text-slate-500 dark:text-slate-400">
