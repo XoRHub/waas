@@ -23,6 +23,7 @@ type UserRepository interface {
 	Create(ctx context.Context, user *model.User) error
 	FindByID(ctx context.Context, id string) (*model.User, error)
 	FindByUsername(ctx context.Context, username string) (*model.User, error)
+	FindByOIDCSubject(ctx context.Context, subject string) (*model.User, error)
 	List(ctx context.Context, page, pageSize int) ([]model.User, int, error)
 	Update(ctx context.Context, user *model.User) error
 	Delete(ctx context.Context, id string) error

@@ -123,12 +123,17 @@ func (s *OIDCService) Callback(ctx context.Context, code, clientIP string) (*Log
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, fmt.Errorf("decoding id_token claims: %w", err)
 	}
+	if idToken.Subject == "" {
+		// "sub" is REQUIRED by OIDC Core; without it there is no durable
+		// identity to bind the account to.
+		return nil, apierror.Unauthorized("id_token carries no subject")
+	}
 	identity := s.identityFromClaims(idToken.Subject, claims)
 	if identity.Username == "" {
 		return nil, apierror.Unauthorized(fmt.Sprintf("id_token carries no usable %q claim", s.cfg.UsernameClaim))
 	}
 
-	user, err := s.syncUser(ctx, identity, clientIP)
+	user, err := s.syncUser(ctx, idToken.Subject, identity, clientIP)
 	if err != nil {
 		return nil, err
 	}
@@ -176,16 +181,18 @@ func (s *OIDCService) identityFromClaims(subject string, claims map[string]any) 
 // syncUser provisions the account on first SSO login and refreshes the
 // IdP-owned fields (groups, email, role when AdminGroups is configured) on
 // every subsequent one.
-func (s *OIDCService) syncUser(ctx context.Context, id oidcIdentity, clientIP string) (*model.User, error) {
+func (s *OIDCService) syncUser(ctx context.Context, subject string, id oidcIdentity, clientIP string) (*model.User, error) {
 	now := time.Now().UTC()
 	role := auth.RoleUser
 	if s.adminByGroups(id.Groups) {
 		role = auth.RoleAdmin
 	}
 
-	user, err := s.users.FindByUsername(ctx, id.Username)
-	switch {
-	case errors.Is(err, repository.ErrUserNotFound):
+	user, err := s.resolveUser(ctx, subject, id, clientIP)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
 		user = &model.User{
 			ID:       uuid.NewString(),
 			Username: id.Username,
@@ -196,6 +203,7 @@ func (s *OIDCService) syncUser(ctx context.Context, id oidcIdentity, clientIP st
 			MaxWorkspaces: defaultMaxWorkspaces,
 			Groups:        id.Groups,
 			DisplayName:   id.DisplayName,
+			OIDCSubject:   subject,
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		}
@@ -204,9 +212,7 @@ func (s *OIDCService) syncUser(ctx context.Context, id oidcIdentity, clientIP st
 		}
 		s.audit.Record(ctx, Actor{ID: user.ID, Username: user.Username, ClientIP: clientIP},
 			"user.provisioned_oidc", "user", user.ID, "username="+user.Username)
-	case err != nil:
-		return nil, fmt.Errorf("looking up SSO user %s: %w", id.Username, err)
-	default:
+	} else {
 		if !user.Active {
 			s.audit.Record(ctx, Actor{Username: id.Username, ClientIP: clientIP}, "user.login_failed", "user", user.ID, "provider=oidc inactive")
 			return nil, apierror.Unauthorized("account is deactivated")
@@ -232,6 +238,34 @@ func (s *OIDCService) syncUser(ctx context.Context, id oidcIdentity, clientIP st
 	s.audit.Record(ctx, Actor{ID: user.ID, Username: user.Username, ClientIP: clientIP},
 		"user.logged_in", "user", user.ID, "provider=oidc")
 	return user, nil
+}
+
+// resolveUser maps the verified IdP identity to a platform account, or nil
+// when a fresh one must be provisioned. The durable key is the OIDC
+// subject — the username claim never selects an account: a collision with
+// an existing username (local or bound to another subject) is treated as
+// an attempted takeover — many IdPs let users pick their own username
+// claim — and fails closed.
+func (s *OIDCService) resolveUser(ctx context.Context, subject string, id oidcIdentity, clientIP string) (*model.User, error) {
+	user, err := s.users.FindByOIDCSubject(ctx, subject)
+	if err == nil {
+		return user, nil
+	}
+	if !errors.Is(err, repository.ErrUserNotFound) {
+		return nil, fmt.Errorf("looking up SSO subject: %w", err)
+	}
+
+	user, err = s.users.FindByUsername(ctx, id.Username)
+	if errors.Is(err, repository.ErrUserNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("looking up SSO user %s: %w", id.Username, err)
+	}
+
+	s.audit.Record(ctx, Actor{Username: id.Username, ClientIP: clientIP}, "user.sso_link_conflict",
+		"user", user.ID, "username claim collides with an existing account")
+	return nil, apierror.Unauthorized("SSO login failed for this account — contact an administrator")
 }
 
 func (s *OIDCService) adminByGroups(groups []string) bool {

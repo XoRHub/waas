@@ -60,6 +60,10 @@ type User struct {
 	Groups []string `json:"groups,omitempty"`
 	// Preferences is self-service UI state, editable via PATCH /me.
 	Preferences UserPreferences `json:"preferences"`
+	// OIDCSubject is the IdP's stable "sub" claim, pinned at the first
+	// SSO login. It is the durable SSO identity — username is only a
+	// display/provisioning hint. Empty = local-only account.
+	OIDCSubject string `json:"-"`
 }
 
 // SessionKind says what a session's WorkspaceID points at.
