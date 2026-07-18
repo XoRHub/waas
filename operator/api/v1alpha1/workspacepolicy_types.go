@@ -116,6 +116,14 @@ type PolicyLimits struct {
 	// +optional
 	MaxWorkspaces *int32 `json:"maxWorkspaces,omitempty"`
 
+	// MaxRunningWorkspaces is the max simultaneously running (compute
+	// active) workspaces per user. Paused workspaces do not count:
+	// pausing frees a slot, resuming re-acquires one. Detached volumes
+	// do not count either.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxRunningWorkspaces *int32 `json:"maxRunningWorkspaces,omitempty"`
+
 	// PerWorkspace caps a single workspace. The effective cap is
 	// min(these, image.resources.max).
 	// +optional

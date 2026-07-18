@@ -126,6 +126,12 @@
               },
               "type": "object"
             },
+            "maxRunningWorkspaces": {
+              "description": "MaxRunningWorkspaces is the max simultaneously running (compute\nactive) workspaces per user. Paused workspaces do not count:\npausing frees a slot, resuming re-acquires one. Detached volumes\ndo not count either.",
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            },
             "maxWorkspaces": {
               "description": "MaxWorkspaces is the max simultaneous workspaces per user. Paused\nworkspaces count: their home PVC still holds storage.",
               "format": "int32",

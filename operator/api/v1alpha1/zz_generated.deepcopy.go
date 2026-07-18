@@ -318,6 +318,11 @@ func (in *PolicyLimits) DeepCopyInto(out *PolicyLimits) {
 		*out = new(int32)
 		**out = **in
 	}
+	if in.MaxRunningWorkspaces != nil {
+		in, out := &in.MaxRunningWorkspaces, &out.MaxRunningWorkspaces
+		*out = new(int32)
+		**out = **in
+	}
 	if in.PerWorkspace != nil {
 		in, out := &in.PerWorkspace, &out.PerWorkspace
 		*out = new(PerWorkspaceCaps)

@@ -438,6 +438,22 @@ func CheckLimits(load Load, computeKnown bool, img *waasv1alpha1.WorkspaceImage,
 			"policy %q: workspace quota reached (%d/%d)", pol.Name, workspaceCount, *lim.MaxWorkspaces)
 	}
 
+	// Running quota only guards transitions INTO compute: a paused
+	// workspace (create-paused or pausing) never consumes a slot.
+	if lim.MaxRunningWorkspaces != nil && !load.Paused {
+		running := 0
+		for _, o := range others {
+			if !o.Detached && !o.Paused {
+				running++
+			}
+		}
+		if int32(running)+1 > *lim.MaxRunningWorkspaces {
+			return denyf(ReasonQuotaExceeded,
+				"policy %q: running workspace quota reached (%d/%d); pause a workspace to free a slot",
+				pol.Name, running, *lim.MaxRunningWorkspaces)
+		}
+	}
+
 	capsCompute := (lim.PerWorkspace != nil && (lim.PerWorkspace.CPU != nil || lim.PerWorkspace.Memory != nil)) ||
 		(lim.Aggregate != nil && (lim.Aggregate.CPU != nil || lim.Aggregate.Memory != nil)) ||
 		(img.Spec.Resources != nil && img.Spec.Resources.Max != nil)

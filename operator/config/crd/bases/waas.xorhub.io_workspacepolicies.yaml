@@ -150,6 +150,15 @@ spec:
                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                         x-kubernetes-int-or-string: true
                     type: object
+                  maxRunningWorkspaces:
+                    description: |-
+                      MaxRunningWorkspaces is the max simultaneously running (compute
+                      active) workspaces per user. Paused workspaces do not count:
+                      pausing frees a slot, resuming re-acquires one. Detached volumes
+                      do not count either.
+                    format: int32
+                    minimum: 0
+                    type: integer
                   maxWorkspaces:
                     description: |-
                       MaxWorkspaces is the max simultaneous workspaces per user. Paused
