@@ -103,13 +103,16 @@ describe('CreateWorkspaceDialog', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  it('the metadata block is gated on the right and lands in the overrides', async () => {
+  it('the metadata tab is gated on the right and lands in the overrides', async () => {
     signIn({ username: 'marc' });
     renderWithProviders(<CreateWorkspaceDialog onClose={() => {}} />);
     await userEvent.click(await screen.findByRole('button', { name: 'Template' }));
     await userEvent.click(await screen.findByRole('option', { name: /XFCE Desktop/ }));
-    // 'resources' only: no advanced overrides panel at all.
-    expect(screen.queryByRole('button', { name: /Advanced/ })).toBeNull();
+    // 'resources' only: a Workspace section exists (Resources tab) but
+    // no Metadata tab inside it.
+    await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
+    expect(screen.getByRole('button', { name: 'Resources' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Metadata' })).toBeNull();
 
     apiMock.route('/api/v1/workspace-templates', [
       {
@@ -125,7 +128,9 @@ describe('CreateWorkspaceDialog', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Template' }));
     await userEvent.click(await screen.findByRole('option', { name: /XFCE Desktop/ }));
 
-    await userEvent.click(screen.getByRole('button', { name: /Advanced/ }));
+    // metadata only: the Workspace section opens straight on its single
+    // Metadata tab.
+    await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
     await userEvent.click(screen.getByRole('button', { name: '+ Add label' }));
     await userEvent.type(screen.getByPlaceholderText('key'), 'team');
     await userEvent.type(screen.getByPlaceholderText('value'), 'blue');

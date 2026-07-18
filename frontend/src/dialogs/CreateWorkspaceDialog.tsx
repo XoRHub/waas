@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Dialog } from '@/components/Dialog';
 import { ImagePicker } from '@/components/ImagePicker';
 import { KeyValueEditor } from '@/components/KeyValueEditor';
+import { TabbedPanels, type PanelTab } from '@/components/TabbedPanels';
 import { ProtocolParamsForm, ProtocolTabs } from '@/components/ProtocolTabs';
 import { ScheduleEditor } from '@/components/ScheduleEditor';
 import {
@@ -80,7 +81,6 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
   const [protoParamsByProto, setProtoParamsByProto] = useState<
     Record<string, Record<string, string>>
   >({});
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [envRows, setEnvRows] = useState<{ name: string; value: string }[]>([]);
   const [scheduleOverride, setScheduleOverride] = useState<WorkspaceSchedule | undefined>(
     undefined,
@@ -253,6 +253,261 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     );
   };
 
+  // Sections of a selected template, mirroring the connection-settings
+  // dialog: Connection | Workspace, the latter one tab per override
+  // group. At creation nothing is stored yet, so the tabs are purely
+  // right-filtered — never locked. Plain JSX constants, NOT a nested
+  // component: a component recreated each render would remount and lose
+  // the editors' internal drafts on every keystroke.
+  const connectionContent = (
+    <>
+      {tplProtocols.length > 1 ? (
+        <>
+          <ProtocolTabs
+            protocols={protoNames}
+            active={tab}
+            onSelect={setProtoTab}
+            badge={(p) => (p === effectiveProtocol ? <span className="text-[10px]">●</span> : null)}
+          />
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input
+              type="radio"
+              name="create-chosen-protocol"
+              checked={effectiveProtocol === tab}
+              disabled={!protocolOverridable}
+              onChange={() => setChosen(tab)}
+            />
+            {t('portal.useThisProtocol')}
+            {tab === defaultProtocol && (
+              <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
+            )}
+            {!protocolOverridable && (
+              <span className="text-xs text-slate-400" title={t('portal.protocolLockedHint')}>
+                🔒 {t('portal.protocolLocked')}
+              </span>
+            )}
+          </label>
+        </>
+      ) : tplProtocols.length === 1 ? (
+        // Single protocol (typically a legacy template with the
+        // OS-derived synthesized entry): show it instead of an
+        // empty box — the connection is never a mystery.
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          {t('portal.protocol')}:{' '}
+          <span className="font-medium">{tplProtocols[0].name.toUpperCase()}</span>
+          {tplProtocols[0].port ? (
+            <span className="text-slate-400">
+              {' '}
+              · {t('portal.port')} {tplProtocols[0].port}
+            </span>
+          ) : null}{' '}
+          <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
+        </p>
+      ) : null}
+      {/* The SAME shared per-protocol form as connection settings
+            and the admin template editor: template-locked values as
+            placeholders, the server-resolved userParams allow-list
+            (cat: expanded; admins bypass). */}
+      {tabProto && (
+        <ProtocolParamsForm
+          key={tabProto.name}
+          meta={meta.data?.data}
+          protocol={tabProto.name}
+          values={protoParamsByProto[tabProto.name] ?? {}}
+          onChange={(name, value) =>
+            setProtoParamsByProto((prev) => ({
+              ...prev,
+              [tabProto.name]: { ...prev[tabProto.name], [name]: value },
+            }))
+          }
+          allowList={isAdmin ? undefined : (tabProto.resolvedUserParams ?? [])}
+          placeholders={tabProto.params}
+          audioPortExposed={tabProto.exposeAudioPort ?? false}
+          // kasmvnc: no userParams by design, but the admin's config
+          // exists and will apply — surface it read-only (the raw
+          // template text: the workspace is not born yet, the
+          // policy-merged effective content does not exist).
+          kasmvncConfig={
+            tabProto.name === 'kasmvnc'
+              ? { content: template?.kasmvncConfig ?? '', variant: 'template' }
+              : undefined
+          }
+        />
+      )}
+    </>
+  );
+
+  const workspaceTabs: PanelTab[] = [
+    ...(canOverride('resources')
+      ? [
+          {
+            id: 'resources',
+            label: t('portal.runtime.resources'),
+            content: (
+              <div className="space-y-4">
+                <ResourceSlider
+                  label={t('portal.cpu')}
+                  value={cpuValue}
+                  bounds={cpuBounds}
+                  step={CPU_STEP}
+                  display={(v) => `${displayCpu(v)} vCPU`}
+                  onChange={setCpu}
+                />
+                <ResourceSlider
+                  label={t('portal.memory')}
+                  value={memValue}
+                  bounds={memBounds}
+                  step={MEM_STEP}
+                  display={displayMemory}
+                  onChange={setMemory}
+                />
+                {q?.limits && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {t('portal.quotaRemaining', {
+                      cpu: displayCpu(remaining('cpu', parseCpu) ?? 0),
+                      memory: displayMemory(remaining('memory', parseMemory) ?? 0),
+                    })}
+                  </p>
+                )}
+              </div>
+            ),
+          },
+        ]
+      : []),
+    ...(canOverride('env')
+      ? [
+          {
+            id: 'env',
+            label: t('portal.runtime.environment'),
+            content: (
+              <div className="space-y-2">
+                {envRows.map((row, i) => (
+                  <div key={i} className="flex gap-2">
+                    <input
+                      className="w-2/5 rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                      placeholder={t('portal.envName')}
+                      value={row.name}
+                      onChange={(e) =>
+                        setEnvRows((rows) =>
+                          rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)),
+                        )
+                      }
+                    />
+                    <input
+                      className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                      placeholder={t('portal.envValue')}
+                      value={row.value}
+                      onChange={(e) =>
+                        setEnvRows((rows) =>
+                          rows.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)),
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEnvRows((rows) => rows.filter((_, j) => j !== i))}
+                      className="rounded px-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      aria-label={t('app.delete')}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setEnvRows((rows) => [...rows, { name: '', value: '' }])}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  + {t('portal.addEnvVar')}
+                </button>
+              </div>
+            ),
+          },
+        ]
+      : []),
+    ...(canOverride('metadata')
+      ? [
+          {
+            id: 'metadata',
+            label: t('portal.runtime.metadata'),
+            content: (
+              <div className="space-y-2">
+                <span className="block text-xs text-slate-500 dark:text-slate-400">
+                  {t('portal.runtime.labels')}
+                </span>
+                {/* Keyed on the template: switching templates re-seeds
+                    the editors like the other override drafts. */}
+                <KeyValueEditor
+                  key={`labels-${templateRef}`}
+                  value={labelsOv}
+                  onChange={setLabelsOv}
+                  keyPlaceholder={t('portal.runtime.metaKey')}
+                  valuePlaceholder={t('portal.runtime.metaValue')}
+                  addLabel={t('portal.runtime.addLabel')}
+                />
+                <span className="block text-xs text-slate-500 dark:text-slate-400">
+                  {t('portal.runtime.annotations')}
+                </span>
+                <KeyValueEditor
+                  key={`annotations-${templateRef}`}
+                  value={annotationsOv}
+                  onChange={setAnnotationsOv}
+                  keyPlaceholder={t('portal.runtime.metaKey')}
+                  valuePlaceholder={t('portal.runtime.metaValue')}
+                  addLabel={t('portal.runtime.addAnnotation')}
+                />
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  {t('portal.runtime.metadataHint')}
+                </p>
+              </div>
+            ),
+          },
+        ]
+      : []),
+    ...(canOverride('schedule')
+      ? [
+          {
+            id: 'schedule',
+            label: t('portal.runtime.schedule'),
+            content: (
+              <ScheduleEditor
+                value={scheduleOverride ?? template?.schedule}
+                onChange={setScheduleOverride}
+              />
+            ),
+          },
+        ]
+      : []),
+  ];
+
+  const sections: PanelTab[] = [
+    ...(tplProtocols.length > 0
+      ? [
+          {
+            id: 'connection',
+            label: t('portal.settingsTabConnection'),
+            content: connectionContent,
+          },
+        ]
+      : []),
+    ...(workspaceTabs.length > 0
+      ? [
+          {
+            id: 'workspace',
+            label: t('portal.settingsTabWorkspace'),
+            content: (
+              <>
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  {t('portal.advancedModeHint')}
+                </p>
+                <TabbedPanels tabs={workspaceTabs} />
+              </>
+            ),
+          },
+        ]
+      : []),
+  ];
+
   return (
     <Dialog
       title={t('portal.newWorkspace')}
@@ -358,233 +613,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
           })}
         </p>
       )}
-      {template && canOverride('resources') && (
-        <fieldset className="space-y-4">
-          <ResourceSlider
-            label={t('portal.cpu')}
-            value={cpuValue}
-            bounds={cpuBounds}
-            step={CPU_STEP}
-            display={(v) => `${displayCpu(v)} vCPU`}
-            onChange={setCpu}
-          />
-          <ResourceSlider
-            label={t('portal.memory')}
-            value={memValue}
-            bounds={memBounds}
-            step={MEM_STEP}
-            display={displayMemory}
-            onChange={setMemory}
-          />
-          {q?.limits && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {t('portal.quotaRemaining', {
-                cpu: displayCpu(remaining('cpu', parseCpu) ?? 0),
-                memory: displayMemory(remaining('memory', parseMemory) ?? 0),
-              })}
-            </p>
-          )}
-        </fieldset>
-      )}
-
-      {template && tplProtocols.length > 0 && (
-        <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-sm text-slate-600 dark:text-slate-300">
-            {t('portal.connection')}
-          </legend>
-          {tplProtocols.length > 1 ? (
-            <>
-              <ProtocolTabs
-                protocols={protoNames}
-                active={tab}
-                onSelect={setProtoTab}
-                badge={(p) =>
-                  p === effectiveProtocol ? <span className="text-[10px]">●</span> : null
-                }
-              />
-              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                <input
-                  type="radio"
-                  name="create-chosen-protocol"
-                  checked={effectiveProtocol === tab}
-                  disabled={!protocolOverridable}
-                  onChange={() => setChosen(tab)}
-                />
-                {t('portal.useThisProtocol')}
-                {tab === defaultProtocol && (
-                  <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
-                )}
-                {!protocolOverridable && (
-                  <span className="text-xs text-slate-400" title={t('portal.protocolLockedHint')}>
-                    🔒 {t('portal.protocolLocked')}
-                  </span>
-                )}
-              </label>
-            </>
-          ) : (
-            // Single protocol (typically a legacy template with the
-            // OS-derived synthesized entry): show it instead of an
-            // empty box — the connection is never a mystery.
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              {t('portal.protocol')}:{' '}
-              <span className="font-medium">{tplProtocols[0].name.toUpperCase()}</span>
-              {tplProtocols[0].port ? (
-                <span className="text-slate-400">
-                  {' '}
-                  · {t('portal.port')} {tplProtocols[0].port}
-                </span>
-              ) : null}{' '}
-              <span className="text-xs text-slate-400">({t('portal.protocolDefault')})</span>
-            </p>
-          )}
-          {/* The SAME shared per-protocol form as connection settings
-                and the admin template editor: template-locked values as
-                placeholders, the server-resolved userParams allow-list
-                (cat: expanded; admins bypass). */}
-          {tabProto && (
-            <ProtocolParamsForm
-              key={tabProto.name}
-              meta={meta.data?.data}
-              protocol={tabProto.name}
-              values={protoParamsByProto[tabProto.name] ?? {}}
-              onChange={(name, value) =>
-                setProtoParamsByProto((prev) => ({
-                  ...prev,
-                  [tabProto.name]: { ...prev[tabProto.name], [name]: value },
-                }))
-              }
-              allowList={isAdmin ? undefined : (tabProto.resolvedUserParams ?? [])}
-              placeholders={tabProto.params}
-              audioPortExposed={tabProto.exposeAudioPort ?? false}
-              // kasmvnc: no userParams by design, but the admin's config
-              // exists and will apply — surface it read-only (the raw
-              // template text: the workspace is not born yet, the
-              // policy-merged effective content does not exist).
-              kasmvncConfig={
-                tabProto.name === 'kasmvnc'
-                  ? { content: template?.kasmvncConfig ?? '', variant: 'template' }
-                  : undefined
-              }
-            />
-          )}
-        </fieldset>
-      )}
-
-      {/* Advanced panel (template overrides): only rendered for users
-            whose template ∩ policy rights (or admin role) allow at least
-            one overridable field — invisible to everyone else. */}
-      {template && (canOverride('env') || canOverride('schedule') || canOverride('metadata')) && (
-        <fieldset className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1">
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen((v) => !v)}
-              className="flex items-center gap-1 text-sm text-slate-600 dark:text-slate-300"
-            >
-              <span className="text-xs">{advancedOpen ? '▼' : '▶'}</span>
-              {t('portal.advancedMode')}
-            </button>
-          </legend>
-          {advancedOpen && (
-            <div className="space-y-3">
-              <p className="text-xs text-slate-400 dark:text-slate-500">
-                {t('portal.advancedModeHint')}
-              </p>
-              {canOverride('env') && (
-                <div className="space-y-2">
-                  <span className="text-sm text-slate-600 dark:text-slate-300">
-                    {t('portal.envOverrides')}
-                  </span>
-                  {envRows.map((row, i) => (
-                    <div key={i} className="flex gap-2">
-                      <input
-                        className="w-2/5 rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                        placeholder={t('portal.envName')}
-                        value={row.name}
-                        onChange={(e) =>
-                          setEnvRows((rows) =>
-                            rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)),
-                          )
-                        }
-                      />
-                      <input
-                        className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                        placeholder={t('portal.envValue')}
-                        value={row.value}
-                        onChange={(e) =>
-                          setEnvRows((rows) =>
-                            rows.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)),
-                          )
-                        }
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setEnvRows((rows) => rows.filter((_, j) => j !== i))}
-                        className="rounded px-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
-                        aria-label={t('app.delete')}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setEnvRows((rows) => [...rows, { name: '', value: '' }])}
-                    className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-                  >
-                    + {t('portal.addEnvVar')}
-                  </button>
-                </div>
-              )}
-              {canOverride('metadata') && (
-                <div className="space-y-2">
-                  <span className="text-sm text-slate-600 dark:text-slate-300">
-                    {t('portal.runtime.metadata')}
-                  </span>
-                  <span className="block text-xs text-slate-500 dark:text-slate-400">
-                    {t('portal.runtime.labels')}
-                  </span>
-                  {/* Keyed on the template: switching templates re-seeds
-                      the editors like the other override drafts. */}
-                  <KeyValueEditor
-                    key={`labels-${templateRef}`}
-                    value={labelsOv}
-                    onChange={setLabelsOv}
-                    keyPlaceholder={t('portal.runtime.metaKey')}
-                    valuePlaceholder={t('portal.runtime.metaValue')}
-                    addLabel={t('portal.runtime.addLabel')}
-                  />
-                  <span className="block text-xs text-slate-500 dark:text-slate-400">
-                    {t('portal.runtime.annotations')}
-                  </span>
-                  <KeyValueEditor
-                    key={`annotations-${templateRef}`}
-                    value={annotationsOv}
-                    onChange={setAnnotationsOv}
-                    keyPlaceholder={t('portal.runtime.metaKey')}
-                    valuePlaceholder={t('portal.runtime.metaValue')}
-                    addLabel={t('portal.runtime.addAnnotation')}
-                  />
-                  <p className="text-xs text-slate-400 dark:text-slate-500">
-                    {t('portal.runtime.metadataHint')}
-                  </p>
-                </div>
-              )}
-              {canOverride('schedule') && (
-                <div className="space-y-2">
-                  <span className="text-sm text-slate-600 dark:text-slate-300">
-                    {t('schedule.title')}
-                  </span>
-                  <ScheduleEditor
-                    value={scheduleOverride ?? template?.schedule}
-                    onChange={setScheduleOverride}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-        </fieldset>
-      )}
+      {template && sections.length > 0 && <TabbedPanels tabs={sections} />}
     </Dialog>
   );
 }
