@@ -84,29 +84,51 @@ func (s *OIDCService) oauthConfig(provider *oidc.Provider) *oauth2.Config {
 	}
 }
 
-// AuthURL builds the authorization redirect and the state to pin in a
-// browser cookie.
-func (s *OIDCService) AuthURL(ctx context.Context) (authURL, state string, err error) {
-	provider, err := s.ensureProvider(ctx)
-	if err != nil {
-		return "", "", apierror.Unavailable("SSO provider is unreachable")
-	}
-	raw := make([]byte, 24)
-	if _, err := rand.Read(raw); err != nil {
-		return "", "", fmt.Errorf("generating state: %w", err)
-	}
-	state = base64.RawURLEncoding.EncodeToString(raw)
-	return s.oauthConfig(provider).AuthCodeURL(state), state, nil
+// AuthRequest is one authorization round-trip's browser-side secrets: the
+// handler pins them in a cookie and hands them back at the callback. All
+// three are base64url (no separator collisions when packed).
+type AuthRequest struct {
+	URL      string // the IdP authorization redirect
+	State    string // CSRF binding (RFC 6749 §10.12)
+	Verifier string // PKCE code verifier (RFC 7636, S256)
+	Nonce    string // id_token replay binding (OIDC Core §3.1.2.1)
 }
 
-// Callback exchanges the authorization code, verifies the ID token, syncs
-// the local account (groups above all) and issues a platform access token.
-func (s *OIDCService) Callback(ctx context.Context, code, clientIP string) (*LoginResult, error) {
+// AuthURL builds the authorization redirect and the per-request secrets to
+// pin in a browser cookie.
+func (s *OIDCService) AuthURL(ctx context.Context) (*AuthRequest, error) {
 	provider, err := s.ensureProvider(ctx)
 	if err != nil {
 		return nil, apierror.Unavailable("SSO provider is unreachable")
 	}
-	token, err := s.oauthConfig(provider).Exchange(ctx, code)
+	req := &AuthRequest{
+		State:    randomToken(),
+		Verifier: oauth2.GenerateVerifier(),
+		Nonce:    randomToken(),
+	}
+	req.URL = s.oauthConfig(provider).AuthCodeURL(req.State,
+		oauth2.S256ChallengeOption(req.Verifier), oidc.Nonce(req.Nonce))
+	return req, nil
+}
+
+// randomToken returns 24 bytes of CSPRNG entropy, base64url-encoded.
+func randomToken() string {
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		panic(fmt.Sprintf("reading crypto/rand: %v", err))
+	}
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// Callback exchanges the authorization code (proving possession of the
+// PKCE verifier), verifies the ID token against the pinned nonce, syncs
+// the local account (groups above all) and issues a platform access token.
+func (s *OIDCService) Callback(ctx context.Context, code, verifier, nonce, clientIP string) (*LoginResult, error) {
+	provider, err := s.ensureProvider(ctx)
+	if err != nil {
+		return nil, apierror.Unavailable("SSO provider is unreachable")
+	}
+	token, err := s.oauthConfig(provider).Exchange(ctx, code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		return nil, apierror.Unauthorized("SSO code exchange failed")
 	}
@@ -117,6 +139,11 @@ func (s *OIDCService) Callback(ctx context.Context, code, clientIP string) (*Log
 	idToken, err := provider.Verifier(&oidc.Config{ClientID: s.cfg.ClientID}).Verify(ctx, rawIDToken)
 	if err != nil {
 		return nil, apierror.Unauthorized("SSO id_token verification failed")
+	}
+	if idToken.Nonce != nonce {
+		// The id_token was minted for a different authorization request
+		// than the one this browser started (token injection).
+		return nil, apierror.Unauthorized("SSO nonce mismatch — restart the login")
 	}
 
 	var claims map[string]any

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -269,6 +270,12 @@ type stubIdP struct {
 	server *httptest.Server
 	key    *rsa.PrivateKey
 	claims map[string]any
+	// nonce is echoed into the id_token like a real IdP echoes the
+	// authorize request's nonce parameter (OIDC Core §3.1.3.7 rule 11).
+	nonce string
+	// gotVerifier records the code_verifier the client sent at the token
+	// exchange, so the test can check the PKCE round-trip.
+	gotVerifier string
 }
 
 func newStubIdP(t *testing.T) *stubIdP {
@@ -296,10 +303,15 @@ func newStubIdP(t *testing.T) *stubIdP {
 			}},
 		})
 	})
-	mux.HandleFunc("/token", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		idp.gotVerifier = r.Form.Get("code_verifier")
 		claims := jwt.MapClaims{
 			"iss": idp.server.URL, "aud": "waas-client", "sub": "idp-sub-1",
 			"exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(),
+		}
+		if idp.nonce != "" {
+			claims["nonce"] = idp.nonce
 		}
 		for k, v := range idp.claims {
 			claims[k] = v
@@ -380,12 +392,22 @@ func TestOIDCCallbackMirrorsGroupsAndSyncsAdminRole(t *testing.T) {
 	state := loc.Query().Get("state")
 	var stateCookie *http.Cookie
 	for _, c := range rec.Result().Cookies() {
-		if strings.Contains(c.Name, "state") || c.Value == state {
+		if strings.Contains(c.Name, "state") {
 			stateCookie = c
 		}
 	}
 	if state == "" || stateCookie == nil {
 		t.Fatalf("state handshake incomplete: state=%q cookies=%v", state, rec.Result().Cookies())
+	}
+	// PKCE and nonce must ride the authorization request; the stub echoes
+	// the nonce into the id_token like a real IdP.
+	challenge := loc.Query().Get("code_challenge")
+	if loc.Query().Get("code_challenge_method") != "S256" || challenge == "" {
+		t.Fatalf("authorize URL must carry an S256 PKCE challenge, got %s", loc.RawQuery)
+	}
+	idp.nonce = loc.Query().Get("nonce")
+	if idp.nonce == "" {
+		t.Fatalf("authorize URL must carry a nonce, got %s", loc.RawQuery)
 	}
 
 	// 2. State mismatch is rejected before any token exchange.
@@ -414,6 +436,12 @@ func TestOIDCCallbackMirrorsGroupsAndSyncsAdminRole(t *testing.T) {
 	}
 	if !strings.Contains(redirect, "token=") {
 		t.Fatalf("expected a token in the fragment redirect, got %s", redirect)
+	}
+	// The token exchange must prove possession of the PKCE verifier
+	// matching the challenge sent at authorize time.
+	sum := sha256.Sum256([]byte(idp.gotVerifier))
+	if idp.gotVerifier == "" || base64.RawURLEncoding.EncodeToString(sum[:]) != challenge {
+		t.Fatalf("code_verifier %q does not match the S256 challenge %q", idp.gotVerifier, challenge)
 	}
 
 	user, err := users.FindByUsername(context.Background(), "carol")

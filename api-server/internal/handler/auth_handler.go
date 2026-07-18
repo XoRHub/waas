@@ -82,40 +82,64 @@ func (h *AuthHandler) Providers(w http.ResponseWriter, _ *http.Request) {
 
 const oidcStateCookie = "waas_oidc_state"
 
-// OIDCStart handles GET /api/v1/auth/oidc/start: pins the state in a
-// browser cookie and redirects to the IdP.
+// packAuthCookie serializes the authorization request's browser-side
+// secrets (state, PKCE verifier, nonce) into one cookie value. All three
+// are base64url, so "." is a safe separator. The cookie is the only copy —
+// the server stays stateless across replicas.
+func packAuthCookie(req *service.AuthRequest) string {
+	return req.State + "." + req.Verifier + "." + req.Nonce
+}
+
+// unpackAuthCookie splits the cookie back; ok is false on any malformed
+// value (foreign cookie, older release's single-state format).
+func unpackAuthCookie(value string) (state, verifier, nonce string, ok bool) {
+	parts := strings.Split(value, ".")
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
+}
+
+// OIDCStart handles GET /api/v1/auth/oidc/start: pins the state, PKCE
+// verifier and nonce in a browser cookie and redirects to the IdP.
 func (h *AuthHandler) OIDCStart(w http.ResponseWriter, r *http.Request) {
 	if h.oidc == nil {
 		fail(w, r, apierror.NotFound("SSO login is not configured"))
 		return
 	}
-	authURL, state, err := h.oidc.AuthURL(r.Context())
+	req, err := h.oidc.AuthURL(r.Context())
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     oidcStateCookie,
-		Value:    state,
+		Value:    packAuthCookie(req),
 		Path:     "/api/v1/auth/oidc",
 		MaxAge:   int((10 * time.Minute).Seconds()),
 		HttpOnly: true,
 		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, authURL, http.StatusFound)
+	http.Redirect(w, r, req.URL, http.StatusFound)
 }
 
 // OIDCCallback handles GET /api/v1/auth/oidc/callback: verifies the state,
-// completes the code exchange and hands the platform token to the SPA via
-// the URL fragment (never sent to servers or logged by proxies).
+// completes the code exchange (PKCE verifier, nonce check) and hands the
+// platform token to the SPA via the URL fragment (never sent to servers or
+// logged by proxies).
 func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if h.oidc == nil {
 		fail(w, r, apierror.NotFound("SSO login is not configured"))
 		return
 	}
 	cookie, err := r.Cookie(oidcStateCookie)
-	if err != nil || cookie.Value == "" || cookie.Value != r.URL.Query().Get("state") {
+	if err != nil {
+		fail(w, r, apierror.Unauthorized("SSO state mismatch — restart the login"))
+		return
+	}
+	state, verifier, nonce, ok := unpackAuthCookie(cookie.Value)
+	if !ok || state != r.URL.Query().Get("state") {
 		fail(w, r, apierror.Unauthorized("SSO state mismatch — restart the login"))
 		return
 	}
@@ -126,7 +150,7 @@ func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		h.redirectToFrontend(w, r, url.Values{"error": {errParam}})
 		return
 	}
-	result, err := h.oidc.Callback(r.Context(), r.URL.Query().Get("code"), middleware.Actor(r).ClientIP)
+	result, err := h.oidc.Callback(r.Context(), r.URL.Query().Get("code"), verifier, nonce, middleware.Actor(r).ClientIP)
 	if err != nil {
 		// Only Problem details are user-facing; anything else stays generic.
 		msg := "SSO login failed"
