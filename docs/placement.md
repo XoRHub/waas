@@ -178,6 +178,8 @@ moved or recreated.
 
 - Template: `placement.namespaceLabels/namespaceAnnotations` (namespace)
   and `workload.labels/annotations` (Deployment **and** pod template).
+- Template: `homeVolume.labels/annotations` (home PVC, synced in place
+  with removal tracking — see `docs/volumes.md`).
 - Workspace: `overrides.labels/annotations`, gated by the overridable
   field **`metadata`**.
 - **Server-side denylist** (`operator/pkg/metakeys`, webhook + reconciler

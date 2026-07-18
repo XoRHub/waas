@@ -58,6 +58,50 @@ deleted — the PVC deletion event re-triggers it, there's no
 need for a workspace to still exist (see
 `docs/workspace-deletion.md`).
 
+## Template metadata on home volumes (`spec.homeVolume`)
+
+`WorkspaceTemplate.spec.homeVolume.labels/annotations` are stamped on
+the home PVC — the driving use case is enrolling home volumes into
+Longhorn recurring backup jobs, which are driven by labels on the PVC:
+
+```yaml
+spec:
+  homeVolume:
+    labels:
+      recurring-job.longhorn.io/source: enabled
+      recurring-job-group.longhorn.io/backup-daily: enabled
+```
+
+Semantics — deliberately different from the namespace metadata
+(create-only) and the workload metadata (converges by rollout):
+
+- **Synced in place on every reconcile**: editing the template enables
+  backup on workspaces provisioned long ago, without touching them.
+  PVC metadata is outside the pod-template fingerprint — enabling a
+  backup never restarts a desktop.
+- **Removals propagate.** The operator records the keys it stamped in
+  the `waas.xorhub.io/template-meta` ledger annotation on the PVC
+  (compact JSON, keys sorted); a ledgered key gone from the template is
+  removed at the next reconcile. Keys an admin set by hand are never in
+  the ledger and never touched. A corrupted ledger never fails the
+  reconcile — it is rewritten whole on the next convergence.
+- **Denylist as everywhere** (`pkg/metakeys`): reserved domains are
+  rejected at admission and re-filtered at reconcile; platform labels
+  always win. `longhorn.io` is deliberately NOT denied (frozen by a
+  test in `pkg/metakeys`).
+- **Retained volumes keep their metadata and ledger** — a detached
+  volume still holds the user's data, it is exactly the one to keep
+  backing up. On re-adoption (any template), the ledger makes the
+  convergence exact: the old template's keys are removed, the new one's
+  stamped.
+- **Admin-only**: no overridable field — PVC labels drive platform
+  machinery (backup, DR), not user preference.
+
+Accepted limitation: a **retained volume whose template evolves
+afterwards is not re-synced** — no workspace reconciles it. Its
+metadata freezes as detached; the next adoption converges it. There is
+deliberately no out-of-workspace sync mechanism.
+
 ## Quotas
 
 Retained volumes count against the policy's `limits.aggregate.storage`
