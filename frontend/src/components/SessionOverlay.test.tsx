@@ -15,7 +15,10 @@ const apiMock = createApiMock({
     config: 'desktop:\n  resolution:\n    width: 1280\n',
   },
 });
-vi.mock('@/lib/api', () => ({
+vi.mock('@/lib/api', async (importOriginal) => ({
+  // Keep the real exports (DesktopPane does `e instanceof ApiError`) and
+  // only substitute the api client.
+  ...(await importOriginal<typeof import('@/lib/api')>()),
   get api() {
     return apiMock.api;
   },

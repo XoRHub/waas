@@ -5,7 +5,13 @@ import { vi } from 'vitest';
  * goes through. Use with vi.mock's factory (hoisting-safe):
  *
  *   const apiMock = createApiMock();
- *   vi.mock('@/lib/api', () => ({ get api() { return apiMock.api; } }));
+ *   vi.mock('@/lib/api', async (importOriginal) => ({
+ *     ...(await importOriginal<typeof import('@/lib/api')>()),
+ *     get api() { return apiMock.api; },
+ *   }));
+ *
+ * Spread the original module so the other real exports (ApiError, …)
+ * survive — components under test may `instanceof` them.
  *
  * GET routes are declared as `path -> data`; mutations resolve with
  * `{ data: {} }` by default and record their calls for payload
