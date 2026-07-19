@@ -325,6 +325,14 @@ model is deliberately simple: the api-server **writes the CR directly**
   (`GET /api/v1/meta/scaffold/{kind}`) — never a hand-maintained template.
   On edit the scaffold is deep-merged with the object (real values win),
   so admins discover every available field without leaving the editor.
+- The image editor covers `spec.catalog` (the catalog-manifest sync
+  source, payload key `catalog`) and **round-trips** it: the API echoes
+  the spec block as `catalogSource` (the response key `catalog` already
+  carries the read-only sync status) and the editor renames it back, so
+  a full-spec save never wipes the sync source. An untouched all-empty
+  `catalog:` scaffold block means "no catalog".
+- Both sections expose a per-row **Delete** (confirm-guarded,
+  `DELETE /api/v1/admin/images/{name}` / `/admin/policies/{name}`).
 - **User creation** takes a group selection: chips from the known groups
   (`GET /api/v1/admin/groups` = policy Group subjects ∪ existing users'
   groups) plus free entry. No group ⇒ only subjects-less policies match

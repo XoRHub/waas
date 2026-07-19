@@ -46,6 +46,11 @@ review.
   method so a future `basicAuth`/`mTLS` is a sibling field, never a
   reinterpretation.
 
+The whole block is editable from the portal's governance image editor
+(PUT payload key `catalog`; both CEL rules above are mirrored as
+server-side validation) — see "Admin console (editing model)" in
+`docs/governance.md` for the round-trip contract.
+
 The discovered entries themselves (`Image`, `OS`, `App`, `Version`,
 `Icon`, `DisplayName`, `Description`, `SyncedAt`) live in the
 api-server's Postgres
