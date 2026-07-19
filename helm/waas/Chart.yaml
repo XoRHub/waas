@@ -9,13 +9,13 @@ type: application
 # "helm" package strategy (helm/waas package) — independent of the app.
 version: 0.2.0
 # appVersion: the app's version (default image tag), bumped by the root
-# "." package via extra-files. The block-marker updater only rewrites the
-# numeric part, so the "v" prefix (matching the promoted vX.Y.Z image
-# tags) is preserved. Keep this block scoped to appVersion ONLY — if it
+# "." package via extra-files. Bare SemVer, matching the promoted X.Y.Z
+# image tags — only the git tag keeps its "v" prefix (the promote job
+# strips it). Keep this block scoped to appVersion ONLY — if it
 # wraps `version` too, the root package's release would also touch the
 # chart's own SemVer.
 # x-release-please-start-version
-appVersion: "v0.2.0"
+appVersion: "0.2.0"
 # x-release-please-end
 kubeVersion: ">=1.26.0-0"
 home: https://github.com/xorhub/waas

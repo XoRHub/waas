@@ -11,7 +11,8 @@
 #   release: release-please (manifest mode) runs at the END of the main
 #          pipeline; when its release PR merges it tags vX.Y.Z and the
 #          promote job re-tags the already-built-and-scanned <short-sha>
-#          manifest lists — never a rebuild — then cosign-signs the
+#          manifest lists as the bare X.Y.Z image tag (the "v" stays on
+#          the git tag only) — never a rebuild — then cosign-signs the
 #          digests (keyless OIDC), adds a moving `latest` tag (the newest
 #          official release only — never confused with the `edge` dev
 #          pointer above) and appends the digest table to the GitHub
@@ -262,7 +263,7 @@ jobs:
   # chart registry is planned: the chart is pushed as an OCI artifact to
   # ghcr.io (same registry as the component images), under a `charts/`
   # sub-path. `-main.<short-sha>` is a valid SemVer prerelease so it
-  # never collides with a released `vX.Y.Z` tag (see the `promote` job).
+  # never collides with a released `X.Y.Z` tag (see the `promote` job).
   # Deliberately NOT delegated to ci-helm.yml and NOT in release-please's
   # `needs`: a chart-oci failure must not block an app release.
   # ------------------------------------------------------------------
@@ -355,7 +356,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write  # edit the Release notes
-      packages: write  # push the vX.Y.Z tags
+      packages: write  # push the X.Y.Z image tags
       id-token: write  # keyless cosign (Fulcio/Rekor)
     env:
       COMPONENTS: operator api-server wwt frontend
@@ -372,43 +373,49 @@ jobs:
         run: |
           set -euo pipefail
           SHORT="${GITHUB_SHA::7}"
-          # The chart at the released SHA must reference the release (the
-          # git tag is what ArgoCD deploys; image tag defaults to
-          # appVersion). release-please bumps appVersion via the
-          # x-release-please marker in Chart.yaml — this guards against
-          # the marker being dropped. The chart's own `version` field is
-          # a separate package (helm/waas) and is NOT checked here.
-          grep -Eq "^appVersion:[[:space:]]*\"${TAG}\"[[:space:]]*$" helm/waas/Chart.yaml \
-            || { echo "FATAL Chart.yaml 'appVersion' must be \"${TAG}\""; exit 1; }
+          # Only the git tag carries the "v" (ArgoCD contract); the image
+          # tags and Chart.yaml's appVersion (the default image tag) are
+          # bare SemVer, hence VERSION=${TAG#v} alongside $TAG.
+          VERSION="${TAG#v}"
+          # The chart at the released SHA must reference the release.
+          # release-please bumps appVersion via the x-release-please
+          # marker in Chart.yaml — this guards against the marker being
+          # dropped. The chart's own `version` field is a separate
+          # package (helm/waas) and is NOT checked here.
+          grep -Eq "^appVersion:[[:space:]]*\"${VERSION}\"[[:space:]]*$" helm/waas/Chart.yaml \
+            || { echo "FATAL Chart.yaml 'appVersion' must be \"${VERSION}\""; exit 1; }
           for c in $COMPONENTS; do
             IMAGE="$REGISTRY/${GITHUB_REPOSITORY,,}/$c"
             docker buildx imagetools inspect "$IMAGE:$SHORT" >/dev/null \
               || { echo "FATAL $IMAGE:$SHORT not found — promotion source missing"; exit 1; }
             # Release tags are immutable; tolerate an identical re-run
             # (idempotent retry after a partial failure).
-            if docker buildx imagetools inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
+            if docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
               SRC=$(docker buildx imagetools inspect "$IMAGE:$SHORT" --format '{{.Manifest.Digest}}')
-              DST=$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{.Manifest.Digest}}')
+              DST=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')
               [ "$SRC" = "$DST" ] \
-                || { echo "FATAL $IMAGE:$TAG already exists with a DIFFERENT digest — release tags are immutable"; exit 1; }
+                || { echo "FATAL $IMAGE:$VERSION already exists with a DIFFERENT digest — release tags are immutable"; exit 1; }
             fi
           done
       - name: Promote and sign
         run: |
           set -euo pipefail
           SHORT="${GITHUB_SHA::7}"
+          # Image tags are the bare SemVer; only the git tag (and the
+          # cosign version= annotation below) keeps the "v".
+          VERSION="${TAG#v}"
           printf '\n## Images\n\n| Composant | Image (digest) |\n|---|---|\n' > release-images.md
           for c in $COMPONENTS; do
             IMAGE="$REGISTRY/${GITHUB_REPOSITORY,,}/$c"
-            docker buildx imagetools create -t "$IMAGE:$TAG" "$IMAGE:$SHORT"
-            DIGEST=$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{.Manifest.Digest}}')
+            docker buildx imagetools create -t "$IMAGE:$VERSION" "$IMAGE:$SHORT"
+            DIGEST=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')
             cosign sign --yes \
               -a version="$TAG" -a revision="$GITHUB_SHA" \
               "$IMAGE@$DIGEST"
             # `latest` always points at the newest OFFICIAL release only —
             # never the `edge` dev pointer (ci-images.yml). Same digest as
-            # $TAG, so no separate cosign signature is needed.
-            docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$TAG"
+            # $VERSION, so no separate cosign signature is needed.
+            docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$VERSION"
             printf '| %s | `%s@%s` |\n' "$c" "$IMAGE" "$DIGEST" >> release-images.md
           done
       - name: Append digest table to the Release notes

@@ -11,16 +11,16 @@
     "    pushed for external `helm install --version` consumers. It can",
     "    legitimately diverge from the app version between chart releases —",
     "    that's normal Helm practice, not a bug.",
-    "appVersion keeps its 'v' prefix because the generic updater only",
-    "rewrites the numeric part inside the x-release-please block.",
     "The root package sets include-component-in-tag: false so its tag is",
     "vX.Y.Z and NOT waas-vX.Y.Z (manifest mode prefixes with the",
-    "package-name by default). The ci.yml promote job uses tag_name",
-    "verbatim as the image tag and to assert Chart.yaml's appVersion, so",
-    "the git tag, appVersion and the promoted image tags must all be the",
-    "same vX.Y.Z string. The chart package keeps its component prefix",
-    "(waas-chart-X.Y.Z) — no collision, and promote-chart never compares",
-    "its tag to a version field."
+    "package-name by default). Only the git tag carries the 'v':",
+    "Chart.yaml's appVersion and the promoted image tags are bare X.Y.Z —",
+    "the ci.yml promote job derives VERSION=${TAG#v} for both the image",
+    "tags and the appVersion assertion. The chart package keeps its",
+    "component prefix (git tag chart-X.Y.Z, Release title chart: vX.Y.Z —",
+    "release-please's default <component>: v<version> titling) — no",
+    "collision, and promote-chart never compares its tag to a version",
+    "field."
   ],
   "bump-minor-pre-major": true,
   "separate-pull-requests": true,
@@ -36,7 +36,7 @@
       "extra-files": [{ "type": "generic", "path": "helm/waas/Chart.yaml" }]
     },
     "helm/waas": {
-      "package-name": "waas-chart",
+      "package-name": "chart",
       "release-type": "helm",
       "include-v-in-tag": false,
       "changelog-path": "CHANGELOG.md",

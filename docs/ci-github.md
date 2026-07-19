@@ -59,12 +59,12 @@ push main — EVERYTHING is built (invariant: every main SHA carries the
 │  ├─ merge-manifests        <short-sha> manifest list + mobile `edge` tag
 │  └─ scan-images            blocking trivy on the manifest list
 ├─ chart-oci (in ci.yml)     OCI push of the chart, version `X.Y.Z-main.<short-sha>`
-│                            (SemVer prerelease, never collides with vX.Y.Z)
+│                            (SemVer prerelease, never collides with a released X.Y.Z)
 │                            + mobile `0.0.0-edge` tag on the chart OCI artifact
 └─ release-please (in ci.yml)  AT THE END of the pipeline (needs on the 5 call jobs)
    ├─ promote        (if "." release_created)          ZERO rebuild:
-   │     verify (Chart.yaml appVersion = tag, sources present, tags free)
-   │     → retag <short-sha> ⇒ vX.Y.Z → cosign keyless → mobile `latest`
+   │     verify (Chart.yaml appVersion = ${TAG#v}, sources present, tags free)
+   │     → retag <short-sha> ⇒ X.Y.Z → cosign keyless → mobile `latest`
    │       tag → digest table added to the Release notes
    └─ promote-chart   (if "helm/waas" release_created)  independent of promote:
          helm package (Chart.yaml of the tagged SHA, no override) + OCI push
@@ -119,7 +119,7 @@ stores.
 - job `chart-oci` (push main): `helm package --version
   X.Y.Z-main.<short-sha>`, then re-tags that push as `0.0.0-edge` — a
   SemVer-valid stand-in for the images' mobile `edge` tag (see above).
-- job `promote-chart` (tag `waas-chart-X.Y.Z`, from the `helm/waas`
+- job `promote-chart` (tag `chart-X.Y.Z`, from the `helm/waas`
   release-please package): `helm package` **without override** — the
   `Chart.yaml` of the tagged commit already carries the released
   `version: X.Y.Z`, so packaging this file as-is IS the release, not a
@@ -164,20 +164,25 @@ consumers.
   - `"."` — the app: images, the `vX.Y.Z` git tag ArgoCD tracks
     (`targetRevision`, deploys straight from git — this tag is the real
     deployable-state contract), and `Chart.yaml`'s `appVersion` (default
-    image tag, bumped via `extra-files`).
+    image tag, bumped via `extra-files`). Only the git tag carries the
+    `v`: `appVersion` and the promoted image tags are the bare `X.Y.Z`,
+    which `promote` derives as `${TAG#v}`.
   - `"helm/waas"` — the chart's **own** SemVer (`Chart.yaml`'s
     `version` field, release-type `helm`), used only for the OCI chart
     artifact published for external consumers. It bumps only on commits
     touching `helm/`, independently of the app version — normal Helm
     practice, not a bug. `exclude-paths: ["helm/waas/"]` on the root
     package stops `helm/`-only changes from also cutting an app release.
+    Component name `chart`: git tag `chart-X.Y.Z`, GitHub Release titled
+    `chart: vX.Y.Z` (release-please's default `<component>: v<version>`
+    titling).
   - Desktop images are out of scope (separate `waas-images` repo since
     2026-07-10, versioned per image).
 - Each package gets its own release PR (`separate-pull-requests: true`).
   The app's release PR bumps `CHANGELOG.md` and `helm/waas/Chart.yaml`'s
   `appVersion` (`x-release-please-start-version`/`end` marker scoped to
-  that one line; the `v` prefix survives because the updater only
-  matches the numeric part). The chart's release PR bumps its own
+  that one line; `appVersion` stays the bare `X.Y.Z` — the `v` lives on
+  the git tag only). The chart's release PR bumps its own
   `CHANGELOG.md` and `Chart.yaml`'s `version` field natively (helm
   strategy) — comments and the `appVersion` line are untouched.
 - **Procedure: merge either release PR, that's it.** The subsequent main
@@ -279,5 +284,6 @@ datasource).
   loaded image (amd64).
 - `merge-manifests` waits for ALL build pairs (GitHub does not do
   `needs` per matrix leg, unlike the per-component GitLab DAG).
-- GitLab `release-verify` greps `appVersion`: the release-please
-  markers are on separate lines, the existing greps remain valid.
+- GitLab `release-verify` grepped `appVersion` for the git tag
+  verbatim; the GitHub `promote` precondition compares against the bare
+  `${TAG#v}` instead, since `appVersion` no longer carries the `v`.
