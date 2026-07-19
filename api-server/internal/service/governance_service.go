@@ -781,6 +781,7 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 			Version:       e.Version,
 			Icon:          e.Icon,
 			DisplayName:   e.DisplayName,
+			Description:   e.Description,
 			Profile:       e.Profile,
 			Recommended:   unmarshalRecommended(e.Recommended),
 			Architectures: e.Architectures,

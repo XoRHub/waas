@@ -449,6 +449,10 @@ type DiscoveredImage struct {
 	// OS icon.
 	Icon        string `json:"icon,omitempty"`
 	DisplayName string `json:"displayName,omitempty"`
+	// Description is the full description published by the catalog — a
+	// prefill hint for the admin template form's description field (and
+	// a tooltip in the image picker); never enforcement.
+	Description string `json:"description,omitempty"`
 	// Profile is a display badge ("hardened"/"normal"); empty shows no
 	// badge.
 	Profile string `json:"profile,omitempty"`

@@ -548,6 +548,12 @@ export interface DiscoveredImage {
   icon?: string;
   displayName?: string;
   /**
+   * Description is the full description published by the catalog — a
+   * prefill hint for the admin template form's description field (and
+   * a tooltip in the image picker); never enforcement.
+   */
+  description?: string;
+  /**
    * Profile is a display badge ("hardened"/"normal"); empty shows no
    * badge.
    */
