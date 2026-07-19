@@ -166,14 +166,14 @@ describe('catalog sync', () => {
     // formatDateTime uses toLocaleString: assert via the same helper.
     expect(
       within(syncedRow).getByText(
-        (text) => text.includes(new Date('2026-07-01T10:00:00Z').toLocaleString()) && text.includes('1 entry'),
+        (text) =>
+          text.includes(new Date('2026-07-01T10:00:00Z').toLocaleString()) &&
+          text.includes('1 entry'),
       ),
     ).toBeInTheDocument();
     const brokenRow = screen.getByText('Broken registry').closest('tr')!;
     expect(within(brokenRow).getByText(en.governance.syncNever)).toBeInTheDocument();
-    expect(
-      within(brokenRow).getByText(/fetching catalog: HTTP 500/),
-    ).toBeInTheDocument();
+    expect(within(brokenRow).getByText(/fetching catalog: HTTP 500/)).toBeInTheDocument();
   });
 });
 
