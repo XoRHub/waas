@@ -436,7 +436,9 @@
     "syncNever": "Never synced",
     "syncEntries_one": "{{count}} entry",
     "syncEntries_other": "{{count}} entries",
-    "syncFailed": "Last sync failed"
+    "syncFailed": "Last sync failed",
+    "deleteImageConfirm": "Delete this catalog entry? Templates and workspaces built on it lose their approval.",
+    "deletePolicyConfirm": "Delete this policy? Affected users fall back to the next matching policy — or are denied if none matches."
   },
   "overlay": {
     "title": "Session menu",

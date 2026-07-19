@@ -436,7 +436,9 @@
     "syncNever": "Jamais synchronisé",
     "syncEntries_one": "{{count}} entrée",
     "syncEntries_other": "{{count}} entrées",
-    "syncFailed": "Échec de la dernière synchronisation"
+    "syncFailed": "Échec de la dernière synchronisation",
+    "deleteImageConfirm": "Supprimer cette entrée du catalogue ? Les modèles et espaces qui s'appuient dessus perdent leur approbation.",
+    "deletePolicyConfirm": "Supprimer cette politique ? Les utilisateurs concernés retombent sur la politique suivante — ou sont refusés si aucune ne correspond."
   },
   "overlay": {
     "title": "Menu de session",

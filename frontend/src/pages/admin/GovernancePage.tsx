@@ -5,6 +5,8 @@ import {
   useAdminImages,
   useAdminPolicies,
   useAdminUsage,
+  useDeleteImage,
+  useDeletePolicy,
   useOverrideFields,
   useScaffold,
   useSyncImage,
@@ -68,6 +70,7 @@ function CatalogSection() {
   const toggle = useToggleImage();
   const upsert = useUpsertImage();
   const sync = useSyncImage();
+  const remove = useDeleteImage();
   // null = closed; 'new' = create; a CatalogImage = edit.
   const [editing, setEditing] = useState<CatalogImage | 'new' | null>(null);
 
@@ -168,9 +171,20 @@ function CatalogSection() {
                       <button
                         onClick={() => toggle.mutate({ name: img.name, enabled: !img.enabled })}
                         disabled={toggle.isPending}
-                        className="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                        className="mr-2 rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
                       >
                         {img.enabled ? t('governance.disable') : t('governance.enable')}
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(t('governance.deleteImageConfirm'))) {
+                            remove.mutate(img.name);
+                          }
+                        }}
+                        disabled={remove.isPending}
+                        className="rounded-md border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+                      >
+                        {t('app.delete')}
                       </button>
                     </td>
                   </tr>
@@ -202,19 +216,24 @@ function CatalogSection() {
 }
 
 // imageBody strips read-only projection fields, leaving the PUT payload.
+// `catalog` here is the read-only sync STATUS (stripped like the rest);
+// the editable sync source is echoed as `catalogSource` and renamed back
+// to the payload key `catalog`, so editing a catalog-synced entry
+// round-trips its sync source instead of silently wiping it.
 function imageBody(img: CatalogImage): Record<string, unknown> {
-  const { name: _n, templates: _t, catalog: _c, discovered: _d, ...body } = img;
+  const { name: _n, templates: _t, catalog: _c, discovered: _d, catalogSource, ...body } = img;
   void _n;
   void _t;
   void _c;
   void _d;
-  return body;
+  return catalogSource ? { ...body, catalog: catalogSource } : body;
 }
 
 function PoliciesSection() {
   const { t } = useTranslation();
   const policies = useAdminPolicies();
   const upsert = useUpsertPolicy();
+  const remove = useDeletePolicy();
   const overrideFields = useOverrideFields();
   const [editing, setEditing] = useState<PolicyModel | 'new' | null>(null);
   const validate = useMemo(
@@ -279,12 +298,25 @@ function PoliciesSection() {
                     </div>
                   )}
                 </dl>
-                <button
-                  onClick={() => setEditing(pol)}
-                  className="mt-3 rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-                >
-                  {t('app.edit')}
-                </button>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => setEditing(pol)}
+                    className="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    {t('app.edit')}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm(t('governance.deletePolicyConfirm'))) {
+                        remove.mutate(pol.name);
+                      }
+                    }}
+                    disabled={remove.isPending}
+                    className="rounded-md border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+                  >
+                    {t('app.delete')}
+                  </button>
+                </div>
               </div>
             ))}
       </div>

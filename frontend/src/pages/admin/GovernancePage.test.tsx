@@ -44,6 +44,7 @@ const apiMock = createApiMock({
       protocols: ['vnc'],
       enabled: true,
       catalog: { source: 'Fetched', lastSyncTime: '2026-07-01T10:00:00Z' },
+      catalogSource: { from: { url: 'https://example.com/catalog.yaml' } },
       discovered: [{ image: 'docker.io/xorhub/firefox:1@sha256:def' }],
     },
     {
@@ -90,6 +91,7 @@ vi.mock('@/lib/api', () => ({
 beforeEach(() => {
   apiMock.api.post.mockClear();
   apiMock.api.put.mockClear();
+  apiMock.api.delete.mockClear();
 });
 
 const renderPage = () => {
@@ -174,6 +176,69 @@ describe('catalog sync', () => {
     const brokenRow = screen.getByText('Broken registry').closest('tr')!;
     expect(within(brokenRow).getByText(en.governance.syncNever)).toBeInTheDocument();
     expect(within(brokenRow).getByText(/fetching catalog: HTTP 500/)).toBeInTheDocument();
+  });
+});
+
+describe('image editor round-trip', () => {
+  it('keeps the catalog sync source in the submitted body (no silent wipe)', async () => {
+    renderPage();
+    const row = (await screen.findByText('XorHub images')).closest('tr')!;
+    await userEvent.click(within(row).getByRole('button', { name: en.app.edit }));
+    const editor = (await screen.findByRole('textbox')) as HTMLTextAreaElement;
+    // The spec source (echoed as catalogSource) seeds the editor under
+    // the payload key `catalog`.
+    await waitFor(() => expect(editor.value).toContain('https://example.com/catalog.yaml'));
+
+    await userEvent.click(screen.getByRole('button', { name: en.app.save }));
+    await waitFor(() => expect(apiMock.api.put).toHaveBeenCalled());
+    const [path, body] = apiMock.api.put.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(path).toBe('/api/v1/admin/images/xorhub-registry');
+    expect(body.catalog).toEqual({ from: { url: 'https://example.com/catalog.yaml' } });
+    // The echo key and the read-only projections never reach the payload.
+    expect(body.catalogSource).toBeUndefined();
+    expect(body.name).toBeUndefined();
+    expect(body.discovered).toBeUndefined();
+  });
+});
+
+describe('catalog delete', () => {
+  it('deletes an entry after confirmation through the right endpoint', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    const row = (await screen.findByText('Ubuntu Desktop')).closest('tr')!;
+    await userEvent.click(within(row).getByRole('button', { name: en.app.delete }));
+    expect(confirm).toHaveBeenCalledWith(en.governance.deleteImageConfirm);
+    await waitFor(() =>
+      expect(apiMock.api.delete).toHaveBeenCalledWith('/api/v1/admin/images/ubuntu'),
+    );
+    confirm.mockRestore();
+  });
+
+  it('does nothing when the confirmation is declined', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderPage();
+    const row = (await screen.findByText('Ubuntu Desktop')).closest('tr')!;
+    await userEvent.click(within(row).getByRole('button', { name: en.app.delete }));
+    expect(apiMock.api.delete).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+});
+
+describe('policy delete', () => {
+  it('deletes a policy after confirmation through the right endpoint', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    const heading = await screen.findByRole('heading', { level: 3, name: 'devs-policy' });
+    const card = heading.closest('div')!.parentElement!;
+    await userEvent.click(within(card).getByRole('button', { name: en.app.delete }));
+    expect(confirm).toHaveBeenCalledWith(en.governance.deletePolicyConfirm);
+    await waitFor(() =>
+      expect(apiMock.api.delete).toHaveBeenCalledWith('/api/v1/admin/policies/devs-policy'),
+    );
+    confirm.mockRestore();
   });
 });
 

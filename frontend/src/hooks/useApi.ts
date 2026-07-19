@@ -611,6 +611,17 @@ export function useSyncImage() {
   });
 }
 
+export function useDeleteImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.delete<void>(`/api/v1/admin/images/${name}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin-images'] });
+      void queryClient.invalidateQueries({ queryKey: ['catalog'] });
+    },
+  });
+}
+
 export function useAdminPolicies() {
   return useQuery({
     queryKey: ['admin-policies'],
@@ -623,6 +634,14 @@ export function useUpsertPolicy() {
   return useMutation({
     mutationFn: ({ name, body }: { name: string; body: unknown }) =>
       api.put<PolicyModel>(`/api/v1/admin/policies/${name}`, body),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['admin-policies'] }),
+  });
+}
+
+export function useDeletePolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.delete<void>(`/api/v1/admin/policies/${name}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['admin-policies'] }),
   });
 }
