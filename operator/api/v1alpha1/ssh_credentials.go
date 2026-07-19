@@ -6,8 +6,9 @@ import corev1 "k8s.io/api/core/v1"
 // the operator (which generates the keypair, ssh_credentials.go) and
 // the api-server (which resolves the private key at connect time,
 // workspace_service.go). Living here, ONE predicate and ONE Secret name
-// serve both sides — unlike the desktop/kasm password mechanisms, whose
-// name alignment is enforced by comments only.
+// serve both sides — the desktop/kasm password mechanisms share their
+// names the same way (credential_secrets.go), only their generation
+// predicates remain operator-side.
 
 // SSHSecretName is the resolver-side copy of a workspace's generated
 // ssh keypair, next to the Workspace CR. Keys: "private-key" (OpenSSH

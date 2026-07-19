@@ -44,9 +44,10 @@ import (
 // that rule (admission never re-checks objects already stored).
 
 // desktopSecretName is the resolver-side copy, next to the Workspace CR.
-// Must stay aligned with the api-server's fallback in ConnectionInfo
-// (workspace_service.go), byte-for-byte.
-func desktopSecretName(ws *waasv1alpha1.Workspace) string { return "waas-desktop-" + ws.Name }
+// Name shared with the api-server via v1alpha1.DesktopSecretName.
+func desktopSecretName(ws *waasv1alpha1.Workspace) string {
+	return waasv1alpha1.DesktopSecretName(ws.Name)
+}
 
 // desktopPasswordGenerated says whether THIS workspace runs with an
 // operator-generated vnc/rdp password. One answer for the whole

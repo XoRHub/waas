@@ -46,7 +46,10 @@ import (
 //     counts it as content.
 
 // kasmSecretName is the resolver-side copy, next to the Workspace CR.
-func kasmSecretName(ws *waasv1alpha1.Workspace) string { return "waas-kasm-" + ws.Name }
+// Name shared with the api-server via v1alpha1.KasmSecretName.
+func kasmSecretName(ws *waasv1alpha1.Workspace) string {
+	return waasv1alpha1.KasmSecretName(ws.Name)
+}
 
 // kasmPasswordGenerated says whether THIS workspace runs with an
 // operator-generated KasmVNC password. Must stay aligned with the
