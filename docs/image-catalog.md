@@ -239,10 +239,24 @@ never save a `securityContext` they didn't consciously see. Clicking it
 expands the (collapsed-by-default) Workload YAML section so the
 injected values are visible before saving. The env part is
 **protocol-aware**: on a template with no protocols configured yet, the
-entry's supported protocols are added first (with their registry
+image's supported protocols are added first (with their registry
 default ports; a list mixing `kasmvnc` with guacd protocols keeps only
 the guacd ones — kasmvnc exclusivity); a template that already has
-protocols keeps them untouched. Hints are then filtered to those
+protocols keeps them untouched. The protocol list here is **per
+discovered image**, derived server-side as the union of the image's
+`env[].protocols` tags (a single-app image only ships hints for the
+protocols it serves, so the union is its protocol surface — e.g. a
+vnc-only agent image derives to `[vnc]` even under a `[vnc, rdp, ssh]`
+catalog). An image with no tagged hints derives to empty = unknown, and
+the form falls back to the catalog entry's `spec.protocols` — same
+convention as the `architectures` prefill. That fallback is deliberate
+and load-bearing for `kasmvnc`: `kasmvnc` never derives from hints (an
+exception by nature — webhook-enforced exclusivity), so a `kasmvnc`
+image derives empty and reaches the prefill only through its catalog's
+`[kasmvnc]` `spec.protocols`.
+Derivation is prefill-only — the entry-level `spec.protocols` stays
+the enforcement boundary the operator validates against. Hints are
+then filtered to those
 protocols (`env[].protocols`, unscoped = always relevant, plus the
 `requires` closure above). A relevant hint **with** a `default` merges
 into the template's env list by name without overwriting an
