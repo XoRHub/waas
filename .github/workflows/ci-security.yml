@@ -30,7 +30,7 @@ jobs:
         # The desktop images' Dockerfiles are out of scope here: the
         # waas-images repo (separate since 2026-07-10) lints its own.
         run: |
-          docker run --rm -v "$PWD:/work" -w /work hadolint/hadolint:2.12.0-alpine \
+          docker run --rm -v "$PWD:/work" -w /work hadolint/hadolint:v2.14.0-alpine \
             hadolint --failure-threshold warning \
             operator/Dockerfile api-server/Dockerfile wwt/Dockerfile frontend/Dockerfile
       - name: shellcheck
