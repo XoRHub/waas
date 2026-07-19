@@ -34,12 +34,33 @@
       "platformAutomerge": true
     },
     {
-      "description": "Frontend patch and minor bumps automerge individually once required checks pass and the release is >=10 days old (grouping deliberately not extended here yet).",
+      "description": "Frontend devDependencies patch/minor bumps in one weekly PR, automerged: they never reach the shipped bundle, so a bad bump fails CI, not users.",
       "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["patch", "minor"],
+      "groupName": "frontend-dev-non-major",
+      "schedule": ["before 6am on monday"],
       "minimumReleaseAge": "10 days",
       "automerge": true,
       "platformAutomerge": true
+    },
+    {
+      "description": "Frontend production patch bumps in one weekly PR, automerged. Minors stay individual PRs under manual review: npm semver is declarative and the CI has no e2e, so a behavior-changing minor would go green unseen.",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies"],
+      "matchUpdateTypes": ["patch"],
+      "groupName": "frontend-prod-patch",
+      "schedule": ["before 6am on monday"],
+      "minimumReleaseAge": "10 days",
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "description": "guacamole-common-js is protocol-coupled to guacd and the wwt tunnel: every bump gets its own PR and a manual review, never an automerge.",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["guacamole-common-js"],
+      "groupName": null,
+      "automerge": false
     },
     {
       "description": "Container image digest/pin/patch bumps automerge once required checks pass — without this they pile up behind the concurrent-PR limit (the initial pin-dependencies PR sat rate-limited for a week).",
