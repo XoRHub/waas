@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Guacamole from 'guacamole-common-js';
 import { useClipboardBridge } from '@/hooks/useClipboardBridge';
 import { useSessionResize } from '@/hooks/useSessionResize';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { detectServerLayout } from '@/lib/keyboard';
 import { useAuthStore } from '@/stores/authStore';
 import type { ConnectResult, SessionCapabilities, WorkspaceConnectionPrefs } from '@/types';
@@ -59,6 +59,10 @@ export const DesktopPane = forwardRef<
   const clipboard = useClipboardBridge();
   const sessionResize = useSessionResize();
   const [state, setState] = useState<ConnectionState>('connecting');
+  // RFC 7807 detail of a failed /connect call — the api-server explains
+  // WHY (quota, policy, phase); swallowing it left users with a bare
+  // "connection failed".
+  const [failDetail, setFailDetail] = useState<string | null>(null);
   // kasmvnc sessions embed KasmVNC's own web client instead of the guac
   // canvas: wwt reverse-proxies the whole app under /kasm/{session}.
   const [kasmUrl, setKasmUrl] = useState<string | null>(null);
@@ -107,6 +111,9 @@ export const DesktopPane = forwardRef<
     let client: InstanceType<typeof Guacamole.Client> | null = null;
     let keyboard: InstanceType<typeof Guacamole.Keyboard> | null = null;
     let cancelled = false;
+    // Each (re)connect attempt starts clean: a later guac-level failure
+    // must not resurface a stale API detail.
+    setFailDetail(null);
 
     const setBoth = (s: ConnectionState) => {
       setState(s);
@@ -138,8 +145,11 @@ export const DesktopPane = forwardRef<
           Object.keys(body).length > 0 ? body : undefined,
         );
         result = response.data;
-      } catch {
-        if (!cancelled) setBoth('failed');
+      } catch (e) {
+        if (!cancelled) {
+          setFailDetail(e instanceof ApiError ? e.message : null);
+          setBoth('failed');
+        }
         return;
       }
       if (cancelled) return;
@@ -312,6 +322,9 @@ export const DesktopPane = forwardRef<
             {state === 'disconnected' && t('connect.disconnected')}
             {state === 'failed' && t('connect.failed')}
           </p>
+          {state === 'failed' && failDetail && (
+            <p className="max-w-md px-4 text-center text-xs text-slate-400">{failDetail}</p>
+          )}
         </div>
       )}
     </div>

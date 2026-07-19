@@ -81,62 +81,66 @@ function CatalogSection() {
           {t('governance.newImage')}
         </button>
       </div>
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-slate-800">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            <tr>
-              <th className="px-4 py-3">{t('governance.image')}</th>
-              <th className="px-4 py-3">{t('governance.reference')}</th>
-              <th className="px-4 py-3">{t('governance.protocols')}</th>
-              <th className="px-4 py-3">{t('governance.groups')}</th>
-              <th className="px-4 py-3">{t('governance.status')}</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-            {images.isSuccess &&
-              images.data.data.map((img) => (
-                <tr key={img.name} className="text-slate-700 dark:text-slate-200">
-                  <td className="px-4 py-3 font-medium">{img.displayName}</td>
-                  <td className="max-w-xs truncate px-4 py-3 font-mono text-xs">{img.image}</td>
-                  <td className="px-4 py-3">{img.protocols?.join(', ')}</td>
-                  <td className="px-4 py-3">
-                    {img.allowedGroups?.join(', ') || t('governance.everyone')}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        img.enabled
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
-                          : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-                      }`}
-                    >
-                      {img.enabled ? t('governance.enabled') : t('governance.disabled')}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => setEditing(img)}
-                      className="mr-2 rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-                    >
-                      {t('app.edit')}
-                    </button>
-                    <button
-                      onClick={() => toggle.mutate({ name: img.name, enabled: !img.enabled })}
-                      disabled={toggle.isPending}
-                      className="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-                    >
-                      {img.enabled ? t('governance.disable') : t('governance.enable')}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-        {images.isSuccess && images.data.data.length === 0 && (
-          <p className="p-4 text-sm text-slate-500">{t('governance.noImages')}</p>
-        )}
-      </div>
+      {images.isPending && <p className="text-slate-500">{t('app.loading')}</p>}
+      {images.isError && <p className="text-red-600">{t('app.error')}</p>}
+      {images.isSuccess && (
+        <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-slate-800">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400">
+              <tr>
+                <th className="px-4 py-3">{t('governance.image')}</th>
+                <th className="px-4 py-3">{t('governance.reference')}</th>
+                <th className="px-4 py-3">{t('governance.protocols')}</th>
+                <th className="px-4 py-3">{t('governance.groups')}</th>
+                <th className="px-4 py-3">{t('governance.status')}</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+              {images.isSuccess &&
+                images.data.data.map((img) => (
+                  <tr key={img.name} className="text-slate-700 dark:text-slate-200">
+                    <td className="px-4 py-3 font-medium">{img.displayName}</td>
+                    <td className="max-w-xs truncate px-4 py-3 font-mono text-xs">{img.image}</td>
+                    <td className="px-4 py-3">{img.protocols?.join(', ')}</td>
+                    <td className="px-4 py-3">
+                      {img.allowedGroups?.join(', ') || t('governance.everyone')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          img.enabled
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                            : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                        }`}
+                      >
+                        {img.enabled ? t('governance.enabled') : t('governance.disabled')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => setEditing(img)}
+                        className="mr-2 rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                      >
+                        {t('app.edit')}
+                      </button>
+                      <button
+                        onClick={() => toggle.mutate({ name: img.name, enabled: !img.enabled })}
+                        disabled={toggle.isPending}
+                        className="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                      >
+                        {img.enabled ? t('governance.disable') : t('governance.enable')}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          {images.isSuccess && images.data.data.length === 0 && (
+            <p className="p-4 text-sm text-slate-500">{t('governance.noImages')}</p>
+          )}
+        </div>
+      )}
       {editing && (
         <GovernanceEditor
           kind="workspaceimage"
@@ -188,6 +192,8 @@ function PoliciesSection() {
           {t('governance.newPolicy')}
         </button>
       </div>
+      {policies.isPending && <p className="text-slate-500">{t('app.loading')}</p>}
+      {policies.isError && <p className="text-red-600">{t('app.error')}</p>}
       <div className="grid gap-4 lg:grid-cols-2">
         {policies.isSuccess &&
           policies.data.data

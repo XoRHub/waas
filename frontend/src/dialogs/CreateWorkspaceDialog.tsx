@@ -558,6 +558,11 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
           </>
         }
       >
+        {/* The picker below renders empty when these queries fail — say so
+            instead of showing a template list that will never arrive. */}
+        {(templates.isError || catalog.isError || quota.isError) && (
+          <p className="text-sm text-red-600">{t('app.error')}</p>
+        )}
         <div>
           <span className="text-sm text-slate-600 dark:text-slate-300">{t('portal.template')}</span>
           <div className="mt-1">
