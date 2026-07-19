@@ -2,7 +2,7 @@
 # Never edit zz_generated.deepcopy.go or config/ manifests by hand:
 # run `make generate manifests` after any change under api/v1alpha1/.
 
-CONTROLLER_GEN_VERSION ?= v0.19.0
+CONTROLLER_GEN_VERSION ?= v0.21.0
 CONTROLLER_GEN := go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
 
 # envtest: real apiserver + etcd for test/envtest (CRD schema/CEL,
