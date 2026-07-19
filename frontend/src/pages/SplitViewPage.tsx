@@ -135,25 +135,32 @@ function PaneTree({ node, ...actions }: { node: PaneNode } & PaneActions) {
 
 function Split({ split, ...actions }: { split: SplitNode } & PaneActions) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const dragRectRef = useRef<DOMRect | null>(null);
   const horizontal = split.dir === 'row';
 
+  // Pointer capture instead of window listeners: move/up stay on the
+  // divider element, so an unmount mid-drag releases everything with the
+  // node — nothing to leak.
   const onDividerDown = (down: React.PointerEvent) => {
     down.preventDefault();
     const container = containerRef.current;
     if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const move = (e: PointerEvent) => {
-      const ratio = horizontal
-        ? (e.clientX - rect.left) / rect.width
-        : (e.clientY - rect.top) / rect.height;
-      actions.onRatio(split.id, Math.min(0.85, Math.max(0.15, ratio)));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    dragRectRef.current = container.getBoundingClientRect();
+    down.currentTarget.setPointerCapture(down.pointerId);
+  };
+  const onDividerMove = (e: React.PointerEvent) => {
+    const rect = dragRectRef.current;
+    if (!rect || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    const ratio = horizontal
+      ? (e.clientX - rect.left) / rect.width
+      : (e.clientY - rect.top) / rect.height;
+    actions.onRatio(split.id, Math.min(0.85, Math.max(0.15, ratio)));
+  };
+  const onDividerUp = (e: React.PointerEvent) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    dragRectRef.current = null;
   };
 
   return (
@@ -169,7 +176,9 @@ function Split({ split, ...actions }: { split: SplitNode } & PaneActions) {
       </div>
       <div
         onPointerDown={onDividerDown}
-        className={`shrink-0 bg-slate-700 transition-colors hover:bg-blue-500 ${
+        onPointerMove={onDividerMove}
+        onPointerUp={onDividerUp}
+        className={`shrink-0 touch-none bg-slate-700 transition-colors hover:bg-blue-500 ${
           horizontal ? 'w-1.5 cursor-col-resize' : 'h-1.5 cursor-row-resize'
         }`}
       />
