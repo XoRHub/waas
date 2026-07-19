@@ -1,7 +1,7 @@
 # GitHub Actions CI
 
-GitHub is the canonical repository; the GitLab pipeline (`docs/ci.md`)
-stays as-is until it's retired.
+GitHub is the sole and canonical repository; the GitLab pipeline has
+been retired.
 
 `.github/workflows/ci.yml` is the entry point (triggers, path filtering,
 concurrency) and orchestrates five `workflow_call` reusable workflows,
