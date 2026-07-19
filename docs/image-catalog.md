@@ -92,6 +92,21 @@ The api-server's RBAC grants `workspaceimages/status` `get`/`patch`
 only (no `update`): it never needs to read-modify-write the whole
 status, just this one patch.
 
+### Manual sync
+
+`POST /api/v1/admin/images/{name}/sync` (admin-only) forces an
+immediate re-fetch of one entry instead of waiting for the ticker —
+the portal's Governance → Image catalog table exposes it as a
+per-image **Sync now** button, next to the sync state it now surfaces
+(`lastSyncTime`, discovered-entry count, `lastSyncError`). The
+endpoint is synchronous (bounded by the worker's 10s fetch timeout)
+and returns the freshly projected image; a worker-level mutex
+serializes it with the ticker's pass. Failure semantics are identical
+to the periodic path — fail-soft, stale-but-served: the fetch error
+comes back as a 502 problem and only `status.catalog.lastSyncError` is
+patched. The manual path works even when
+`apiServer.catalogSyncInterval` ≤ 0 has disabled the periodic worker.
+
 ## Wire format and schema — this repo is the source of truth
 
 `shared/catalog` defines the manifest format
