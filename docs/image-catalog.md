@@ -2,7 +2,8 @@
 
 Registry-mode `WorkspaceImage` entries can surface a **published
 catalog** of the images currently under their registry (display
-metadata: os/app/version/icon), so the portal shows a picker of cards
+metadata: os/app/version/icon/displayName/description), so the portal
+shows a picker of cards
 with logos instead of raw references. The catalog is **purely
 cosmetic**: the discovered entries are never read by
 `enforce()`/`FindImage`/`ImageAllowed` — approval and policy gating are
@@ -46,7 +47,8 @@ review.
   reinterpretation.
 
 The discovered entries themselves (`Image`, `OS`, `App`, `Version`,
-`Icon`, `DisplayName`, `SyncedAt`) live in the api-server's Postgres
+`Icon`, `DisplayName`, `Description`, `SyncedAt`) live in the
+api-server's Postgres
 `catalog_entries` table, keyed by `(workspace_image_name, image)` —
 **not** in `status.catalog`, which only keeps the small,
 purely-informational bookkeeping: `source` (`Fetched`/`Static`),
@@ -129,6 +131,12 @@ images:
     version: "1.0.0"
     icon: firefox    # dashboard-icons slug — also accepts an absolute
                      # https URL or file:<path> (see the picker section)
+    displayName: Firefox     # human-readable label (a name, NOT a
+                             # truncated description); empty falls back
+                             # to app (see § identity prefill)
+    description: Managed, policy-hardened Firefox in a kiosk session.
+                             # full description, untruncated — template
+                             # form prefill + picker tooltip only
     architectures: [amd64]   # optional, PER IMAGE (amd64/arm64) — a
                              # nodeSelector prefill hint for the admin
                              # template form; absent = unknown, the
@@ -255,8 +263,9 @@ normalizes the list like `os`/`profile` (unknown values and duplicates
 dropped, nothing valid left = NULL = unknown) into the
 `catalog_entries.architectures` column (JSON text).
 
-The template form consumes it as the **single deliberate exception** to
-the no-prefill-on-selection doctrine above: picking an image in the
+The template form consumes it as a **deliberate exception** to the
+no-prefill-on-selection doctrine above (the identity prefill below is
+the other, non-destructive one): picking an image in the
 catalog picker (a discovered card, or a single-image catalog — never
 free typing) with exactly **one** published architecture stamps
 `kubernetes.io/arch: <arch>` into the workload's `nodeSelector` and
@@ -266,6 +275,44 @@ platform-derived key is ever written — other `nodeSelector` keys and
 the rest of the YAML are never touched, and unparseable YAML is left
 alone. Per-image list wins; the entry-level `spec.architectures` is the
 fallback when the manifest doesn't carry the field.
+
+## Identity prefill (`displayName`/`description`) — non-destructive
+
+`displayName` is a real human-readable **label** (`Firefox`,
+`Ubuntu Desktop Noble`, `Hermes-Agent (hardened)`), no longer the
+producer's description shortened to 80 chars: `waas-images` emits the
+manifest's optional `displayName` when set, else a humanized form of
+the variant id (dashes/underscores → spaces, title case). `description`
+is the **full, untruncated** manifest description. Both follow the same
+regime as every other discovered field — display/prefill only, never
+read by `enforce()`/`buildPodTemplate`. The sync worker treats
+`description` as untrusted free text: trimmed and hard-capped at 2048
+bytes (an anti-abuse bound, far above any legitimate description —
+deliberately NOT a display truncation), then stored in
+`catalog_entries.description` (TEXT, NULL = manifest predates the
+field).
+
+The template form consumes them on discovered-card selection (never on
+free typing, and not for single-image catalogs — no discovered metadata
+there), **non-destructively**: the picked entry's
+`displayName`/`description` land in the template's matching fields only
+where those are still empty, each field decided independently — a value
+the admin already typed is never overwritten. This is distinct from the
+explicit *Apply recommendation* button (which deliberately overwrites)
+and gentler than the architecture prefill above (which rewrites one
+`nodeSelector` key).
+
+A description is also readable before selecting: any `ImageOptionCard`
+given one renders a small `?` affordance on its title line whose
+native tooltip carries the full text (the row-level tooltip keeps it
+too). Both pickers use it — the admin's discovered-image list (the
+catalog entry's description) and the end-user template picker in
+CreateWorkspaceDialog (the **template's** own description, which the
+prefill above typically seeded from the catalog).
+
+The end-user create-workspace flow is otherwise unchanged: its
+`displayName` field is not prefilled from anything (a possible future
+extension, deliberately not part of this feature).
 
 The `profile` badge is scoped to this admin form: `ImageOptionCard`
 only renders it when passed a `profile`, and `CatalogImageField.tsx` is
