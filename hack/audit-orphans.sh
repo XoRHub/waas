@@ -21,7 +21,7 @@
 # sweeper (WAAS_SESSION_SWEEP_INTERVAL); they are not visible to kubectl.
 #
 # Usage:
-#   hack/audit-orphans.sh [--clean] [--platform-namespace NS]
+#   hack/audit-orphans.sh [--clean]
 #     --clean   delete category 1 orphans and category 2 DeleteWhenEmpty
 #               namespaces. Retained volumes and unlabeled namespaces are
 #               NEVER deleted by this script.
