@@ -107,6 +107,33 @@ describe('ImageOptionCard', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it('shows a "?" affordance carrying the description in its own tooltip', () => {
+    render(
+      <ImageOptionCard
+        title="Firefox"
+        subtitle="linux · vnc"
+        description="Managed, policy-hardened Firefox in a kiosk session."
+      />,
+    );
+    const hint = screen.getByText('?');
+    expect(hint.getAttribute('title')).toBe(
+      'Managed, policy-hardened Firefox in a kiosk session.',
+    );
+    // aria-hidden: the long text must not pollute the option's
+    // accessible name.
+    expect(hint.getAttribute('aria-hidden')).toBe('true');
+    expect(screen.getByRole('option', { name: /Firefox/ })).toBeTruthy();
+    // The row tooltip keeps carrying it too (hover anywhere works).
+    expect(screen.getByRole('option').getAttribute('title')).toContain(
+      'Managed, policy-hardened Firefox',
+    );
+  });
+
+  it('renders no "?" without a description', () => {
+    render(<ImageOptionCard title="Firefox" subtitle="linux · vnc" />);
+    expect(screen.queryByText('?')).toBeNull();
+  });
+
   it('renders the Hardened badge for profile="hardened"', () => {
     render(<ImageOptionCard title="Ubuntu XFCE" profile="hardened" />);
     expect(screen.getByText('Hardened')).toBeTruthy();

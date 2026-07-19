@@ -9,6 +9,8 @@ export interface ImagePickerOption {
   os?: string;
   title: string;
   subtitle?: string;
+  /** Full description — the "?" tooltip affordance on the option card. */
+  description?: string;
   disabled?: boolean;
   disabledReason?: string;
 }
@@ -102,6 +104,7 @@ export function ImagePicker({
                 os={o.os}
                 title={o.title}
                 subtitle={o.subtitle}
+                description={o.description}
                 disabled={o.disabled}
                 disabledReason={o.disabledReason}
                 selected={o.id === value}

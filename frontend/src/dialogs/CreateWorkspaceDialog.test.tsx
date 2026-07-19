@@ -11,6 +11,7 @@ const apiMock = createApiMock({
     {
       name: 'xfce',
       displayName: 'XFCE Desktop',
+      description: 'Full XFCE desktop, VNC + RDP + SSH.',
       os: 'linux',
       allowedOverrides: ['resources'],
       protocols: [{ name: 'kasmvnc', port: 6901, default: true }],
@@ -78,6 +79,18 @@ describe('CreateWorkspaceDialog', () => {
     // The reason rides on the card itself — never silently dropped.
     expect(blocked.textContent).toContain('unavailable');
     expect(await screen.findByRole('option', { name: /XFCE Desktop/ })).toBeEnabled();
+  });
+
+  it('a template with a description gets the "?" tooltip affordance on its card', async () => {
+    signIn({ username: 'marc' });
+    renderWithProviders(<CreateWorkspaceDialog onClose={() => {}} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Template' }));
+    await screen.findByRole('option', { name: /XFCE Desktop/ });
+    const hint = screen.getByText('?');
+    expect(hint).toHaveAttribute('title', 'Full XFCE desktop, VNC + RDP + SSH.');
+    // "blocked" has no description — exactly one "?" in the list.
+    expect(screen.getAllByText('?')).toHaveLength(1);
   });
 
   it('submits the template with sized resources when the right is granted', async () => {

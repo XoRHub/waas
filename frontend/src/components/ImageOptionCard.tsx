@@ -43,6 +43,10 @@ export interface ImageOptionCardProps {
   os?: string;
   title: string;
   subtitle?: string;
+  /** Full description (catalog entry or template): surfaces as a "?"
+   * affordance on the title line whose native tooltip carries the
+   * text — the two-line layout stays compact. */
+  description?: string;
   disabled?: boolean;
   /** Shown on the card when disabled — never silently dropped. */
   disabledReason?: string;
@@ -66,6 +70,7 @@ export function ImageOptionCard({
   os,
   title,
   subtitle,
+  description,
   disabled,
   disabledReason,
   profile,
@@ -75,7 +80,7 @@ export function ImageOptionCard({
   const { t } = useTranslation();
   // Truncated text stays reachable: the full lines ride in the native
   // tooltip of the whole row.
-  const tooltip = [title, subtitle, disabled ? disabledReason : undefined]
+  const tooltip = [title, subtitle, description, disabled ? disabledReason : undefined]
     .filter(Boolean)
     .join('\n');
   return (
@@ -98,6 +103,21 @@ export function ImageOptionCard({
           <span className="truncate text-sm font-medium text-slate-900 dark:text-white">
             {title}
           </span>
+          {/* "?" description affordance: a plain span, never a nested
+              interactive element (the whole row already is a button) —
+              aria-hidden so the long text stays out of the option's
+              accessible name; the row-level tooltip below keeps the
+              description reachable on the rest of the card too. Its own
+              title makes the bubble pop right where the eye is. */}
+          {description && (
+            <span
+              aria-hidden="true"
+              title={description}
+              className="inline-flex h-4 w-4 shrink-0 cursor-help items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-600 dark:bg-slate-600 dark:text-slate-200"
+            >
+              ?
+            </span>
+          )}
           {/* Only the two known values ever render a badge: this prop is
               synced-but-untrusted catalog data (see
               docs/image-catalog.md), and a row synced before a given

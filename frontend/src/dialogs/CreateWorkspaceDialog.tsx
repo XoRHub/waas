@@ -579,6 +579,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
                 subtitle: `${tpl.os}${
                   tpl.protocols?.length ? ` · ${tpl.protocols.map((p) => p.name).join('/')}` : ''
                 }`,
+                description: tpl.description,
                 disabled: !available,
                 disabledReason: t('portal.templateUnavailable'),
               }))}
