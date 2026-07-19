@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -774,6 +775,7 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 		return model.CatalogImage{}, fmt.Errorf("listing catalog entries of %s: %w", img.Name, err)
 	}
 	for _, e := range entries {
+		rec := unmarshalRecommended(e.Recommended)
 		m.Discovered = append(m.Discovered, model.DiscoveredImage{
 			Image:         e.Image,
 			OS:            e.OS,
@@ -783,11 +785,57 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 			DisplayName:   e.DisplayName,
 			Description:   e.Description,
 			Profile:       e.Profile,
-			Recommended:   unmarshalRecommended(e.Recommended),
+			Recommended:   rec,
 			Architectures: e.Architectures,
+			Protocols:     deriveProtocols(rec),
 		})
 	}
 	return m, nil
+}
+
+// deriveProtocols computes the protocols one discovered image supports:
+// the de-duplicated union of the recommendation's env-hint protocol
+// tags (EnvHint.protocols in the source catalog), ordered canonically
+// (params.Protocols() order, unknown tags last, sorted). A single-app
+// image only ships hints for the protocols it actually serves, so the
+// union IS its protocol surface. An image with no tagged hints (no
+// recommendation, or only unscoped hints — e.g. vendored kasmweb
+// entries) derives to nil = unknown; the frontend then falls back to
+// the entry-level spec.Protocols, same convention as architectures.
+// That fallback is deliberate and load-bearing for kasmvnc: kasmvnc
+// never derives from hints — it is an exception by nature (webhook-
+// enforced exclusivity) — so a kasmvnc image derives empty and reaches
+// the template only through its catalog's [kasmvnc] spec.Protocols.
+// Prefill data only, never enforcement — the parent CR's spec.Protocols
+// stays the approval boundary.
+func deriveProtocols(rec *model.DeploymentRecommendation) []string {
+	if rec == nil {
+		return nil
+	}
+	union := map[string]bool{}
+	for _, hint := range rec.Env {
+		for _, p := range hint.Protocols {
+			if p == string(waasv1alpha1.ProtocolKasmVNC) {
+				continue
+			}
+			union[p] = true
+		}
+	}
+	if len(union) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(union))
+	for _, p := range params.Protocols() {
+		if union[p] {
+			out = append(out, p)
+			delete(union, p)
+		}
+	}
+	// Unknown tags (catalog data is external, never trust the enum):
+	// kept rather than dropped, deterministically last.
+	rest := slices.Collect(maps.Keys(union))
+	slices.Sort(rest)
+	return append(out, rest...)
 }
 
 // unmarshalRecommended decodes the opaque JSON persisted by

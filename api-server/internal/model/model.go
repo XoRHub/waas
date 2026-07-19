@@ -462,6 +462,17 @@ type DiscoveredImage struct {
 	// exactly one is listed); empty = unknown, the parent's list is the
 	// fallback hint.
 	Architectures []string `json:"architectures,omitempty"`
+	// Protocols this exact image supports — per image, unlike the parent
+	// CatalogImage.Protocols. Derived at projection time as the union of
+	// the recommendation's env-hint protocol tags (EnvHint.protocols in
+	// the source catalog); kasmvnc never derives (entry-level only).
+	// Drives the template form's protocol prefill; empty = unknown, the
+	// parent's list is the fallback hint. That fallback is also what
+	// carries kasmvnc: it never derives from hints, so a kasmvnc image
+	// derives empty and reaches the form via its catalog's [kasmvnc]
+	// spec.Protocols. The parent CR's spec.Protocols stays the
+	// enforcement boundary.
+	Protocols []string `json:"protocols,omitempty"`
 	// Recommended is an optional deployment-prefill hint the admin
 	// template form may copy into a Workload on explicit request —
 	// never applied automatically, never enforced. Deliberately its

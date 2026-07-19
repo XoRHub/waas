@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -411,7 +412,7 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 			Image: "ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:def",
 			OS:    "linux", App: "firefox", Icon: "firefox", SyncedAt: time.Now(),
 			Profile:     "hardened",
-			Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000}}`),
+			Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000},"env":[{"name":"WAAS_AUDIO_ENABLED","protocols":["vnc"]}]}`),
 		}}
 		if err := svc.catalog.ReplaceEntries(ctx, img.Name, entry); err != nil {
 			t.Fatalf("seeding catalog entries of %s: %v", img.Name, err)
@@ -432,5 +433,51 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 	if got[0].Profile != "hardened" || got[0].Recommended == nil ||
 		got[0].Recommended.PodSecurityContext == nil || got[0].Recommended.PodSecurityContext.RunAsUser == nil || *got[0].Recommended.PodSecurityContext.RunAsUser != 1000 {
 		t.Fatalf("profile/recommended not surfaced: %+v", got[0])
+	}
+	// Per-image protocols derive from the hint tags (vnc here), not the
+	// parent entry's list (kasmvnc) — the single-app-image fix.
+	if !slices.Equal(got[0].Protocols, []string{"vnc"}) {
+		t.Fatalf("per-image protocols must derive from env-hint tags, got %v", got[0].Protocols)
+	}
+}
+
+// TestDeriveProtocols: a discovered image's protocol surface is the
+// canonical-order (params.Protocols()) union of its env hints' protocol
+// tags. No tagged hints (nil recommendation, hint-less recommendation,
+// or only unscoped hints) derives to EMPTY here — the server never
+// invents the parent list; the frontend applies the entry-level
+// fallback. kasmvnc never derives (entry-level only, by nature) — that
+// fallback is how a kasmvnc image reaches the prefill.
+func TestDeriveProtocols(t *testing.T) {
+	rec := func(protos ...[]string) *model.DeploymentRecommendation {
+		r := &model.DeploymentRecommendation{}
+		for _, p := range protos {
+			r.Env = append(r.Env, model.RecommendedEnvVar{Name: "E", Protocols: p})
+		}
+		return r
+	}
+	cases := []struct {
+		name string
+		rec  *model.DeploymentRecommendation
+		want []string
+	}{
+		{"nil recommendation derives empty", nil, nil},
+		{"hint-less recommendation derives empty", rec(), nil},
+		{"unscoped-only hints derive empty", rec(nil), nil},
+		{"vnc-only hints (hermes-agent shape)", rec([]string{"vnc"}), []string{"vnc"}},
+		{"vnc + ssh across two hints", rec([]string{"vnc"}, []string{"ssh"}), []string{"vnc", "ssh"}},
+		{"vnc + ssh on one multi-tagged hint", rec([]string{"vnc", "ssh"}), []string{"vnc", "ssh"}},
+		{"all three across hints (full-desktop shape)", rec([]string{"ssh"}, []string{"vnc"}, []string{"rdp"}), []string{"vnc", "rdp", "ssh"}},
+		{"duplicate tags dedupe, order canonical", rec([]string{"ssh", "vnc"}, []string{"rdp", "vnc"}), []string{"vnc", "rdp", "ssh"}},
+		{"kasmvnc tags never derive", rec([]string{"kasmvnc"}), nil},
+		{"kasmvnc dropped from a mixed hint", rec([]string{"vnc", "kasmvnc"}), []string{"vnc"}},
+		{"unknown tags kept deterministically last", rec([]string{"zz", "vnc", "aa"}), []string{"vnc", "aa", "zz"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := deriveProtocols(tc.rec); !slices.Equal(got, tc.want) {
+				t.Fatalf("deriveProtocols() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
