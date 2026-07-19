@@ -57,6 +57,11 @@ type Entry struct {
 	Icon string `json:"icon,omitempty"`
 	// DisplayName is the human-facing name; empty falls back to App.
 	DisplayName string `json:"displayName,omitempty"`
+	// Description is the full human-facing description of the image —
+	// a display/prefill hint for the admin template form's description
+	// field. Purely cosmetic — never read by enforce() or
+	// buildPodTemplate.
+	Description string `json:"description,omitempty"`
 	// Profile is a display badge ("hardened" or "normal"); empty means
 	// no badge is shown. Purely cosmetic — never read by enforce() or
 	// buildPodTemplate.

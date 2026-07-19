@@ -59,6 +59,9 @@
         "displayName": {
           "type": "string"
         },
+        "description": {
+          "type": "string"
+        },
         "profile": {
           "type": "string",
           "enum": [
