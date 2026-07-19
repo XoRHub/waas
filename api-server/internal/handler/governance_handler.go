@@ -78,6 +78,17 @@ func (h *GovernanceHandler) AdminToggleImage(enabled bool) http.HandlerFunc {
 	}
 }
 
+// AdminSyncImage handles POST /api/v1/admin/images/{name}/sync — forces
+// an immediate catalog re-fetch instead of waiting for the sync ticker.
+func (h *GovernanceHandler) AdminSyncImage(w http.ResponseWriter, r *http.Request) {
+	img, err := h.svc.AdminSyncImage(r.Context(), middleware.Actor(r), chi.URLParam(r, "name"))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, img)
+}
+
 // AdminDeleteImage handles DELETE /api/v1/admin/images/{name}.
 func (h *GovernanceHandler) AdminDeleteImage(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.AdminDeleteImage(r.Context(), middleware.Actor(r), chi.URLParam(r, "name")); err != nil {

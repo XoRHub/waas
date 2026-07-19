@@ -56,6 +56,10 @@ func Unavailable(detail string) *Problem {
 	return newProblem(http.StatusServiceUnavailable, "unavailable", "Service Unavailable", detail)
 }
 
+func BadGateway(detail string) *Problem {
+	return newProblem(http.StatusBadGateway, "upstream-error", "Bad Gateway", detail)
+}
+
 // statusOf unwraps the Problem status, 0 for non-Problem errors.
 func statusOf(err error) int {
 	var p *Problem

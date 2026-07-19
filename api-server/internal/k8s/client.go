@@ -40,7 +40,7 @@ func NewClient(devMode bool) (client.WithWatch, error) {
 	if devMode {
 		return fake.NewClientBuilder().
 			WithScheme(Scheme).
-			WithStatusSubresource(&waasv1alpha1.Workspace{}).
+			WithStatusSubresource(&waasv1alpha1.Workspace{}, &waasv1alpha1.WorkspaceImage{}).
 			// The real API server assigns UIDs; the fake does not, and the
 			// API exposes UIDs as workspace IDs, so mimic it.
 			WithInterceptorFuncs(interceptor.Funcs{

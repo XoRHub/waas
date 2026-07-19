@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -60,6 +61,10 @@ type CatalogSyncWorker struct {
 	namespace string
 	catalog   repository.CatalogRepository
 	interval  time.Duration
+	// mu serializes syncs: the admin force-sync (SyncNow) must never
+	// interleave its fetch/ReplaceEntries/status-patch with the ticker's
+	// pass over the same image.
+	mu sync.Mutex
 	// HTTPClient serves the live fetches; nil uses a default client
 	// with catalogFetchTimeout (injectable for tests).
 	HTTPClient *http.Client
@@ -112,6 +117,15 @@ func (w *CatalogSyncWorker) syncAll(ctx context.Context) {
 	}
 }
 
+// SyncNow forces one immediate sync of img, serialized with the
+// periodic ticker. Same fail-soft/stale-but-served semantics as the
+// ticker path, but the sync error is returned to the caller; works
+// even when interval <= 0 disabled Run. Mutates img's status in place
+// on success, so the caller can project it without a re-Get.
+func (w *CatalogSyncWorker) SyncNow(ctx context.Context, img *waasv1alpha1.WorkspaceImage) error {
+	return w.syncOne(ctx, img)
+}
+
 // syncOne fetches/reads and parses one WorkspaceImage's catalog
 // manifest.
 //
@@ -120,8 +134,13 @@ func (w *CatalogSyncWorker) syncAll(ctx context.Context) {
 //
 // On failure (fetch, parse, or Secret/ConfigMap read): catalog_entries
 // is left COMPLETELY untouched — stale-but-served, the whole point of
-// this doctrine — and only status.catalog.lastSyncError is patched.
+// this doctrine — and only status.catalog.lastSyncError is patched,
+// then the sync error is returned (logged by syncAll, surfaced as a
+// problem response by the admin force-sync).
 func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.WorkspaceImage) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	entries, source, syncErr := w.fetchAndParse(ctx, img)
 
 	orig := img.DeepCopy()
@@ -133,7 +152,7 @@ func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.Works
 		if err := w.kube.Status().Patch(ctx, img, client.MergeFrom(orig)); err != nil {
 			return fmt.Errorf("patching catalog status of %s: %w", img.Name, err)
 		}
-		return nil
+		return fmt.Errorf("syncing catalog of %s: %w", img.Name, syncErr)
 	}
 
 	now := time.Now()

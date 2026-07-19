@@ -327,6 +327,69 @@ func TestCatalogSyncWorkerFailureLeavesTableUntouched(t *testing.T) {
 	}
 }
 
+func TestCatalogSyncWorkerSyncNowSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(workerCatalogManifest))
+	}))
+	defer srv.Close()
+
+	img := workerRegistryImage("waas-images", workerURLSource(srv.URL))
+	// Interval 0 would disable Run(); SyncNow must not depend on it.
+	w, _, catalogRepo := catalogWorkerFixture(t, img)
+	w.interval = 0
+	ctx := context.Background()
+
+	if err := w.SyncNow(ctx, img); err != nil {
+		t.Fatalf("SyncNow: %v", err)
+	}
+	entries, err := catalogRepo.ListEntries(ctx, "waas-images")
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("catalog_entries = %+v %v, want 2 rows", entries, err)
+	}
+	// The passed img must carry the fresh status in-memory: the admin
+	// endpoint projects it without a re-Get.
+	if img.Status.Catalog == nil || img.Status.Catalog.Source != catalogSourceFetched ||
+		img.Status.Catalog.LastSyncTime == nil || img.Status.Catalog.LastSyncError != "" {
+		t.Fatalf("in-memory status not updated: %+v", img.Status.Catalog)
+	}
+}
+
+func TestCatalogSyncWorkerSyncNowFailureReturnsErrorAndKeepsEntries(t *testing.T) {
+	healthy := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if !healthy {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(workerCatalogManifest))
+	}))
+	defer srv.Close()
+
+	img := workerRegistryImage("waas-images", workerURLSource(srv.URL))
+	w, c, catalogRepo := catalogWorkerFixture(t, img)
+	ctx := context.Background()
+
+	if err := w.SyncNow(ctx, img); err != nil {
+		t.Fatalf("precondition sync: %v", err)
+	}
+
+	healthy = false
+	err := w.SyncNow(ctx, img)
+	// Unlike the ticker path, the caller must see the fetch error.
+	if err == nil {
+		t.Fatal("SyncNow must return the fetch error")
+	}
+	// Stale-but-served: the table keeps the last successful entries.
+	entries, lerr := catalogRepo.ListEntries(ctx, "waas-images")
+	if lerr != nil || len(entries) != 2 {
+		t.Fatalf("catalog_entries changed on a failed sync: %+v %v", entries, lerr)
+	}
+	st := workerCatalogStatus(t, c, "default", "waas-images")
+	if st.LastSyncError == "" {
+		t.Fatal("want lastSyncError patched on failure")
+	}
+}
+
 func TestCatalogSyncWorkerIndependentPerImage(t *testing.T) {
 	healthySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(workerCatalogManifest))

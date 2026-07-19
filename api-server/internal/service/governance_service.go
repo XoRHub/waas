@@ -39,11 +39,20 @@ type GovernanceService struct {
 	users     repository.UserRepository
 	audit     *AuditService
 	catalog   repository.CatalogRepository
+	syncer    *CatalogSyncWorker
 }
 
 // NewGovernanceService wires the governance projections.
 func NewGovernanceService(kube client.Client, namespace string, users repository.UserRepository, audit *AuditService, catalog repository.CatalogRepository) *GovernanceService {
 	return &GovernanceService{kube: kube, namespace: namespace, users: users, audit: audit, catalog: catalog}
+}
+
+// WithCatalogSyncer enables the admin force-sync endpoint by sharing
+// the sync worker — sharing (not a second instance) is what makes the
+// worker's mutex actually serialize manual syncs with the ticker.
+func (s *GovernanceService) WithCatalogSyncer(w *CatalogSyncWorker) *GovernanceService {
+	s.syncer = w
+	return s
 }
 
 // identityFor resolves the platform identity of a user record, matching
@@ -400,6 +409,38 @@ func (s *GovernanceService) AdminSetImageEnabled(ctx context.Context, actor Acto
 	return &m, nil
 }
 
+// AdminSyncImage forces an immediate catalog re-fetch of one entry —
+// synchronous (bounded by catalogFetchTimeout) so the response carries
+// the fresh status and discovered entries. Failure keeps the fail-soft
+// doctrine: entries stay stale-but-served, only lastSyncError is
+// patched, and the fetch error comes back as a 502 problem.
+func (s *GovernanceService) AdminSyncImage(ctx context.Context, actor Actor, name string) (*model.CatalogImage, error) {
+	img := &waasv1alpha1.WorkspaceImage{}
+	if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, img); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, apierror.NotFound("catalog image not found")
+		}
+		return nil, fmt.Errorf("fetching workspace image %s: %w", name, err)
+	}
+	// Same eligibility gate as the ticker's syncAll.
+	if img.Spec.Registry == "" || img.Spec.Catalog == nil {
+		return nil, apierror.BadRequest("image has no catalog source (spec.catalog)")
+	}
+	if s.syncer == nil {
+		return nil, apierror.Unavailable("catalog sync is not available")
+	}
+	if err := s.syncer.SyncNow(ctx, img); err != nil {
+		s.audit.Record(ctx, actor, "catalog.image_synced", "workspaceimage", name, "error="+err.Error())
+		return nil, apierror.BadGateway("catalog sync failed: " + err.Error())
+	}
+	s.audit.Record(ctx, actor, "catalog.image_synced", "workspaceimage", name, "")
+	m, err := s.imageToModel(ctx, img)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 // AdminDeleteImage removes a catalog entry entirely (prefer disabling).
 func (s *GovernanceService) AdminDeleteImage(ctx context.Context, actor Actor, name string) error {
 	img := &waasv1alpha1.WorkspaceImage{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.namespace}}
@@ -715,6 +756,18 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 		m.Defaults = sizeToMap(r.Default)
 		m.Min = sizeToMap(r.Min)
 		m.Max = sizeToMap(r.Max)
+	}
+	if img.Spec.Catalog != nil {
+		// Non-nil even before the first sync: presence of spec.catalog is
+		// what gates the admin "Sync now" action.
+		m.Catalog = &model.CatalogSyncStatus{}
+		if st := img.Status.Catalog; st != nil {
+			m.Catalog.Source = st.Source
+			m.Catalog.LastSyncError = st.LastSyncError
+			if st.LastSyncTime != nil {
+				m.Catalog.LastSyncTime = &st.LastSyncTime.Time
+			}
+		}
 	}
 	entries, err := s.catalog.ListEntries(ctx, img.Name)
 	if err != nil {

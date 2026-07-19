@@ -494,6 +494,26 @@ export interface CatalogImage {
    * the CatalogImage: policy.AllowedImages, nothing extra.
    */
   discovered?: DiscoveredImage[];
+  /**
+   * Catalog is the sync state of this entry's catalog source
+   * (spec.catalog); nil when the image has none. Its presence is
+   * what gates the admin "Sync now" action.
+   */
+  catalog?: CatalogSyncStatus;
+}
+/**
+ * CatalogSyncStatus mirrors WorkspaceImage.status.catalog for the wire
+ * — read-only sync state of a catalog-backed entry. All fields are
+ * empty until the first sync; LastSyncError is cleared on a later
+ * success, like the CRD field it mirrors.
+ */
+export interface CatalogSyncStatus {
+  /**
+   * Source: "Fetched" (live URL) or "Static" (ConfigMap/Secret).
+   */
+  source?: string;
+  lastSyncTime?: string /* RFC3339 */;
+  lastSyncError?: string;
 }
 /**
  * DiscoveredImage is one catalog-sync entry of a registry-mode

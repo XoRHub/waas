@@ -124,7 +124,13 @@ func run() error {
 	events := service.NewEventHub()
 	remoteSvc = remoteSvc.WithEvents(events)
 	sessionSvc := service.NewSessionService(sessions)
-	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit, catalogRepo)
+	// Catalog sync lives here, not in the operator: only the api-server
+	// has both database and k8s access needed to write catalog_entries
+	// (see CatalogSyncWorker doc comment). Shared with the governance
+	// service so the admin force-sync serializes with the ticker.
+	catalogWorker := service.NewCatalogSyncWorker(kube, cfg.WorkspaceNamespace, catalogRepo, cfg.CatalogSyncInterval)
+	governanceSvc := service.NewGovernanceService(kube, cfg.WorkspaceNamespace, users, audit, catalogRepo).
+		WithCatalogSyncer(catalogWorker)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -140,10 +146,7 @@ func run() error {
 	// rows whose workspace/remote was deleted outside this API (kubectl,
 	// ArgoCD prune) or whose end-of-session callback was lost.
 	go service.NewSessionSweeper(kube, cfg.WorkspaceNamespace, sessions, remotes, audit, cfg.SessionSweepInterval).Run(ctx)
-	// Catalog sync also lives here, not in the operator: only the
-	// api-server has both database and k8s access needed to write
-	// catalog_entries (see CatalogSyncWorker doc comment).
-	go service.NewCatalogSyncWorker(kube, cfg.WorkspaceNamespace, catalogRepo, cfg.CatalogSyncInterval).Run(ctx)
+	go catalogWorker.Run(ctx)
 	go events.RunWorkspaceWatch(ctx, kube, cfg.WorkspaceNamespace)
 	// Admin-managed objects change through GitOps and kubectl too: watch
 	// them and broadcast their KIND (never data — clients re-fetch through

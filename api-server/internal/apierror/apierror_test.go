@@ -21,6 +21,7 @@ func TestConstructorsCarryStatusSlugAndDetail(t *testing.T) {
 		{Conflict("d"), http.StatusConflict, "conflict"},
 		{Internal("d"), http.StatusInternalServerError, "internal"},
 		{Unavailable("d"), http.StatusServiceUnavailable, "unavailable"},
+		{BadGateway("d"), http.StatusBadGateway, "upstream-error"},
 	}
 	for _, c := range cases {
 		if c.p.Status != c.status {

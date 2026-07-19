@@ -170,6 +170,7 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 					r.Put("/images/{name}", h.Governance.AdminUpsertImage)
 					r.Post("/images/{name}/enable", h.Governance.AdminToggleImage(true))
 					r.Post("/images/{name}/disable", h.Governance.AdminToggleImage(false))
+					r.Post("/images/{name}/sync", h.Governance.AdminSyncImage)
 					r.Delete("/images/{name}", h.Governance.AdminDeleteImage)
 					r.Get("/policies", h.Governance.AdminListPolicies)
 					r.Put("/policies/{name}", h.Governance.AdminUpsertPolicy)

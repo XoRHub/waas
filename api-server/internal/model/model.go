@@ -402,6 +402,21 @@ type CatalogImage struct {
 	// re-correlating two lists. Same visibility gate as the rest of
 	// the CatalogImage: policy.AllowedImages, nothing extra.
 	Discovered []DiscoveredImage `json:"discovered,omitempty"`
+	// Catalog is the sync state of this entry's catalog source
+	// (spec.catalog); nil when the image has none. Its presence is
+	// what gates the admin "Sync now" action.
+	Catalog *CatalogSyncStatus `json:"catalog,omitempty"`
+}
+
+// CatalogSyncStatus mirrors WorkspaceImage.status.catalog for the wire
+// — read-only sync state of a catalog-backed entry. All fields are
+// empty until the first sync; LastSyncError is cleared on a later
+// success, like the CRD field it mirrors.
+type CatalogSyncStatus struct {
+	// Source: "Fetched" (live URL) or "Static" (ConfigMap/Secret).
+	Source        string     `json:"source,omitempty"`
+	LastSyncTime  *time.Time `json:"lastSyncTime,omitempty"`
+	LastSyncError string     `json:"lastSyncError,omitempty"`
 }
 
 // DiscoveredImage is one catalog-sync entry of a registry-mode
