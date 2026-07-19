@@ -26,9 +26,12 @@ uv = "0.11.29"
 # renovate.json). postinstall runs on EVERY `mise install`, even a
 # no-op one, so CI toolchain-cache hits still get the plugin; mise puts
 # the installed tools on the hook's PATH. The grep keeps re-runs
-# idempotent and the `command -v` guard skips CI jobs that don't
-# install helm. --verify=false: see docs/ci-github.md, "Helm CLI: v4".
+# idempotent. The guards skip CI jobs that don't install helm via mise:
+# GitHub runners preinstall a Helm v3, which rejects --verify and can't
+# load the plugin anyway. --verify=false: see docs/ci-github.md,
+# "Helm CLI: v4".
 postinstall = """
 command -v helm >/dev/null 2>&1 || exit 0
+helm version --short 2>/dev/null | grep -q '^v[4-9]' || exit 0
 helm plugin list 2>/dev/null | grep -q '^unittest' || helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1 --verify=false
 """

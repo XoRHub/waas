@@ -99,7 +99,10 @@ install`'s `--verify` flag and plugin-signature verification are v4-only
 schema starting at `v1.1.0`, which a v3 plugin loader rejects outright —
 hence `--verify=false` on that install). `helm registry login` already
 took a bare host (`ghcr.io`, no `https://`), which v4.1+ requires, so
-that needed no change.
+that needed no change. One trap: GitHub runners preinstall a Helm v3,
+so in jobs that don't install helm through mise the postinstall hook
+would reach that v3 and die on the unknown `--verify` flag — the hook
+now checks `helm version` and skips anything below v4.
 
 ## Helm chart as OCI
 
