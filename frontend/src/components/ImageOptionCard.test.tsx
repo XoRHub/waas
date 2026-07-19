@@ -116,9 +116,7 @@ describe('ImageOptionCard', () => {
       />,
     );
     const hint = screen.getByText('?');
-    expect(hint.getAttribute('title')).toBe(
-      'Managed, policy-hardened Firefox in a kiosk session.',
-    );
+    expect(hint.getAttribute('title')).toBe('Managed, policy-hardened Firefox in a kiosk session.');
     // aria-hidden: the long text must not pollute the option's
     // accessible name.
     expect(hint.getAttribute('aria-hidden')).toBe('true');
