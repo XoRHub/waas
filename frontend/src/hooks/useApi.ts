@@ -7,7 +7,6 @@ import type {
   AuditLog,
   AuthProviders,
   CatalogImage,
-  ConnectResult,
   EffectivePolicy,
   EnvVar,
   LoginResult,
@@ -19,7 +18,6 @@ import type {
   TemplateEnvVar,
   Toleration,
   PolicyModel,
-  Session,
   QuotaStatus,
   User,
   UserPreferences,
@@ -82,13 +80,6 @@ export function useAuditLogs(q: AuditQuery) {
     queryKey: ['audit-logs', q],
     queryFn: () => api.get<AuditLog[]>(`/api/v1/audit-logs?${params.toString()}`),
     placeholderData: (prev) => prev,
-  });
-}
-
-export function useSessions() {
-  return useQuery({
-    queryKey: ['sessions'],
-    queryFn: () => api.get<Session[]>('/api/v1/sessions?page_size=100'),
   });
 }
 
@@ -306,12 +297,6 @@ export function useAdminDeleteVolume() {
     mutationFn: ({ namespace, name }: { namespace: string; name: string }) =>
       api.delete<void>(`/api/v1/admin/volumes/${namespace}/${name}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['admin-volumes'] }),
-  });
-}
-
-export function useConnectWorkspace() {
-  return useMutation({
-    mutationFn: (id: string) => api.post<ConnectResult>(`/api/v1/workspaces/${id}/connect`),
   });
 }
 

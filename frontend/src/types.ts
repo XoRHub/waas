@@ -81,9 +81,6 @@ export { ClipboardLockParams, ClipboardLockPolicy } from './types.gen';
 
 export type Theme = 'light' | 'dark' | 'system';
 
-export type WorkspacePhase =
-  'Pending' | 'Provisioning' | 'Running' | 'Paused' | 'Stopped' | 'Failed' | 'Terminating';
-
 // ---- Platform metadata (GET /api/v1/meta/protocols) ----
 // The guacd parameter registry, served verbatim from the operator's
 // single source of truth; every form derives from it.
