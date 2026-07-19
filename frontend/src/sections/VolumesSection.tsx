@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { SkeletonGrid } from '@/components/SkeletonGrid';
 import { useDeleteVolume, useVolumes } from '@/hooks/useApi';
+import { formatDateTime } from '@/lib/datetime';
 
 // VolumesSection: the user's retained volumes — origin, size, date, and
 // deletion (server checks ownership, every deletion is audited).
@@ -48,7 +49,7 @@ export function VolumesSection() {
                 {v.originWorkspace || '—'}
               </td>
               <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                {v.retainedAt ? new Date(v.retainedAt).toLocaleString() : '—'}
+                {formatDateTime(v.retainedAt)}
               </td>
               <td className="px-4 py-3 text-right">
                 <button

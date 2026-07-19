@@ -11,6 +11,7 @@ import {
 import { Dialog } from '@/components/Dialog';
 import { GroupsPicker } from '@/components/GroupsPicker';
 import { useAuthStore } from '@/stores/authStore';
+import { formatDateTime } from '@/lib/datetime';
 import type { User } from '@/types';
 
 export function UsersPage() {
@@ -74,9 +75,7 @@ export function UsersPage() {
                   </td>
                   <td className="px-4 py-3">{user.maxWorkspaces}</td>
                   <td className="px-4 py-3">
-                    {user.lastLoginAt
-                      ? new Date(user.lastLoginAt).toLocaleString()
-                      : t('admin.usersPage.never')}
+                    {formatDateTime(user.lastLoginAt, { fallback: t('admin.usersPage.never') })}
                   </td>
                   <td className="px-4 py-3">
                     <span className="flex gap-3">

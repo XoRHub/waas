@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuditLogs } from '@/hooks/useApi';
+import { formatDateTime } from '@/lib/datetime';
 
 const PAGE_SIZE = 25;
 
@@ -110,7 +111,7 @@ export function AuditPage() {
                   className="border-b border-slate-100 last:border-0 dark:border-slate-700"
                 >
                   <td className="px-4 py-3 whitespace-nowrap">
-                    {new Date(entry.occurredAt).toLocaleString()}
+                    {formatDateTime(entry.occurredAt)}
                   </td>
                   <td className="px-4 py-3">{entry.actorUsername || entry.actorId || '—'}</td>
                   <td className="px-4 py-3 font-mono text-xs">{entry.action}</td>

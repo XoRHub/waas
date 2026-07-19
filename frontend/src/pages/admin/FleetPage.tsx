@@ -8,6 +8,7 @@ import {
   useAdminWorkspaces,
 } from '@/hooks/useApi';
 import { StatusBadge } from '@/components/StatusBadge';
+import { formatDateTime } from '@/lib/datetime';
 import type { Workspace } from '@/types';
 
 export function FleetPage() {
@@ -155,7 +156,7 @@ function WorkspaceTable({
               <td className="px-4 py-3">
                 <StatusBadge phase={ws.phase} />
               </td>
-              <td className="px-4 py-3">{new Date(ws.createdAt).toLocaleString()}</td>
+              <td className="px-4 py-3">{formatDateTime(ws.createdAt)}</td>
               <td className="px-4 py-3">
                 {/* Admin fleet delete always RETAINS the user's volume:
                     destroying user data needs the volumes tab (audited). */}
@@ -237,7 +238,7 @@ function RemoteFleet() {
                     </td>
                     <td className="px-4 py-3">
                       {rw.lastConnectedAt ? (
-                        new Date(rw.lastConnectedAt).toLocaleString()
+                        formatDateTime(rw.lastConnectedAt)
                       ) : (
                         <span className="text-slate-400">{t('admin.fleetPage.never')}</span>
                       )}
@@ -300,9 +301,7 @@ function VolumesFleet() {
                     <td className="px-4 py-3 font-mono text-xs">{v.namespace}</td>
                     <td className="px-4 py-3">{v.size}</td>
                     <td className="px-4 py-3">{v.originWorkspace || '—'}</td>
-                    <td className="px-4 py-3">
-                      {v.retainedAt ? new Date(v.retainedAt).toLocaleString() : '—'}
-                    </td>
+                    <td className="px-4 py-3">{formatDateTime(v.retainedAt)}</td>
                     <td className="px-4 py-3">
                       <button
                         onClick={() => {
