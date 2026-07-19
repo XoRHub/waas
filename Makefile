@@ -25,7 +25,7 @@ DEV_IMAGES       := operator api-server wwt frontend
 WAAS_IMAGES_DIR ?= ../waas-images
 LOCAL_IMAGES    ?=
 
-.PHONY: all build check test test-go test-go-pg test-envtest test-frontend lint lint-go lint-frontend format \
+.PHONY: all build check test test-go test-go-pg test-envtest test-frontend lint lint-go lint-frontend format vulncheck-go \
 	helm-check coverage coverage-go coverage-frontend crd-schemas \
 	generate-check generate manifests docs-params generate-types frontend-build docker-build \
 	dev-up dev-down dev-reset dev-bootstrap dev-build dev-load dev-deploy \
@@ -172,6 +172,14 @@ tidy:
 	@for m in $(GO_MODULES); do \
 		echo "==> tidy $$m"; \
 		(cd $$m && go mod tidy) || exit 1; \
+	done
+
+# Local mirror of ci-security.yml's govulncheck job (known-vuln reachability
+# scan, needs network for https://vuln.go.dev). Binary pinned in .mise.toml.
+vulncheck-go:
+	@for m in $(GO_MODULES); do \
+		echo "==> govulncheck $$m"; \
+		(cd $$m && govulncheck ./...) || exit 1; \
 	done
 
 generate:

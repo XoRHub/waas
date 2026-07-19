@@ -28,6 +28,7 @@ make test-envtest                # operator envtest suite (real apiserver+etcd)
 make test-go-pg                  # api-server postgres leg (throwaway container, needs docker)
 make lint-go / lint-frontend     # golangci-lint (incl. test/smoke) / eslint + prettier check + tsc
 make format                      # rewrite: prettier + the Go formatters
+make vulncheck-go                # govulncheck on every Go module (needs network)
 make generate-check              # regenerate CRDs/RBAC/docs/types, fail on drift
 make helm-check                  # if the chart changed: every ci-helm.yml gate
 make coverage                    # local coverage reports, same flags as CI/Codecov

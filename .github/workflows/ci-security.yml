@@ -34,7 +34,9 @@ jobs:
             hadolint --failure-threshold warning \
             operator/Dockerfile api-server/Dockerfile wwt/Dockerfile frontend/Dockerfile
       - name: shellcheck
-        run: shellcheck -S warning hack/dev/*.sh hack/*.sh
+        # hack/ci/ scripts run IN the pipeline (coverage-ratchet.sh) —
+        # they get at least the same gate as the dev-env ones.
+        run: shellcheck -S warning hack/dev/*.sh hack/*.sh hack/ci/*.sh
       - name: make dev-target resolution
         # The dev-env targets are prerequisite chains over docker/k3d/helm
         # commands nothing else in CI exercises; -n proves the graph still
@@ -43,3 +45,25 @@ jobs:
         # cloned here: dev-build-images degrades to a printed error under
         # -n when the sibling checkout is absent.
         run: make -n dev-bootstrap dev-reload-all >/dev/null
+
+  # Reachability-based known-vuln gate (vuln.go.dev): unlike the trivy fs
+  # scan above (go.mod versions only), govulncheck flags only vulnerable
+  # SYMBOLS actually reachable from our code. Complementary, not redundant.
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # Toolchain + govulncheck pin from .mise.toml — same single-source
+      # rationale as the ci-go.yml jobs.
+      - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        with:
+          install_args: go go:golang.org/x/vuln/cmd/govulncheck
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-govulncheck-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-${{ runner.os }}-govulncheck-
+      - name: govulncheck (all Go modules)
+        run: make vulncheck-go
