@@ -30,6 +30,13 @@
       "minimumReleaseAge": "10 days",
       "automerge": true,
       "platformAutomerge": true
+    },
+    {
+      "description": "Container image digest/pin/patch bumps automerge once required checks pass — without this they pile up behind the concurrent-PR limit (the initial pin-dependencies PR sat rate-limited for a week).",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["patch", "digest", "pinDigest"],
+      "automerge": true,
+      "platformAutomerge": true
     }
   ],
   "customManagers": [
