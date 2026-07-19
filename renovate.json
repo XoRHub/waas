@@ -56,6 +56,14 @@
       "platformAutomerge": true
     },
     {
+      "description": "vite and @vitejs/* are hard peer-coupled across majors (plugin-react 6 requires vite ^8), so a split major-per-PR deadlocks — neither resolves alone. Bundle their majors into one reviewed PR. Patch/minor stay in frontend-dev-non-major (automerged); majors only here, manual review, no automerge (build-tooling change, no e2e coverage). vitest is intentionally left out: its vite peer spans ^6||^7||^8, so it does not need to co-travel — widen this list only if a vitest major actually deadlocks.",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["major"],
+      "matchPackageNames": ["vite", "@vitejs/**"],
+      "groupName": "vite-major",
+      "automerge": false
+    },
+    {
       "description": "guacamole-common-js is protocol-coupled to guacd and the wwt tunnel: every bump gets its own PR and a manual review, never an automerge.",
       "matchManagers": ["npm"],
       "matchPackageNames": ["guacamole-common-js"],
