@@ -572,5 +572,5 @@ type WorkspaceTemplateList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&WorkspaceTemplate{}, &WorkspaceTemplateList{})
+	objectTypes = append(objectTypes, &WorkspaceTemplate{}, &WorkspaceTemplateList{})
 }
