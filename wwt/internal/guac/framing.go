@@ -20,29 +20,37 @@ const MaxPendingBytes = 1 << 20
 // wherever the kernel likes — so the proxy must re-frame on instruction
 // boundaries before forwarding.
 type Framer struct {
-	pending []byte
+	buf   []byte // accumulated stream bytes
+	start int    // offset of the first byte not yet emitted as a frame
 }
 
 // Push appends raw stream bytes and returns every complete instruction
 // accumulated so far as one frame (always ending on ';'), or nil while no
-// instruction is complete yet. The returned slice remains valid until the
-// following Push call.
+// instruction is complete yet. The returned slice is owned by the Framer and
+// stays valid only until the following Push call.
 func (f *Framer) Push(data []byte) ([]byte, error) {
-	f.pending = append(f.pending, data...)
-	n, err := completePrefix(f.pending)
+	// Drop the already-emitted prefix by reusing buf instead of allocating a
+	// fresh remainder on every frame. When reads land on instruction
+	// boundaries (the common case) start == len(buf) and this is a zero-copy
+	// reset; otherwise the short incomplete tail is memmoved to the front.
+	if f.start > 0 {
+		f.buf = f.buf[:copy(f.buf, f.buf[f.start:])]
+		f.start = 0
+	}
+	f.buf = append(f.buf, data...)
+
+	n, err := completePrefix(f.buf)
 	if err != nil {
 		return nil, err
 	}
 	if n == 0 {
-		if len(f.pending) > MaxPendingBytes {
-			return nil, fmt.Errorf("no instruction boundary within %d bytes: corrupted guacd stream", len(f.pending))
+		if len(f.buf) > MaxPendingBytes {
+			return nil, fmt.Errorf("no instruction boundary within %d bytes: corrupted guacd stream", len(f.buf))
 		}
 		return nil, nil
 	}
-	frame := f.pending[:n]
-	// The remainder moves to a fresh backing array so the returned frame
-	// stays intact until the caller is done with it.
-	f.pending = append([]byte(nil), f.pending[n:]...)
+	frame := f.buf[:n]
+	f.start = n
 	return frame, nil
 }
 
@@ -70,10 +78,19 @@ func completePrefix(b []byte) (int, error) {
 		}
 		p++
 
-		// Element value: skip `length` code points.
+		// Element value: skip `length` code points. Guacd payloads (base64
+		// image blobs) are overwhelmingly ASCII, so peel those off one byte
+		// at a time and only fall back to rune decoding for multi-byte runes.
 		for i := 0; i < length; i++ {
-			if p >= len(b) || !utf8.FullRune(b[p:]) {
-				return last, nil // value (or its last rune) continues in the next read
+			if p >= len(b) {
+				return last, nil // value continues in the next read
+			}
+			if b[p] < utf8.RuneSelf {
+				p++
+				continue
+			}
+			if !utf8.FullRune(b[p:]) {
+				return last, nil // last rune split across reads
 			}
 			_, size := utf8.DecodeRune(b[p:])
 			p += size
