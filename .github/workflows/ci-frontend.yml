@@ -35,14 +35,13 @@ jobs:
       - run: npm run format:check
       - run: npm run typecheck
       - name: Test with coverage
-        # Coverage provider installed --no-save at the locked vitest
-        # version so the lockfile stays untouched.
+        # @vitest/coverage-v8 comes from the lockfile via `npm ci` (a
+        # devDependency pinned next to vitest itself).
         # --coverage.all + include counts every src/ file, not just the
         # ones already imported by a test (audit-2 C14).
         # lcov, on top of the human-readable text-summary, is what the
         # Codecov upload below reads.
         run: |
-          npm install --no-save "@vitest/coverage-v8@$(node -p "require('vitest/package.json').version")"
           npx vitest run --coverage.enabled --coverage.provider=v8 \
             --coverage.reporter=text-summary --coverage.reporter=lcov \
             --coverage.all --coverage.include='src/**/*.{ts,tsx}' \
