@@ -198,7 +198,7 @@ table is a quick *what*.
 | grafana.dashboards.resyncPeriod | string | `"24h"` | How often grafana-operator re-applies the dashboard JSON; only used in mode `"operator"`. |
 | grafana.dashboards.folder | string | `"WaaS"` | Grafana folder the dashboards are filed under. |
 | postgres.enabled | bool | `true` | Deploy the chart's own PostgreSQL 17 StatefulSet; false brings your own instance. |
-| postgres.image | string | `"postgres:17-alpine"` | postgres image reference; only used when postgres.enabled is true. |
+| postgres.image | string | `"postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"` | postgres image reference; only used when postgres.enabled is true. |
 | postgres.database | string | `"waas"` | Database name. |
 | postgres.username | string | `"waas"` | Database user. |
 | postgres.password | string | `""` | Postgres password; empty generates one and keeps it across upgrades. Only used when postgres.enabled is true. |

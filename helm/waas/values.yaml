@@ -549,7 +549,7 @@ postgres:
   # -- Deploy the chart's own PostgreSQL 17 StatefulSet; false brings your own instance.
   enabled: true
   # -- postgres image reference; only used when postgres.enabled is true.
-  image: postgres:17-alpine
+  image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
   # -- Database name.
   database: waas
   # -- Database user.
