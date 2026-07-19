@@ -46,9 +46,13 @@ export function CatalogImageField({
   /** Explicit "apply the catalog's recommendation" action — never
    * triggered by onSelect/onChange, only by the button rendered when
    * the currently selected discovered image carries one. Passes the
-   * catalog ENTRY's supported protocols alongside (protocols are
-   * entry-level, not per discovered image) so the recommendation can
-   * be applied protocol-aware. */
+   * image's supported protocols alongside so the recommendation can be
+   * applied protocol-aware — the per-image list the server derived from
+   * the env-hint tags when it found any, else the entry-level list as
+   * fallback; [] = unknown. The fallback is what carries kasmvnc: it is
+   * never derived from hints (exception by nature), so a kasmvnc image
+   * derives empty and reaches the form through its catalog's
+   * [kasmvnc] spec.protocols. */
   onApplyRecommendation?: (recommended: DeploymentRecommendation, imageProtocols: string[]) => void;
   /** Fired on explicit picker selections (a discovered card, or a
    * single-image catalog) with the architectures the pick is published
@@ -157,7 +161,12 @@ export function CatalogImageField({
             <button
               type="button"
               onClick={() =>
-                onApplyRecommendation(selectedDiscovered.recommended!, selected?.protocols ?? [])
+                onApplyRecommendation(
+                  selectedDiscovered.recommended!,
+                  selectedDiscovered.protocols?.length
+                    ? selectedDiscovered.protocols
+                    : (selected?.protocols ?? []),
+                )
               }
               title={t('admin.templatesPage.applyRecommendationHint')}
               className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700"

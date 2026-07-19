@@ -16,6 +16,19 @@ const firefoxRecommendation: DeploymentRecommendation = {
   env: [{ name: 'WAAS_SSH_ENABLED', protocols: ['ssh'] }],
 };
 
+// A vendored-style entry: carries a recommendation but no per-image
+// protocols (the server had no tagged hints to derive from).
+const edgeRecommendation: DeploymentRecommendation = {
+  podSecurityContext: { runAsUser: 1000 },
+};
+
+// A kasmvnc image: kasmvnc is never derived from hints (exception by
+// nature), so its per-image protocols are empty and the [kasmvnc]
+// entry-level list is what the prefill must carry.
+const kasmRecommendation: DeploymentRecommendation = {
+  podSecurityContext: { runAsUser: 1000 },
+};
+
 const apiMock = createApiMock();
 vi.mock('@/lib/api', () => ({
   get api() {
@@ -42,6 +55,7 @@ const catalogs: CatalogImage[] = [
         os: 'linux',
         profile: 'hardened',
         architectures: ['amd64'],
+        protocols: ['vnc'],
         recommended: firefoxRecommendation,
       },
       {
@@ -50,6 +64,32 @@ const catalogs: CatalogImage[] = [
         displayName: 'Chromium',
         version: '126',
         os: 'linux',
+      },
+      {
+        image: 'ghcr.io/acme/edge:127',
+        app: 'edge',
+        displayName: 'Edge',
+        version: '127',
+        os: 'linux',
+        recommended: edgeRecommendation,
+      },
+    ],
+  },
+  {
+    name: 'kasm',
+    displayName: 'Kasm',
+    registry: 'ghcr.io/acme/',
+    enabled: true,
+    architectures: ['amd64'],
+    protocols: ['kasmvnc'],
+    discovered: [
+      {
+        image: 'ghcr.io/acme/kasm-terminal:1',
+        app: 'terminal',
+        displayName: 'Terminal',
+        version: '1',
+        os: 'linux',
+        recommended: kasmRecommendation,
       },
     ],
   },
@@ -256,14 +296,15 @@ describe('CatalogImageField', () => {
     await openPicker();
     await userEvent.click(await screen.findByRole('option', { name: /Browsers/ }));
 
-    // Firefox carries a recommendation: the button is offered once selected.
+    // Firefox carries a recommendation: the button is offered once
+    // selected. Its own derived protocols ride along, not the
+    // entry-level list.
     await userEvent.click(screen.getByRole('option', { name: /Firefox/ }));
     const applyButton = screen.getByRole('button', {
       name: en.admin.templatesPage.applyRecommendation,
     });
     await userEvent.click(applyButton);
-    // The catalog ENTRY's supported protocols ride along.
-    expect(onApplyRecommendation).toHaveBeenCalledWith(firefoxRecommendation, ['ssh']);
+    expect(onApplyRecommendation).toHaveBeenCalledWith(firefoxRecommendation, ['vnc']);
 
     // Chromium has no recommendation: no button once it's the current value.
     await userEvent.clear(imageInput());
@@ -271,5 +312,29 @@ describe('CatalogImageField', () => {
     expect(
       screen.queryByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
     ).toBeNull();
+
+    // Edge has a recommendation but no per-image protocols: the
+    // entry-level list is the fallback.
+    await userEvent.clear(imageInput());
+    await userEvent.click(await screen.findByRole('option', { name: /Edge/ }));
+    await userEvent.click(
+      screen.getByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
+    );
+    expect(onApplyRecommendation).toHaveBeenLastCalledWith(edgeRecommendation, ['ssh']);
+  });
+
+  it('a kasmvnc image prefills [kasmvnc] via the entry-level fallback', async () => {
+    // kasmvnc is never derived from env hints, so the image derives no
+    // per-image protocols; the catalog's [kasmvnc] spec.protocols is
+    // the only path it reaches the prefill — this is what makes kasmvnc
+    // work at all.
+    const { onApplyRecommendation } = renderField();
+    await openPicker();
+    await userEvent.click(await screen.findByRole('option', { name: /Kasm/ }));
+    await userEvent.click(await screen.findByRole('option', { name: /Terminal/ }));
+    await userEvent.click(
+      screen.getByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
+    );
+    expect(onApplyRecommendation).toHaveBeenCalledWith(kasmRecommendation, ['kasmvnc']);
   });
 });
