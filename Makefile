@@ -1,6 +1,9 @@
 # WaaS — root Makefile. Each component keeps its own Makefile; this one fans out.
 
 GO_MODULES := shared operator api-server wwt
+# test/smoke is lint-only (its tests need a live cluster) — same split
+# as ci.yml's change-scope plan.
+GO_LINT_MODULES := $(GO_MODULES) test/smoke
 
 # --- local k3d dev environment -------------------------------------------
 CLUSTER_NAME     := waas-dev
@@ -22,7 +25,7 @@ DEV_IMAGES       := operator api-server wwt frontend
 WAAS_IMAGES_DIR ?= ../waas-images
 LOCAL_IMAGES    ?=
 
-.PHONY: all build check test test-go test-frontend lint lint-go lint-frontend format \
+.PHONY: all build check test test-go test-go-pg test-envtest test-frontend lint lint-go lint-frontend format \
 	helm-check coverage coverage-go coverage-frontend crd-schemas \
 	generate-check generate manifests docs-params generate-types frontend-build docker-build \
 	dev-up dev-down dev-reset dev-bootstrap dev-build dev-load dev-deploy \
@@ -38,11 +41,14 @@ build:
 	done
 
 # --- quality gates ---------------------------------------------------------
-# check = run before pushing: every blocking CI gate that can be
-# reproduced locally (Go + frontend lint/format/typecheck/tests +
-# generated-code drift). Helm gates stay separate (helm-unittest,
-# helm-docs) — run them when the chart changed. See docs/ci-github.md.
-check: lint test generate-check
+# check = run before pushing: the CI gates reproducible locally without
+# docker — Go lint (incl. test/smoke) + tests with -race + the operator
+# envtest suite + frontend lint/format/typecheck/tests + generated-code
+# drift. NOT covered here: the api-server postgres leg (opt-in
+# `make test-go-pg`, needs docker), the Helm gates (`make helm-check`,
+# run when the chart changed) and the image/security scans (CI only).
+# See docs/ci-github.md.
+check: lint test test-envtest generate-check
 	@echo "==> all local gates green"
 
 test: test-go test-frontend
@@ -50,8 +56,29 @@ test: test-go test-frontend
 test-go:
 	@for m in $(GO_MODULES); do \
 		echo "==> test $$m"; \
-		(cd $$m && go test ./...) || exit 1; \
+		(cd $$m && go test -race ./...) || exit 1; \
 	done
+
+# The envtest suite skips itself in plain test-go (no KUBEBUILDER_ASSETS);
+# CI enables it on the operator leg, so check chains it explicitly. First
+# run downloads the control-plane binaries (see operator/Makefile).
+test-envtest:
+	$(MAKE) -C operator test-envtest
+
+# Opt-in postgres leg of the api-server suites (dual-backend repository
+# tests, see docs/testing.md): throwaway container, same pinned image as
+# ci-go.yml's service. Needs docker — deliberately not chained in check.
+PG_TEST_IMAGE := postgres:17-alpine@sha256:af194ccf3e2d7fe367012c7b88ce8b816c5c889b18a5b316799a1f0d7eac746a
+test-go-pg:
+	@docker rm -f waas-test-pg >/dev/null 2>&1 || true
+	docker run -d --rm --name waas-test-pg -e POSTGRES_PASSWORD=pg -p 5432:5432 $(PG_TEST_IMAGE)
+	@for i in $$(seq 1 30); do \
+		docker exec waas-test-pg pg_isready -q -U postgres && break; \
+		[ $$i -eq 30 ] && { echo "FATAL postgres never became ready"; docker stop waas-test-pg; exit 1; }; \
+		sleep 1; \
+	done
+	@(cd api-server && WAAS_TEST_PG_URL="postgres://postgres:pg@localhost:5432/postgres" go test -race ./...); \
+		rc=$$?; docker stop waas-test-pg >/dev/null; exit $$rc
 
 test-frontend:
 	cd frontend && npm test
@@ -60,7 +87,7 @@ lint: lint-go lint-frontend
 
 # golangci-lint includes the gofmt formatter check (same config as CI).
 lint-go:
-	@for m in $(GO_MODULES); do \
+	@for m in $(GO_LINT_MODULES); do \
 		echo "==> lint $$m"; \
 		(cd $$m && golangci-lint run) || exit 1; \
 	done

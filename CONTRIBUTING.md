@@ -13,18 +13,20 @@ so local and CI can't drift.
 
 ## Before opening a PR
 
-One command reproduces every blocking CI gate that runs locally
-(details: [docs/ci-github.md](docs/ci-github.md)):
+One command reproduces the blocking CI gates that run locally without
+docker (details: [docs/ci-github.md](docs/ci-github.md)):
 
 ```sh
-make check                       # lint + test + generated-code drift, Go AND frontend
+make check                       # lint + test (-race, incl. operator envtest) + generated-code drift, Go AND frontend
 ```
 
 Granular targets when iterating on one side only:
 
 ```sh
-make test-go / test-frontend     # unit tests (make test = both)
-make lint-go / lint-frontend     # golangci-lint / eslint + prettier check + tsc
+make test-go / test-frontend     # unit tests with -race / vitest (make test = both)
+make test-envtest                # operator envtest suite (real apiserver+etcd)
+make test-go-pg                  # api-server postgres leg (throwaway container, needs docker)
+make lint-go / lint-frontend     # golangci-lint (incl. test/smoke) / eslint + prettier check + tsc
 make format                      # rewrite: prettier + the Go formatters
 make generate-check              # regenerate CRDs/RBAC/docs/types, fail on drift
 make helm-check                  # if the chart changed: every ci-helm.yml gate

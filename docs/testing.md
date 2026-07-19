@@ -57,12 +57,12 @@ It exists for the three things nothing else evaluates:
   Pending. Readiness-dependent behavior is unit-tested with injected
   probes instead.
 
-Run it with `make -C operator test-envtest` (first run downloads the
-control-plane binaries via `setup-envtest`; pins live in
-`operator/Makefile`). Without `KUBEBUILDER_ASSETS` the suite skips
-itself, so plain `go test ./...` stays fast. In CI the operator leg of
-`go-test` exports `KUBEBUILDER_ASSETS`, which makes the ordinary
-`go test ./...` include the suite.
+Run it with `make test-envtest` (wraps `make -C operator test-envtest`;
+first run downloads the control-plane binaries via `setup-envtest`, pins
+live in `operator/Makefile`). Without `KUBEBUILDER_ASSETS` the suite
+skips itself, so plain `go test ./...` stays fast. `make check` chains
+it; in CI the operator leg of `go-test` exports `KUBEBUILDER_ASSETS`,
+which makes the ordinary `go test ./...` include the suite.
 
 ## Tier 2b — dual-backend repository suites (api-server)
 
@@ -73,7 +73,9 @@ dual-backend divergences are exactly where past bugs lived — RFC3339
 timestamp scanners, JSON columns, NULL handling. A repository test that
 only runs on sqlite proves nothing about production.
 
-Locally:
+Locally, `make test-go-pg` runs the whole api-server module against a
+throwaway postgres container (same pinned image as CI) and tears it
+down. By hand:
 
 ```sh
 docker run -d --rm -e POSTGRES_PASSWORD=pg -p 5432:5432 postgres:17-alpine
