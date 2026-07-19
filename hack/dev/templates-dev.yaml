@@ -12,7 +12,7 @@ spec:
   displayName: "Ubuntu 24.04 — XFCE"
   description: "Full XFCE desktop over VNC (recommended protocol for Linux)."
   os: linux
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.0.0
+  image: docker.io/xorhub/ubuntu-desktop-noble:2.0.1
   homeSize: 10Gi
   resources:
     requests: { cpu: 500m, memory: 1Gi }
@@ -96,7 +96,7 @@ spec:
   # OS-only desktop image (INSTALL_SSH=1 at build time), off by default even
   # then: WAAS_SSH_ENABLED=1 below is what actually turns it on. There is no
   # more standalone "dev-ssh" image (waas-images split, 2026-07-10 catalog).
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.0.0
+  image: docker.io/xorhub/ubuntu-desktop-noble:2.0.1
   homeSize: 10Gi
   resources:
     requests: { cpu: 500m, memory: 1Gi }
@@ -150,7 +150,7 @@ spec:
   displayName: "Dev env — SSH (generated keys)"
   description: "Same terminal dev env, platform-generated ssh keypair — zero credential config."
   os: linux
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.0.0
+  image: docker.io/xorhub/ubuntu-desktop-noble:2.0.1
   homeSize: 10Gi
   resources:
     requests: { cpu: 500m, memory: 1Gi }
@@ -174,7 +174,7 @@ spec:
   displayName: "Firefox (navigation isolée)"
   description: "Firefox durci, session jetable — avec audio (PulseAudio streamé par guacd)."
   os: linux
-  image: docker.io/xorhub/firefox:2.0.0
+  image: docker.io/xorhub/firefox:2.0.1
   homeSize: 5Gi
   resources:
     requests: { cpu: 500m, memory: 1536Mi }
