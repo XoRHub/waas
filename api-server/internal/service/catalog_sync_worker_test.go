@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,6 +32,8 @@ images:
     app: firefox
     version: "1.0.0"
     icon: firefox
+    displayName: Firefox
+    description: "  Managed, policy-hardened Firefox in a kiosk session.  "
   - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc
     os: weirdos
     app: ubuntu-xfce
@@ -104,6 +108,11 @@ func TestCatalogSyncWorkerSuccessPopulatesTable(t *testing.T) {
 	for _, e := range entries {
 		if e.Image == "docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc" && e.OS != "" {
 			t.Errorf("unknown os should normalize to empty, got %q", e.OS)
+		}
+		// The description survives full-length (no 80-char shortening),
+		// only trimmed.
+		if e.Image == "docker.io/xorhub/firefox:1.0.0@sha256:def" && e.Description != "Managed, policy-hardened Firefox in a kiosk session." {
+			t.Errorf("description should round-trip trimmed, got %q", e.Description)
 		}
 	}
 
@@ -279,6 +288,23 @@ func TestCatalogSyncWorkerNormalizesArchitectures(t *testing.T) {
 		if !slices.Equal(e.Architectures, got) {
 			t.Errorf("%s: architectures = %v, want %v", e.Image, e.Architectures, got)
 		}
+	}
+}
+
+func TestNormalizeDescription(t *testing.T) {
+	if got := normalizeDescription("  spaced out  "); got != "spaced out" {
+		t.Errorf("trim: got %q", got)
+	}
+	// The cap is a defensive bound against a hostile manifest, sized
+	// far above any legitimate description; the cut must stay valid
+	// UTF-8 even when it lands mid-rune.
+	long := strings.Repeat("a", 2047) + "héllo"
+	got := normalizeDescription(long)
+	if len(got) > 2048 || !utf8.ValidString(got) {
+		t.Errorf("cap: len=%d valid=%v", len(got), utf8.ValidString(got))
+	}
+	if short := normalizeDescription("short"); short != "short" {
+		t.Errorf("under-cap description must pass through, got %q", short)
 	}
 }
 

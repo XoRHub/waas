@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -165,6 +166,7 @@ func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.Works
 			Version:       e.Version,
 			Icon:          e.Icon,
 			DisplayName:   e.DisplayName,
+			Description:   normalizeDescription(e.Description),
 			Profile:       normalizeProfile(e.Profile),
 			Recommended:   marshalRecommended(e.Recommended),
 			Architectures: normalizeArchitectures(e.Architectures),
@@ -219,6 +221,21 @@ func normalizeProfile(profile string) string {
 		return ""
 	}
 	return profile
+}
+
+// normalizeDescription trims and hard-caps the free-text description —
+// same untrusted-manifest guard as its siblings, sized for a few
+// sentences of prose: the cap only exists so a hostile or malformed
+// manifest cannot push arbitrary amounts of text into the database and
+// every API response, it must never clip a legitimate description
+// (unlike the producer's former 80-char displayName shortening).
+func normalizeDescription(desc string) string {
+	const maxLen = 2048
+	desc = strings.TrimSpace(desc)
+	if len(desc) > maxLen {
+		desc = strings.ToValidUTF8(desc[:maxLen], "")
+	}
+	return desc
 }
 
 // normalizeArchitectures drops any value that is not a known

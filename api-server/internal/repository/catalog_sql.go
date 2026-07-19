@@ -18,7 +18,7 @@ func NewSQLCatalogRepository(db *database.DB) *SQLCatalogRepository {
 	return &SQLCatalogRepository{db: db}
 }
 
-const catalogEntryColumns = "image, os, app, version, icon, display_name, profile, recommended, architectures, synced_at"
+const catalogEntryColumns = "image, os, app, version, icon, display_name, description, profile, recommended, architectures, synced_at"
 
 // ReplaceEntries deletes every existing row of workspaceImageName and
 // inserts entries in the same transaction, so a picker read never
@@ -34,11 +34,11 @@ func (r *SQLCatalogRepository) ReplaceEntries(ctx context.Context, workspaceImag
 		return fmt.Errorf("clearing catalog entries of %s: %w", workspaceImageName, err)
 	}
 
-	insert := r.db.Rebind(`INSERT INTO catalog_entries (workspace_image_name, ` + catalogEntryColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	insert := r.db.Rebind(`INSERT INTO catalog_entries (workspace_image_name, ` + catalogEntryColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	for _, e := range entries {
 		if _, err := tx.ExecContext(ctx, insert,
 			workspaceImageName, e.Image, nullable(e.OS), nullable(e.App), nullable(e.Version), nullable(e.Icon), nullable(e.DisplayName),
-			nullable(e.Profile), nullableJSON(e.Recommended), marshalArchitectures(e.Architectures), timeArg(e.SyncedAt)); err != nil {
+			nullable(e.Description), nullable(e.Profile), nullableJSON(e.Recommended), marshalArchitectures(e.Architectures), timeArg(e.SyncedAt)); err != nil {
 			return fmt.Errorf("inserting catalog entry %s/%s: %w", workspaceImageName, e.Image, err)
 		}
 	}
@@ -70,14 +70,15 @@ func (r *SQLCatalogRepository) ListEntries(ctx context.Context, workspaceImageNa
 
 func scanCatalogEntry(row rowScanner) (*CatalogEntry, error) {
 	var (
-		e                                     CatalogEntry
-		os, app, version, icon, name, profile sql.NullString
-		recommended, architectures            sql.NullString
+		e                                                  CatalogEntry
+		os, app, version, icon, name, description, profile sql.NullString
+		recommended, architectures                         sql.NullString
 	)
-	if err := row.Scan(&e.Image, &os, &app, &version, &icon, &name, &profile, &recommended, &architectures, scanTime{&e.SyncedAt}); err != nil {
+	if err := row.Scan(&e.Image, &os, &app, &version, &icon, &name, &description, &profile, &recommended, &architectures, scanTime{&e.SyncedAt}); err != nil {
 		return nil, err
 	}
 	e.OS, e.App, e.Version, e.Icon, e.DisplayName = os.String, app.String, version.String, icon.String, name.String
+	e.Description = description.String
 	e.Profile = profile.String
 	if recommended.Valid {
 		e.Recommended = json.RawMessage(recommended.String)

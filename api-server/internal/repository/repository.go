@@ -112,6 +112,10 @@ type CatalogEntry struct {
 	Version     string
 	Icon        string
 	DisplayName string
+	// Description mirrors shared/catalog.Entry's Description: the full
+	// per-image description, a template-form prefill hint only. Empty =
+	// unknown (manifest without the field).
+	Description string
 	// Profile and Recommended mirror shared/catalog.Entry's
 	// Profile/Recommended: display/prefill hints only, opaque to this
 	// layer. Recommended is stored as the raw JSON produced by the
