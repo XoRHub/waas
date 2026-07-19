@@ -97,9 +97,31 @@ export function SessionCard({
             <h2 className="truncate font-medium text-slate-900 dark:text-white">
               {target.displayName}
             </h2>
-            <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-              {target.subtitle}
-              {currentFolder && <span className="ml-2">📁 {currentFolder}</span>}
+            {/* Flex row, not one truncating <p>: truncate is
+                overflow-hidden and would clip the "?" tooltip bubble —
+                only the subtitle span ellipsizes. */}
+            <p className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+              <span className="min-w-0 truncate">{target.subtitle}</span>
+              {target.description && (
+                <span className="group relative inline-flex shrink-0">
+                  {/* Same "?" affordance as the picker cards, but with
+                      the card's styled hover bubble (the drift-badge
+                      tooltip pattern above) — instant, multi-line. */}
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full bg-slate-200 text-[9px] font-semibold text-slate-600 dark:bg-slate-600 dark:text-slate-200"
+                  >
+                    ?
+                  </span>
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-64 rounded-md bg-slate-800 px-3 py-2 text-xs text-white shadow-lg group-hover:block dark:bg-slate-700"
+                  >
+                    {target.description}
+                  </span>
+                </span>
+              )}
+              {currentFolder && <span className="shrink-0">📁 {currentFolder}</span>}
             </p>
           </div>
         </div>

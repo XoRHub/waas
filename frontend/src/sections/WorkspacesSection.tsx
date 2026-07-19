@@ -67,16 +67,17 @@ export function WorkspacesSection({ onCreate }: { onCreate: () => void }) {
   return (
     <FolderedGrid
       items={workspaces.data.data}
-      renderCard={(ws) => (
-        <WorkspaceCard
-          key={ws.id}
-          workspace={ws}
-          icon={templateIcon(
-            templates.data?.data.find((tpl) => tpl.name === ws.templateRef),
-            catalog.data?.data,
-          )}
-        />
-      )}
+      renderCard={(ws) => {
+        const tpl = templates.data?.data.find((t) => t.name === ws.templateRef);
+        return (
+          <WorkspaceCard
+            key={ws.id}
+            workspace={ws}
+            icon={templateIcon(tpl, catalog.data?.data)}
+            description={tpl?.description}
+          />
+        );
+      }}
     />
   );
 }
@@ -84,7 +85,15 @@ export function WorkspacesSection({ onCreate }: { onCreate: () => void }) {
 // WorkspaceCard: the in-cluster wrapper around the shared SessionCard —
 // it only contributes what is specific to provisioned workspaces
 // (lifecycle actions, connection settings, split view, next transition).
-function WorkspaceCard({ workspace, icon }: { workspace: Workspace; icon?: string }) {
+function WorkspaceCard({
+  workspace,
+  icon,
+  description,
+}: {
+  workspace: Workspace;
+  icon?: string;
+  description?: string;
+}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const action = useWorkspaceAction();
@@ -96,7 +105,7 @@ function WorkspaceCard({ workspace, icon }: { workspace: Workspace; icon?: strin
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [eventsOpen, setEventsOpen] = useState(false);
 
-  const target = targetFromWorkspace(workspace, icon);
+  const target = targetFromWorkspace(workspace, icon, description);
   // Badge and buttons follow the DERIVED phase: between a lifecycle
   // action and the operator's reconcile, intent and status disagree and
   // the card shows the transition (Pausing…/Resuming…) instead of a

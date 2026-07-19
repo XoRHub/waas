@@ -53,6 +53,22 @@ const renderCard = (t: SessionTarget, phase: 'Running' | 'Paused' = 'Running') =
   );
 };
 
+describe('SessionCard description tooltip', () => {
+  it('shows a "?" next to the subtitle carrying the template description', () => {
+    // templateDrifted off: the drift badge has its own role=tooltip.
+    renderCard(
+      target({ description: 'Full XFCE desktop, VNC + RDP + SSH.', templateDrifted: false }),
+    );
+    expect(screen.getByText('?')).toBeTruthy();
+    expect(screen.getByRole('tooltip').textContent).toBe('Full XFCE desktop, VNC + RDP + SSH.');
+  });
+
+  it('renders no "?" without a description (remote machines, bare templates)', () => {
+    renderCard(target());
+    expect(screen.queryByText('?')).toBeNull();
+  });
+});
+
 describe('SessionCard ref', () => {
   it('exposes the card root element (the open flow tags it for the view transition)', () => {
     signIn({ username: 'marc' });

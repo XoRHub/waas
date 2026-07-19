@@ -48,6 +48,9 @@ export interface SessionTarget {
   displayName: string;
   /** Secondary line on the card: template for in-cluster, host for remote. */
   subtitle: string;
+  /** The backing template's description — the card's "?" tooltip next
+   *  to the subtitle. Workspace kind only; remote machines have none. */
+  description?: string;
   connectUrl: string;
   protocols: TargetProtocol[];
   defaultProtocol: string;
@@ -64,7 +67,11 @@ export interface SessionTarget {
   icon?: string;
 }
 
-export function targetFromWorkspace(ws: Workspace, icon?: string): SessionTarget {
+export function targetFromWorkspace(
+  ws: Workspace,
+  icon?: string,
+  description?: string,
+): SessionTarget {
   const protocols: TargetProtocol[] = (ws.protocols ?? []).map((p) => ({
     name: p.name,
     port: p.port,
@@ -77,6 +84,7 @@ export function targetFromWorkspace(ws: Workspace, icon?: string): SessionTarget
     kind: 'workspace',
     displayName: ws.displayName || ws.name,
     subtitle: ws.templateRef,
+    description,
     connectUrl: `/workspaces/${ws.id}/connect`,
     protocols,
     defaultProtocol: protocols.find((p) => p.default)?.name ?? ws.protocol ?? '',
