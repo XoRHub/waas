@@ -226,6 +226,8 @@
     "displayName": "Nom affiché",
     "email": "Email",
     "oidcNote": "Ces champs seront gérés par votre fournisseur d'identité une fois le SSO activé.",
+    "ssoManaged": "Votre identité est gérée par votre fournisseur d'identité et ne peut pas être modifiée ici.",
+    "ssoPassword": "Vous vous connectez via votre fournisseur d'identité — ce compte n'a pas de mot de passe local.",
     "preferences": "Préférences",
     "openTarget": "Ouverture des espaces de travail",
     "openTargetUnset": "Pas encore défini — le choix vous sera demandé à la première ouverture.",

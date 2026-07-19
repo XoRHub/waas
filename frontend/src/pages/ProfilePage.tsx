@@ -58,14 +58,14 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const inputClass =
-  'mt-1 w-full rounded-md border border-slate-300 px-3 py-2 dark:border-slate-600 dark:bg-slate-700 dark:text-white';
+  'mt-1 w-full rounded-md border border-slate-300 px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-white';
 
-function SaveButton({ pending }: { pending: boolean }) {
+function SaveButton({ pending, disabled }: { pending: boolean; disabled?: boolean }) {
   const { t } = useTranslation();
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={pending || disabled}
       className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
     >
       {t('app.save')}
@@ -83,6 +83,7 @@ function Feedback({ error, saved }: { error?: string; saved: boolean }) {
 function IdentityCard() {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user)!;
+  const sso = user.sso;
   const update = useUpdateProfile();
   const [displayName, setDisplayName] = useState(user.displayName ?? '');
   const [email, setEmail] = useState(user.email ?? '');
@@ -90,6 +91,7 @@ function IdentityCard() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (sso) return;
     setSaved(false);
     update.mutate({ displayName, email }, { onSuccess: () => setSaved(true) });
   };
@@ -117,6 +119,8 @@ function IdentityCard() {
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder={user.username}
+            disabled={sso}
+            title={sso ? t('profile.ssoManaged') : undefined}
           />
         </Field>
         <Field label={t('profile.email')}>
@@ -125,11 +129,15 @@ function IdentityCard() {
             className={inputClass}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            disabled={sso}
+            title={sso ? t('profile.ssoManaged') : undefined}
           />
         </Field>
-        <p className="text-xs text-slate-400 dark:text-slate-500">{t('profile.oidcNote')}</p>
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          {sso ? t('profile.ssoManaged') : t('profile.oidcNote')}
+        </p>
         <Feedback error={update.isError ? update.error.message : undefined} saved={saved} />
-        <SaveButton pending={update.isPending} />
+        <SaveButton pending={update.isPending} disabled={sso} />
       </form>
     </Card>
   );
@@ -218,6 +226,8 @@ function PreferencesCard() {
 
 function PasswordCard() {
   const { t } = useTranslation();
+  const user = useAuthStore((s) => s.user)!;
+  const sso = user.sso;
   const update = useUpdateProfile();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -227,7 +237,7 @@ function PasswordCard() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (mismatch || !next) return;
+    if (sso || mismatch || !next) return;
     setSaved(false);
     update.mutate(
       { currentPassword: current, newPassword: next },
@@ -244,41 +254,50 @@ function PasswordCard() {
 
   return (
     <Card title={t('profile.security')}>
+      {sso && (
+        <p className="text-sm text-slate-500 dark:text-slate-400">{t('profile.ssoPassword')}</p>
+      )}
       <form onSubmit={onSubmit} className="space-y-4">
-        <Field label={t('profile.currentPassword')}>
-          <input
-            type="password"
-            className={inputClass}
-            value={current}
-            onChange={(e) => setCurrent(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </Field>
-        <Field label={t('profile.newPassword')}>
-          <input
-            type="password"
-            className={inputClass}
-            value={next}
-            onChange={(e) => setNext(e.target.value)}
-            autoComplete="new-password"
-            required
-            minLength={8}
-          />
-        </Field>
-        <Field label={t('profile.confirmPassword')}>
-          <input
-            type="password"
-            className={inputClass}
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            autoComplete="new-password"
-            required
-          />
-        </Field>
-        {mismatch && <p className="text-sm text-red-600">{t('profile.passwordMismatch')}</p>}
-        <Feedback error={update.isError ? update.error.message : undefined} saved={saved} />
-        <SaveButton pending={update.isPending} />
+        <fieldset
+          disabled={sso}
+          className={sso ? 'space-y-4 opacity-50' : 'space-y-4'}
+          title={sso ? t('profile.ssoPassword') : undefined}
+        >
+          <Field label={t('profile.currentPassword')}>
+            <input
+              type="password"
+              className={inputClass}
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </Field>
+          <Field label={t('profile.newPassword')}>
+            <input
+              type="password"
+              className={inputClass}
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              autoComplete="new-password"
+              required
+              minLength={8}
+            />
+          </Field>
+          <Field label={t('profile.confirmPassword')}>
+            <input
+              type="password"
+              className={inputClass}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              autoComplete="new-password"
+              required
+            />
+          </Field>
+          {mismatch && <p className="text-sm text-red-600">{t('profile.passwordMismatch')}</p>}
+          <Feedback error={update.isError ? update.error.message : undefined} saved={saved} />
+          <SaveButton pending={update.isPending} />
+        </fieldset>
       </form>
     </Card>
   );

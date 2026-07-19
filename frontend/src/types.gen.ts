@@ -88,6 +88,12 @@ export interface User {
    * Preferences is self-service UI state, editable via PATCH /me.
    */
   preferences: UserPreferences;
+  /**
+   * SSO reports whether the account is IdP-owned (OIDC-provisioned).
+   * Output-only: derived from OIDCSubject at serialization time,
+   * ignored on input and never persisted.
+   */
+  sso: boolean;
 }
 /**
  * SessionKind says what a session's WorkspaceID points at.

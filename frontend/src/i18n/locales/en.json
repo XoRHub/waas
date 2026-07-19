@@ -226,6 +226,8 @@
     "displayName": "Display name",
     "email": "Email",
     "oidcNote": "These fields will be managed by your identity provider once SSO is enabled.",
+    "ssoManaged": "Your identity is managed by your identity provider and cannot be edited here.",
+    "ssoPassword": "You sign in through your identity provider — this account has no local password.",
     "preferences": "Preferences",
     "openTarget": "Workspace opening",
     "openTargetUnset": "Not set yet — you will be asked on first open.",
