@@ -264,5 +264,5 @@ type WorkspaceList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Workspace{}, &WorkspaceList{})
+	objectTypes = append(objectTypes, &Workspace{}, &WorkspaceList{})
 }

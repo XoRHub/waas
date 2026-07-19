@@ -336,5 +336,5 @@ type WorkspaceImageList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&WorkspaceImage{}, &WorkspaceImageList{})
+	objectTypes = append(objectTypes, &WorkspaceImage{}, &WorkspaceImageList{})
 }

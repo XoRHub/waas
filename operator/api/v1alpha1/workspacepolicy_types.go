@@ -204,5 +204,5 @@ type WorkspacePolicyList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&WorkspacePolicy{}, &WorkspacePolicyList{})
+	objectTypes = append(objectTypes, &WorkspacePolicy{}, &WorkspacePolicyList{})
 }
