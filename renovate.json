@@ -24,8 +24,18 @@
       "platformAutomerge": true
     },
     {
-      "description": "Go/TS patch and minor bumps automerge once required checks pass, the release is >=10 days old, and Renovate's merge confidence is neutral or better.",
-      "matchManagers": ["gomod", "npm"],
+      "description": "All non-major Go bumps (all four modules, direct and indirect) in one weekly PR, automerged once required checks pass and the release is >=10 days old.",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "groupName": "go-non-major",
+      "schedule": ["before 6am on monday"],
+      "minimumReleaseAge": "10 days",
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "description": "Frontend patch and minor bumps automerge individually once required checks pass and the release is >=10 days old (grouping deliberately not extended here yet).",
+      "matchManagers": ["npm"],
       "matchUpdateTypes": ["patch", "minor"],
       "minimumReleaseAge": "10 days",
       "automerge": true,
