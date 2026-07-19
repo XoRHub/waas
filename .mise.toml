@@ -4,7 +4,7 @@
 # "passes here, fails in CI" incident (audit 2026-07, C6).
 [tools]
 go = "1.26.5" # keep >= the modules' `go 1.26` directive (go.work + every go.mod)
-node = "22.17.0"
+node = "22.23.1"
 golangci-lint = "2.12.2" # keep >= the go directive of the modules it lints
 # k3d pin = the version installed in dev at pin time; the k3s image it
 # boots is pinned in hack/dev/k3d-config.yaml (keep both in sync).
