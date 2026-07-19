@@ -68,6 +68,20 @@
       "matchUpdateTypes": ["patch", "digest", "pinDigest"],
       "automerge": true,
       "platformAutomerge": true
+    },
+    {
+      "description": "Our own desktop images (docker.io/xorhub/*, built in the waas-images repo) release in lockstep with one shared version: every bump lands as one grouped PR instead of one per image.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["docker.io/xorhub/**"],
+      "groupName": "xorhub-images"
+    },
+    {
+      "description": "xorhub images automerge through minor (not just patch/digest like third-party images): we cut those releases ourselves in waas-images, so a minor is already reviewed there.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["docker.io/xorhub/**"],
+      "matchUpdateTypes": ["patch", "minor", "digest", "pinDigest"],
+      "automerge": true,
+      "platformAutomerge": true
     }
   ],
   "customManagers": [
