@@ -32,8 +32,11 @@ tests:
       - equal:
           path: spec.catalog.from.url
           value: https://example.com/catalog.yaml
-      - notExists:
+      # Default values apply for keys the test does not set: the chart's
+      # tagPolicy default must reach the rendered CR.
+      - equal:
           path: spec.tagPolicy
+          value: tag
 
   - it: renders the kasm WorkspaceImage with tagPolicy when set
     set:

@@ -219,6 +219,12 @@ catalogs:
     displayName: "XorHub images"
     # -- Registry prefix this catalog approves images from.
     registry: docker.io/xorhub
+    # -- Tag discipline enforced for this registry (`tag` | `digest` | `any`).
+    # `tag` matches the published catalog: waas-images releases fixed tags
+    # (2.0.1) and catalog-waas-images.yaml references them by tag. Explicit
+    # here — same discipline the policy engine already defaults registry
+    # entries to when unset.
+    tagPolicy: tag
     # -- Protocols this catalog's images support.
     protocols: [vnc, rdp, ssh]
     # -- URL of the published catalog.yaml for this registry.
