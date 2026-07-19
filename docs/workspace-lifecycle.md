@@ -12,7 +12,7 @@ and the fleet dashboard:
 | `Running` | desktop up and reachable | 1 replica, ready |
 | `Paused` | **user** paused it manually | scaled to 0 |
 | `Stopped` | **scheduled** downtime window (see below) | scaled to 0 |
-| `Failed` | admission/governance denial or crash | none/blocked |
+| `Failed` | admission/governance denial, or the desktop pod is stuck in a container error state (`CrashLoopBackOff`, `ImagePullBackOff`, eviction, …) — recovers to `Provisioning`/`Running` automatically once the pod comes up | none/blocked |
 | `Terminating` | being deleted | tearing down |
 
 `Paused` and `Stopped` share the same scale-to-0 mechanism; they differ
@@ -27,7 +27,7 @@ evaluated against):
 
 | Type | True when | Notable reasons |
 |---|---|---|
-| `Ready` | the workload reports ready | `WorkspaceReady`, `Provisioning`, `Paused`, admission denial reason codes (`ImageNotInCatalog`, `QuotaExceeded`, `PullSecretMissing`, …) |
+| `Ready` | the workload reports ready | `WorkspaceReady`, `Provisioning`, `Paused`, admission denial reason codes (`ImageNotInCatalog`, `QuotaExceeded`, `PullSecretMissing`, …), container error reason codes surfaced verbatim from the kubelet (`CrashLoopBackOff`, `ImagePullBackOff`, `ErrImagePull`, `CreateContainerConfigError`, `Evicted`, …) with the last exit code / `OOMKilled` detail in the message |
 | `ConnectionReady` | the desktop server ACCEPTS TCP connections on the default protocol port (operator probe) — pod readiness proves the container runs, this proves the desktop listens | `DesktopListening`, `DesktopNotListening`, `DesktopDown` |
 
 `kubectl get workspace` shows PHASE and READY. The operator also emits

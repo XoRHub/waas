@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -10,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -35,7 +37,7 @@ func newFixture(t *testing.T, objs ...client.Object) (*WorkspaceReconciler, clie
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objs...).
-		WithStatusSubresource(&waasv1alpha1.Workspace{}, &appsv1.Deployment{}, &appsv1.StatefulSet{}).
+		WithStatusSubresource(&waasv1alpha1.Workspace{}, &appsv1.Deployment{}, &appsv1.StatefulSet{}, &corev1.Pod{}).
 		Build()
 	// Probe succeeds by default: unit tests exercise reconcile logic, not
 	// real TCP reachability (covered by its own test with a failing stub).
@@ -398,5 +400,239 @@ func TestReconcileMissingTemplateStaysPending(t *testing.T) {
 	}
 	if got.Status.Phase != waasv1alpha1.PhasePending {
 		t.Fatalf("expected Pending, got %s", got.Status.Phase)
+	}
+}
+
+// errorPod builds a labeled desktop pod stuck in the given waiting reason,
+// as the Deployment/StatefulSet controllers would have created it (the
+// fake client runs none, so tests seed the pod themselves).
+func errorPod(ws *waasv1alpha1.Workspace, name, reason string) *corev1.Pod {
+	return podWithStatus(ws, name, corev1.PodStatus{
+		Phase: corev1.PodPending,
+		ContainerStatuses: []corev1.ContainerStatus{{
+			Name:  "desktop",
+			State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: reason}},
+		}},
+	})
+}
+
+func podWithStatus(ws *waasv1alpha1.Workspace, name string, status corev1.PodStatus) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: workspaceLabels(ws)},
+		Status:     status,
+	}
+}
+
+// seedPod stores pod WITH its status: the fixture registers Pod's status
+// subresource, so a bare Create drops it.
+func seedPod(t *testing.T, c client.Client, pod *corev1.Pod) {
+	t.Helper()
+	status := pod.Status
+	if err := c.Create(context.Background(), pod); err != nil {
+		t.Fatalf("seeding pod: %v", err)
+	}
+	pod.Status = status
+	if err := c.Status().Update(context.Background(), pod); err != nil {
+		t.Fatalf("seeding pod status: %v", err)
+	}
+}
+
+func TestReconcileReportsFailedOnBarePodCrashLoop(t *testing.T) {
+	tpl := linuxTemplate()
+	tpl.Spec.Workload = &waasv1alpha1.WorkspaceWorkload{Kind: waasv1alpha1.WorkloadPod}
+	ws := workspace()
+	r, c := newFixture(t, tpl, ws)
+	rec := record.NewFakeRecorder(8)
+	r.Recorder = rec
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+
+	pod := &corev1.Pod{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, pod); err != nil {
+		t.Fatalf("fetching pod: %v", err)
+	}
+	pod.Status = corev1.PodStatus{
+		Phase: corev1.PodRunning,
+		ContainerStatuses: []corev1.ContainerStatus{{
+			Name:         "desktop",
+			RestartCount: 6,
+			State:        corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+			LastTerminationState: corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{ExitCode: 137, Reason: "OOMKilled"},
+			},
+		}},
+	}
+	if err := c.Status().Update(ctx, pod); err != nil {
+		t.Fatalf("updating pod status: %v", err)
+	}
+
+	if res := reconcile(t, r, ws); res.RequeueAfter != requeueTransient {
+		t.Fatalf("failed workspace must keep polling for recovery, got %+v", res)
+	}
+
+	got := &waasv1alpha1.Workspace{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, got); err != nil {
+		t.Fatalf("fetching workspace: %v", err)
+	}
+	if got.Status.Phase != waasv1alpha1.PhaseFailed {
+		t.Fatalf("expected Failed, got %s", got.Status.Phase)
+	}
+	cond := findCondition(got, waasv1alpha1.ConditionReady)
+	if cond == nil || cond.Reason != "CrashLoopBackOff" {
+		t.Fatalf("expected Ready condition reason CrashLoopBackOff, got %+v", cond)
+	}
+	if !strings.Contains(cond.Message, "OOMKilled") || !strings.Contains(cond.Message, "137") {
+		t.Fatalf("expected last-termination detail in message, got %q", cond.Message)
+	}
+
+	warned := false
+	for len(rec.Events) > 0 {
+		if e := <-rec.Events; strings.Contains(e, "Warning CrashLoopBackOff") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("expected a Warning CrashLoopBackOff event on the transition to Failed")
+	}
+}
+
+func TestReconcileReportsFailedOnDeploymentPodImagePullBackOff(t *testing.T) {
+	ws := workspace()
+	r, c := newFixture(t, linuxTemplate(), ws)
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+
+	seedPod(t, c, errorPod(ws, "ws-marc-abc12", "ImagePullBackOff"))
+
+	reconcile(t, r, ws)
+
+	got := &waasv1alpha1.Workspace{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, got); err != nil {
+		t.Fatalf("fetching workspace: %v", err)
+	}
+	if got.Status.Phase != waasv1alpha1.PhaseFailed {
+		t.Fatalf("expected Failed, got %s", got.Status.Phase)
+	}
+	cond := findCondition(got, waasv1alpha1.ConditionReady)
+	if cond == nil || cond.Reason != "ImagePullBackOff" {
+		t.Fatalf("expected Ready condition reason ImagePullBackOff, got %+v", cond)
+	}
+}
+
+func TestReconcileRecoversFromWorkloadFailure(t *testing.T) {
+	ws := workspace()
+	r, c := newFixture(t, linuxTemplate(), ws)
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+	pod := errorPod(ws, "ws-marc-abc12", "ImagePullBackOff")
+	seedPod(t, c, pod)
+	reconcile(t, r, ws)
+
+	// The image turns pullable: the pod comes up and the Deployment
+	// reports a ready replica.
+	pod.Status = corev1.PodStatus{
+		Phase:      corev1.PodRunning,
+		Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+	}
+	if err := c.Status().Update(ctx, pod); err != nil {
+		t.Fatalf("updating pod status: %v", err)
+	}
+	dep := &appsv1.Deployment{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatalf("fetching deployment: %v", err)
+	}
+	dep.Status.ReadyReplicas = 1
+	if err := c.Status().Update(ctx, dep); err != nil {
+		t.Fatalf("updating deployment status: %v", err)
+	}
+
+	reconcile(t, r, ws)
+
+	got := &waasv1alpha1.Workspace{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, got); err != nil {
+		t.Fatalf("fetching workspace: %v", err)
+	}
+	if got.Status.Phase != waasv1alpha1.PhaseRunning {
+		t.Fatalf("expected Running after recovery, got %s", got.Status.Phase)
+	}
+	cond := findCondition(got, waasv1alpha1.ConditionReady)
+	if cond == nil || cond.Reason != "WorkspaceReady" {
+		t.Fatalf("expected WorkspaceReady after recovery, got %+v", cond)
+	}
+}
+
+func TestReconcileStaysProvisioningWhileContainerCreating(t *testing.T) {
+	ws := workspace()
+	r, c := newFixture(t, linuxTemplate(), ws)
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+	seedPod(t, c, errorPod(ws, "ws-marc-abc12", "ContainerCreating"))
+	reconcile(t, r, ws)
+
+	got := &waasv1alpha1.Workspace{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, got); err != nil {
+		t.Fatalf("fetching workspace: %v", err)
+	}
+	if got.Status.Phase != waasv1alpha1.PhaseProvisioning {
+		t.Fatalf("ContainerCreating is normal provisioning, got %s", got.Status.Phase)
+	}
+	cond := findCondition(got, waasv1alpha1.ConditionReady)
+	if cond == nil || cond.Reason != "Provisioning" {
+		t.Fatalf("expected Provisioning condition, got %+v", cond)
+	}
+}
+
+func TestReconcileSurfacesUnschedulableWhileProvisioning(t *testing.T) {
+	ws := workspace()
+	r, c := newFixture(t, linuxTemplate(), ws)
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+	seedPod(t, c, podWithStatus(ws, "ws-marc-abc12", corev1.PodStatus{
+		Phase: corev1.PodPending,
+		Conditions: []corev1.PodCondition{{
+			Type:    corev1.PodScheduled,
+			Status:  corev1.ConditionFalse,
+			Reason:  corev1.PodReasonUnschedulable,
+			Message: "0/3 nodes are available: insufficient memory",
+		}},
+	}))
+	reconcile(t, r, ws)
+
+	got := &waasv1alpha1.Workspace{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, got); err != nil {
+		t.Fatalf("fetching workspace: %v", err)
+	}
+	if got.Status.Phase != waasv1alpha1.PhaseProvisioning {
+		t.Fatalf("Unschedulable must stay Provisioning (the scheduler retries), got %s", got.Status.Phase)
+	}
+	cond := findCondition(got, waasv1alpha1.ConditionReady)
+	if cond == nil || !strings.Contains(cond.Message, "insufficient memory") {
+		t.Fatalf("expected the scheduler's explanation in the message, got %+v", cond)
+	}
+}
+
+func TestReconcileSkipsTerminatingPodFailure(t *testing.T) {
+	ws := workspace()
+	dying := errorPod(ws, "ws-marc-abc12", "CrashLoopBackOff")
+	now := metav1.Now()
+	dying.DeletionTimestamp = &now
+	// The fake client refuses to store a deleting object without one.
+	dying.Finalizers = []string{"test.waas.xorhub.io/keep"}
+	r, c := newFixture(t, linuxTemplate(), ws, dying)
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+
+	got := &waasv1alpha1.Workspace{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, got); err != nil {
+		t.Fatalf("fetching workspace: %v", err)
+	}
+	if got.Status.Phase != waasv1alpha1.PhaseProvisioning {
+		t.Fatalf("a draining pod's crash state must not surface, got %s", got.Status.Phase)
 	}
 }

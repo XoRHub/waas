@@ -334,8 +334,21 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	phase := waasv1alpha1.PhaseProvisioning
+	var failure *workloadFailure
+	var provisioningDetail string
 	if ready {
 		phase = waasv1alpha1.PhaseRunning
+	} else if tpl.Spec.OS != waasv1alpha1.OSWindows {
+		// Not ready: distinguish "still coming up" from a container error
+		// state the user must see (crash loop, bad image, eviction). The
+		// KubeVirt path stays binary — virt-launcher pod states don't map.
+		failure, provisioningDetail, err = r.detectWorkloadFailure(ctx, ws)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("reconciling workspace %s: %w", ws.Name, err)
+		}
+		if failure != nil {
+			phase = waasv1alpha1.PhaseFailed
+		}
 	}
 	// Drift milestone on the TRANSITION only: the events panel and the
 	// card badge tell the user their workspace will restart with updates
@@ -356,6 +369,8 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		case waasv1alpha1.PhaseRunning:
 			r.recordEvent(ws, corev1.EventTypeNormal, "Ready",
 				fmt.Sprintf("desktop is up (%s protocol on port %d)", effectiveProtocol(ws, tpl).Name, effectiveProtocol(ws, tpl).Port))
+		case waasv1alpha1.PhaseFailed:
+			r.recordEvent(ws, corev1.EventTypeWarning, failure.Reason, failure.Message)
 		}
 	}
 	// ConnectionReady: pod readiness proves the container runs, not that
@@ -392,9 +407,14 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			})
 		}
 		st.NextTransition = nextTransition
-		if ready {
+		switch {
+		case ready:
 			setCondition(st, metav1.ConditionTrue, "WorkspaceReady", "desktop is up and reachable")
-		} else {
+		case failure != nil:
+			setCondition(st, metav1.ConditionFalse, failure.Reason, failure.Message)
+		case provisioningDetail != "":
+			setCondition(st, metav1.ConditionFalse, "Provisioning", "waiting for desktop to become ready: "+provisioningDetail)
+		default:
 			setCondition(st, metav1.ConditionFalse, "Provisioning", "waiting for desktop to become ready")
 		}
 		connStatus := metav1.ConditionFalse

@@ -84,8 +84,14 @@ func setTypedCondition(st *waasv1alpha1.WorkspaceStatus, condType string, status
 	}
 	for i, existing := range st.Conditions {
 		if existing.Type == cond.Type {
-			if existing.Status == cond.Status && existing.Reason == cond.Reason {
+			if existing.Status == cond.Status && existing.Reason == cond.Reason && existing.Message == cond.Message {
 				return
+			}
+			// LastTransitionTime tracks STATUS flips only; a reason or
+			// message refinement (e.g. Provisioning gaining scheduler
+			// detail) keeps the original timestamp.
+			if existing.Status == cond.Status {
+				cond.LastTransitionTime = existing.LastTransitionTime
 			}
 			st.Conditions[i] = cond
 			return
