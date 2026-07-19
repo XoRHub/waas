@@ -183,6 +183,16 @@ func (s *UserService) UpdateProfile(ctx context.Context, actor Actor, in UpdateP
 	if err != nil {
 		return nil, err
 	}
+	// IdP-owned account: identity and credentials are managed by the
+	// identity provider — only preferences are self-service.
+	if user.OIDCSubject != "" {
+		if in.DisplayName != nil || in.Email != nil {
+			return nil, apierror.Forbidden("identity fields are managed by your identity provider")
+		}
+		if in.NewPassword != "" || in.CurrentPassword != "" {
+			return nil, apierror.Forbidden("password sign-in is managed by your identity provider")
+		}
+	}
 	if in.DisplayName != nil {
 		user.DisplayName = *in.DisplayName
 	}

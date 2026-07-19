@@ -2,6 +2,7 @@
 package model
 
 import (
+	"encoding/json"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -64,6 +65,19 @@ type User struct {
 	// SSO login. It is the durable SSO identity — username is only a
 	// display/provisioning hint. Empty = local-only account.
 	OIDCSubject string `json:"-"`
+	// SSO reports whether the account is IdP-owned (OIDC-provisioned).
+	// Output-only: derived from OIDCSubject at serialization time,
+	// ignored on input and never persisted.
+	SSO bool `json:"sso"`
+}
+
+// MarshalJSON derives SSO so every endpoint returning a User carries it,
+// however the struct was populated.
+func (u User) MarshalJSON() ([]byte, error) {
+	type alias User // sheds the method, avoids recursion
+	a := alias(u)
+	a.SSO = u.OIDCSubject != ""
+	return json.Marshal(a)
 }
 
 // SessionKind says what a session's WorkspaceID points at.
