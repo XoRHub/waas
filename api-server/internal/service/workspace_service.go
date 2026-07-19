@@ -756,16 +756,15 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 	// operator generated one; its resolver copy lives next to the CR.
 	// Resolution failure is a hard error — connecting with a password the
 	// pod does not run with would be worse.
-	if info.Protocol == "kasmvnc" && info.Password == "" {
-		if err := s.applyCredentialsSecret(ctx, "waas-kasm-"+ws.Name, info); err != nil {
+	if info.Protocol == string(waasv1alpha1.ProtocolKasmVNC) && info.Password == "" {
+		if err := s.applyCredentialsSecret(ctx, waasv1alpha1.KasmSecretName(ws.Name), info); err != nil {
 			return nil, err
 		}
 	}
 	// Generated desktop credentials (vnc/rdp): the sibling mechanism, own
-	// Secret prefix. The name must stay aligned with the operator's
-	// desktopSecretName (desktop_credentials.go), byte-for-byte.
-	if (info.Protocol == "vnc" || info.Protocol == "rdp") && info.Password == "" {
-		if err := s.applyCredentialsSecret(ctx, "waas-desktop-"+ws.Name, info); err != nil {
+	// Secret prefix shared with the operator like the ssh one.
+	if (info.Protocol == string(waasv1alpha1.ProtocolVNC) || info.Protocol == string(waasv1alpha1.ProtocolRDP)) && info.Password == "" {
+		if err := s.applyCredentialsSecret(ctx, waasv1alpha1.DesktopSecretName(ws.Name), info); err != nil {
 			return nil, err
 		}
 	}
@@ -774,7 +773,7 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 	// instead of comment-aligned, so this only fires when generation
 	// actually happened; a missing Secret is then a hard error like the
 	// others. Its private-key maps into guacd's vocabulary verbatim.
-	if info.Protocol == "ssh" && info.Params["private-key"] == "" && sshKeyGeneratedFor(ws, tpl) {
+	if info.Protocol == string(waasv1alpha1.ProtocolSSH) && info.Params["private-key"] == "" && sshKeyGeneratedFor(ws, tpl) {
 		if err := s.applyCredentialsSecret(ctx, waasv1alpha1.SSHSecretName(ws.Name), info); err != nil {
 			return nil, err
 		}
@@ -789,7 +788,7 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 // password (VNC_PW) is per-workspace. A credentials Secret with an
 // explicit username still wins.
 func kasmDefaults(info *model.ConnectionInfo) {
-	if info.Protocol == "kasmvnc" && info.Username == "" {
+	if info.Protocol == string(waasv1alpha1.ProtocolKasmVNC) && info.Username == "" {
 		info.Username = "kasm_user"
 	}
 }
@@ -802,7 +801,8 @@ func kasmDefaults(info *model.ConnectionInfo) {
 // remoteConnectionInfo, whose machines are outside the waas-images
 // contract.
 func desktopDefaults(info *model.ConnectionInfo) {
-	if (info.Protocol == "vnc" || info.Protocol == "rdp" || info.Protocol == "ssh") && info.Username == "" {
+	if (info.Protocol == string(waasv1alpha1.ProtocolVNC) || info.Protocol == string(waasv1alpha1.ProtocolRDP) ||
+		info.Protocol == string(waasv1alpha1.ProtocolSSH)) && info.Username == "" {
 		info.Username = "waas_user"
 	}
 }
