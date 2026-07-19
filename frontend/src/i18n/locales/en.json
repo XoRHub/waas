@@ -427,7 +427,14 @@
     "newPolicy": "New policy",
     "name": "Name",
     "invalidName": "Name must be a lowercase DNS-1123 label (a-z, 0-9, -).",
-    "allowedFields": "Overridable fields (allowlist)"
+    "allowedFields": "Overridable fields (allowlist)",
+    "sync": "Sync",
+    "syncNow": "Sync now",
+    "syncing": "Syncing…",
+    "syncNever": "Never synced",
+    "syncEntries_one": "{{count}} entry",
+    "syncEntries_other": "{{count}} entries",
+    "syncFailed": "Last sync failed"
   },
   "overlay": {
     "title": "Session menu",

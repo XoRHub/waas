@@ -598,6 +598,19 @@ export function useToggleImage() {
   });
 }
 
+// useSyncImage forces an immediate catalog re-fetch of one entry instead
+// of waiting for the server's periodic sync ticker (admin-only).
+export function useSyncImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.post<CatalogImage>(`/api/v1/admin/images/${name}/sync`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin-images'] });
+      void queryClient.invalidateQueries({ queryKey: ['catalog'] });
+    },
+  });
+}
+
 export function useAdminPolicies() {
   return useQuery({
     queryKey: ['admin-policies'],

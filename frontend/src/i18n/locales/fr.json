@@ -427,7 +427,14 @@
     "newPolicy": "Nouvelle policy",
     "name": "Nom",
     "invalidName": "Le nom doit être un label DNS-1123 minuscule (a-z, 0-9, -).",
-    "allowedFields": "Champs overridables (allowlist)"
+    "allowedFields": "Champs overridables (allowlist)",
+    "sync": "Synchro",
+    "syncNow": "Synchroniser",
+    "syncing": "Synchronisation…",
+    "syncNever": "Jamais synchronisé",
+    "syncEntries_one": "{{count}} entrée",
+    "syncEntries_other": "{{count}} entrées",
+    "syncFailed": "Échec de la dernière synchronisation"
   },
   "overlay": {
     "title": "Menu de session",

@@ -37,6 +37,23 @@ const apiMock = createApiMock({
       protocols: ['rdp'],
       enabled: false,
     },
+    {
+      name: 'xorhub-registry',
+      displayName: 'XorHub images',
+      registry: 'docker.io/xorhub',
+      protocols: ['vnc'],
+      enabled: true,
+      catalog: { source: 'Fetched', lastSyncTime: '2026-07-01T10:00:00Z' },
+      discovered: [{ image: 'docker.io/xorhub/firefox:1@sha256:def' }],
+    },
+    {
+      name: 'broken-registry',
+      displayName: 'Broken registry',
+      registry: 'docker.io/broken',
+      protocols: ['vnc'],
+      enabled: true,
+      catalog: { lastSyncError: 'fetching catalog: HTTP 500' },
+    },
   ],
   '/api/v1/admin/policies': [
     {
@@ -86,7 +103,7 @@ describe('GovernancePage sections', () => {
     // Catalog row.
     expect(await screen.findByText('Ubuntu Desktop')).toBeInTheDocument();
     expect(screen.getByText('vnc, rdp')).toBeInTheDocument();
-    expect(screen.getByText(en.governance.enabled)).toBeInTheDocument();
+    expect(screen.getAllByText(en.governance.enabled).length).toBeGreaterThan(0);
     expect(screen.getByText(en.governance.disabled)).toBeInTheDocument();
     // Policy card ('devs-policy' also shows in the usage table: scope
     // to the card heading).
@@ -118,6 +135,45 @@ describe('catalog kill-switch', () => {
     await waitFor(() =>
       expect(apiMock.api.post).toHaveBeenCalledWith('/api/v1/admin/images/windows/enable'),
     );
+  });
+});
+
+describe('catalog sync', () => {
+  it('offers Sync now only on catalog-backed images', async () => {
+    renderPage();
+    const catalogRow = (await screen.findByText('XorHub images')).closest('tr')!;
+    expect(
+      within(catalogRow).getByRole('button', { name: en.governance.syncNow }),
+    ).toBeInTheDocument();
+    const plainRow = screen.getByText('Ubuntu Desktop').closest('tr')!;
+    expect(
+      within(plainRow).queryByRole('button', { name: en.governance.syncNow }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('forces a re-fetch through the right endpoint', async () => {
+    renderPage();
+    const row = (await screen.findByText('XorHub images')).closest('tr')!;
+    await userEvent.click(within(row).getByRole('button', { name: en.governance.syncNow }));
+    await waitFor(() =>
+      expect(apiMock.api.post).toHaveBeenCalledWith('/api/v1/admin/images/xorhub-registry/sync'),
+    );
+  });
+
+  it('shows the last sync time, entry count and sync error', async () => {
+    renderPage();
+    const syncedRow = (await screen.findByText('XorHub images')).closest('tr')!;
+    // formatDateTime uses toLocaleString: assert via the same helper.
+    expect(
+      within(syncedRow).getByText(
+        (text) => text.includes(new Date('2026-07-01T10:00:00Z').toLocaleString()) && text.includes('1 entry'),
+      ),
+    ).toBeInTheDocument();
+    const brokenRow = screen.getByText('Broken registry').closest('tr')!;
+    expect(within(brokenRow).getByText(en.governance.syncNever)).toBeInTheDocument();
+    expect(
+      within(brokenRow).getByText(/fetching catalog: HTTP 500/),
+    ).toBeInTheDocument();
   });
 });
 

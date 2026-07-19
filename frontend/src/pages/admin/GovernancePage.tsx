@@ -7,6 +7,7 @@ import {
   useAdminUsage,
   useOverrideFields,
   useScaffold,
+  useSyncImage,
   useToggleImage,
   useUpsertImage,
   useUpsertPolicy,
@@ -14,6 +15,7 @@ import {
 } from '@/hooks/useApi';
 import { Dialog } from '@/components/Dialog';
 import { YamlEditor, parseYaml, type YamlIssue } from '@/components/YamlEditor';
+import { formatDateTime } from '@/lib/datetime';
 import type { CatalogImage, PolicyModel } from '@/types';
 
 type Kind = 'workspacepolicy' | 'workspaceimage';
@@ -65,6 +67,7 @@ function CatalogSection() {
   const images = useAdminImages();
   const toggle = useToggleImage();
   const upsert = useUpsertImage();
+  const sync = useSyncImage();
   // null = closed; 'new' = create; a CatalogImage = edit.
   const [editing, setEditing] = useState<CatalogImage | 'new' | null>(null);
 
@@ -93,6 +96,7 @@ function CatalogSection() {
                 <th className="px-4 py-3">{t('governance.protocols')}</th>
                 <th className="px-4 py-3">{t('governance.groups')}</th>
                 <th className="px-4 py-3">{t('governance.status')}</th>
+                <th className="px-4 py-3">{t('governance.sync')}</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -117,7 +121,44 @@ function CatalogSection() {
                         {img.enabled ? t('governance.enabled') : t('governance.disabled')}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-xs">
+                      {img.catalog ? (
+                        <>
+                          <span className="text-slate-500 dark:text-slate-400">
+                            {img.catalog.lastSyncTime
+                              ? `${formatDateTime(img.catalog.lastSyncTime)} · ${t('governance.syncEntries', { count: img.discovered?.length ?? 0 })}`
+                              : t('governance.syncNever')}
+                          </span>
+                          {img.catalog.lastSyncError && (
+                            <p
+                              className="max-w-xs truncate text-red-600 dark:text-red-400"
+                              title={img.catalog.lastSyncError}
+                            >
+                              {t('governance.syncFailed')}: {img.catalog.lastSyncError}
+                            </p>
+                          )}
+                          {sync.isError && sync.variables === img.name && (
+                            <p className="max-w-xs truncate text-red-600 dark:text-red-400">
+                              {sync.error.message}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-500">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right">
+                      {img.catalog && (
+                        <button
+                          onClick={() => sync.mutate(img.name)}
+                          disabled={sync.isPending}
+                          className="mr-2 rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                        >
+                          {sync.isPending && sync.variables === img.name
+                            ? t('governance.syncing')
+                            : t('governance.syncNow')}
+                        </button>
+                      )}
                       <button
                         onClick={() => setEditing(img)}
                         className="mr-2 rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -162,9 +203,11 @@ function CatalogSection() {
 
 // imageBody strips read-only projection fields, leaving the PUT payload.
 function imageBody(img: CatalogImage): Record<string, unknown> {
-  const { name: _n, templates: _t, ...body } = img;
+  const { name: _n, templates: _t, catalog: _c, discovered: _d, ...body } = img;
   void _n;
   void _t;
+  void _c;
+  void _d;
   return body;
 }
 
