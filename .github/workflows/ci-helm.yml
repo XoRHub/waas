@@ -54,7 +54,7 @@ jobs:
         # against them here.
         run: |
           docker run --rm -v "$PWD:/work" -w /work \
-            ghcr.io/yannh/kubeconform:v0.6.7-alpine \
+            ghcr.io/yannh/kubeconform:v0.8.0-alpine \
             -strict -summary \
             -skip CustomResourceDefinition \
             -schema-location default \

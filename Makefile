@@ -138,7 +138,7 @@ helm-check:
 	uv run hack/ci/crd_to_jsonschema.py helm/waas/crds dist/crd-schemas
 	uv run hack/ci/check_operator_rbac.py helm/waas/templates/operator/roles.yaml operator/config/rbac/role.yaml
 	docker run --rm -v "$$PWD:/work" -w /work \
-		ghcr.io/yannh/kubeconform:v0.6.7-alpine \
+		ghcr.io/yannh/kubeconform:v0.8.0-alpine \
 		-strict -summary \
 		-skip CustomResourceDefinition \
 		-schema-location default \
