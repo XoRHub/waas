@@ -319,6 +319,88 @@ type UpsertImageInput struct {
 	Defaults           map[string]string `json:"defaults"`
 	Min                map[string]string `json:"min"`
 	Max                map[string]string `json:"max"`
+	// Catalog configures the catalog-manifest sync source
+	// (spec.catalog) of a registry-mode entry. Same wire shape as the
+	// echo (model.CatalogImage.CatalogSource) so the governance editor
+	// round-trips it; an all-empty block — the untouched scaffold —
+	// means "no catalog" and maps to nil.
+	Catalog *model.CatalogSourceModel `json:"catalog,omitempty"`
+}
+
+// catalogSpecFromInput validates the admin catalog payload and maps it
+// onto the CRD block, mirroring the CRD's XValidations (exactly one
+// from source; auth only with from.url). Empty leaves (the scaffold's
+// zero values, or scaffold keys deep-merged into an edited entry) are
+// normalized away first, so an untouched block maps to nil instead of
+// failing validation.
+func catalogSpecFromInput(in *model.CatalogSourceModel) (*waasv1alpha1.ImageCatalogSpec, error) {
+	if in == nil {
+		return nil, nil
+	}
+	url := strings.TrimSpace(in.From.URL)
+	cm := in.From.ConfigMapKeyRef
+	if cm != nil && cm.Name == "" {
+		cm = nil
+	}
+	sec := in.From.SecretKeyRef
+	if sec != nil && sec.Name == "" {
+		sec = nil
+	}
+	token := ""
+	if in.Auth != nil && in.Auth.BearerToken != nil {
+		token = in.Auth.BearerToken.SecretRef
+	}
+
+	sources := 0
+	for _, set := range []bool{url != "", cm != nil, sec != nil} {
+		if set {
+			sources++
+		}
+	}
+	if sources == 0 {
+		if token != "" {
+			return nil, apierror.BadRequest("catalog.auth is only meaningful when catalog.from.url is set")
+		}
+		return nil, nil // untouched scaffold block = no catalog
+	}
+	if sources > 1 {
+		return nil, apierror.BadRequest("catalog.from must set exactly one of url, configMapKeyRef, or secretKeyRef")
+	}
+	if token != "" && url == "" {
+		return nil, apierror.BadRequest("catalog.auth is only meaningful when catalog.from.url is set")
+	}
+	if sec != nil && sec.Key == "" {
+		return nil, apierror.BadRequest("catalog.from.secretKeyRef.key is required")
+	}
+
+	out := &waasv1alpha1.ImageCatalogSpec{}
+	switch {
+	case url != "":
+		out.From.URL = url
+	case cm != nil:
+		out.From.ConfigMapKeyRef = &waasv1alpha1.CatalogConfigMapSource{Name: cm.Name, Key: cm.Key}
+	default:
+		out.From.SecretKeyRef = &waasv1alpha1.CatalogSecretSource{Name: sec.Name, Key: sec.Key}
+	}
+	if token != "" {
+		out.Auth = &waasv1alpha1.ImageCatalogAuth{BearerToken: &waasv1alpha1.BearerTokenAuth{SecretRef: token}}
+	}
+	return out, nil
+}
+
+// catalogSourceToModel is the inverse projection (CR spec → wire echo).
+func catalogSourceToModel(c *waasv1alpha1.ImageCatalogSpec) *model.CatalogSourceModel {
+	out := &model.CatalogSourceModel{From: model.CatalogSourceFrom{URL: c.From.URL}}
+	if cm := c.From.ConfigMapKeyRef; cm != nil {
+		out.From.ConfigMapKeyRef = &model.CatalogConfigMapRef{Name: cm.Name, Key: cm.Key}
+	}
+	if sec := c.From.SecretKeyRef; sec != nil {
+		out.From.SecretKeyRef = &model.CatalogSecretRef{Name: sec.Name, Key: sec.Key}
+	}
+	if c.Auth != nil && c.Auth.BearerToken != nil {
+		out.Auth = &model.CatalogSourceAuth{BearerToken: &model.CatalogBearerToken{SecretRef: c.Auth.BearerToken.SecretRef}}
+	}
+	return out
 }
 
 // AdminUpsertImage creates or updates a WorkspaceImage.
@@ -359,6 +441,11 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 		return nil, err
 	}
 	spec.Resources = res
+	catalog, err := catalogSpecFromInput(in.Catalog)
+	if err != nil {
+		return nil, err
+	}
+	spec.Catalog = catalog
 
 	img := &waasv1alpha1.WorkspaceImage{}
 	err = s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, img)
@@ -759,6 +846,9 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 		m.Max = sizeToMap(r.Max)
 	}
 	if img.Spec.Catalog != nil {
+		// Echo the spec source itself so the governance editor can
+		// round-trip it (a full-spec PUT would otherwise wipe it).
+		m.CatalogSource = catalogSourceToModel(img.Spec.Catalog)
 		// Non-nil even before the first sync: presence of spec.catalog is
 		// what gates the admin "Sync now" action.
 		m.Catalog = &model.CatalogSyncStatus{}

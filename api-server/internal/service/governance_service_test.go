@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -373,6 +374,141 @@ func TestUpsertPolicyRoundTripsMaxRunning(t *testing.T) {
 	}
 	if m.Limits.MaxRunningWorkspaces == nil || *m.Limits.MaxRunningWorkspaces != 2 {
 		t.Fatalf("maxRunningWorkspaces must round-trip through the admin editor, got %+v", m.Limits.MaxRunningWorkspaces)
+	}
+}
+
+// registryImageInput is a minimal valid registry-mode upsert payload
+// carrying the given catalog block.
+func registryImageInput(catalog *model.CatalogSourceModel) UpsertImageInput {
+	return UpsertImageInput{
+		DisplayName: "XorHub images",
+		Registry:    "docker.io/xorhub",
+		Protocols:   []string{"vnc"},
+		Catalog:     catalog,
+	}
+}
+
+// TestUpsertImageCatalogValidation mirrors the CRD's XValidations at
+// the API layer: exactly one from source, auth only with from.url —
+// plus the normalization contract (an all-empty block, the untouched
+// scaffold, means "no catalog").
+func TestUpsertImageCatalogValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		catalog *model.CatalogSourceModel
+		wantErr string // substring of the BadRequest message; "" = accepted
+	}{
+		{"absent catalog is accepted", nil, ""},
+		{"all-empty block (untouched scaffold) is accepted as no catalog",
+			&model.CatalogSourceModel{
+				From: model.CatalogSourceFrom{
+					ConfigMapKeyRef: &model.CatalogConfigMapRef{},
+					SecretKeyRef:    &model.CatalogSecretRef{},
+				},
+				Auth: &model.CatalogSourceAuth{BearerToken: &model.CatalogBearerToken{}},
+			}, ""},
+		{"url source is accepted",
+			&model.CatalogSourceModel{From: model.CatalogSourceFrom{URL: "https://example.com/catalog.yaml"}}, ""},
+		{"auth with url is accepted",
+			&model.CatalogSourceModel{
+				From: model.CatalogSourceFrom{URL: "https://example.com/catalog.yaml"},
+				Auth: &model.CatalogSourceAuth{BearerToken: &model.CatalogBearerToken{SecretRef: "catalog-token"}},
+			}, ""},
+		{"two sources are rejected",
+			&model.CatalogSourceModel{From: model.CatalogSourceFrom{
+				URL:             "https://example.com/catalog.yaml",
+				ConfigMapKeyRef: &model.CatalogConfigMapRef{Name: "cm"},
+			}}, "exactly one of url, configMapKeyRef, or secretKeyRef"},
+		{"auth without any source is rejected",
+			&model.CatalogSourceModel{
+				Auth: &model.CatalogSourceAuth{BearerToken: &model.CatalogBearerToken{SecretRef: "catalog-token"}},
+			}, "only meaningful when catalog.from.url is set"},
+		{"auth with a non-url source is rejected",
+			&model.CatalogSourceModel{
+				From: model.CatalogSourceFrom{ConfigMapKeyRef: &model.CatalogConfigMapRef{Name: "cm"}},
+				Auth: &model.CatalogSourceAuth{BearerToken: &model.CatalogBearerToken{SecretRef: "catalog-token"}},
+			}, "only meaningful when catalog.from.url is set"},
+		{"secretKeyRef without key is rejected",
+			&model.CatalogSourceModel{
+				From: model.CatalogSourceFrom{SecretKeyRef: &model.CatalogSecretRef{Name: "manifest"}},
+			}, "secretKeyRef.key is required"},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newGovernanceFixture(t, nil, nil)
+			name := fmt.Sprintf("img-%d", i)
+			m, err := svc.AdminUpsertImage(context.Background(), Actor{ID: "admin"}, name, registryImageInput(tc.catalog))
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("expected success, got %v", err)
+				}
+				return
+			}
+			if m != nil || err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("expected BadRequest containing %q, got (%+v, %v)", tc.wantErr, m, err)
+			}
+		})
+	}
+}
+
+// TestUpsertImageCatalogRoundTrips pins the editor contract in both
+// directions: the created spec.catalog is echoed back as catalogSource,
+// and an update whose payload carries catalog (as the editor's rename
+// guarantees) keeps spec.catalog populated — no silent wipe.
+func TestUpsertImageCatalogRoundTrips(t *testing.T) {
+	svc := newGovernanceFixture(t, nil, nil)
+	ctx := context.Background()
+	in := registryImageInput(&model.CatalogSourceModel{
+		From: model.CatalogSourceFrom{URL: "https://example.com/catalog.yaml"},
+		Auth: &model.CatalogSourceAuth{BearerToken: &model.CatalogBearerToken{SecretRef: "catalog-token"}},
+	})
+
+	m, err := svc.AdminUpsertImage(ctx, Actor{ID: "admin"}, "xorhub", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.CatalogSource == nil || m.CatalogSource.From.URL != "https://example.com/catalog.yaml" ||
+		m.CatalogSource.Auth == nil || m.CatalogSource.Auth.BearerToken == nil ||
+		m.CatalogSource.Auth.BearerToken.SecretRef != "catalog-token" {
+		t.Fatalf("spec.catalog must be echoed back as catalogSource, got %+v", m.CatalogSource)
+	}
+	// The read-only status projection stays gated by spec.catalog too.
+	if m.Catalog == nil {
+		t.Fatalf("catalog status stub must be present when spec.catalog is set")
+	}
+
+	// Update carrying the echoed source under the payload key: the CR
+	// keeps its sync source (the full-spec kube.Update must not wipe it).
+	in.Catalog = m.CatalogSource
+	in.Description = "edited"
+	if _, err := svc.AdminUpsertImage(ctx, Actor{ID: "admin"}, "xorhub", in); err != nil {
+		t.Fatal(err)
+	}
+	img := &waasv1alpha1.WorkspaceImage{}
+	if err := svc.kube.Get(ctx, client.ObjectKey{Namespace: testNS, Name: "xorhub"}, img); err != nil {
+		t.Fatal(err)
+	}
+	if img.Spec.Description != "edited" {
+		t.Fatalf("update must apply, got %+v", img.Spec)
+	}
+	if img.Spec.Catalog == nil || img.Spec.Catalog.From.URL != "https://example.com/catalog.yaml" ||
+		img.Spec.Catalog.Auth == nil || img.Spec.Catalog.Auth.BearerToken == nil ||
+		img.Spec.Catalog.Auth.BearerToken.SecretRef != "catalog-token" {
+		t.Fatalf("an update carrying catalog must keep spec.catalog populated, got %+v", img.Spec.Catalog)
+	}
+
+	// A ConfigMap source round-trips the same way (key default left to
+	// the reader: stored verbatim).
+	cmIn := registryImageInput(&model.CatalogSourceModel{
+		From: model.CatalogSourceFrom{ConfigMapKeyRef: &model.CatalogConfigMapRef{Name: "waas-catalog"}},
+	})
+	m, err = svc.AdminUpsertImage(ctx, Actor{ID: "admin"}, "static", cmIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.CatalogSource == nil || m.CatalogSource.From.ConfigMapKeyRef == nil ||
+		m.CatalogSource.From.ConfigMapKeyRef.Name != "waas-catalog" {
+		t.Fatalf("configMapKeyRef source must round-trip, got %+v", m.CatalogSource)
 	}
 }
 

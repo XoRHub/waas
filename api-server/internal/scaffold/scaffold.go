@@ -74,6 +74,10 @@ var hints = map[string]hint{
 	"UpsertImageInput.defaults":      {comment: `e.g. {cpu: "2", memory: 4Gi}`},
 	"UpsertImageInput.min":           {comment: `e.g. {cpu: "1", memory: 2Gi}`},
 	"UpsertImageInput.max":           {comment: `e.g. {cpu: "4", memory: 16Gi}`},
+	"UpsertImageInput.catalog":       {comment: "catalog-manifest sync of a registry entry; leave empty for none"},
+	"CatalogSourceModel.from":        {comment: "exactly one of url | configMapKeyRef | secretKeyRef"},
+	"CatalogSourceModel.auth":        {comment: "only meaningful with from.url"},
+	"CatalogConfigMapRef.key":        {comment: `empty reads "catalog.yaml"`},
 }
 
 // YAML renders the scaffold of the given payload type.

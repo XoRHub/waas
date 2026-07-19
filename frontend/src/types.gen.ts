@@ -506,6 +506,15 @@ export interface CatalogImage {
    * what gates the admin "Sync now" action.
    */
   catalog?: CatalogSyncStatus;
+  /**
+   * CatalogSource echoes spec.catalog itself — the admin-editable
+   * sync-source configuration, distinct from the read-only Catalog
+   * status above (which already owns the json key "catalog"). The
+   * governance editor renames it back to the PUT payload key
+   * "catalog" (UpsertImageInput.Catalog), so a full-spec update
+   * round-trips the sync source instead of wiping it.
+   */
+  catalogSource?: CatalogSourceModel;
 }
 /**
  * CatalogSyncStatus mirrors WorkspaceImage.status.catalog for the wire
@@ -520,6 +529,74 @@ export interface CatalogSyncStatus {
   source?: string;
   lastSyncTime?: string /* RFC3339 */;
   lastSyncError?: string;
+}
+/**
+ * CatalogSourceModel mirrors WorkspaceImage.spec.catalog for the wire —
+ * the catalog-manifest sync source of a registry-mode entry. Own wire
+ * types rather than the operator structs, same split (and for the same
+ * compatibility-cadence reason) as DiscoveredImage vs shared/catalog.Entry.
+ */
+export interface CatalogSourceModel {
+  /**
+   * From is the manifest source — exactly one of URL /
+   * ConfigMapKeyRef / SecretKeyRef (validated on upsert, mirroring
+   * the CRD's XValidation).
+   */
+  from: CatalogSourceFrom;
+  /**
+   * Auth configures the live fetch — only meaningful with From.URL.
+   */
+  auth?: CatalogSourceAuth;
+}
+/**
+ * CatalogSourceFrom names the catalog manifest source.
+ */
+export interface CatalogSourceFrom {
+  /**
+   * URL is fetched live and periodically.
+   */
+  url?: string;
+  /**
+   * ConfigMapKeyRef reads the manifest from a ConfigMap key in the
+   * platform workspace namespace.
+   */
+  configMapKeyRef?: CatalogConfigMapRef;
+  /**
+   * SecretKeyRef reads the manifest from a Secret key instead.
+   */
+  secretKeyRef?: CatalogSecretRef;
+}
+/**
+ * CatalogConfigMapRef names a ConfigMap key holding a catalog manifest.
+ */
+export interface CatalogConfigMapRef {
+  name: string;
+  /**
+   * Key inside it; empty reads "catalog.yaml".
+   */
+  key?: string;
+}
+/**
+ * CatalogSecretRef names a Secret key holding a catalog manifest; the
+ * key is required (no naming convention is assumed for a Secret).
+ */
+export interface CatalogSecretRef {
+  name: string;
+  key: string;
+}
+/**
+ * CatalogSourceAuth holds one authentication method for the catalog
+ * fetch — only BearerToken exists today, same shape as the CRD.
+ */
+export interface CatalogSourceAuth {
+  bearerToken?: CatalogBearerToken;
+}
+/**
+ * CatalogBearerToken names the Secret (key "token") holding the bearer
+ * token sent on the catalog fetch.
+ */
+export interface CatalogBearerToken {
+  secretRef: string;
 }
 /**
  * DiscoveredImage is one catalog-sync entry of a registry-mode
