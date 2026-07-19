@@ -45,6 +45,10 @@ function RemoteConnect({ id }: { id: string }) {
   const [attempt, setAttempt] = useState(0);
   const [waking, setWaking] = useState(false);
   const autoWokeRef = useRef(false);
+  // The boot-wait timer must not survive the page: cleared on unmount so
+  // a user navigating away mid-wake never gets the retry state flip.
+  const wolTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(wolTimerRef.current), []);
 
   const remote = remotes.data?.data.find((r) => r.id === id);
 
@@ -55,7 +59,7 @@ function RemoteConnect({ id }: { id: string }) {
     setWaking(true);
     wake.mutate(id, {
       onSettled: () => {
-        setTimeout(() => {
+        wolTimerRef.current = window.setTimeout(() => {
           setWaking(false);
           setAttempt((a) => a + 1);
         }, WOL_BOOT_WAIT_MS);
