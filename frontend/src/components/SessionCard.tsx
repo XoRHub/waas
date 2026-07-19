@@ -104,7 +104,6 @@ export function SessionCard({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {target.capabilities.hasPhase && phase && <StatusBadge phase={phase} />}
           {target.templateDrifted && (
             <span className="group relative inline-flex">
               <button
@@ -191,22 +190,33 @@ export function SessionCard({
         </div>
       </div>
 
-      {target.protocols.length > 0 && (
-        <div className="flex items-center gap-1" title={t('portal.switchProtocolHint')}>
-          {target.protocols.map((p) => (
-            <button
-              key={p.name}
-              onClick={() => switchTo(p.name)}
-              disabled={switching}
-              className={`rounded-full px-2 py-0.5 text-[11px] font-medium uppercase ${
-                p.name === active
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600'
-              }`}
-            >
-              {p.name}
-            </button>
-          ))}
+      {/* Targets without protocols shouldn't exist, but the phase badge must
+          not vanish with them — hence the OR guard. */}
+      {(target.protocols.length > 0 || (target.capabilities.hasPhase && phase)) && (
+        <div className="flex items-center gap-1">
+          {target.protocols.length > 0 && (
+            <div className="flex items-center gap-1" title={t('portal.switchProtocolHint')}>
+              {target.protocols.map((p) => (
+                <button
+                  key={p.name}
+                  onClick={() => switchTo(p.name)}
+                  disabled={switching}
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium uppercase ${
+                    p.name === active
+                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {target.capabilities.hasPhase && phase && (
+            <span className="ml-auto">
+              <StatusBadge phase={phase} />
+            </span>
+          )}
         </div>
       )}
 
