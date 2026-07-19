@@ -62,6 +62,7 @@ export function IdentityFields({
   onPatch,
   onApplyRecommendation,
   onArchitectures,
+  onIdentity,
 }: {
   input: TemplateInput;
   onPatch: (patch: Partial<TemplateInput>) => void;
@@ -69,6 +70,8 @@ export function IdentityFields({
   onApplyRecommendation?: (recommended: DeploymentRecommendation, imageProtocols: string[]) => void;
   /** See CatalogImageField.onArchitectures. */
   onArchitectures?: (architectures: string[]) => void;
+  /** See CatalogImageField.onIdentity. */
+  onIdentity?: (displayName: string, description: string) => void;
 }) {
   const { t } = useTranslation();
 
@@ -130,6 +133,7 @@ export function IdentityFields({
         onChange={(image) => onPatch({ image })}
         onApplyRecommendation={onApplyRecommendation}
         onArchitectures={onArchitectures}
+        onIdentity={onIdentity}
       />
 
       <label className="block">

@@ -37,6 +37,7 @@ const catalogs: CatalogImage[] = [
         image: 'ghcr.io/acme/firefox:128',
         app: 'firefox',
         displayName: 'Firefox',
+        description: 'Managed, policy-hardened Firefox in a single-app kiosk session.',
         version: '128',
         os: 'linux',
         profile: 'hardened',
@@ -74,11 +75,13 @@ function Harness({
   onChange,
   onApplyRecommendation,
   onArchitectures,
+  onIdentity,
 }: {
   initial: string;
   onChange: (v: string) => void;
   onApplyRecommendation?: (recommended: DeploymentRecommendation, imageProtocols: string[]) => void;
   onArchitectures?: (architectures: string[]) => void;
+  onIdentity?: (displayName: string, description: string) => void;
 }) {
   const [image, setImage] = useState(initial);
   return (
@@ -90,6 +93,7 @@ function Harness({
       }}
       onApplyRecommendation={onApplyRecommendation}
       onArchitectures={onArchitectures}
+      onIdentity={onIdentity}
     />
   );
 }
@@ -98,15 +102,17 @@ function renderField(initial = '') {
   const onChange = vi.fn();
   const onApplyRecommendation = vi.fn();
   const onArchitectures = vi.fn();
+  const onIdentity = vi.fn();
   renderWithProviders(
     <Harness
       initial={initial}
       onChange={onChange}
       onApplyRecommendation={onApplyRecommendation}
       onArchitectures={onArchitectures}
+      onIdentity={onIdentity}
     />,
   );
-  return { onChange, onApplyRecommendation, onArchitectures };
+  return { onChange, onApplyRecommendation, onArchitectures, onIdentity };
 }
 
 // A string name is an exact match: never collides with "Image catalog".
@@ -206,6 +212,43 @@ describe('CatalogImageField', () => {
     await openPicker();
     await userEvent.click(await screen.findByRole('option', { name: /Ubuntu Desktop/ }));
     expect(onArchitectures).toHaveBeenCalledWith(['arm64']);
+  });
+
+  it('reports the discovered displayName/description on selection, never on free typing', async () => {
+    const { onIdentity } = renderField();
+    await openPicker();
+    await userEvent.click(await screen.findByRole('option', { name: /Browsers/ }));
+
+    // Firefox carries both; the description also rides in the card's
+    // native tooltip.
+    const firefoxCard = screen.getByRole('option', { name: /Firefox/ });
+    expect(firefoxCard).toHaveAttribute(
+      'title',
+      expect.stringContaining('Managed, policy-hardened Firefox'),
+    );
+    await userEvent.click(firefoxCard);
+    expect(onIdentity).toHaveBeenLastCalledWith(
+      'Firefox',
+      'Managed, policy-hardened Firefox in a single-app kiosk session.',
+    );
+
+    // Chromium has no description: an empty string, not undefined.
+    await userEvent.clear(imageInput());
+    await userEvent.click(await screen.findByRole('option', { name: /Chromium/ }));
+    expect(onIdentity).toHaveBeenLastCalledWith('Chromium', '');
+
+    // Free typing never reports an identity.
+    onIdentity.mockClear();
+    await userEvent.clear(imageInput());
+    await userEvent.type(imageInput(), 'docker.io/zzz');
+    expect(onIdentity).not.toHaveBeenCalled();
+  });
+
+  it('single-image mode never reports an identity (no discovered metadata)', async () => {
+    const { onIdentity } = renderField();
+    await openPicker();
+    await userEvent.click(await screen.findByRole('option', { name: /Ubuntu Desktop/ }));
+    expect(onIdentity).not.toHaveBeenCalled();
   });
 
   it('shows an apply-recommendation button only for a discovered image carrying one', async () => {

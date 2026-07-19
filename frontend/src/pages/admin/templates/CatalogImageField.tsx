@@ -39,6 +39,7 @@ export function CatalogImageField({
   onChange,
   onApplyRecommendation,
   onArchitectures,
+  onIdentity,
 }: {
   image: string;
   onChange: (image: string) => void;
@@ -55,6 +56,12 @@ export function CatalogImageField({
    * entry-level one; [] = unknown. Never fired on free typing: a pasted
    * reference has no arch info to offer. */
   onArchitectures?: (architectures: string[]) => void;
+  /** Fired when a discovered card is picked, with the entry's
+   * displayName/description ('' when the manifest omits them) — the
+   * dialog's non-destructive identity prefill. Never fired on free
+   * typing or on a single-image catalog: neither carries discovered
+   * metadata. */
+  onIdentity?: (displayName: string, description: string) => void;
 }) {
   const { t } = useTranslation();
   const images = useAdminImages();
@@ -190,6 +197,7 @@ export function CatalogImageField({
                 os={d.os}
                 title={d.displayName || d.app || d.image}
                 subtitle={d.version || d.image}
+                description={d.description}
                 profile={d.profile}
                 selected={d.image === image}
                 onSelect={() => {
@@ -197,6 +205,7 @@ export function CatalogImageField({
                   onArchitectures?.(
                     d.architectures?.length ? d.architectures : (selected?.architectures ?? []),
                   );
+                  onIdentity?.(d.displayName ?? '', d.description ?? '');
                   setOpen(false);
                 }}
               />

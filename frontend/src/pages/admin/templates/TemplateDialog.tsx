@@ -200,6 +200,20 @@ export function TemplateDialog({
     if (additions.length > 0 || suggested.length > 0) markTouched('environment');
   };
 
+  // Identity prefill on catalog selection: the discovered entry's
+  // displayName/description land in the template's matching fields,
+  // but ONLY where those are still empty — a value the admin already
+  // typed is never overwritten (each field decided independently).
+  // Non-destructive by design, unlike the explicit apply-recommendation
+  // button above; no ● badge either — the target fields sit on the
+  // same screen as the picker.
+  const prefillIdentity = (displayName: string, description: string) => {
+    const patch: Partial<TemplateInput> = {};
+    if (displayName && input.displayName.trim() === '') patch.displayName = displayName;
+    if (description && (input.description ?? '').trim() === '') patch.description = description;
+    if (Object.keys(patch).length > 0) set(patch);
+  };
+
   /** The standard architecture scheduling label (kubernetes.io/arch). */
   const ARCH_LABEL = 'kubernetes.io/arch';
   // Arch prefill on catalog selection: exactly one published
@@ -340,6 +354,7 @@ export function TemplateDialog({
                 onPatch={set}
                 onApplyRecommendation={applyRecommendation}
                 onArchitectures={applyArchitectures}
+                onIdentity={prefillIdentity}
               />
             ),
           },

@@ -30,6 +30,7 @@ const catalogs: CatalogImage[] = [
         image: 'ghcr.io/acme/firefox:128',
         app: 'firefox',
         displayName: 'Firefox',
+        description: 'Managed, policy-hardened Firefox in a single-app kiosk session.',
         version: '128',
         os: 'linux',
         profile: 'hardened',
@@ -241,6 +242,61 @@ describe('TemplateDialog — apply catalog recommendation', () => {
     expect(
       screen.getByRole('button', { name: /WAAS_SSH_AUTHORIZED_KEYS_FILE/ }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('TemplateDialog — identity prefill on catalog selection', () => {
+  const selectFirefox = async () => {
+    await userEvent.click(
+      screen.getByRole('button', { name: en.admin.templatesPage.imageCatalog }),
+    );
+    await userEvent.click(await screen.findByRole('option', { name: /Browsers/ }));
+    await userEvent.click(await screen.findByRole('option', { name: /Firefox/ }));
+  };
+  const displayNameInput = () =>
+    screen.getByRole('textbox', { name: en.admin.templatesPage.displayName });
+  const descriptionInput = () =>
+    screen.getByRole('textbox', { name: en.admin.templatesPage.description });
+
+  it('fills empty displayName/description from the discovered image', async () => {
+    renderWithProviders(
+      <TemplateDialog
+        isNew
+        initial={{ ...initial, displayName: '', description: '' }}
+        onClose={() => {}}
+      />,
+    );
+    await selectFirefox();
+    expect(displayNameInput()).toHaveValue('Firefox');
+    expect(descriptionInput()).toHaveValue(
+      'Managed, policy-hardened Firefox in a single-app kiosk session.',
+    );
+  });
+
+  it('never overwrites a field the admin filled; each field decided independently', async () => {
+    // displayName already typed, description still empty: only the
+    // description is prefilled.
+    renderWithProviders(
+      <TemplateDialog isNew initial={{ ...initial, description: '' }} onClose={() => {}} />,
+    );
+    await selectFirefox();
+    expect(displayNameInput()).toHaveValue('My Template');
+    expect(descriptionInput()).toHaveValue(
+      'Managed, policy-hardened Firefox in a single-app kiosk session.',
+    );
+  });
+
+  it('leaves both fields untouched when the admin filled them', async () => {
+    renderWithProviders(
+      <TemplateDialog
+        isNew
+        initial={{ ...initial, description: 'Hand-written description.' }}
+        onClose={() => {}}
+      />,
+    );
+    await selectFirefox();
+    expect(displayNameInput()).toHaveValue('My Template');
+    expect(descriptionInput()).toHaveValue('Hand-written description.');
   });
 });
 
