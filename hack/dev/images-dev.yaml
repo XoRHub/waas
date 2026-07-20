@@ -12,7 +12,7 @@ metadata:
 spec:
   displayName: "Ubuntu 24.04 — XFCE"
   description: "Bureau XFCE complet (VNC recommandé, RDP/SSH disponibles)."
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.0.1
+  image: docker.io/xorhub/ubuntu-desktop-noble:2.1.1
   protocols: [vnc, rdp, ssh]
   architectures: [amd64, arm64]
   enabled: true
@@ -32,7 +32,7 @@ metadata:
 spec:
   displayName: "Dev env — SSH"
   description: "Environnement de dev terminal (git, tmux, build tools) via SSH, VNC en secours."
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.0.1
+  image: docker.io/xorhub/ubuntu-desktop-noble:2.1.1
   protocols: [ssh, vnc]
   architectures: [amd64, arm64]
   enabled: true
@@ -48,7 +48,7 @@ metadata:
 spec:
   displayName: "Firefox (navigation isolée)"
   description: "Firefox durci par policies.json, session jetable idéale."
-  image: docker.io/xorhub/firefox:2.0.1
+  image: docker.io/xorhub/firefox:2.0.2
   protocols: [vnc]
   architectures: [amd64]
   enabled: true
