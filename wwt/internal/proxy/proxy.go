@@ -208,7 +208,15 @@ func (h *Handler) pipe(ws *websocket.Conn, guacd net.Conn, guacdReader *bufio.Re
 
 	// guacd → browser
 	go func() {
-		defer func() { done <- struct{}{} }()
+		// A malformed stream must only tear down this one connection, never
+		// panic the shared wwt process (net/http's per-request recover does
+		// not reach here). Still signal done so the parent never deadlocks.
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("pipe goroutine panicked", "direction", "guacd->browser", "error", r)
+			}
+			done <- struct{}{}
+		}()
 		var framer guac.Framer
 		buf := make([]byte, 32*1024)
 		for {
@@ -241,7 +249,20 @@ func (h *Handler) pipe(ws *websocket.Conn, guacd net.Conn, guacdReader *bufio.Re
 
 	// browser → guacd
 	go func() {
-		defer func() { done <- struct{}{} }()
+		// Same crash isolation as the sibling goroutine: a panic here
+		// (e.g. a malformed browser instruction) kills only this tunnel.
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("pipe goroutine panicked", "direction", "browser->guacd", "error", r)
+			}
+			done <- struct{}{}
+		}()
+		// Bound inbound frames so a single message can never force a huge
+		// allocation before the parser's own length guard runs. A legal
+		// Guacamole instruction is ≤ ~32 KiB; MaxPendingBytes (1 MiB) is
+		// already the frame ceiling, so a small multiple of it is a
+		// generous belt on top of the ReadInstruction bound.
+		ws.SetReadLimit(4 * guac.MaxPendingBytes)
 		for {
 			_, message, err := ws.ReadMessage()
 			if err != nil {
