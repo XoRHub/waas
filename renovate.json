@@ -16,6 +16,13 @@
       "enabled": true
     },
     {
+      "description": "...but never across a major: a Go major is a new module path, so the parent (controller-runtime, modernc/sqlite) keeps importing the old one. Renovate adds the new path beside it instead of replacing it — never compiled, no h1: hash in go.sum — and the re-resolution silently downgrades the version that does ship (#75 took modernc.org/libc from v1.74.1 back to v1.73.4). gomodUpdateImportPaths cannot fix this: the imports live in the dependency's source, not ours. Must stay after the rule above — last match wins. Patch/minor stay on, so the Trivy CVE gate above keeps its coverage.",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["indirect"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "description": "One PR for all GitHub Actions patch/minor/digest bumps, automerged once required checks pass.",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["patch", "minor", "digest", "pinDigest"],
