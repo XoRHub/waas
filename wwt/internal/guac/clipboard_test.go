@@ -121,6 +121,22 @@ func TestClipboardLiveToggleClampedToGrant(t *testing.T) {
 	}
 }
 
+// TestFilterToGuacdMalformedLengthReturnsError is the proxy-facing half of
+// the DoS fix: with paste blocked the filter is on its slow path and hands
+// the raw browser bytes to ReadInstruction. A malformed length must surface
+// as an error (which the proxy loop turns into a clean per-connection
+// teardown) instead of panicking the shared process.
+func TestFilterToGuacdMalformedLengthReturnsError(t *testing.T) {
+	// paste denied by policy => slow path, no per-message setup needed.
+	f := NewClipboardFilter(true, false)
+	for _, wire := range []string{"-1.x,", "2000000000.x,"} {
+		forward, reply, err := f.FilterToGuacd([]byte(wire))
+		if err == nil {
+			t.Fatalf("expected an error for %q, got forward=%q reply=%q", wire, forward, reply)
+		}
+	}
+}
+
 func TestHandleControlIgnoresUnknownMessages(t *testing.T) {
 	f := NewClipboardFilter(true, true)
 	if reply := f.HandleControl([]byte("0.,4.ping,13.1751791234567;")); reply != nil {

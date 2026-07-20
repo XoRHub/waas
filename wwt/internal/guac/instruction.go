@@ -46,6 +46,13 @@ func ReadInstruction(r *bufio.Reader) (*Instruction, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parsing element length %q: %w", lengthStr, err)
 		}
+		// The length is attacker-controlled: a negative value panics
+		// make(), an enormous one forces a multi-GB allocation. Reject
+		// anything outside a legal instruction before allocating — this is
+		// the parser both filter directions share, so it guards both.
+		if length < 0 || length > MaxPendingBytes {
+			return nil, fmt.Errorf("illegal element length %d", length)
+		}
 
 		value := make([]rune, 0, length)
 		for len(value) < length {
