@@ -283,7 +283,7 @@ jobs:
       - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
           install_args: helm # version pinned in .mise.toml
-      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+      - uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -363,7 +363,7 @@ jobs:
       TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+      - uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -447,7 +447,7 @@ jobs:
       - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
           install_args: helm # version pinned in .mise.toml
-      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+      - uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
