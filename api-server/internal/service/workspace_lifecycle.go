@@ -86,6 +86,11 @@ func (s *WorkspaceService) UpdateOverrides(ctx context.Context, actor Actor, id 
 		in.Labels == nil && in.Annotations == nil && in.Schedule == nil {
 		return nil, apierror.BadRequest("no override field provided (env, nodeSelector, tolerations, resources, labels, annotations, schedule)")
 	}
+	if in.Env != nil {
+		if err := rejectValueFromEnv(*in.Env); err != nil {
+			return nil, err
+		}
+	}
 	ws, err := s.fetchByID(ctx, actor, id)
 	if err != nil {
 		return nil, err
@@ -161,6 +166,24 @@ func (s *WorkspaceService) UpdateOverrides(ctx context.Context, actor Actor, id 
 		"name="+ws.Name+" "+updateOverridesSummary(in))
 	m := workspaceToModel(ws, s.templateOf(ctx, ws))
 	return &m, nil
+}
+
+// rejectValueFromEnv refuses any override env entry sourced from a
+// valueFrom reference (secretKeyRef, configMapKeyRef, fieldRef,
+// resourceFieldRef): a tenant override must carry literal values only —
+// a reference would resolve co-located Secrets into the desktop's
+// environment. Secret injection is a template/admin channel. Shared by
+// the create and update paths; the admission webhook enforces the same
+// rule as the canonical barrier — this is the early 400 for UX.
+func rejectValueFromEnv(env []corev1.EnvVar) error {
+	for i := range env {
+		if env[i].ValueFrom != nil {
+			return apierror.BadRequest(fmt.Sprintf(
+				"overrides.env[%q]: valueFrom is not permitted in an override; only a literal value is allowed (inject Secrets via a WorkspaceTemplate)",
+				env[i].Name))
+		}
+	}
+	return nil
 }
 
 // updateOverridesSummary renders the audit-safe description of one
