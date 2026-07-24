@@ -31,6 +31,12 @@ type Config struct {
 	JWTPrivateKeyPath  string
 	AccessTokenTTL     time.Duration
 	ConnectionTokenTTL time.Duration
+	// StreamTokenTTL bounds how long a freshly minted SSE stream token can
+	// OPEN /events; like the connection token it is verified once at
+	// connect, so the stream itself lives on past expiry. Keep it short:
+	// the token travels in the URL query string (EventSource cannot set
+	// headers) and the frontend re-mints one on every reconnect.
+	StreamTokenTTL time.Duration
 
 	// InternalToken authenticates service-to-service calls from the
 	// WebSocket proxy (mounted from the same Secret in both pods).
@@ -150,6 +156,7 @@ func Load() (*Config, error) {
 		JWTPrivateKeyPath:       os.Getenv("WAAS_JWT_PRIVATE_KEY_FILE"),
 		AccessTokenTTL:          durationOr("WAAS_ACCESS_TOKEN_TTL", 8*time.Hour),
 		ConnectionTokenTTL:      durationOr("WAAS_CONNECTION_TOKEN_TTL", 5*time.Minute),
+		StreamTokenTTL:          durationOr("WAAS_STREAM_TOKEN_TTL", 2*time.Minute),
 		InternalToken:           os.Getenv("WAAS_INTERNAL_TOKEN"),
 		AdminUsername:           envOr("WAAS_ADMIN_USERNAME", "admin"),
 		AdminPassword:           os.Getenv("WAAS_ADMIN_PASSWORD"),

@@ -80,6 +80,9 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 			r.Use(middleware.Auth(signer, cfg.JWTIssuer))
 
 			r.Get("/auth/me", h.Auth.Me)
+			// Mints the short-lived waas-stream token for GET /events —
+			// the only route that authenticates via the query string.
+			r.Post("/auth/stream-token", h.Auth.StreamToken)
 			r.Patch("/me", h.Users.UpdateProfile)
 
 			// SSE change notifications (kinds only; the client re-fetches
