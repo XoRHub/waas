@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.0](https://github.com/XoRHub/waas/compare/v0.2.0...v0.3.0) (2026-07-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* drop the v prefix from appVersion and promoted image tags
+
+### Bug Fixes
+
+* **api-server:** restore modernc.org/libc to v1.74.1 ([e01ac1f](https://github.com/XoRHub/waas/commit/e01ac1f5c0d9494a32140c978d3f6db1da08d17c))
+* **wwt:** bound guacamole element length to stop remote crash of the  of the shared tunnel ([067536c](https://github.com/XoRHub/waas/commit/067536cd9a3118b8e2a8a9822343419cd5ff4625))
+* **wwt:** bound guacamole element length to stop remote crash of the shared tunnel ([f60d9f9](https://github.com/XoRHub/waas/commit/f60d9f9c1a29c8bea0960de2da57f51ff90d6b76))
+
+
+### Continuous Integration
+
+* drop the v prefix from appVersion and promoted image tags ([d33c6f9](https://github.com/XoRHub/waas/commit/d33c6f9e5c60d8aac7e93083afc30a8eae759443))
+
 ## [0.2.0](https://github.com/XoRHub/waas/compare/v0.1.0...v0.2.0) (2026-07-19)
 
 
