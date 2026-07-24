@@ -59,8 +59,13 @@ enforcement to the client.
   api-server side relays every Workspace change; remote mutations
   (DB, single writer) notify directly. Messages only carry *kinds* —
   the client re-queries the authorized API, nothing leaks.
-  Auth: same access token in the query string (`EventSource` can't set
-  headers), same middleware check. 25s heartbeat,
+  Auth: `EventSource` can't set headers, so each (re)connect first mints
+  a short-lived stream token (`POST /auth/stream-token`, normal header
+  auth) and passes it in the query string — a dedicated `waas-stream`
+  audience the API routes reject, so a token leaked in an access log
+  opens nothing; the API bearer never touches a URL. Reconnection is
+  explicit (mint, reopen, capped backoff) since the native auto-reconnect
+  would replay the expired token. 25s heartbeat,
   `X-Accel-Buffering: no` for nginx (traefik streams natively).
 - **Polling kept as fallback**: 3s during convergence, 15s
   otherwise (workspaces), 30s (remote).
