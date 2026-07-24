@@ -192,6 +192,15 @@ request**, not at token expiry. Two semantics to know:
   stream already open stays up (it only ever carries change *kinds*,
   never data; a revoked client can no longer re-fetch anything through
   the API). Revocation gates every **new** request, tunnel and stream.
+- **The database becomes a hard dependency of every authenticated route.**
+  The check is one primary-key read per request; when it fails the server
+  answers 503, never 401 (a 401 would make the frontend drop its auth
+  state, so a database blip would sign the whole fleet out). The accepted
+  trade: routes that never touched Postgres — listing or pausing a
+  workspace, `/meta/*`, all Kubernetes- or memory-backed — now fail with
+  it. An outage that used to leave the portal partly usable takes it fully
+  dark. Immediate revocation is worth that; caching the read would buy the
+  availability back at the cost of reopening the window this closes.
 
 The bound is never written at login: the token minted there would be
 issued in the same second and die on the `iat` comparison (`iat` is
