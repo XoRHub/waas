@@ -76,15 +76,22 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 		r.Get("/auth/oidc/start", h.Auth.OIDCStart)
 		r.Get("/auth/oidc/callback", h.Auth.OIDCCallback)
 
+		// SSE change notifications (kinds only; the client re-fetches
+		// through the authorized API). EventSource cannot set headers, so
+		// this one route authenticates with the short-lived waas-stream
+		// token in the query string (StreamAuth) — never the API bearer,
+		// which StreamAuth's audience check rejects. Polling stays as the
+		// fallback.
+		r.With(middleware.StreamAuth(signer, cfg.JWTIssuer)).Get("/events", h.Events.Stream)
+
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Auth(signer, cfg.JWTIssuer))
 
 			r.Get("/auth/me", h.Auth.Me)
+			// Mints the short-lived waas-stream token for GET /events —
+			// the only route that authenticates via the query string.
+			r.Post("/auth/stream-token", h.Auth.StreamToken)
 			r.Patch("/me", h.Users.UpdateProfile)
-
-			// SSE change notifications (kinds only; the client re-fetches
-			// through the authorized API). Polling stays as the fallback.
-			r.Get("/events", h.Events.Stream)
 
 			r.Route("/workspaces", func(r chi.Router) {
 				r.Get("/", h.Workspaces.List)

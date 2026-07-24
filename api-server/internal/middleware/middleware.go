@@ -21,26 +21,47 @@ type contextKey int
 const claimsKey contextKey = iota
 
 // Auth validates the Bearer access token on every request and stores the
-// claims in the request context.
+// claims in the request context. The Authorization header is the ONLY
+// accepted transport: query-string credentials end up in proxy access logs,
+// browser history and Referer headers, so they are never read here. The SSE
+// stream, which cannot set headers, has its own middleware (StreamAuth) with
+// its own token audience.
 func Auth(signer *auth.Signer, issuer string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			header := r.Header.Get("Authorization")
 			token, ok := strings.CutPrefix(header, "Bearer ")
 			if !ok || token == "" {
-				// EventSource cannot set headers: the SSE stream passes the
-				// SAME access token as a query parameter. Verification below
-				// is identical — this is a transport fallback, not a second
-				// auth path.
-				token = r.URL.Query().Get("access_token")
-			}
-			if token == "" {
 				apierror.Write(w, apierror.Unauthorized("missing bearer token"))
 				return
 			}
 			claims, err := auth.VerifyAccessToken(token, issuer, signer.Public())
 			if err != nil {
 				apierror.Write(w, apierror.Unauthorized("invalid or expired token"))
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey, claims)))
+		})
+	}
+}
+
+// StreamAuth authenticates the SSE stream ONLY. EventSource cannot set
+// headers, so the short-lived waas-stream token travels as the access_token
+// query parameter — a deliberate second auth path with its own audience,
+// sealed off in both directions: an API bearer in the query string and a
+// stream token in an Authorization header are both rejected. The claims
+// land in the context in the same shape, so Actor works unchanged.
+func StreamAuth(signer *auth.Signer, issuer string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token := r.URL.Query().Get("access_token")
+			if token == "" {
+				apierror.Write(w, apierror.Unauthorized("missing stream token"))
+				return
+			}
+			claims, err := auth.VerifyStreamToken(token, issuer, signer.Public())
+			if err != nil {
+				apierror.Write(w, apierror.Unauthorized("invalid or expired stream token"))
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey, claims)))

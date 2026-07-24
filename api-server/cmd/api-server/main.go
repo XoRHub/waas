@@ -80,7 +80,7 @@ func run() error {
 	catalogRepo := repository.NewSQLCatalogRepository(db)
 
 	audit := service.NewAuditService(auditRepo)
-	authSvc := service.NewAuthService(users, signer, audit, cfg.JWTIssuer, cfg.AccessTokenTTL)
+	authSvc := service.NewAuthService(users, signer, audit, cfg.JWTIssuer, cfg.AccessTokenTTL, cfg.StreamTokenTTL)
 	var oidcSvc *service.OIDCService
 	if cfg.OIDC.Enabled() {
 		oidcSvc = service.NewOIDCService(cfg.OIDC, users, audit, signer, cfg.JWTIssuer, cfg.AccessTokenTTL)

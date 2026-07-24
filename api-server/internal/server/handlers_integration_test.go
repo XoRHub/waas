@@ -355,7 +355,7 @@ func TestOIDCCallbackMirrorsGroupsAndSyncsAdminRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
-		JWTIssuer: "waas-test", AccessTokenTTL: time.Hour, ConnectionTokenTTL: time.Minute,
+		JWTIssuer: "waas-test", AccessTokenTTL: time.Hour, ConnectionTokenTTL: time.Minute, StreamTokenTTL: time.Minute,
 		WorkspaceNamespace: "test-ns", InternalToken: "x", AdminUsername: "admin",
 		OIDC: config.OIDCConfig{
 			IssuerURL: idp.server.URL, ClientID: "waas-client", ClientSecret: "s",
@@ -367,7 +367,7 @@ func TestOIDCCallbackMirrorsGroupsAndSyncsAdminRole(t *testing.T) {
 	users := repository.NewSQLUserRepository(db)
 	sessions := repository.NewSQLSessionRepository(db)
 	audit := service.NewAuditService(repository.NewSQLAuditRepository(db))
-	authSvc := service.NewAuthService(users, signer, audit, cfg.JWTIssuer, cfg.AccessTokenTTL)
+	authSvc := service.NewAuthService(users, signer, audit, cfg.JWTIssuer, cfg.AccessTokenTTL, cfg.StreamTokenTTL)
 	oidcSvc := service.NewOIDCService(cfg.OIDC, users, audit, signer, cfg.JWTIssuer, cfg.AccessTokenTTL)
 	userSvc := service.NewUserService(users, audit)
 	workspaceSvc := service.NewWorkspaceService(kube, cfg.WorkspaceNamespace, users, sessions, audit, signer,

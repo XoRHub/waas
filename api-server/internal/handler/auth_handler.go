@@ -62,6 +62,19 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	ok(w, user)
 }
 
+// StreamToken handles POST /api/v1/auth/stream-token (behind the normal
+// header-based Auth): mints the short-lived waas-stream token the SSE
+// client puts in the /events query string, since EventSource cannot set
+// headers. POST on purpose — not cacheable and never in browser history.
+func (h *AuthHandler) StreamToken(w http.ResponseWriter, r *http.Request) {
+	result, err := h.svc.StreamToken(r.Context(), middleware.Actor(r).ID)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, result)
+}
+
 // Providers handles GET /api/v1/auth/providers (public): which login
 // methods the login page should offer.
 func (h *AuthHandler) Providers(w http.ResponseWriter, _ *http.Request) {

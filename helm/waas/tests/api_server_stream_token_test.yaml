@@ -1,0 +1,19 @@
+suite: api-server SSE stream token TTL wiring
+templates:
+  - api-server/deployment.yaml
+release:
+  name: waas
+tests:
+  - it: wires the default streamTokenTTL into WAAS_STREAM_TOKEN_TTL
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_STREAM_TOKEN_TTL")].value
+          value: 2m
+
+  - it: honors an overridden streamTokenTTL
+    set:
+      apiServer.streamTokenTTL: 90s
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_STREAM_TOKEN_TTL")].value
+          value: 90s

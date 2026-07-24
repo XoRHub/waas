@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/xorhub/waas/shared/auth"
 )
 
 // Surface tests for the routes the lifecycle tests don't reach: meta,
@@ -20,6 +22,41 @@ func decodeData[T any](t *testing.T, body []byte) T {
 		t.Fatalf("decoding response: %v (%s)", err, body)
 	}
 	return out.Data
+}
+
+func TestStreamTokenEndpoint(t *testing.T) {
+	h, signer := newTestServer(t)
+
+	// Minting requires the normal header-based auth.
+	if rec := doJSON(t, h, http.MethodPost, "/api/v1/auth/stream-token", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated mint: want 401, got %d %s", rec.Code, rec.Body)
+	}
+
+	token := login(t, h)
+	rec := doJSON(t, h, http.MethodPost, "/api/v1/auth/stream-token", token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mint: want 200, got %d %s", rec.Code, rec.Body)
+	}
+	minted := decodeData[struct {
+		StreamToken string `json:"streamToken"`
+		ExpiresAt   string `json:"expiresAt"`
+	}](t, rec.Body.Bytes())
+	if minted.StreamToken == "" || minted.ExpiresAt == "" {
+		t.Fatalf("mint payload incomplete: %s", rec.Body)
+	}
+
+	// The minted token carries the waas-stream audience and the caller's
+	// role — and is therefore NOT an API access token.
+	claims, err := auth.VerifyStreamToken(minted.StreamToken, "waas-test", signer.Public())
+	if err != nil {
+		t.Fatalf("VerifyStreamToken: %v", err)
+	}
+	if claims.Role != auth.RoleAdmin {
+		t.Fatalf("stream token must carry the caller's role, got %q", claims.Role)
+	}
+	if _, err := auth.VerifyAccessToken(minted.StreamToken, "waas-test", signer.Public()); err == nil {
+		t.Fatal("a stream token must never verify as an API access token")
+	}
 }
 
 func TestMetaEndpoints(t *testing.T) {

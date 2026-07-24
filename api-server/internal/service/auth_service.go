@@ -21,10 +21,11 @@ type AuthService struct {
 
 	issuer         string
 	accessTokenTTL time.Duration
+	streamTokenTTL time.Duration
 }
 
-func NewAuthService(users repository.UserRepository, signer *auth.Signer, audit *AuditService, issuer string, accessTokenTTL time.Duration) *AuthService {
-	return &AuthService{users: users, signer: signer, audit: audit, issuer: issuer, accessTokenTTL: accessTokenTTL}
+func NewAuthService(users repository.UserRepository, signer *auth.Signer, audit *AuditService, issuer string, accessTokenTTL, streamTokenTTL time.Duration) *AuthService {
+	return &AuthService{users: users, signer: signer, audit: audit, issuer: issuer, accessTokenTTL: accessTokenTTL, streamTokenTTL: streamTokenTTL}
 }
 
 // LoginResult is returned to the frontend after a successful login.
@@ -94,6 +95,35 @@ func (s *AuthService) Login(ctx context.Context, username, password, clientIP st
 		ExpiresAt:   claims.ExpiresAt.Time,
 		User:        user,
 	}, nil
+}
+
+// StreamTokenResult is returned after minting an SSE stream token.
+type StreamTokenResult struct {
+	StreamToken string    `json:"streamToken"`
+	ExpiresAt   time.Time `json:"expiresAt"`
+}
+
+// StreamToken mints the short-lived waas-stream token the SSE client passes
+// as a query parameter. The user is re-read from the database so a disabled
+// account or a changed role is picked up at mint time instead of being
+// copied from the presented bearer's claims.
+func (s *AuthService) StreamToken(ctx context.Context, userID string) (*StreamTokenResult, error) {
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			return nil, apierror.Unauthorized("account no longer exists")
+		}
+		return nil, fmt.Errorf("looking up user %s: %w", userID, err)
+	}
+	if !user.Active {
+		return nil, apierror.Unauthorized("account is disabled")
+	}
+	claims := auth.NewStreamClaims(s.issuer, user.ID, user.Role, s.streamTokenTTL)
+	token, err := s.signer.Sign(claims)
+	if err != nil {
+		return nil, fmt.Errorf("issuing stream token for %s: %w", userID, err)
+	}
+	return &StreamTokenResult{StreamToken: token, ExpiresAt: claims.ExpiresAt.Time}, nil
 }
 
 // Me returns the authenticated user's profile.

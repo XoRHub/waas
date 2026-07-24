@@ -44,6 +44,7 @@ func newTestServer(t *testing.T) (http.Handler, *auth.Signer) {
 		JWTIssuer:          "waas-test",
 		AccessTokenTTL:     time.Hour,
 		ConnectionTokenTTL: time.Minute,
+		StreamTokenTTL:     time.Minute,
 		WorkspaceNamespace: "test-ns",
 		InternalToken:      "internal-secret",
 		AdminUsername:      "admin",
@@ -54,7 +55,7 @@ func newTestServer(t *testing.T) (http.Handler, *auth.Signer) {
 	remotes := repository.NewSQLRemoteWorkspaceRepository(db)
 	catalogRepo := repository.NewSQLCatalogRepository(db)
 	audit := service.NewAuditService(repository.NewSQLAuditRepository(db))
-	authSvc := service.NewAuthService(users, signer, audit, cfg.JWTIssuer, cfg.AccessTokenTTL)
+	authSvc := service.NewAuthService(users, signer, audit, cfg.JWTIssuer, cfg.AccessTokenTTL, cfg.StreamTokenTTL)
 	userSvc := service.NewUserService(users, audit)
 	templateSvc := service.NewTemplateService(kube, cfg.WorkspaceNamespace, audit)
 	workspaceSvc := service.NewWorkspaceService(kube, cfg.WorkspaceNamespace, users, sessions, audit, signer,
