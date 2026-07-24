@@ -15,7 +15,7 @@ version: 0.2.0
 # wraps `version` too, the root package's release would also touch the
 # chart's own SemVer.
 # x-release-please-start-version
-appVersion: "0.2.0"
+appVersion: "0.3.0"
 # x-release-please-end
 kubeVersion: ">=1.26.0-0"
 home: https://github.com/xorhub/waas
