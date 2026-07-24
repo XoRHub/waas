@@ -442,7 +442,7 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 // provides one — the kasmvnc and vnc/rdp mechanisms are mutually
 // exclusive, so at most one injection fires.
 func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides) []corev1.EnvVar {
-	env := mergeEnv(tpl.Spec.Env, ov.Env)
+	env := mergeEnv(tpl.Spec.Env, sanitizeOverrideEnv(ov.Env))
 	if kasmPasswordGenerated(ws, tpl) {
 		env = append(env, kasmEnv(ws))
 	}
@@ -455,6 +455,22 @@ func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate,
 		env = append(env, sshCredentialsEnv(env)...)
 	}
 	return env
+}
+
+// sanitizeOverrideEnv drops any valueFrom-sourced entry from a tenant
+// override: only literal values are allowed there (secret injection is a
+// template/admin channel — tpl.Spec.Env keeps its valueFrom entries).
+// Defense in depth behind the webhook guard: the whole entry is dropped,
+// never kept with an empty Value, so it cannot mask the template's var —
+// and a legacy CR stored before the guard existed is never rendered.
+func sanitizeOverrideEnv(over []corev1.EnvVar) []corev1.EnvVar {
+	out := over[:0:0]
+	for _, o := range over {
+		if o.ValueFrom == nil {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 // mergeEnv lays override entries over the base list; an override with the

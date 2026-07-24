@@ -293,3 +293,79 @@ func TestProtocolMismatchDenied(t *testing.T) {
 		t.Fatalf("expected protocol denial, got: %v", err)
 	}
 }
+
+// TestOverrideEnvValueFromDenied pins the exfiltration guard (audit
+// finding #3): a tenant override env entry carrying ANY valueFrom source
+// is denied — on create and on update — while literal values keep
+// working. validateShape enforces it for every caller (validity, not
+// policy), so kubectl goes through the same gate as the portal.
+func TestOverrideEnvValueFromDenied(t *testing.T) {
+	sources := map[string]*corev1.EnvVarSource{
+		"secretKeyRef": {SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "waas-postgres"}, Key: "password"}},
+		"configMapKeyRef": {ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "some-config"}, Key: "data"}},
+		"fieldRef":         {FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}},
+		"resourceFieldRef": {ResourceFieldRef: &corev1.ResourceFieldSelector{Resource: "limits.cpu"}},
+	}
+	for name, src := range sources {
+		t.Run(name, func(t *testing.T) {
+			v := newValidator(t, tpl(), catalogImage(), defaultPolicy())
+			ws := workspace("w1", func(w *waasv1alpha1.Workspace) {
+				w.Spec.Overrides = &waasv1alpha1.WorkspaceOverrides{
+					Env: []corev1.EnvVar{{Name: "STEAL", ValueFrom: src}},
+				}
+			})
+			_, err := v.ValidateCreate(asCaller(apiSA), ws)
+			if err == nil || !strings.Contains(err.Error(), "OverrideNotAllowed") ||
+				!strings.Contains(err.Error(), "valueFrom") {
+				t.Fatalf("create with override env %s must be denied, got: %v", name, err)
+			}
+			// Update path: a clean workspace acquiring the override later.
+			_, err = v.ValidateUpdate(asCaller(apiSA), workspace("w1"), ws)
+			if err == nil || !strings.Contains(err.Error(), "OverrideNotAllowed") ||
+				!strings.Contains(err.Error(), "valueFrom") {
+				t.Fatalf("update with override env %s must be denied, got: %v", name, err)
+			}
+		})
+	}
+}
+
+// TestOverrideEnvLiteralStillAllowed is the regression side of the
+// valueFrom guard: a literal override env entry passes exactly as before.
+func TestOverrideEnvLiteralStillAllowed(t *testing.T) {
+	envTpl := tpl()
+	envTpl.Spec.Overrides = &waasv1alpha1.TemplateOverrides{
+		AllowedFields: []waasv1alpha1.OverridableField{waasv1alpha1.FieldEnv},
+	}
+	v := newValidator(t, envTpl, catalogImage(), defaultPolicy())
+	ws := workspace("w1", func(w *waasv1alpha1.Workspace) {
+		w.Spec.Overrides = &waasv1alpha1.WorkspaceOverrides{
+			Env: []corev1.EnvVar{{Name: "HTTP_PROXY", Value: "http://proxy:3128"}},
+		}
+	})
+	if _, err := v.ValidateCreate(asCaller(apiSA), ws); err != nil {
+		t.Fatalf("literal override env must stay allowed, got: %v", err)
+	}
+	if _, err := v.ValidateUpdate(asCaller(apiSA), workspace("w1"), ws); err != nil {
+		t.Fatalf("literal override env must stay allowed on update, got: %v", err)
+	}
+}
+
+// TestTemplateEnvValueFromStillAllowed pins the admin channel: a
+// TEMPLATE env entry sourced from a Secret (the dev-ssh pattern) is
+// untouched by the override guard — workspaces stamped from it admit.
+func TestTemplateEnvValueFromStillAllowed(t *testing.T) {
+	sshTpl := tpl()
+	sshTpl.Spec.Env = []corev1.EnvVar{{
+		Name: "WAAS_SSH_AUTHORIZED_KEYS",
+		ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "dev-ssh-credentials"},
+			Key:                  "authorized-keys",
+		}},
+	}}
+	v := newValidator(t, sshTpl, catalogImage(), defaultPolicy())
+	if _, err := v.ValidateCreate(asCaller(apiSA), workspace("w1")); err != nil {
+		t.Fatalf("template env valueFrom must stay allowed, got: %v", err)
+	}
+}
