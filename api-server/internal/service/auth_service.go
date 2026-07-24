@@ -97,6 +97,25 @@ func (s *AuthService) Login(ctx context.Context, username, password, clientIP st
 	}, nil
 }
 
+// Logout revokes every outstanding token of the calling user by stamping
+// tokens_valid_after to now. Global by design: one logout ends the
+// account's sessions on every device — the safe default for a security
+// control (per-device revocation would need per-session state, a jti
+// denylist this deliberately avoids). Idempotent: logging out an account
+// that no longer exists is a no-op, never an error. The bound is NEVER
+// written at login — the token minted there would be issued in the same
+// second and die on the iat comparison (see middleware).
+func (s *AuthService) Logout(ctx context.Context, actor Actor) error {
+	if err := s.users.SetTokensValidAfter(ctx, actor.ID, time.Now().UTC()); err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			return nil
+		}
+		return fmt.Errorf("revoking tokens for %s: %w", actor.ID, err)
+	}
+	s.audit.Record(ctx, actor, "user.logged_out", "user", actor.ID, "all sessions revoked")
+	return nil
+}
+
 // StreamTokenResult is returned after minting an SSE stream token.
 type StreamTokenResult struct {
 	StreamToken string    `json:"streamToken"`

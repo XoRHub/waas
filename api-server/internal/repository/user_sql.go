@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/xorhub/waas/api-server/internal/database"
 	"github.com/xorhub/waas/api-server/internal/model"
@@ -102,6 +103,21 @@ func (r *SQLUserRepository) Update(ctx context.Context, user *model.User) error 
 		timePtrArg(user.TokensValidAfter), user.ID)
 	if err != nil {
 		return fmt.Errorf("updating user %s: %w", user.ID, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+// SetTokensValidAfter revokes the user's outstanding tokens with a single
+// targeted UPDATE — never a read-modify-write, so a concurrent full-row
+// Update cannot resurrect revoked tokens by writing back a stale bound.
+func (r *SQLUserRepository) SetTokensValidAfter(ctx context.Context, id string, at time.Time) error {
+	query := r.db.Rebind(`UPDATE users SET tokens_valid_after = ? WHERE id = ?`)
+	res, err := r.db.ExecContext(ctx, query, timeArg(at), id)
+	if err != nil {
+		return fmt.Errorf("setting token bound for user %s: %w", id, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrUserNotFound

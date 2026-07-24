@@ -133,6 +133,11 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	if err != nil {
 		return nil, err
 	}
+	// revoke: a security-relevant change (deactivation, role change,
+	// password reset) bounds the validity of every outstanding token to
+	// now. Stamped on the SAME row write as the change itself, so the
+	// revocation can neither race it nor be lost separately.
+	revoke := false
 	if in.Email != nil {
 		user.Email = *in.Email
 	}
@@ -142,14 +147,17 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 			return nil, fmt.Errorf("hashing password: %w", err)
 		}
 		user.PasswordHash = hash
+		revoke = true
 	}
 	if in.Role != nil {
 		if *in.Role != auth.RoleAdmin && *in.Role != auth.RoleUser {
 			return nil, apierror.BadRequest("role must be admin or user")
 		}
+		revoke = revoke || *in.Role != user.Role
 		user.Role = *in.Role
 	}
 	if in.Active != nil {
+		revoke = revoke || (user.Active && !*in.Active)
 		user.Active = *in.Active
 	}
 	if in.MaxWorkspaces != nil {
@@ -159,6 +167,10 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 		user.Groups = *in.Groups
 	}
 	user.UpdatedAt = time.Now().UTC()
+	if revoke {
+		now := user.UpdatedAt
+		user.TokensValidAfter = &now
+	}
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
 	}
@@ -217,6 +229,13 @@ func (s *UserService) UpdateProfile(ctx context.Context, actor Actor, in UpdateP
 		user.PasswordHash = hash
 	}
 	user.UpdatedAt = time.Now().UTC()
+	if in.NewPassword != "" {
+		// A credential change ends every session, the current device
+		// included: after a password change the only sound assumption is
+		// that the old credential may have been compromised.
+		now := user.UpdatedAt
+		user.TokensValidAfter = &now
+	}
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
 	}

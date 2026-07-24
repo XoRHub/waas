@@ -88,6 +88,9 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 			r.Use(middleware.Auth(signer, cfg.JWTIssuer))
 
 			r.Get("/auth/me", h.Auth.Me)
+			// Server-side logout: revokes every outstanding token of the
+			// caller (global, not per device).
+			r.Post("/auth/logout", h.Auth.Logout)
 			// Mints the short-lived waas-stream token for GET /events —
 			// the only route that authenticates via the query string.
 			r.Post("/auth/stream-token", h.Auth.StreamToken)

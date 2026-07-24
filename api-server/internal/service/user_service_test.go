@@ -49,6 +49,67 @@ func forbidden(t *testing.T, err error) {
 
 func strptr(s string) *string { return &s }
 
+// Security-relevant admin edits must revoke outstanding tokens; benign
+// ones must not (a quota bump must never log the user out everywhere).
+func TestAdminUpdateRevokesTokensOnlyOnSecurityChanges(t *testing.T) {
+	boolptr := func(b bool) *bool { return &b }
+	roleptr := func(r auth.Role) *auth.Role { return &r }
+	intptr := func(i int) *int { return &i }
+
+	for name, tc := range map[string]struct {
+		in         UpdateUserInput
+		wantRevoke bool
+	}{
+		"deactivation":       {UpdateUserInput{Active: boolptr(false)}, true},
+		"role change":        {UpdateUserInput{Role: roleptr(auth.RoleAdmin)}, true},
+		"password reset":     {UpdateUserInput{Password: strptr("new-password")}, true},
+		"same role":          {UpdateUserInput{Role: roleptr(auth.RoleUser)}, false},
+		"still active":       {UpdateUserInput{Active: boolptr(true)}, false},
+		"email only":         {UpdateUserInput{Email: strptr("new@example.com")}, false},
+		"quota only":         {UpdateUserInput{MaxWorkspaces: intptr(5)}, false},
+		"groups only":        {UpdateUserInput{Groups: &[]string{"dev"}}, false},
+		"reactivate account": {UpdateUserInput{Active: boolptr(true), Email: strptr("x@y")}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, users := newUserFixture(t, []model.User{{ID: "u-bob", Username: "bob"}})
+			if _, err := svc.Update(context.Background(), Actor{ID: "u-admin"}, "u-bob", tc.in); err != nil {
+				t.Fatalf("update: %v", err)
+			}
+			stored, _ := users.FindByID(context.Background(), "u-bob")
+			if got := stored.TokensValidAfter != nil; got != tc.wantRevoke {
+				t.Fatalf("revocation stamp: want %v, got bound %v", tc.wantRevoke, stored.TokensValidAfter)
+			}
+		})
+	}
+}
+
+func TestUpdateProfilePasswordChangeRevokesTokens(t *testing.T) {
+	hash, err := HashPassword("old-password")
+	if err != nil {
+		t.Fatalf("hashing seed password: %v", err)
+	}
+	svc, users := newUserFixture(t, []model.User{{ID: "u-bob", Username: "bob", PasswordHash: hash}})
+
+	// Preference edits must not end sessions.
+	in := UpdateProfileInput{Preferences: &model.UserPreferences{Theme: "dark"}}
+	if _, err := svc.UpdateProfile(context.Background(), Actor{ID: "u-bob"}, in); err != nil {
+		t.Fatalf("preferences update: %v", err)
+	}
+	stored, _ := users.FindByID(context.Background(), "u-bob")
+	if stored.TokensValidAfter != nil {
+		t.Fatalf("a preference edit must not revoke tokens, got %v", stored.TokensValidAfter)
+	}
+
+	in = UpdateProfileInput{CurrentPassword: "old-password", NewPassword: "new-password"}
+	if _, err := svc.UpdateProfile(context.Background(), Actor{ID: "u-bob"}, in); err != nil {
+		t.Fatalf("password change: %v", err)
+	}
+	stored, _ = users.FindByID(context.Background(), "u-bob")
+	if stored.TokensValidAfter == nil {
+		t.Fatal("a password change must revoke every outstanding token")
+	}
+}
+
 func TestUpdateProfileSSOAccountLocksIdentityAndPassword(t *testing.T) {
 	// An IdP-owned account must not edit identity or set a local password:
 	// identity gets overwritten at next SSO login, and the password path

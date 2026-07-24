@@ -52,6 +52,16 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ok(w, result)
 }
 
+// Logout handles POST /api/v1/auth/logout (behind Auth): revokes every
+// outstanding token of the caller — logout is global, not per device.
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.Logout(r.Context(), middleware.Actor(r)); err != nil {
+		fail(w, r, err)
+		return
+	}
+	noContent(w)
+}
+
 // Me handles GET /api/v1/auth/me.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	user, err := h.svc.Me(r.Context(), middleware.Actor(r).ID)
