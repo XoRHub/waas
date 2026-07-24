@@ -70,7 +70,7 @@ func newTestServer(t *testing.T) (http.Handler, *auth.Signer) {
 		t.Fatalf("bootstrapping admin: %v", err)
 	}
 
-	return New(cfg, signer, Handlers{
+	return New(cfg, signer, users, Handlers{
 		Auth:             handler.NewAuthHandler(authSvc, nil, cfg.OIDC, signer),
 		Users:            handler.NewUserHandler(userSvc),
 		Templates:        handler.NewTemplateHandler(templateSvc),
@@ -143,6 +143,38 @@ func TestLoginAndProtectedRoutes(t *testing.T) {
 	rec = doJSON(t, h, http.MethodGet, "/api/v1/auth/me", token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("me: expected 200, got %d: %s", rec.Code, rec.Body)
+	}
+}
+
+// Server-side logout, end to end — deliberately within the same wall-clock
+// second as the login: the JWT iat is second-truncated, and the revocation
+// comparison must still kill the token (the clock trap the middleware
+// documents). A second login mints a working token again.
+func TestLogoutRevokesTheTokenImmediately(t *testing.T) {
+	h, _ := newTestServer(t)
+	token := login(t, h)
+
+	if rec := doJSON(t, h, http.MethodPost, "/api/v1/auth/logout", token, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("logout: expected 204, got %d: %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, http.MethodGet, "/api/v1/auth/me", token, nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("me after logout: expected 401, got %d: %s", rec.Code, rec.Body)
+	}
+
+	// The account itself is untouched: a fresh login works. The new token
+	// may fall in the logout's second and be second-truncated below the
+	// bound — retry across the boundary rather than flake.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		token = login(t, h)
+		rec := doJSON(t, h, http.MethodGet, "/api/v1/auth/me", token, nil)
+		if rec.Code == http.StatusOK {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("me after re-login: expected 200, got %d: %s", rec.Code, rec.Body)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 

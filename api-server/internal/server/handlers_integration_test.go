@@ -372,7 +372,7 @@ func TestOIDCCallbackMirrorsGroupsAndSyncsAdminRole(t *testing.T) {
 	userSvc := service.NewUserService(users, audit)
 	workspaceSvc := service.NewWorkspaceService(kube, cfg.WorkspaceNamespace, users, sessions, audit, signer,
 		cfg.JWTIssuer, cfg.ConnectionTokenTTL)
-	h := New(cfg, signer, Handlers{
+	h := New(cfg, signer, users, Handlers{
 		Auth:       handler.NewAuthHandler(authSvc, oidcSvc, cfg.OIDC, signer),
 		Users:      handler.NewUserHandler(userSvc),
 		Templates:  handler.NewTemplateHandler(service.NewTemplateService(kube, cfg.WorkspaceNamespace, audit)),
