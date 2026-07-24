@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/XoRHub/waas/compare/chart-0.2.0...chart-0.3.0) (2026-07-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* drop the v prefix from appVersion and promoted image tags
+
+### ci
+
+* drop the v prefix from appVersion and promoted image tags ([d33c6f9](https://github.com/XoRHub/waas/commit/d33c6f9e5c60d8aac7e93083afc30a8eae759443))
+
+
+### Chores
+
+* **deps:** update bitnami/kubectl:latest docker digest to 95de17e ([8903648](https://github.com/XoRHub/waas/commit/8903648f6e64689c06eb6b6f3215621464d2cb84))
+* **deps:** update bitnami/kubectl:latest docker digest to 95de17e ([f558af9](https://github.com/XoRHub/waas/commit/f558af95cf2767e2935131476156235436dce8db))
+
 ## [0.2.0](https://github.com/XoRHub/waas/compare/waas-chart-0.1.0...waas-chart-0.2.0) (2026-07-19)
 
 

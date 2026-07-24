@@ -7,7 +7,7 @@ description: >-
 type: application
 # version: the chart's OWN SemVer, bumped natively by release-please's
 # "helm" package strategy (helm/waas package) — independent of the app.
-version: 0.2.0
+version: 0.3.0
 # appVersion: the app's version (default image tag), bumped by the root
 # "." package via extra-files. Bare SemVer, matching the promoted X.Y.Z
 # image tags — only the git tag keeps its "v" prefix (the promote job
