@@ -116,6 +116,26 @@ func main() {
 	}
 	setupLog.Info("platform namespace resolved", "namespace", platformNamespace)
 
+	// Default-deny egress on placed namespaces: hardened by default, and
+	// fail-closed — a missing env falls back to the hardened default
+	// (enabled, internet minus IMDS/RFC1918), only explicit values loosen
+	// it. An unparseable bool or CIDR is a refusal to start, like the
+	// placement pattern above: an operator silently running with a
+	// different egress posture than what GitOps declares would be an
+	// invisible security drift.
+	desktopEgress, err := controller.DesktopEgressFromEnv()
+	if err != nil {
+		setupLog.Error(err, "invalid desktop egress configuration — refusing to start")
+		os.Exit(1)
+	}
+	if desktopEgress.Enabled && desktopEgress.AllowInternet && len(desktopEgress.BlockedCIDRs) == 0 {
+		setupLog.Info("WARNING: desktop egress allows the WHOLE internet (empty blocked CIDR list) — " +
+			"the cloud IMDS and internal ranges are reachable from tenant desktops")
+	}
+	setupLog.Info("desktop egress policy configured",
+		"enabled", desktopEgress.Enabled, "allowInternet", desktopEgress.AllowInternet,
+		"blockedCIDRs", desktopEgress.BlockedCIDRs, "extraAllowedCIDRs", desktopEgress.ExtraAllowedCIDRs)
+
 	if err := (&controller.WorkspaceReconciler{
 		Client:            mgr.GetClient(),
 		KubeVirtAvailable: kubeVirtAvailable,
@@ -124,6 +144,7 @@ func main() {
 		Recorder: mgr.GetEventRecorderFor("waas-operator"), //nolint:staticcheck // SA1019
 
 		PlatformNamespace:       platformNamespace,
+		DesktopEgress:           desktopEgress,
 		DefaultNamespacePattern: defaultNamespacePattern,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Workspace")

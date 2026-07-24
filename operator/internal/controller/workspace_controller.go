@@ -74,6 +74,12 @@ type WorkspaceReconciler struct {
 	// The bootstrap NetworkPolicy of placed namespaces lets it in; empty
 	// = assume everything runs beside the CRs.
 	PlatformNamespace string
+	// DesktopEgress shapes the default-deny egress stamped on the network
+	// policy of placed namespaces (WAAS_DESKTOP_EGRESS_* envs; hardened
+	// default: enabled, DNS + internet minus cloud IMDS and RFC1918).
+	// Only the egress side is configurable — the ingress default-deny is
+	// always enforced.
+	DesktopEgress DesktopEgressConfig
 	// DefaultNamespacePattern is the operator-wide placement pattern
 	// (WAAS_DEFAULT_NAMESPACE_PATTERN), applied when a template declares
 	// none; empty = the built-in naming.BuiltinNamespacePattern. Only
