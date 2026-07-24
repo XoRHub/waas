@@ -22,14 +22,15 @@ func NewSQLUserRepository(db *database.DB) *SQLUserRepository {
 	return &SQLUserRepository{db: db}
 }
 
-const userColumns = "id, username, email, password_hash, role, active, max_workspaces, created_at, updated_at, last_login_at, user_groups, display_name, preferences, oidc_subject"
+const userColumns = "id, username, email, password_hash, role, active, max_workspaces, created_at, updated_at, last_login_at, user_groups, display_name, preferences, oidc_subject, tokens_valid_after"
 
 func (r *SQLUserRepository) Create(ctx context.Context, user *model.User) error {
-	query := r.db.Rebind(`INSERT INTO users (` + userColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	query := r.db.Rebind(`INSERT INTO users (` + userColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	_, err := r.db.ExecContext(ctx, query,
 		user.ID, user.Username, nullable(user.Email), user.PasswordHash, string(user.Role),
 		user.Active, user.MaxWorkspaces, timeArg(user.CreatedAt), timeArg(user.UpdatedAt), timePtrArg(user.LastLoginAt),
-		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.OIDCSubject)
+		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.OIDCSubject,
+		timePtrArg(user.TokensValidAfter))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("creating user %s: %w", user.Username, ErrDuplicate)
@@ -93,11 +94,12 @@ func (r *SQLUserRepository) List(ctx context.Context, page, pageSize int) ([]mod
 
 func (r *SQLUserRepository) Update(ctx context.Context, user *model.User) error {
 	query := r.db.Rebind(`UPDATE users SET email = ?, password_hash = ?, role = ?, active = ?,
-		max_workspaces = ?, updated_at = ?, last_login_at = ?, user_groups = ?, display_name = ?, preferences = ?, oidc_subject = ? WHERE id = ?`)
+		max_workspaces = ?, updated_at = ?, last_login_at = ?, user_groups = ?, display_name = ?, preferences = ?, oidc_subject = ?, tokens_valid_after = ? WHERE id = ?`)
 	res, err := r.db.ExecContext(ctx, query,
 		nullable(user.Email), user.PasswordHash, string(user.Role), user.Active,
 		user.MaxWorkspaces, timeArg(user.UpdatedAt), timePtrArg(user.LastLoginAt),
-		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.OIDCSubject, user.ID)
+		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.OIDCSubject,
+		timePtrArg(user.TokensValidAfter), user.ID)
 	if err != nil {
 		return fmt.Errorf("updating user %s: %w", user.ID, err)
 	}
@@ -138,7 +140,8 @@ func scanUser(row rowScanner) (*model.User, error) {
 	)
 	if err := row.Scan(&user.ID, &user.Username, &email, &user.PasswordHash, &role,
 		&user.Active, &user.MaxWorkspaces, scanTime{&user.CreatedAt}, scanTime{&user.UpdatedAt},
-		scanNullTime{&user.LastLoginAt}, &groups, &user.DisplayName, &prefs, &user.OIDCSubject); err != nil {
+		scanNullTime{&user.LastLoginAt}, &groups, &user.DisplayName, &prefs, &user.OIDCSubject,
+		scanNullTime{&user.TokensValidAfter}); err != nil {
 		return nil, err
 	}
 	user.Email = email.String

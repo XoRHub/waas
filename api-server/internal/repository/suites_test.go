@@ -48,6 +48,9 @@ func TestUserRepositorySuite(t *testing.T) {
 		if got.Preferences.WorkspaceFolders["w1"] != "infra" {
 			t.Fatalf("preferences JSON round-trip: %+v", got.Preferences)
 		}
+		if got.TokensValidAfter != nil {
+			t.Fatalf("fresh user must carry no token bound (NULL round-trip): %v", got.TokensValidAfter)
+		}
 
 		// Username lookup + duplicate rejection.
 		if _, err := repo.FindByUsername(ctx, "alice"); err != nil {
@@ -59,8 +62,14 @@ func TestUserRepositorySuite(t *testing.T) {
 		}
 
 		// Update: groups replaced wholesale (the admin-edit contract).
+		// The token bound keeps its sub-second precision through storage:
+		// revocation compares it against a second-truncated JWT iat, so a
+		// backend rounding it (the RFC3339-scanner divergence class) would
+		// silently change which tokens die.
+		bound := time.Date(2026, 7, 8, 11, 0, 0, 500_000_000, time.UTC)
 		got.Groups = []string{"sec"}
 		got.Role = auth.RoleAdmin
+		got.TokensValidAfter = &bound
 		if err := repo.Update(ctx, got); err != nil {
 			t.Fatal(err)
 		}
@@ -70,6 +79,9 @@ func TestUserRepositorySuite(t *testing.T) {
 		}
 		if len(got.Groups) != 1 || got.Groups[0] != "sec" || got.Role != auth.RoleAdmin {
 			t.Fatalf("update round-trip: %+v", got)
+		}
+		if got.TokensValidAfter == nil || !got.TokensValidAfter.Equal(bound) {
+			t.Fatalf("tokens_valid_after round-trip: want %v got %v", bound, got.TokensValidAfter)
 		}
 
 		// Missing rows fail typed, not with sql.ErrNoRows.
