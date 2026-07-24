@@ -55,6 +55,8 @@ spec:
               value: {{ .Values.apiServer.accessTokenTTL | quote }}
             - name: WAAS_CONNECTION_TOKEN_TTL
               value: {{ .Values.apiServer.connectionTokenTTL | quote }}
+            - name: WAAS_STREAM_TOKEN_TTL
+              value: {{ .Values.apiServer.streamTokenTTL | quote }}
             - name: WAAS_EVENTS_POLL_INTERVAL
               value: {{ .Values.apiServer.eventsPollInterval | default "10s" | quote }}
             # Catalog re-sync cadence for WorkspaceImage.spec.catalog

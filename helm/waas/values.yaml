@@ -355,6 +355,15 @@ apiServer:
   accessTokenTTL: 8h
   # -- Short-lived connection token lifetime (per desktop session).
   connectionTokenTTL: 5m
+  # Lifetime of the SSE stream token: minted per (re)connect of the
+  # /events stream and verified once at open, like the connection
+  # token. It rides the URL query string (EventSource cannot set
+  # headers), so it lands in proxy access logs — the short TTL is what
+  # keeps such a leak worthless. Do NOT lengthen it to "avoid
+  # reconnections": the frontend re-mints a token on every reconnect
+  # anyway, so a longer TTL buys nothing and only widens the window.
+  # -- Short-lived SSE stream token lifetime (verified once, at stream open).
+  streamTokenTTL: 2m
   # Refresh cadence of the workspace Events panel (server-driven: the
   # frontend honors whatever the API answers, no rebuild needed).
   # -- Poll interval used by the workspace Events panel.

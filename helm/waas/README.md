@@ -128,6 +128,7 @@ table is a quick *what*.
 | apiServer.jwtIssuer | string | `"waas"` | JWT `iss` claim value. |
 | apiServer.accessTokenTTL | string | `"8h"` | Access token lifetime. |
 | apiServer.connectionTokenTTL | string | `"5m"` | Short-lived connection token lifetime (per desktop session). |
+| apiServer.streamTokenTTL | string | `"2m"` | Short-lived SSE stream token lifetime (verified once, at stream open). |
 | apiServer.eventsPollInterval | string | `"10s"` | Poll interval used by the workspace Events panel. |
 | apiServer.catalogSyncInterval | string | `"6h"` | Re-sync cadence of WorkspaceImage catalog sources (cosmetic picker metadata only). |
 | apiServer.adminUsername | string | `"admin"` | Bootstrap admin username. |
