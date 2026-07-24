@@ -69,8 +69,10 @@ func TestUserRepositorySuite(t *testing.T) {
 		bound := time.Date(2026, 7, 8, 11, 0, 0, 500_000_000, time.UTC)
 		got.Groups = []string{"sec"}
 		got.Role = auth.RoleAdmin
-		got.TokensValidAfter = &bound
 		if err := repo.Update(ctx, got); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.SetTokensValidAfter(ctx, "u1", bound); err != nil {
 			t.Fatal(err)
 		}
 		got, err = repo.FindByID(ctx, "u1")
@@ -82,6 +84,22 @@ func TestUserRepositorySuite(t *testing.T) {
 		}
 		if got.TokensValidAfter == nil || !got.TokensValidAfter.Equal(bound) {
 			t.Fatalf("tokens_valid_after round-trip: want %v got %v", bound, got.TokensValidAfter)
+		}
+
+		// The revocation must survive a later full-row write: Update carries
+		// a copy read BEFORE the bound existed, and writing it back would
+		// resurrect every token the revocation had just killed.
+		got.TokensValidAfter = nil
+		got.DisplayName = "post-revocation edit"
+		if err := repo.Update(ctx, got); err != nil {
+			t.Fatal(err)
+		}
+		got, err = repo.FindByID(ctx, "u1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.TokensValidAfter == nil || !got.TokensValidAfter.Equal(bound) {
+			t.Fatalf("a full-row Update must not clear the token bound, got %v", got.TokensValidAfter)
 		}
 
 		// Missing rows fail typed, not with sql.ErrNoRows.

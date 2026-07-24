@@ -93,14 +93,21 @@ func (r *SQLUserRepository) List(ctx context.Context, page, pageSize int) ([]mod
 	return users, total, rows.Err()
 }
 
+// Update rewrites the mutable columns of a user row from an in-memory
+// copy. It deliberately does NOT write tokens_valid_after: every caller
+// here is a read-modify-write, and the read can predate a revocation by
+// however long the operation takes — Login alone spends ~50-100ms in
+// argon2id between its read and its write. Writing the column back from
+// that stale copy would silently resurrect every token a concurrent
+// logout had just revoked. SetTokensValidAfter is the only writer.
 func (r *SQLUserRepository) Update(ctx context.Context, user *model.User) error {
 	query := r.db.Rebind(`UPDATE users SET email = ?, password_hash = ?, role = ?, active = ?,
-		max_workspaces = ?, updated_at = ?, last_login_at = ?, user_groups = ?, display_name = ?, preferences = ?, oidc_subject = ?, tokens_valid_after = ? WHERE id = ?`)
+		max_workspaces = ?, updated_at = ?, last_login_at = ?, user_groups = ?, display_name = ?, preferences = ?, oidc_subject = ? WHERE id = ?`)
 	res, err := r.db.ExecContext(ctx, query,
 		nullable(user.Email), user.PasswordHash, string(user.Role), user.Active,
 		user.MaxWorkspaces, timeArg(user.UpdatedAt), timePtrArg(user.LastLoginAt),
 		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.OIDCSubject,
-		timePtrArg(user.TokensValidAfter), user.ID)
+		user.ID)
 	if err != nil {
 		return fmt.Errorf("updating user %s: %w", user.ID, err)
 	}
@@ -111,8 +118,11 @@ func (r *SQLUserRepository) Update(ctx context.Context, user *model.User) error 
 }
 
 // SetTokensValidAfter revokes the user's outstanding tokens with a single
-// targeted UPDATE — never a read-modify-write, so a concurrent full-row
-// Update cannot resurrect revoked tokens by writing back a stale bound.
+// targeted UPDATE. It is the ONLY writer of tokens_valid_after: Update
+// leaves the column alone precisely so that no read-modify-write on the
+// rest of the row can race a revocation and write back a stale bound.
+// Callers that also mutate the row must run their Update FIRST and revoke
+// after, never the reverse.
 func (r *SQLUserRepository) SetTokensValidAfter(ctx context.Context, id string, at time.Time) error {
 	query := r.db.Rebind(`UPDATE users SET tokens_valid_after = ? WHERE id = ?`)
 	res, err := r.db.ExecContext(ctx, query, timeArg(at), id)

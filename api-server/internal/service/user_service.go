@@ -135,8 +135,10 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	}
 	// revoke: a security-relevant change (deactivation, role change,
 	// password reset) bounds the validity of every outstanding token to
-	// now. Stamped on the SAME row write as the change itself, so the
-	// revocation can neither race it nor be lost separately.
+	// now. Written by SetTokensValidAfter AFTER the row update, never as
+	// part of it — see the Update doc in the repository: a full-row write
+	// carries a copy read before this call and would clobber a concurrent
+	// revocation.
 	revoke := false
 	if in.Email != nil {
 		user.Email = *in.Email
@@ -167,12 +169,15 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 		user.Groups = *in.Groups
 	}
 	user.UpdatedAt = time.Now().UTC()
-	if revoke {
-		now := user.UpdatedAt
-		user.TokensValidAfter = &now
-	}
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
+	}
+	if revoke {
+		now := user.UpdatedAt
+		if err := s.users.SetTokensValidAfter(ctx, user.ID, now); err != nil {
+			return nil, fmt.Errorf("revoking tokens for %s: %w", user.ID, err)
+		}
+		user.TokensValidAfter = &now
 	}
 	s.audit.Record(ctx, actor, "user.updated", "user", user.ID, "")
 	return user, nil
@@ -229,15 +234,19 @@ func (s *UserService) UpdateProfile(ctx context.Context, actor Actor, in UpdateP
 		user.PasswordHash = hash
 	}
 	user.UpdatedAt = time.Now().UTC()
+	if err := s.users.Update(ctx, user); err != nil {
+		return nil, err
+	}
 	if in.NewPassword != "" {
 		// A credential change ends every session, the current device
 		// included: after a password change the only sound assumption is
-		// that the old credential may have been compromised.
+		// that the old credential may have been compromised. Revoked after
+		// the row write, never within it (see the repository's Update doc).
 		now := user.UpdatedAt
+		if err := s.users.SetTokensValidAfter(ctx, user.ID, now); err != nil {
+			return nil, fmt.Errorf("revoking tokens for %s: %w", user.ID, err)
+		}
 		user.TokensValidAfter = &now
-	}
-	if err := s.users.Update(ctx, user); err != nil {
-		return nil, err
 	}
 	s.audit.Record(ctx, actor, "user.profile_updated", "user", user.ID, "")
 	return user, nil
