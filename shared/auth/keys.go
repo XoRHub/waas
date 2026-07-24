@@ -144,6 +144,25 @@ func VerifyAccessToken(tokenString, issuer string, key *rsa.PublicKey) (*AccessC
 	return claims, nil
 }
 
+// VerifyStreamToken parses and validates an SSE stream token. Stream tokens
+// share the AccessClaims shape; only the audience separates them from API
+// access tokens — and that separation is what keeps a token leaked from an
+// access log useless against every API route.
+func VerifyStreamToken(tokenString, issuer string, key *rsa.PublicKey) (*AccessClaims, error) {
+	claims := &AccessClaims{}
+	_, err := jwt.ParseWithClaims(tokenString, claims,
+		func(t *jwt.Token) (any, error) { return key, nil },
+		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}),
+		jwt.WithIssuer(issuer),
+		jwt.WithAudience(AudienceStream),
+		jwt.WithExpirationRequired(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidToken, err)
+	}
+	return claims, nil
+}
+
 func keyID(pub *rsa.PublicKey) string {
 	sum := sha256.Sum256(pub.N.Bytes())
 	return hex.EncodeToString(sum[:8])

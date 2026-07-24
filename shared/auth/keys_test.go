@@ -99,6 +99,47 @@ func TestVerifyAccessTokenRoundTripAndRejections(t *testing.T) {
 	}
 }
 
+// The API/stream separation is bidirectional and both directions carry the
+// security property: an API bearer must never open the SSE stream through
+// the query string, and a stream token leaked into an access log must open
+// no API route.
+func TestVerifyStreamTokenAudienceIsolation(t *testing.T) {
+	signer, err := GenerateSigner()
+	if err != nil {
+		t.Fatalf("GenerateSigner: %v", err)
+	}
+
+	streamToken, err := signer.Sign(NewStreamClaims("waas", "user-1", RoleAdmin, time.Minute))
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	claims, err := VerifyStreamToken(streamToken, "waas", signer.Public())
+	if err != nil {
+		t.Fatalf("VerifyStreamToken: %v", err)
+	}
+	if claims.Subject != "user-1" || claims.Role != RoleAdmin {
+		t.Fatalf("unexpected claims: %+v", claims)
+	}
+
+	// An API access token must never be accepted as a stream token.
+	accessToken, err := signer.Sign(NewAccessClaims("waas", "user-1", RoleUser, time.Minute))
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if _, err := VerifyStreamToken(accessToken, "waas", signer.Public()); !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("access token on stream verifier: expected ErrInvalidToken, got %v", err)
+	}
+
+	// A stream token must never be accepted as an API access token.
+	if _, err := VerifyAccessToken(streamToken, "waas", signer.Public()); !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("stream token on access verifier: expected ErrInvalidToken, got %v", err)
+	}
+	// And the issuer must match, as for every other audience.
+	if _, err := VerifyStreamToken(streamToken, "evil-issuer", signer.Public()); !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("wrong issuer: expected ErrInvalidToken, got %v", err)
+	}
+}
+
 // Forged tokens: algorithm confusion (none, HS256 keyed with public
 // material) and a signature from another key must all fail with
 // ErrInvalidToken on BOTH verifiers.

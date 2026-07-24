@@ -18,10 +18,15 @@ const (
 )
 
 // Token audiences. The proxy only ever accepts connection tokens, so a stolen
-// API access token can never be replayed against guacd.
+// API access token can never be replayed against guacd. Likewise the SSE
+// stream only accepts stream tokens and every API route only accepts API
+// tokens — both directions matter: an API bearer can never ride the query
+// string into the stream, and a stream token leaked in an access log opens
+// no API route.
 const (
 	AudienceAPI        = "waas-api"
 	AudienceConnection = "waas-connection"
+	AudienceStream     = "waas-stream"
 )
 
 // AccessClaims is the payload of the API access token.
@@ -57,6 +62,18 @@ func NewAccessClaims(issuer, userID string, role Role, ttl time.Duration) Access
 	return AccessClaims{
 		Role:             role,
 		RegisteredClaims: registered(issuer, userID, AudienceAPI, ttl),
+	}
+}
+
+// NewStreamClaims builds stream-token claims for a user: the short-lived
+// token the SSE client passes as a query parameter (EventSource cannot set
+// headers). It reuses the AccessClaims shape — the role gates fleet-wide
+// event visibility — because the AUDIENCE, not the form, is what separates
+// it from an API access token.
+func NewStreamClaims(issuer, userID string, role Role, ttl time.Duration) AccessClaims {
+	return AccessClaims{
+		Role:             role,
+		RegisteredClaims: registered(issuer, userID, AudienceStream, ttl),
 	}
 }
 
