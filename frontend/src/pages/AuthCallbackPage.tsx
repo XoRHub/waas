@@ -38,7 +38,11 @@ export function AuthCallbackPage() {
         navigate(data.role === 'admin' ? '/admin' : '/', { replace: true });
       })
       .catch(() => {
-        useAuthStore.getState().logout();
+        // clearLocal, not logout: the token here is freshly minted and may
+        // well be valid — a 500 or a 503 from /auth/me says nothing about
+        // it. Revoking would sign the account out on every other device
+        // because one profile fetch hiccuped.
+        useAuthStore.getState().clearLocal();
         navigate('/login', { replace: true, state: { ssoError: 'profile fetch failed' } });
       });
   }, [navigate]);

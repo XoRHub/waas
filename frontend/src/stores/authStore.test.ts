@@ -55,9 +55,17 @@ describe('authStore', () => {
   });
 
   it('logout without a token never calls the server', () => {
-    // The api funnel calls logout() on every 401; with no token left there
-    // is nothing to revoke and no request to send.
+    // Nothing to revoke, so no request to send.
     useAuthStore.getState().logout();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('clearLocal drops this browser without revoking the account', () => {
+    // The error paths (a 401 from the api funnel, a failed profile fetch
+    // after SSO) must not sign the user out on their other devices.
+    useAuthStore.getState().login('token', user);
+    useAuthStore.getState().clearLocal();
+    expect(useAuthStore.getState()).toMatchObject({ accessToken: null, user: null });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

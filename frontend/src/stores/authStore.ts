@@ -7,7 +7,15 @@ interface AuthState {
   user: User | null;
   login: (token: string, user: User) => void;
   setUser: (user: User) => void;
+  /** User-initiated sign out: revokes EVERY session of the account. */
   logout: () => void;
+  /**
+   * Drops this browser's auth state without touching the server. For
+   * error paths — a rejected token, a failed profile fetch — where the
+   * session is unusable here but must not be torn down on the user's
+   * other devices.
+   */
+  clearLocal: () => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -36,6 +44,7 @@ export const useAuthStore = create<AuthState>()(
         }
         set({ accessToken: null, user: null });
       },
+      clearLocal: () => set({ accessToken: null, user: null }),
     }),
     { name: 'waas-auth' },
   ),

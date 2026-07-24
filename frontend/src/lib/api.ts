@@ -34,8 +34,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>
   const response = await fetch(path, { ...init, headers });
 
   if (response.status === 401 && useAuthStore.getState().accessToken) {
-    // Token expired or revoked: drop local auth state.
-    useAuthStore.getState().logout();
+    // Expired, revoked, or minted for a role that has since changed: the
+    // server has already rejected this token, so drop it locally only.
+    // Calling logout() would POST a revocation the server would refuse
+    // anyway, and turn one rejected request into a fleet-wide sign-out.
+    useAuthStore.getState().clearLocal();
   }
   if (!response.ok) {
     let problem: Problem = {
