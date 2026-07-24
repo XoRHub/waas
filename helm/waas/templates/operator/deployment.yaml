@@ -56,6 +56,18 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # Default-deny egress stamped on placed workload namespaces
+            # (DNS always allowed; internet, blocked and extra-allowed
+            # CIDRs per the desktopEgress values). Only effective if the
+            # CNI enforces NetworkPolicy egress.
+            - name: WAAS_DESKTOP_EGRESS_ENABLED
+              value: {{ .Values.operator.desktopEgress.enabled | quote }}
+            - name: WAAS_DESKTOP_EGRESS_ALLOW_INTERNET
+              value: {{ .Values.operator.desktopEgress.allowInternet | quote }}
+            - name: WAAS_DESKTOP_EGRESS_BLOCKED_CIDRS
+              value: {{ join "," .Values.operator.desktopEgress.blockedCIDRs | quote }}
+            - name: WAAS_DESKTOP_EGRESS_EXTRA_ALLOWED_CIDRS
+              value: {{ join "," .Values.operator.desktopEgress.extraAllowedCIDRs | quote }}
             # Operator-wide placement pattern (template > this > built-in
             # "waas-workspaces"). Same values key as the api-server.
             - name: WAAS_DEFAULT_NAMESPACE_PATTERN
