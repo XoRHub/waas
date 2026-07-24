@@ -70,6 +70,14 @@ func TestPlacedWorkspaceProvisionsInTargetNamespace(t *testing.T) {
 	if len(allowed) != 2 || allowed[0] != "default" || allowed[1] != "waas-platform" {
 		t.Fatalf("netpol must admit the CR namespace and the platform namespace, got %v", allowed)
 	}
+	// Egress toggle off (fixture default): the policy must stay
+	// ingress-only, exactly the pre-egress behavior.
+	if len(netpol.Spec.PolicyTypes) != 1 || netpol.Spec.PolicyTypes[0] != networkingv1.PolicyTypeIngress {
+		t.Fatalf("egress-disabled policy must be ingress-only, got %v", netpol.Spec.PolicyTypes)
+	}
+	if len(netpol.Spec.Egress) != 0 {
+		t.Fatalf("egress-disabled policy must carry no egress rules, got %v", netpol.Spec.Egress)
+	}
 
 	// Workload, service and PVC are named after the workspace and live in
 	// the target namespace, without cross-namespace owner references.
@@ -148,6 +156,231 @@ func TestStaleIngressPolicyIsHealed(t *testing.T) {
 	}
 	if len(allowed) != 2 || allowed[0] != "default" || allowed[1] != "waas-platform" {
 		t.Fatalf("stale ingress policy must be healed to admit the platform namespace, got %v", allowed)
+	}
+}
+
+// defaultEgressConfig mirrors what DesktopEgressFromEnv yields without
+// any env set: the hardened default posture.
+func defaultEgressConfig() DesktopEgressConfig {
+	return DesktopEgressConfig{
+		Enabled:       true,
+		AllowInternet: true,
+		BlockedCIDRs:  DefaultBlockedEgressCIDRs(),
+	}
+}
+
+// assertDesktopEgress checks the full DEFAULT egress shape of the
+// namespace policy: DNS to any resolver (UDP+TCP 53) and internet minus
+// the IMDS /32 and the RFC1918 ranges, with the ingress side untouched.
+func assertDesktopEgress(t *testing.T, netpol *networkingv1.NetworkPolicy) {
+	t.Helper()
+	if len(netpol.Spec.PolicyTypes) != 2 ||
+		netpol.Spec.PolicyTypes[0] != networkingv1.PolicyTypeIngress ||
+		netpol.Spec.PolicyTypes[1] != networkingv1.PolicyTypeEgress {
+		t.Fatalf("policy must declare Ingress AND Egress, got %v", netpol.Spec.PolicyTypes)
+	}
+	if len(netpol.Spec.Egress) != 2 {
+		t.Fatalf("expected DNS + internet egress rules, got %v", netpol.Spec.Egress)
+	}
+	// DNS: port 53 to ANY destination (empty To), both protocols. Pinning
+	// the resolver would assume a DNS topology we do not control
+	// (NodeLocal DNSCache, openshift-dns, node-IP resolvers) and a desktop
+	// that cannot resolve is a broken desktop.
+	dns := netpol.Spec.Egress[0]
+	if len(dns.To) != 0 {
+		t.Fatalf("DNS rule must not pin a destination, got %v", dns.To)
+	}
+	protos := map[corev1.Protocol]bool{}
+	for _, p := range dns.Ports {
+		if p.Port.IntValue() != 53 {
+			t.Fatalf("DNS rule must target port 53, got %v", p.Port)
+		}
+		protos[*p.Protocol] = true
+	}
+	if !protos[corev1.ProtocolUDP] || !protos[corev1.ProtocolTCP] {
+		t.Fatalf("DNS rule must allow UDP and TCP, got %v", dns.Ports)
+	}
+	// Internet: 0.0.0.0/0 minus the IMDS /32 and the RFC1918 ranges. The
+	// carve-out must be the /32, NOT 169.254.0.0/16 — blocking the whole
+	// link-local range would break NodeLocal DNSCache resolution.
+	inet := netpol.Spec.Egress[1]
+	if len(inet.To) != 1 || inet.To[0].IPBlock == nil || inet.To[0].IPBlock.CIDR != "0.0.0.0/0" {
+		t.Fatalf("second egress rule must allow 0.0.0.0/0 with excepts, got %v", inet.To)
+	}
+	except := map[string]bool{}
+	for _, c := range inet.To[0].IPBlock.Except {
+		except[c] = true
+	}
+	for _, want := range []string{"169.254.169.254/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"} {
+		if !except[want] {
+			t.Fatalf("egress must block %s, got excepts %v", want, inet.To[0].IPBlock.Except)
+		}
+	}
+	if except["169.254.0.0/16"] || len(inet.To[0].IPBlock.Except) != 4 {
+		t.Fatalf("egress must block exactly the IMDS /32 + RFC1918 (NodeLocal DNS must stay reachable), got %v",
+			inet.To[0].IPBlock.Except)
+	}
+	// Ingress regression guard: the egress feature must not touch the
+	// default-deny ingress (CR namespace + platform namespace admitted).
+	var allowed []string
+	for _, peer := range netpol.Spec.Ingress[0].From {
+		allowed = append(allowed, peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"])
+	}
+	if len(allowed) != 2 || allowed[0] != "default" || allowed[1] != "waas-platform" {
+		t.Fatalf("ingress peers must be unchanged by the egress feature, got %v", allowed)
+	}
+}
+
+func TestDesktopEgressPolicyStamped(t *testing.T) {
+	ws := placedWorkspace()
+	r, c := newFixture(t, linuxTemplate(), ws)
+	r.PlatformNamespace = "waas-platform"
+	r.DesktopEgress = defaultEgressConfig()
+
+	reconcile(t, r, ws)
+
+	netpol := &networkingv1.NetworkPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "waas-alice", Name: netpolName}, netpol); err != nil {
+		t.Fatal(err)
+	}
+	assertDesktopEgress(t, netpol)
+}
+
+// TestIngressOnlyPolicyHealedToEgress: namespaces provisioned before the
+// egress feature carry an ingress-only policy — the every-reconcile sync
+// must converge them to ingress+egress once the toggle is on.
+func TestIngressOnlyPolicyHealedToEgress(t *testing.T) {
+	ws := placedWorkspace()
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   "waas-alice",
+		Labels: map[string]string{labelManagedBy: managerName},
+	}}
+	r, c := newFixture(t, linuxTemplate(), ws, ns, staleIngressPolicy(map[string]string{labelManagedBy: managerName}))
+	r.PlatformNamespace = "waas-platform"
+	r.DesktopEgress = defaultEgressConfig()
+
+	reconcile(t, r, ws)
+
+	netpol := &networkingv1.NetworkPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "waas-alice", Name: netpolName}, netpol); err != nil {
+		t.Fatal(err)
+	}
+	assertDesktopEgress(t, netpol)
+}
+
+// TestDesktopEgressCustomConfig: the stamped rules reflect the operator's
+// configuration exactly — custom blocked CIDRs land verbatim in the
+// except list, and every extra allowed CIDR gets its own dedicated rule
+// (which re-opens the range even when the blocked list covers it).
+func TestDesktopEgressCustomConfig(t *testing.T) {
+	ws := placedWorkspace()
+	r, c := newFixture(t, linuxTemplate(), ws)
+	r.PlatformNamespace = "waas-platform"
+	r.DesktopEgress = DesktopEgressConfig{
+		Enabled:       true,
+		AllowInternet: true,
+		// An operator without NodeLocal DNSCache MAY block the whole
+		// link-local range: the except must mirror the config, not the
+		// built-in default.
+		BlockedCIDRs:      []string{"169.254.0.0/16", "10.0.0.0/8"},
+		ExtraAllowedCIDRs: []string{"10.0.5.0/24"},
+	}
+
+	reconcile(t, r, ws)
+
+	netpol := &networkingv1.NetworkPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "waas-alice", Name: netpolName}, netpol); err != nil {
+		t.Fatal(err)
+	}
+	if len(netpol.Spec.Egress) != 3 {
+		t.Fatalf("expected DNS + internet + 1 extra rule, got %v", netpol.Spec.Egress)
+	}
+	inet := netpol.Spec.Egress[1].To[0].IPBlock
+	if inet == nil || inet.CIDR != "0.0.0.0/0" ||
+		len(inet.Except) != 2 || inet.Except[0] != "169.254.0.0/16" || inet.Except[1] != "10.0.0.0/8" {
+		t.Fatalf("except list must mirror the configured blocked CIDRs exactly, got %v", inet)
+	}
+	extra := netpol.Spec.Egress[2].To[0].IPBlock
+	if extra == nil || extra.CIDR != "10.0.5.0/24" || len(extra.Except) != 0 {
+		t.Fatalf("each extra allowed CIDR must get a dedicated except-free rule, got %v", extra)
+	}
+}
+
+// TestDesktopEgressNoInternet: allowInternet=false restricts desktops to
+// DNS plus the extra allowed CIDRs — no 0.0.0.0/0 rule anywhere.
+func TestDesktopEgressNoInternet(t *testing.T) {
+	ws := placedWorkspace()
+	r, c := newFixture(t, linuxTemplate(), ws)
+	r.PlatformNamespace = "waas-platform"
+	cfg := defaultEgressConfig()
+	cfg.AllowInternet = false
+	cfg.ExtraAllowedCIDRs = []string{"203.0.113.0/24"}
+	r.DesktopEgress = cfg
+
+	reconcile(t, r, ws)
+
+	netpol := &networkingv1.NetworkPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "waas-alice", Name: netpolName}, netpol); err != nil {
+		t.Fatal(err)
+	}
+	if len(netpol.Spec.Egress) != 2 {
+		t.Fatalf("expected DNS + extra rules only, got %v", netpol.Spec.Egress)
+	}
+	for _, rule := range netpol.Spec.Egress {
+		for _, to := range rule.To {
+			if to.IPBlock != nil && to.IPBlock.CIDR == "0.0.0.0/0" {
+				t.Fatalf("allowInternet=false must not emit any 0.0.0.0/0 rule, got %v", netpol.Spec.Egress)
+			}
+		}
+	}
+	if ipb := netpol.Spec.Egress[1].To[0].IPBlock; ipb == nil || ipb.CIDR != "203.0.113.0/24" {
+		t.Fatalf("extra allowed CIDR must be present without internet, got %v", netpol.Spec.Egress[1].To)
+	}
+	// The locked-down posture is exactly where a pinned resolver would
+	// have killed name resolution: no 0.0.0.0/0 rule left to fall through.
+	if dns := netpol.Spec.Egress[0]; len(dns.To) != 0 || len(dns.Ports) != 2 {
+		t.Fatalf("DNS must stay open to any resolver without internet, got %v", dns)
+	}
+}
+
+// TestEgressPolicyHealedBackToIngressOnly: turning the toggle off must
+// converge existing ingress+egress policies back to the ingress-only
+// shape (a CNI change or an operator taking over egress management).
+func TestEgressPolicyHealedBackToIngressOnly(t *testing.T) {
+	ws := placedWorkspace()
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   "waas-alice",
+		Labels: map[string]string{labelManagedBy: managerName},
+	}}
+	withEgress := staleIngressPolicy(map[string]string{labelManagedBy: managerName})
+	withEgress.Spec.PolicyTypes = append(withEgress.Spec.PolicyTypes, networkingv1.PolicyTypeEgress)
+	withEgress.Spec.Egress = desktopEgressRules(defaultEgressConfig())
+	r, c := newFixture(t, linuxTemplate(), ws, ns, withEgress)
+	r.PlatformNamespace = "waas-platform"
+	// The master toggle wins over everything else in the config.
+	cfg := defaultEgressConfig()
+	cfg.Enabled = false
+	r.DesktopEgress = cfg
+
+	reconcile(t, r, ws)
+
+	netpol := &networkingv1.NetworkPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "waas-alice", Name: netpolName}, netpol); err != nil {
+		t.Fatal(err)
+	}
+	if len(netpol.Spec.PolicyTypes) != 1 || netpol.Spec.PolicyTypes[0] != networkingv1.PolicyTypeIngress {
+		t.Fatalf("disabling the toggle must heal the policy back to ingress-only, got %v", netpol.Spec.PolicyTypes)
+	}
+	if len(netpol.Spec.Egress) != 0 {
+		t.Fatalf("disabled egress must remove the egress rules, got %v", netpol.Spec.Egress)
+	}
+	// The ingress side must have been healed too (stale peers converged).
+	var allowed []string
+	for _, peer := range netpol.Spec.Ingress[0].From {
+		allowed = append(allowed, peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"])
+	}
+	if len(allowed) != 2 || allowed[0] != "default" || allowed[1] != "waas-platform" {
+		t.Fatalf("ingress must stay default-deny with both peers, got %v", allowed)
 	}
 }
 

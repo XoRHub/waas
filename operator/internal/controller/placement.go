@@ -49,7 +49,7 @@ func (r *WorkspaceReconciler) ensureNamespace(ctx context.Context, ws *waasv1alp
 		if err := r.ensureCleanupLabel(ctx, tpl, existing); err != nil {
 			return err
 		}
-		return r.ensureIngressPolicy(ctx, ws, name)
+		return r.ensureNamespacePolicy(ctx, ws, name)
 	}
 	if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("fetching namespace %s: %w", name, err)
@@ -111,7 +111,7 @@ func (r *WorkspaceReconciler) bootstrapNamespace(ctx context.Context, ws *waasv1
 		}
 	}
 
-	return r.ensureIngressPolicy(ctx, ws, name)
+	return r.ensureNamespacePolicy(ctx, ws, name)
 }
 
 // ensureCleanupLabel back-fills the frozen cleanup-policy label on
@@ -130,19 +130,25 @@ func (r *WorkspaceReconciler) ensureCleanupLabel(ctx context.Context, tpl *waasv
 	return nil
 }
 
-// netpolName is the operator-owned default ingress policy of a placed
-// namespace.
+// netpolName is the operator-owned default network policy of a placed
+// namespace. The name is a slight misnomer since the policy grew an
+// egress side, but it MUST stay "waas-default-ingress": the operator only
+// manages the object carrying this name, and renaming it would orphan the
+// policy in every already-deployed cluster.
 const netpolName = "waas-default-ingress"
 
-// ensureIngressPolicy creates or heals the default-deny ingress policy of
-// a placed namespace: only the CR namespace and the platform namespace
-// (guacd/wwt) may reach the desktops. Unlike the rest of the bootstrap
+// ensureNamespacePolicy creates or heals the default network policy of a
+// placed namespace: default-deny ingress where only the CR namespace and
+// the platform namespace (guacd/wwt) may reach the desktops, plus — when
+// DesktopEgress.Enabled — a default-deny egress (see desktop_egress.go:
+// DNS + configurable internet/extra allowances, IMDS and internal ranges
+// blocked by default). Unlike the rest of the bootstrap
 // this is synced on EVERY reconcile — the create-only path never
 // revisited a policy written by an operator that did not know its
 // platform namespace, leaving guacd rejected until someone deleted the
 // namespace by hand. A policy that lost the managed-by label is an admin
 // takeover and is left alone.
-func (r *WorkspaceReconciler) ensureIngressPolicy(ctx context.Context, ws *waasv1alpha1.Workspace, name string) error {
+func (r *WorkspaceReconciler) ensureNamespacePolicy(ctx context.Context, ws *waasv1alpha1.Workspace, name string) error {
 	// Peers: the CR namespace AND the platform namespace where guacd/wwt
 	// actually run (they may differ — chart release ns vs workspaces ns).
 	peers := []networkingv1.NetworkPolicyPeer{{
@@ -161,6 +167,14 @@ func (r *WorkspaceReconciler) ensureIngressPolicy(ctx context.Context, ws *waasv
 		PodSelector: metav1.LabelSelector{},
 		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 		Ingress:     []networkingv1.NetworkPolicyIngressRule{{From: peers}},
+	}
+	// The egress side is toggleable (CNIs that do not enforce egress, or
+	// operators managing their own); the ingress default-deny never is.
+	// Since this syncs on every reconcile, flipping the toggle converges
+	// existing namespaces either way on the next pass.
+	if r.DesktopEgress.Enabled {
+		desired.PolicyTypes = append(desired.PolicyTypes, networkingv1.PolicyTypeEgress)
+		desired.Egress = desktopEgressRules(r.DesktopEgress)
 	}
 
 	existing := &networkingv1.NetworkPolicy{}
@@ -192,8 +206,8 @@ func (r *WorkspaceReconciler) ensureIngressPolicy(ctx context.Context, ws *waasv
 	for _, p := range peers {
 		admitted = append(admitted, p.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"])
 	}
-	r.recordEvent(ws, corev1.EventTypeNormal, "IngressPolicyHealed",
-		fmt.Sprintf("synced default ingress policy of namespace %q (admitted: %s)", name, strings.Join(admitted, ", ")))
+	r.recordEvent(ws, corev1.EventTypeNormal, "NamespacePolicyHealed",
+		fmt.Sprintf("synced default network policy of namespace %q (admitted: %s)", name, strings.Join(admitted, ", ")))
 	return nil
 }
 

@@ -104,6 +104,11 @@ func TestReconcileProvisionsLinuxWorkspace(t *testing.T) {
 	if dep.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort != 5901 {
 		t.Fatalf("expected default VNC port 5901, got %d", dep.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort)
 	}
+	// Tenant-controlled pod: the SA token must never be mounted (the
+	// desktop has no legitimate Kubernetes API use).
+	if am := dep.Spec.Template.Spec.AutomountServiceAccountToken; am == nil || *am {
+		t.Fatalf("desktop pod must not auto-mount the SA token, got %v", am)
+	}
 
 	svc := &corev1.Service{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, svc); err != nil {

@@ -112,6 +112,10 @@ table is a quick *what*.
 | httpRoute.annotations | object | `{}` | Extra annotations on the HTTPRoute. |
 | operator.replicas | int | `1` | Operator Deployment replica count. |
 | operator.webhook.enabled | bool | `true` | Enable the operator's admission webhook (cert-manager Issuer/Certificate + ValidatingWebhookConfiguration). |
+| operator.desktopEgress.enabled | bool | `true` | Stamp a default-deny egress policy on placed namespaces (DNS always allowed, the rest shaped by the keys below). false keeps the pre-existing ingress-only policy — the escape hatch for CNIs that do not enforce NetworkPolicy egress. |
+| operator.desktopEgress.allowInternet | bool | `true` | Allow desktops to reach the public internet (minus blockedCIDRs). false restricts egress to DNS plus extraAllowedCIDRs. |
+| operator.desktopEgress.blockedCIDRs | list | `["169.254.169.254/32","10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]` | CIDRs carved out of the internet allowance: the cloud IMDS /32 and the RFC1918 ranges (cluster and node networks; guacd/wwt reach INTO the desktops, which is ingress). Vanilla-Kubernetes scope — append your Service CIDR if your provider puts it outside RFC1918 (GKE does). An empty list carves out nothing and re-opens IMDS/kube-API. |
+| operator.desktopEgress.extraAllowedCIDRs | list | `[]` | Extra always-reachable CIDRs, each a dedicated allow rule that wins over blockedCIDRs (NetworkPolicy rules OR together). Also honored when allowInternet is false. |
 | operator.policyBypass | string | `"system:masters"` | Comma-separated users/groups exempt from workspace policy checks. |
 | operator.resources.requests.cpu | string | `"50m"` |  |
 | operator.resources.requests.memory | string | `"64Mi"` |  |

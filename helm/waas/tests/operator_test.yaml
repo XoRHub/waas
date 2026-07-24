@@ -38,3 +38,63 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].args
           content: --metrics-bind-address=0
+
+  # Dropping any of these env vars silently disables a security control
+  # (audit findings #5/#8), so the default posture is asserted verbatim:
+  # egress default-deny on placed namespaces, internet minus the IMDS /32
+  # and the RFC1918 ranges.
+  - it: ships the hardened desktop-egress defaults to the operator
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WAAS_DESKTOP_EGRESS_ENABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WAAS_DESKTOP_EGRESS_ALLOW_INTERNET
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WAAS_DESKTOP_EGRESS_BLOCKED_CIDRS
+            value: "169.254.169.254/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WAAS_DESKTOP_EGRESS_EXTRA_ALLOWED_CIDRS
+            value: ""
+
+  - it: renders the desktop-egress toggles and CIDR lists from the values
+    set:
+      operator.desktopEgress.enabled: false
+      operator.desktopEgress.allowInternet: false
+      operator.desktopEgress.blockedCIDRs:
+        - 169.254.169.254/32
+      operator.desktopEgress.extraAllowedCIDRs:
+        - 192.168.42.0/24
+        - 203.0.113.7/32
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WAAS_DESKTOP_EGRESS_ENABLED
+            value: "false"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WAAS_DESKTOP_EGRESS_ALLOW_INTERNET
+            value: "false"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WAAS_DESKTOP_EGRESS_BLOCKED_CIDRS
+            value: "169.254.169.254/32"
+      # Comma-separated, order preserved: the operator splits on "," and
+      # stamps one allow rule per entry.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WAAS_DESKTOP_EGRESS_EXTRA_ALLOWED_CIDRS
+            value: "192.168.42.0/24,203.0.113.7/32"

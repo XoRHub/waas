@@ -120,7 +120,21 @@ afterward (admin settings are not overwritten):
 - **`waas-default-ingress` NetworkPolicy**: ingress denied except from
   the CR namespace **and** the release namespace (`WAAS_PLATFORM_NAMESPACE`,
   injected by the chart via the downward API) — that's where
-  guacd/wwt actually run and they need to reach the desktops. Egress open.
+  guacd/wwt actually run and they need to reach the desktops. Egress is
+  **default-deny** too (the object keeps its historical name to avoid
+  orphaning the policies already stamped on existing namespaces):
+  port 53 (UDP+TCP, any destination — pinning the resolver would assume
+  a DNS topology the chart does not control, and a desktop that cannot
+  resolve is a broken desktop) is always allowed, then the internet minus
+  `operator.desktopEgress.blockedCIDRs` (cloud IMDS `/32` + RFC1918, so
+  no kube-API and no platform namespace — **but those defaults assume a
+  Service CIDR inside RFC1918; on GKE, whose default is
+  `34.118.224.0/20`, append your own range or the apiserver stays
+  reachable**) plus any
+  `extraAllowedCIDRs`. Set `operator.desktopEgress.enabled=false` to fall
+  back to the historical ingress-only policy — the escape hatch for CNIs
+  that do not enforce NetworkPolicy egress. Unlike the rest of the
+  bootstrap this policy IS reconciled: the operator heals drift on it.
 - **No user RBAC**: users never talk directly to the Kubernetes
   API (everything goes through the portal); creating any would be
   gratuitous attack surface.

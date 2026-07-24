@@ -290,6 +290,45 @@ operator:
   webhook:
     # -- Enable the operator's admission webhook (cert-manager Issuer/Certificate + ValidatingWebhookConfiguration).
     enabled: true
+  desktopEgress:
+    # -- Stamp a default-deny egress policy on placed namespaces
+    # (DNS always allowed, the rest shaped by the keys below). false keeps
+    # the pre-existing ingress-only policy — the escape hatch for CNIs
+    # that do not enforce NetworkPolicy egress.
+    enabled: true
+    # -- Allow desktops to reach the public internet (minus blockedCIDRs).
+    # false restricts egress to DNS plus extraAllowedCIDRs.
+    allowInternet: true
+    # These defaults assume a VANILLA Kubernetes, where the Service and
+    # Pod networks are RFC1918 (kubeadm: 10.96.0.0/12 and 10.244.0.0/16).
+    # A managed provider may place the Service CIDR OUTSIDE RFC1918 — GKE
+    # defaults to 34.118.224.0/20 — and the list below then fails to block
+    # the kube-apiserver. We deliberately do not ship a per-provider table
+    # here (it would rot silently); check your own cluster and append its
+    # range:
+    #   kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}'
+    # EKS (10.100.0.0/16 or 172.20.0.0/16) and AKS (10.0.0.0/16) land in
+    # RFC1918 with their defaults, but both are chosen at cluster creation.
+    #
+    # Emptying this list ([] or null) means "carve out NOTHING", not "use
+    # the defaults": the operator then stamps a bare 0.0.0.0/0 and tenant
+    # desktops reach the cloud IMDS, the kube-apiserver and the platform
+    # namespace. That is an explicit choice — the operator only logs a
+    # startup warning about it — so override entries, don't reset the key.
+    # -- CIDRs carved out of the internet allowance: the cloud IMDS /32 and
+    # the RFC1918 ranges (cluster and node networks; guacd/wwt reach INTO
+    # the desktops, which is ingress). Vanilla-Kubernetes scope — append
+    # your Service CIDR if your provider puts it outside RFC1918 (GKE does).
+    # An empty list carves out nothing and re-opens IMDS/kube-API.
+    blockedCIDRs:
+      - 169.254.169.254/32
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+    # -- Extra always-reachable CIDRs, each a dedicated allow rule that
+    # wins over blockedCIDRs (NetworkPolicy rules OR together). Also
+    # honored when allowInternet is false.
+    extraAllowedCIDRs: []
   # Comma-separated users/groups exempt from workspace policy checks.
   # Add your GitOps applier SA here if it manages Workspace CRs, e.g.
   # "system:masters,system:serviceaccount:argocd:argocd-application-controller".

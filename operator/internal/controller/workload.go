@@ -12,6 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
@@ -189,13 +190,19 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 			Annotations: annotations,
 		},
 		Spec: corev1.PodSpec{
-			RestartPolicy:      corev1.RestartPolicyAlways,
-			Affinity:           affinity,
-			ImagePullSecrets:   pullSecrets,
-			NodeSelector:       mergeStringMap(wl.NodeSelector, ov.NodeSelector),
-			Tolerations:        append(append([]corev1.Toleration{}, wl.Tolerations...), ov.Tolerations...),
-			ServiceAccountName: wl.ServiceAccountName,
-			SecurityContext:    podSecurityContext,
+			RestartPolicy:    corev1.RestartPolicyAlways,
+			Affinity:         affinity,
+			ImagePullSecrets: pullSecrets,
+			NodeSelector:     mergeStringMap(wl.NodeSelector, ov.NodeSelector),
+			Tolerations:      append(append([]corev1.Toleration{}, wl.Tolerations...), ov.Tolerations...),
+			// The desktop never talks to the Kubernetes API (the browser
+			// talks to the api-server; guacd connects INTO the desktop), so
+			// the SA token has no legitimate use in a tenant-controlled,
+			// internet-facing pod — never mount it (latent escalation the
+			// day a binding lands on the SA).
+			AutomountServiceAccountToken: ptr.To(false),
+			ServiceAccountName:           wl.ServiceAccountName,
+			SecurityContext:              podSecurityContext,
 			Containers: []corev1.Container{{
 				Name:            "desktop",
 				Image:           tpl.Spec.Image,
