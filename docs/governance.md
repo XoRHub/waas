@@ -164,6 +164,40 @@ the IdP. Opt-in, never the default. Behavior:
   configured) while the bootstrap admin is unreachable — the api-server
   logs a startup warning for this combination.
 
+### Session revocation (`users.tokens_valid_after`)
+
+Access tokens are JWTs, but their statelessness stops at the api-server:
+`Auth`/`StreamAuth` re-read the bearer's account (one primary-key read,
+deliberately uncached) on **every** request and answer 401 when the
+account is gone, disabled, its role diverged from the token's claims, or
+the token was issued before `users.tokens_valid_after`. That bound is
+stamped to "now" by:
+
+- `POST /api/v1/auth/logout` (audit `user.logged_out`);
+- admin deactivation, role change or password reset (PATCH `/users/{id}`);
+- a self-service password change (PATCH `/me`).
+
+Deactivation, demotion and logout therefore take effect at the **next
+request**, not at token expiry. Two semantics to know:
+
+- **Logout is global, not per device**: the bound covers the whole
+  account, so logging out on one browser ends the account's sessions
+  everywhere. That is the intended default for a security control —
+  per-device revocation would require per-session server state (`jti`
+  denylist), deliberately not built.
+- **Already-open connections survive revocation.** A desktop tunnel is
+  authorized by a `waas-connection` token that wwt verifies **once**, at
+  the WebSocket open — a revoked or deactivated user keeps an
+  in-progress desktop until that connection closes. Likewise an SSE
+  stream already open stays up (it only ever carries change *kinds*,
+  never data; a revoked client can no longer re-fetch anything through
+  the API). Revocation gates every **new** request, tunnel and stream.
+
+The bound is never written at login: the token minted there would be
+issued in the same second and die on the `iat` comparison (`iat` is
+second-truncated; the bound keeps sub-second precision and the
+comparison errs toward revocation).
+
 ### Clipboard policy
 
 `spec.clipboard` gates the two clipboard directions independently
@@ -374,6 +408,7 @@ mirrored to the frontend via tygo (`frontend/src/types.gen.ts`).
 | Webhook outage | `FailurePolicy=Fail`: no workspace admission while down — availability traded for integrity, deliberately. |
 | Rogue admin / compromised api-server SA | Its RBAC is namespace-scoped to the workspace namespace; catalog/policy edits are audited; bypass list is short, explicit and Helm-reviewed. |
 | Stale groups (user removed from an IdP group) | Groups are frozen per-workspace at creation; the sweeper/reconciler re-evaluate with stored identity. Residual risk until OIDC login refresh lands — documented, and an admin can edit `users.groups` + pause offending workspaces today. |
+| Stolen or outliving access token (deactivated / demoted / logged-out user) | Every authenticated request re-checks account state and the `tokens_valid_after` bound — revocation is immediate, not at token expiry. Residual: connections already open (wwt tunnel, SSE stream) last until they close — see "Session revocation". |
 
 Residual gaps (assumed): identity annotations are not re-synced when a
 user's groups change (next OIDC login will fix); `WAAS_POLICY_BYPASS`
