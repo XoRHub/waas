@@ -300,3 +300,51 @@ func TestReloadStampsTheOneShotAnnotation(t *testing.T) {
 		t.Fatalf("expected one workspace.reloaded audit entry, got %d", len(logs))
 	}
 }
+
+// TestOverrideEnvValueFromRejected pins the api-server side of the
+// exfiltration guard (audit finding #3): an override env entry carrying
+// a valueFrom reference is a 400 on BOTH input paths — PATCH /overrides
+// and workspace creation — before anything reaches the CR. The webhook
+// stays the canonical barrier; this is the early, readable rejection.
+func TestOverrideEnvValueFromRejected(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{{ID: "u1", Username: "marc"}}, nil)
+	actor := Actor{ID: "u1", Username: "marc", Role: "user"}
+	ws := seedWorkspace(t, f, "marc-box", "u1")
+	id := string(ws.UID)
+
+	steal := []corev1.EnvVar{{Name: "STEAL", ValueFrom: &corev1.EnvVarSource{
+		SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "waas-postgres"},
+			Key:                  "password",
+		},
+	}}}
+
+	// Update path.
+	_, err := f.workspace.UpdateOverrides(ctx, actor, id, UpdateOverridesInput{Env: &steal})
+	if !apierror.IsBadRequest(err) || !strings.Contains(err.Error(), "valueFrom") {
+		t.Fatalf("valueFrom override env must be a 400 naming valueFrom, got %v", err)
+	}
+	fresh := &waasv1alpha1.Workspace{}
+	if err := f.kube.Get(ctx, types.NamespacedName{Namespace: testNS, Name: "marc-box"}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Spec.Overrides != nil {
+		t.Fatalf("a rejected update must leave the CR untouched, got %+v", fresh.Spec.Overrides)
+	}
+
+	// Create path: rejected before the template is even fetched.
+	_, err = f.workspace.Create(ctx, actor, CreateWorkspaceInput{
+		TemplateRef: "xfce",
+		Overrides:   &waasv1alpha1.WorkspaceOverrides{Env: steal},
+	})
+	if !apierror.IsBadRequest(err) || !strings.Contains(err.Error(), "valueFrom") {
+		t.Fatalf("valueFrom override env at creation must be a 400 naming valueFrom, got %v", err)
+	}
+
+	// Regression: a literal env override keeps working unchanged.
+	literal := []corev1.EnvVar{{Name: "HTTP_PROXY", Value: "http://proxy:3128"}}
+	if _, err := f.workspace.UpdateOverrides(ctx, actor, id, UpdateOverridesInput{Env: &literal}); err != nil {
+		t.Fatalf("literal override env must stay accepted, got %v", err)
+	}
+}

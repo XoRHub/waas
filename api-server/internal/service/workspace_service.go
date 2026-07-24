@@ -193,6 +193,13 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 	if in.TemplateRef == "" {
 		return nil, apierror.BadRequest("templateRef is required")
 	}
+	// Same guard as UpdateOverrides: override env entries are literal-only
+	// (the webhook is the canonical barrier; this is the early 400).
+	if in.Overrides != nil {
+		if err := rejectValueFromEnv(in.Overrides.Env); err != nil {
+			return nil, err
+		}
+	}
 
 	// The API path requires the template to exist up front (kubectl/GitOps
 	// users get the more permissive eventually-consistent behavior instead).

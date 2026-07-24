@@ -264,6 +264,19 @@ func (v *WorkspaceValidator) validateShape(ws *waasv1alpha1.Workspace) *policy.D
 		if err := metakeys.Check(ov.Annotations); err != nil {
 			return &policy.Denial{Reason: policy.ReasonOverrideNotAllowed, Message: fmt.Sprintf("overrides.annotations: %v", err)}
 		}
+		// Override env entries must be literal values. valueFrom in a
+		// tenant override resolves ANY co-located Secret/ConfigMap (or pod
+		// metadata) into the desktop's environment — an exfiltration
+		// channel, never a legitimate need: secret injection is a
+		// template/admin channel (tpl.Spec.Env keeps valueFrom).
+		for i := range ov.Env {
+			if ov.Env[i].ValueFrom != nil {
+				return &policy.Denial{
+					Reason:  policy.ReasonOverrideNotAllowed,
+					Message: fmt.Sprintf("overrides.env[%q]: valueFrom is not permitted in an override; only a literal value is allowed (inject Secrets via a WorkspaceTemplate)", ov.Env[i].Name),
+				}
+			}
+		}
 	}
 	return nil
 }
