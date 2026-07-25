@@ -88,10 +88,17 @@ func Suffix(raw string) string {
 }
 
 // BuiltinNamespacePattern is the last resort of the precedence chain
-// (template pattern > operator env pattern > this): a single shared
-// workloads namespace. Deliberately a plain literal — predictable, and
-// admins opt into per-user/template isolation with an explicit pattern.
-const BuiltinNamespacePattern = "waas-workspaces"
+// (template pattern > operator env pattern > this): one namespace per
+// user. The default isolates because the namespace is the unit every
+// per-user protection attaches to — ownership label, policy-derived
+// ResourceQuota, default-deny NetworkPolicy — and because the webhook
+// already recognizes the "waas-<user>" prefix as the owner's territory:
+// with this pattern the default placement and the ownership rule are the
+// same statement. A SHARED namespace remains a legitimate choice, but an
+// EXPLICIT admin one (a literal pattern such as "waas-workspaces" in the
+// template or in WAAS_DEFAULT_NAMESPACE_PATTERN): it hosts several
+// owners, so it gets neither ownership label nor auto-quota.
+const BuiltinNamespacePattern = "waas-" + TokenUser
 
 // Placeholder documents one pattern token: THE source the UI contextual
 // help and the docs render — never a hand-maintained copy.

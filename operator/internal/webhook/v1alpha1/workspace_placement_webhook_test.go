@@ -77,11 +77,12 @@ func TestPlacementSystemNamespaceDeniedForEveryone(t *testing.T) {
 }
 
 func TestPlacementRequiresOverrideRight(t *testing.T) {
-	// Template WITHOUT the placement pattern nor the override right: any
-	// explicit target namespace is a deviation → denied.
+	// Template WITHOUT the placement pattern nor the override right: the
+	// built-in default resolves to "waas-alice", so any OTHER namespace —
+	// even inside the user's own prefix — is a deviation → denied.
 	v := newValidator(t, tpl(), catalogImage(), defaultPolicy())
 	ws := workspace("w1", func(w *waasv1alpha1.Workspace) {
-		w.Spec.TargetNamespace = "waas-alice"
+		w.Spec.TargetNamespace = "waas-alice-lab"
 	})
 	_, err := v.ValidateCreate(asCaller(apiSA), ws)
 	if err == nil || !strings.Contains(err.Error(), "OverrideNotAllowed") {
@@ -153,8 +154,8 @@ func TestReservedMetadataKeysDenied(t *testing.T) {
 }
 
 // The precedence chain's resolved default is the PLATFORM's decision:
-// it must be admitted for everyone — even a shared namespace (the
-// built-in "waas-workspaces" or a global env pattern), even without the
+// it must be admitted for everyone — even a shared namespace (an
+// admin-chosen literal or {os}/{templateName} pattern), even without the
 // "placement" override right. Deviations stay gated.
 func TestPlacementResolvedDefaultIsAlwaysAdmitted(t *testing.T) {
 	// No placement on the template, no override right, global pattern set.
@@ -168,17 +169,31 @@ func TestPlacementResolvedDefaultIsAlwaysAdmitted(t *testing.T) {
 		t.Fatalf("the server-resolved default must be admitted, got %v", err)
 	}
 
-	// Built-in fallback (no template pattern, no global pattern).
+	// Built-in fallback (no template pattern, no global pattern): the
+	// per-user namespace resolved from the trusted identity.
 	v.DefaultNamespacePattern = ""
 	builtin := workspace("w2", func(w *waasv1alpha1.Workspace) {
-		w.Spec.TargetNamespace = "waas-workspaces"
+		w.Spec.TargetNamespace = "waas-alice"
 	})
 	if _, err := v.ValidateCreate(asCaller(apiSA), builtin); err != nil {
-		t.Fatalf("the built-in shared default must be admitted, got %v", err)
+		t.Fatalf("the built-in per-user default must be admitted, got %v", err)
+	}
+
+	// An admin-chosen SHARED pattern is still the resolved default —
+	// admitted for a non-admin with no per-user rule applying to it
+	// (branch 1 of checkPlacementOwnership; the shared default is now an
+	// explicit opt-in, not the built-in).
+	v.DefaultNamespacePattern = "waas-workspaces"
+	shared := workspace("w3", func(w *waasv1alpha1.Workspace) {
+		w.Spec.TargetNamespace = "waas-workspaces"
+	})
+	if _, err := v.ValidateCreate(asCaller(apiSA), shared); err != nil {
+		t.Fatalf("an explicit shared default must be admitted, got %v", err)
 	}
 
 	// A DEVIATION from the default still needs the placement right.
-	deviant := workspace("w3", func(w *waasv1alpha1.Workspace) {
+	v.DefaultNamespacePattern = ""
+	deviant := workspace("w4", func(w *waasv1alpha1.Workspace) {
 		w.Spec.TargetNamespace = "waas-alice-lab"
 	})
 	if _, err := v.ValidateCreate(asCaller(apiSA), deviant); err == nil ||
