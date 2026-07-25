@@ -1,5 +1,20 @@
 # WaaS — Kubernetes-native Workspace-as-a-Service
 
+<details>
+<summary><strong>AI Disclosure</strong></summary>
+
+This project originated from an old MVP that I built manually around 2–3 years ago, using a full TypeScript stack (backend and React frontend). Since then, the specifications were significantly reworked in preparation for a migration toward a Kubernetes-native operator architecture. The project was eventually shelved and forgotten.
+
+It has now been brought back as a **spec-driven "vibe coding" experiment** to evaluate the capabilities of Fables and AI-assisted development from scratch, based on a strong set of architectural and technical specifications.
+
+Regarding the AI-assisted development process, AI-generated code is **not merged blindly**. We review and test as much of the generated code as possible, frequently refactor or rewrite it, and run regular audits every few implemented features or fixes. The goal is to keep technical debt under control, maintain code quality, and avoid architectural inconsistencies or AI-generated nonsense.
+
+I'm also the **first user** of this project in production on my own Kubernetes stack. Because I'll be relying on it myself, I have a strong incentive to keep the project as clean, maintainable, secure, and reliable as possible. Every feature added today is something I'll eventually have to operate and maintain myself.
+
+That said, I didn't need AI to write bad code in the past either. 😄
+
+</details>
+
 Coverage:
 
 operator: [![operator](https://codecov.io/github/XoRHub/waas/graph/badge.svg?flag=operator)](https://codecov.io/github/XoRHub/waas/tree/main/operator)
@@ -26,14 +41,14 @@ Browser ── HTTPS/WSS ──> API Server (chi) ──> PostgreSQL (users, quo
                               └──> WebSocket Proxy (wwt) ──validates JWT first──> guacd (ClusterIP only) ──> pod/VM
 ```
 
-| Component | Path | Role |
-|---|---|---|
-| Operator | `operator/` | Reconciles `Workspace`/`WorkspaceTemplate` CRDs into pods/PVCs (Linux) or KubeVirt VMs (Windows). K8s API only — never touches the DB. |
-| API Server | `api-server/` | REST API, auth (local + OIDC), RBAC, business logic. Creates CRDs via the K8s API — never pods directly. |
-| WebSocket Proxy | `wwt/` | Validates the JWT **before** opening any TCP connection to guacd. |
-| Frontend | `frontend/` | React 19 admin dashboard + user portal. Only ever talks to the API Server. |
-| Shared | `shared/` | JWT claims & auth primitives shared by API Server and proxy. |
-| Helm chart | `helm/waas/` | Single-chart install: operator, API server, proxy, frontend, guacd, PostgreSQL — see [helm/waas/README.md](helm/waas/README.md). |
+| Component       | Path          | Role                                                                                                                                   |
+| --------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Operator        | `operator/`   | Reconciles `Workspace`/`WorkspaceTemplate` CRDs into pods/PVCs (Linux) or KubeVirt VMs (Windows). K8s API only — never touches the DB. |
+| API Server      | `api-server/` | REST API, auth (local + OIDC), RBAC, business logic. Creates CRDs via the K8s API — never pods directly.                               |
+| WebSocket Proxy | `wwt/`        | Validates the JWT **before** opening any TCP connection to guacd.                                                                      |
+| Frontend        | `frontend/`   | React 19 admin dashboard + user portal. Only ever talks to the API Server.                                                             |
+| Shared          | `shared/`     | JWT claims & auth primitives shared by API Server and proxy.                                                                           |
+| Helm chart      | `helm/waas/`  | Single-chart install: operator, API server, proxy, frontend, guacd, PostgreSQL — see [helm/waas/README.md](helm/waas/README.md).       |
 
 Hard boundaries (non-negotiable):
 
