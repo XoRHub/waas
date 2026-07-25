@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -175,13 +176,23 @@ func (w *CatalogSyncWorker) syncAll(ctx context.Context) {
 // ticker path, but the sync error is returned to the caller; works
 // even when interval <= 0 disabled Run. Mutates img's status in place
 // on success, so the caller can project it without a re-Get. Bounded by
-// catalogForceSyncTimeout end to end: on expiry the caller gets
-// context.DeadlineExceeded (wrapped) instead of an open-ended hang.
+// catalogForceSyncTimeout end to end: giving up the wait behind another
+// image's sync returns errSyncBusy (wrapping ctx.Err()); an expiry
+// mid-sync surfaces as the underlying fetch/patch error. Either way the
+// caller gets an error instead of an open-ended hang.
 func (w *CatalogSyncWorker) SyncNow(ctx context.Context, img *waasv1alpha1.WorkspaceImage) error {
 	ctx, cancel := context.WithTimeout(ctx, catalogForceSyncTimeout)
 	defer cancel()
 	return w.syncOne(ctx, img)
 }
+
+// errSyncBusy marks a sync that gave up WAITING for the semaphore
+// behind another image's in-flight sync. It is the discriminant the
+// admin force-sync maps to 503: matching context.DeadlineExceeded
+// instead would misfile a hanging catalog source, because a Go
+// client-timeout error also satisfies errors.Is(err,
+// context.DeadlineExceeded) — a broken source must stay a 502.
+var errSyncBusy = errors.New("waiting for an in-progress catalog sync")
 
 // acquireSync takes the sync semaphore, giving up when ctx ends — that
 // is the whole reason it is not a sync.Mutex: the force-sync deadline
@@ -193,7 +204,7 @@ func (w *CatalogSyncWorker) acquireSync(ctx context.Context) error {
 	case w.syncSem <- struct{}{}:
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("waiting for an in-progress catalog sync: %w", ctx.Err())
+		return fmt.Errorf("%w: %w", errSyncBusy, ctx.Err())
 	}
 }
 

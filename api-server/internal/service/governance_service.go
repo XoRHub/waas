@@ -555,9 +555,9 @@ func (s *GovernanceService) syncCatalog(ctx context.Context, actor Actor, img *w
 // synchronous (bounded by catalogForceSyncTimeout) so the response
 // carries the fresh status and discovered entries. Failure keeps the
 // fail-soft doctrine: entries stay stale-but-served, only lastSyncError
-// is patched, and the fetch error comes back as a 502 problem — except
-// a deadline expiry, which is the server being busy or slow, not the
-// catalog source being broken, and answers 503.
+// is patched, and the fetch error comes back as a 502 problem — slow and
+// hanging sources included. The one 503: the sync never started because
+// it gave up waiting behind another image's in-flight sync (errSyncBusy).
 func (s *GovernanceService) AdminSyncImage(ctx context.Context, actor Actor, name string) (*model.CatalogImage, error) {
 	img := &waasv1alpha1.WorkspaceImage{}
 	if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, img); err != nil {
@@ -572,11 +572,14 @@ func (s *GovernanceService) AdminSyncImage(ctx context.Context, actor Actor, nam
 			return nil, apierror.BadRequest("image has no catalog source (spec.catalog)")
 		case errors.Is(err, errCatalogSyncDisabled):
 			return nil, apierror.Unavailable("catalog sync is not available")
-		case errors.Is(err, context.DeadlineExceeded):
-			// The force-sync deadline (catalogForceSyncTimeout) expired —
-			// waiting behind another image's sync or on a slow source. A
-			// retryable server condition, not a broken catalog source.
-			return nil, apierror.Unavailable("catalog sync timed out — try again")
+		case errors.Is(err, errSyncBusy):
+			// The force-sync gave up waiting behind another image's
+			// in-flight sync — a retryable server condition, not a broken
+			// catalog source. Only the wait maps here: a source that hangs
+			// until the fetch timeout keeps the 502 below (its error also
+			// satisfies errors.Is(err, context.DeadlineExceeded), which is
+			// why the match is on the sentinel, not on the ctx error).
+			return nil, apierror.Unavailable("another catalog sync is in progress — try again")
 		}
 		return nil, apierror.BadGateway("catalog sync failed: " + err.Error())
 	}

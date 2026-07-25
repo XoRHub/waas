@@ -161,6 +161,32 @@ func TestAdminSyncImageBusyAnswers503(t *testing.T) {
 	}
 }
 
+// TestAdminSyncImageHangingSourceAnswers502 pins the boundary of the
+// busy 503: a source that hangs until the fetch timeout is a broken
+// catalog source and must keep answering 502 with the fetch error,
+// exactly like a source answering 500. It exists because a Go
+// client-timeout error ALSO satisfies errors.Is(err,
+// context.DeadlineExceeded) — mapping the 503 on that instead of the
+// busy sentinel would misfile this case as "server busy".
+func TestAdminSyncImageHangingSourceAnswers502(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done() // hang until the client gives up
+	}))
+	defer srv.Close()
+
+	svc, _ := newSyncFixture(t, syncRegistryImage("waas-images", srv.URL))
+	// Injectable client: shrink the fetch timeout so the test does not
+	// sit through the real catalogFetchTimeout.
+	svc.syncer.HTTPClient = &http.Client{Timeout: 100 * time.Millisecond}
+	admin := Actor{ID: "a1", Username: "admin", Role: string(auth.RoleAdmin)}
+
+	_, err := svc.AdminSyncImage(context.Background(), admin, "waas-images")
+	var problem *apierror.Problem
+	if !errors.As(err, &problem) || problem.Status != http.StatusBadGateway {
+		t.Fatalf("err = %v, want a 502 problem", err)
+	}
+}
+
 func TestAdminSyncImageNotFound(t *testing.T) {
 	svc, _ := newSyncFixture(t)
 	admin := Actor{ID: "a1", Role: string(auth.RoleAdmin)}

@@ -639,7 +639,7 @@ func TestCatalogSyncWorkerSyncNowFailureReturnsErrorAndKeepsEntries(t *testing.T
 
 // TestCatalogSyncWorkerSyncNowBoundedWhileBusy pins the F8 bound: a
 // force-sync queued behind another image's in-flight sync must give up
-// at its deadline with context.DeadlineExceeded instead of hanging the
+// at its deadline with errSyncBusy instead of hanging the
 // HTTP request that carries it. The held semaphore stands in for that
 // unrelated in-flight sync; the short caller deadline (tighter than
 // catalogForceSyncTimeout, which WithTimeout only ever lowers to) keeps
@@ -657,8 +657,10 @@ func TestCatalogSyncWorkerSyncNowBoundedWhileBusy(t *testing.T) {
 	go func() { done <- w.SyncNow(ctx, img) }()
 	select {
 	case err := <-done:
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("SyncNow error = %v, want context.DeadlineExceeded", err)
+		// The sentinel, not context.DeadlineExceeded: only the give-up on
+		// the wait may map to the admin 503.
+		if !errors.Is(err, errSyncBusy) {
+			t.Fatalf("SyncNow error = %v, want errSyncBusy", err)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("SyncNow still blocked behind the busy sync at its deadline")
