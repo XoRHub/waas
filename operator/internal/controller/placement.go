@@ -80,10 +80,11 @@ func (r *WorkspaceReconciler) ensureNamespace(ctx context.Context, ws *waasv1alp
 		"pod-security.kubernetes.io/enforce": "baseline",
 		"pod-security.kubernetes.io/warn":    "restricted",
 	}
-	// The ownership label only belongs on PERSONAL namespaces: shared
-	// ones (the built-in "waas-workspaces", {os}/{templateName} patterns)
-	// host several owners — labeling them with the first creator would
-	// wrongly open them to that user's future overrides.
+	// The ownership label only belongs on PERSONAL namespaces — the
+	// nominal case under the built-in "waas-{user}" default. Shared ones
+	// (admin-chosen literals like "waas-workspaces", {os}/{templateName}
+	// patterns) host several owners — labeling them with the first
+	// creator would wrongly open them to that user's future overrides.
 	if isPersonalNamespace(ws) {
 		platform[labelOwner] = ws.Spec.Owner
 	}
@@ -107,9 +108,11 @@ func (r *WorkspaceReconciler) ensureNamespace(ctx context.Context, ws *waasv1alp
 // namespace in (guacd must reach the desktops; nothing else should).
 func (r *WorkspaceReconciler) bootstrapNamespace(ctx context.Context, ws *waasv1alpha1.Workspace, name string) error {
 	// The quota derives from the OWNER's aggregate caps: meaningful in a
-	// per-user namespace, wrong in a shared one (it would cap the whole
-	// group at one user's budget) — shared namespaces get no auto-quota,
-	// the admission webhook stays the per-user enforcement everywhere.
+	// per-user namespace — the nominal case now that the built-in default
+	// isolates per user — wrong in an opt-in shared one (it would cap the
+	// whole group at one user's budget). Shared namespaces get no
+	// auto-quota; the admission webhook stays the per-user enforcement
+	// everywhere.
 	if hard := r.namespaceQuota(ctx, ws); hard != nil && isPersonalNamespace(ws) {
 		quota := &corev1.ResourceQuota{
 			ObjectMeta: metav1.ObjectMeta{Name: "waas-quota", Namespace: name, Labels: workspaceOwnerLabels(ws)},
@@ -263,8 +266,10 @@ func workspaceOwnerLabels(ws *waasv1alpha1.Workspace) map[string]string {
 
 // isPersonalNamespace reports whether the workspace's target namespace
 // is dedicated to its owner: it matches the identity-derived
-// "waas-<user>" prefix (frozen username annotation). Anything else —
-// the built-in shared default, {os}/{templateName} patterns — is shared.
+// "waas-<user>" prefix (frozen username annotation) — the nominal case,
+// since the built-in "waas-{user}" default resolves exactly there.
+// Anything else — an admin-chosen shared literal ("waas-workspaces"),
+// {os}/{templateName} patterns — is shared.
 func isPersonalNamespace(ws *waasv1alpha1.Workspace) bool {
 	username := ws.Annotations[waasv1alpha1.AnnotationUsername]
 	if username == "" {

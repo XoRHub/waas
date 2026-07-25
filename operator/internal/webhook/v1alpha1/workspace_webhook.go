@@ -286,8 +286,11 @@ func (v *WorkspaceValidator) validateShape(ws *waasv1alpha1.Workspace) *policy.D
 //  1. the RESOLVED DEFAULT for this workspace (template pattern > global
 //     pattern > built-in), recomputed server-side from the trusted
 //     identity — this is the platform's own decision, and it may be a
-//     SHARED namespace (e.g. the built-in "waas-workspaces" or an
-//     {os}/{templateName} pattern), so no per-user rule applies to it;
+//     SHARED namespace (an admin-chosen literal like "waas-workspaces"
+//     or an {os}/{templateName} pattern), so no per-user rule applies to
+//     it. Under the built-in "waas-{user}" default this branch coincides
+//     with (2) in the nominal case; it stays necessary for the shared
+//     patterns an admin opts into;
 //  2. a deviation matching the identity-derived "waas-<user>" prefix;
 //  3. a deviation to an existing namespace carrying this owner's
 //     ownership label.
