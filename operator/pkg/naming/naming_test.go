@@ -148,8 +148,63 @@ func TestEffectivePattern(t *testing.T) {
 	}
 }
 
+// The built-in default carries a token: it must RESOLVE into a per-user
+// namespace everywhere the chain bottoms out, never be handled as a
+// literal.
+func TestBuiltinDefaultResolvesPerUser(t *testing.T) {
+	got, err := ResolveNamespace(EffectivePattern("", ""), PatternValues{User: "Zoé Lefèvre"})
+	if err != nil || got != "waas-zoe-lefevre" {
+		t.Fatalf("built-in default must resolve to the sanitized user namespace, got %q, %v", got, err)
+	}
+
+	// A very long username truncates deterministically into a valid
+	// DNS-1123 label, discriminated by the raw-value hash suffix.
+	long := strings.Repeat("engineering-platform", 5)
+	a, err := ResolveNamespace(EffectivePattern("", ""), PatternValues{User: long})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ResolveNamespace(EffectivePattern("", ""), PatternValues{User: long})
+	if a != b {
+		t.Fatalf("truncation must be deterministic: %q vs %q", a, b)
+	}
+	if err := ValidateLabel(a); err != nil {
+		t.Fatalf("truncated per-user namespace must stay a valid label: %v", err)
+	}
+	if !strings.HasSuffix(a, Suffix(long)) {
+		t.Fatalf("truncated per-user namespace must carry the deterministic suffix, got %q", a)
+	}
+}
+
+// PersonalNamespace is what the operator and the webhook use to decide
+// "is this namespace the user's own": it must agree with the resolution
+// the api-server froze into the spec, INCLUDING above the token budget,
+// where a hand-made "waas-"+Sanitize(user) silently diverges.
+func TestPersonalNamespaceMatchesResolution(t *testing.T) {
+	for _, user := range []string{
+		"alice",
+		"Zoé Lefèvre",
+		strings.Repeat("a", 58),               // exactly the token budget
+		strings.Repeat("a", 59),               // one over: truncated + suffixed
+		strings.Repeat("engineering-team", 6), // far over
+	} {
+		resolved, err := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: user})
+		if err != nil {
+			t.Fatalf("resolving %d-char user: %v", len(user), err)
+		}
+		if got := PersonalNamespace(user); got != resolved {
+			t.Errorf("PersonalNamespace(%d chars) = %q, resolution gives %q", len(user), got, resolved)
+		}
+		if got := PersonalNamespace(user); got == "waas-"+Sanitize(user) && len(Sanitize(user)) > 58 {
+			t.Errorf("a truncated username must not resolve to the naive prefix form (%q)", got)
+		}
+	}
+}
+
 func TestValidatePattern(t *testing.T) {
-	for _, ok := range []string{"waas-{user}", "waas-{os}-{templateName}", BuiltinNamespacePattern, "waas-{user}-{workspace}"} {
+	// "waas-workspaces" is no longer the default but stays a legitimate
+	// pattern: the explicit shared-namespace opt-in.
+	for _, ok := range []string{BuiltinNamespacePattern, "waas-{os}-{templateName}", "waas-workspaces", "waas-{user}-{workspace}"} {
 		if err := ValidatePattern(ok); err != nil {
 			t.Errorf("ValidatePattern(%q): %v", ok, err)
 		}

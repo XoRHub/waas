@@ -10,6 +10,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -22,13 +23,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/naming"
 )
 
 // placedWorkspace mirrors what the api-server produces: the target
-// namespace resolved from the template pattern and the trusted username
-// annotation — the governance re-check recomputes the default from BOTH,
-// so they must be consistent or the deviation counts as a "placement"
-// override.
+// namespace resolved from the precedence chain (here the built-in
+// per-user default) and the trusted username annotation — the governance
+// re-check recomputes the default from BOTH, so they must be consistent
+// or the deviation counts as a "placement" override.
 func placedWorkspace() *waasv1alpha1.Workspace {
 	ws := workspace()
 	ws.Annotations = map[string]string{waasv1alpha1.AnnotationUsername: "alice"}
@@ -405,9 +407,10 @@ func TestAdminOwnedIngressPolicyIsLeftAlone(t *testing.T) {
 	}
 }
 
-func TestPlacedNamespaceQuotaFromPolicy(t *testing.T) {
-	cpu, mem := resource.MustParse("8"), resource.MustParse("32Gi")
-	pol := &waasv1alpha1.WorkspacePolicy{
+// aggregatePolicy declares aggregate caps so the bootstrap derives a
+// namespace quota from them.
+func aggregatePolicy(cpu, mem resource.Quantity) *waasv1alpha1.WorkspacePolicy {
+	return &waasv1alpha1.WorkspacePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "default"},
 		Spec: waasv1alpha1.WorkspacePolicySpec{
 			Limits: waasv1alpha1.PolicyLimits{
@@ -415,7 +418,10 @@ func TestPlacedNamespaceQuotaFromPolicy(t *testing.T) {
 			},
 		},
 	}
-	img := &waasv1alpha1.WorkspaceImage{
+}
+
+func xfceCatalogImage() *waasv1alpha1.WorkspaceImage {
+	return &waasv1alpha1.WorkspaceImage{
 		ObjectMeta: metav1.ObjectMeta{Name: "xfce", Namespace: "default"},
 		Spec: waasv1alpha1.WorkspaceImageSpec{
 			Image:     "ghcr.io/xorhub/waas/desktop-xfce:latest",
@@ -423,23 +429,111 @@ func TestPlacedNamespaceQuotaFromPolicy(t *testing.T) {
 			Protocols: []waasv1alpha1.Protocol{"vnc"},
 		},
 	}
+}
+
+// TestPlacedNamespaceQuotaFromPolicy: NOMINAL case — the template has no
+// placement, the workspace carries the per-user namespace the built-in
+// default resolves to. The bootstrapped namespace is personal: ownership
+// label AND policy-derived quota.
+func TestPlacedNamespaceQuotaFromPolicy(t *testing.T) {
+	cpu, mem := resource.MustParse("8"), resource.MustParse("32Gi")
 	tpl := linuxTemplate()
-	tpl.Spec.Placement = &waasv1alpha1.WorkspacePlacement{Namespace: "waas-{user}"}
 	tpl.Spec.Resources = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("2Gi")},
 		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("2Gi")},
 	}
 	ws := placedWorkspace()
-	r, c := newFixture(t, tpl, ws, pol, img)
+	r, c := newFixture(t, tpl, ws, aggregatePolicy(cpu, mem), xfceCatalogImage())
 
 	reconcile(t, r, ws)
 
+	ns := &corev1.Namespace{}
+	if err := c.Get(context.Background(), types.NamespacedName{Name: "waas-alice"}, ns); err != nil {
+		t.Fatalf("expected bootstrapped namespace: %v", err)
+	}
+	if ns.Labels[labelOwner] != ws.Spec.Owner {
+		t.Fatalf("per-user default namespace must carry the ownership label, got %v", ns.Labels)
+	}
 	quota := &corev1.ResourceQuota{}
 	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "waas-alice", Name: "waas-quota"}, quota); err != nil {
 		t.Fatalf("expected policy-derived quota: %v", err)
 	}
 	if quota.Spec.Hard["limits.cpu"] != cpu || quota.Spec.Hard["requests.memory"] != mem {
 		t.Fatalf("quota must mirror the aggregate caps, got %v", quota.Spec.Hard)
+	}
+}
+
+// TestSharedNamespaceGetsNoOwnershipNorQuota: the explicit shared opt-in
+// (an admin pins a literal pattern) must bootstrap WITHOUT ownership
+// label and WITHOUT auto-quota — several owners share it, and a quota
+// derived from one user's caps would throttle the whole group.
+func TestSharedNamespaceGetsNoOwnershipNorQuota(t *testing.T) {
+	tpl := linuxTemplate()
+	tpl.Spec.Placement = &waasv1alpha1.WorkspacePlacement{Namespace: "waas-workspaces"}
+	// The policy caps compute: the template must declare its sizing or
+	// governance denies before any namespace is bootstrapped.
+	tpl.Spec.Resources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("2Gi")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("2Gi")},
+	}
+	ws := placedWorkspace()
+	ws.Spec.TargetNamespace = "waas-workspaces"
+	r, c := newFixture(t, tpl, ws,
+		aggregatePolicy(resource.MustParse("8"), resource.MustParse("32Gi")), xfceCatalogImage())
+
+	reconcile(t, r, ws)
+
+	ns := &corev1.Namespace{}
+	if err := c.Get(context.Background(), types.NamespacedName{Name: "waas-workspaces"}, ns); err != nil {
+		t.Fatalf("expected bootstrapped namespace: %v", err)
+	}
+	if ns.Labels[labelManagedBy] != managerName {
+		t.Fatalf("shared namespace must still be operator-managed, got %v", ns.Labels)
+	}
+	if _, found := ns.Labels[labelOwner]; found {
+		t.Fatalf("shared namespace must not carry an ownership label, got %v", ns.Labels)
+	}
+	err := c.Get(context.Background(), types.NamespacedName{Namespace: "waas-workspaces", Name: "waas-quota"}, &corev1.ResourceQuota{})
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("shared namespace must not receive an auto-quota, got %v", err)
+	}
+}
+
+// TestTruncatedPerUserNamespaceStaysPersonal: a username long enough to
+// overflow the token budget resolves to a TRUNCATED, hash-suffixed
+// namespace. Recomputing "waas-"+Sanitize(user) here would produce a
+// different string, and the user's own namespace would be treated as
+// shared — no ownership label, no quota, exactly the protections the
+// per-user default exists for.
+func TestTruncatedPerUserNamespaceStaysPersonal(t *testing.T) {
+	longUser := strings.Repeat("engineering-platform", 5)
+	target := naming.PersonalNamespace(longUser)
+	if target == "waas-"+naming.Sanitize(longUser) {
+		t.Fatalf("fixture is not exercising truncation: %q", target)
+	}
+
+	tpl := linuxTemplate()
+	tpl.Spec.Resources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("2Gi")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("2Gi")},
+	}
+	ws := placedWorkspace()
+	ws.Annotations[waasv1alpha1.AnnotationUsername] = longUser
+	ws.Spec.TargetNamespace = target
+	r, c := newFixture(t, tpl, ws,
+		aggregatePolicy(resource.MustParse("8"), resource.MustParse("32Gi")), xfceCatalogImage())
+
+	reconcile(t, r, ws)
+
+	ns := &corev1.Namespace{}
+	if err := c.Get(context.Background(), types.NamespacedName{Name: target}, ns); err != nil {
+		t.Fatalf("expected bootstrapped namespace: %v", err)
+	}
+	if ns.Labels[labelOwner] != ws.Spec.Owner {
+		t.Fatalf("truncated per-user namespace must carry the ownership label, got %v", ns.Labels)
+	}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: target, Name: "waas-quota"}, &corev1.ResourceQuota{}); err != nil {
+		t.Fatalf("truncated per-user namespace must receive the policy quota: %v", err)
 	}
 }
 

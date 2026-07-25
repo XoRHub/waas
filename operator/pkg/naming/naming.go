@@ -88,10 +88,36 @@ func Suffix(raw string) string {
 }
 
 // BuiltinNamespacePattern is the last resort of the precedence chain
-// (template pattern > operator env pattern > this): a single shared
-// workloads namespace. Deliberately a plain literal — predictable, and
-// admins opt into per-user/template isolation with an explicit pattern.
-const BuiltinNamespacePattern = "waas-workspaces"
+// (template pattern > operator env pattern > this): one namespace per
+// user. The default isolates because the namespace is the unit every
+// per-user protection attaches to — ownership label, policy-derived
+// ResourceQuota, default-deny NetworkPolicy — and because the webhook
+// already recognizes the "waas-<user>" prefix as the owner's territory:
+// with this pattern the default placement and the ownership rule are the
+// same statement. A SHARED namespace remains a legitimate choice, but an
+// EXPLICIT admin one (a literal pattern such as "waas-workspaces" in the
+// template or in WAAS_DEFAULT_NAMESPACE_PATTERN): it hosts several
+// owners, so it gets neither ownership label nor auto-quota.
+const BuiltinNamespacePattern = "waas-" + TokenUser
+
+// PersonalNamespace returns the namespace the built-in per-user default
+// resolves to for username: the ONLY way to ask "which namespace is this
+// user's own". It goes through ResolveNamespace, so it inherits the token
+// budgeting, the truncation and the deterministic suffix — recomposing
+// "waas-" + Sanitize(user) by hand looks equivalent but diverges above
+// the token budget (a username sanitizing to more than 58 characters
+// resolves to a truncated+suffixed namespace), and a caller comparing
+// against the hand-made form then fails to recognize a user's own
+// namespace: no ownership label, no quota, no placement right.
+// Empty (never expected for the constant built-in pattern) means "no
+// personal namespace" — callers must not treat it as a match.
+func PersonalNamespace(username string) string {
+	ns, err := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: username})
+	if err != nil {
+		return ""
+	}
+	return ns
+}
 
 // Placeholder documents one pattern token: THE source the UI contextual
 // help and the docs render — never a hand-maintained copy.

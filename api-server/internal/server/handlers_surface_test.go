@@ -354,8 +354,10 @@ func TestWorkspaceAuxiliaryRoutes(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("namespace preview: %d %s", rec.Code, rec.Body)
 	}
-	if ns := decodeData[map[string]string](t, rec.Body.Bytes()); ns["namespace"] == "" {
-		t.Fatal("namespace preview must resolve a namespace")
+	// No template pattern, no global pattern: the preview must resolve
+	// the built-in per-user default for the caller ("admin" here).
+	if ns := decodeData[map[string]string](t, rec.Body.Bytes()); ns["namespace"] != "waas-admin" {
+		t.Fatalf("namespace preview must resolve the per-user default, got %q", ns["namespace"])
 	}
 
 	rec = doJSON(t, h, http.MethodPost, "/api/v1/workspaces", token, map[string]string{"templateRef": "xfce"})

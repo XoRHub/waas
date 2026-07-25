@@ -26,12 +26,35 @@ only displays the result):
    both components **refuse to start** — never a silent fallback,
    a placement different from what Git declares would be an invisible
    drift;
-3. **built-in `waas-workspaces`**: a single shared namespace.
+3. **built-in `waas-{user}`**: one namespace per user. The default
+   isolates because the namespace is where every per-user protection
+   attaches (ownership label, policy-derived quota, default-deny
+   network policy) and because it matches the `waas-<user>` prefix the
+   webhook already treats as the owner's territory. A **shared**
+   namespace remains legitimate but is an **explicit admin choice** — a
+   literal pattern in a template or in the global variable — no longer
+   the default.
 
 ⚠️ **Changing the pattern (variable or template) only affects
 NEW workspaces**: the resolved value is frozen into
 `spec.targetNamespace` at creation and immutable afterward. Existing
 workspaces keep their namespace — this is intended, not a bug.
+
+> **Migration note — default change**: the built-in default moved from
+> the shared `waas-workspaces` to the per-user `waas-{user}`. Existing
+> workspaces are untouched (frozen `spec.targetNamespace`); only NEW
+> workspaces land per-user. An admin who wants to keep the previous
+> shared behavior declares it explicitly:
+> `workspaces.defaultNamespacePattern: waas-workspaces` (Helm).
+>
+> **Retained home volumes do not follow.** A PVC is namespaced and only
+> attachable in the namespace it was left in, so homes retained in the
+> old shared namespace no longer appear when creating a workspace that
+> now resolves to `waas-<user>`. Moving that data is a storage
+> operation, outside the platform's scope: use the usual tooling
+> (VolumeSnapshot, or a backup/restore round-trip with Longhorn, Velero
+> or equivalent). Keeping the shared pattern, as above, avoids the
+> question entirely.
 
 ## Placeholders
 
@@ -68,14 +91,16 @@ Cross-cutting rules:
 - Override at creation: explicit `targetNamespace` in the payload,
   gated by the overridable field **`placement`** (template ∩ policy,
   admins exempt).
-- **Shared namespaces**: the server-resolved default may be shared
-  (built-in `waas-workspaces`, `{os}`/`{templateName}` patterns). The webhook
-  always admits the server-resolved default; the `waas-<user>` prefix
-  rule only applies to deviations. A shared namespace receives
+- **Shared namespaces are the opt-in exception**: the server-resolved
+  default may still be shared when an admin chose a shared pattern (a
+  literal like `waas-workspaces`, `{os}`/`{templateName}` patterns). The
+  webhook always admits the server-resolved default; the `waas-<user>`
+  prefix rule only applies to deviations. A shared namespace receives
   **neither** an ownership label **nor** an auto ResourceQuota (it
   would cap the whole team at one person's budget) — the webhook remains
   the per-user enforcement, the admin sets a namespace quota if they want
-  one.
+  one. Under the built-in `waas-{user}` default the nominal namespace is
+  personal and receives both.
 
 ### Sanitization (operator/pkg/naming — shared api-server/webhook/operator)
 
@@ -107,14 +132,16 @@ Created on first workload if it doesn't exist — never modified
 afterward (admin settings are not overwritten):
 
 - **Labels**: `app.kubernetes.io/managed-by=waas-operator`,
-  `waas.xorhub.io/owner=<owner>`, Pod Security
+  `waas.xorhub.io/owner=<owner>` (personal namespaces only — the
+  nominal case under the per-user default; shared namespaces host
+  several owners and get no ownership label), Pod Security
   `enforce=baseline` / `warn=restricted` (see below) + template
   labels/annotations (`placement.namespaceLabels/Annotations`, denylist
   applied, platform keys always win).
 - **`waas-quota` ResourceQuota** derived from the owner policy's
   aggregate caps (`limits.aggregate` → requests/limits cpu/memory,
-  requests.storage). Defense in depth: the webhook remains the
-  primary enforcement.
+  requests.storage), personal namespaces only. Defense in depth: the
+  webhook remains the primary enforcement.
 - **`waas-default-ingress` NetworkPolicy**: ingress denied except from
   the CR namespace **and** the release namespace (`WAAS_PLATFORM_NAMESPACE`,
   injected by the chart via the downward API) — that's where
@@ -175,13 +202,17 @@ its own pods. Note the label cannot be set through
 platform admin — cannot lower a namespace to `privileged`.
 
 ⚠️ **secretKeyRef constraint**: a template's `env.valueFrom.secretKeyRef`
-resolves in the **pod's** namespace, i.e. the target
-namespace. A placed template referencing a Secret in the platform
-namespace (e.g. `dev-ssh-credentials`) breaks at startup
-(`CreateContainerConfigError`): provision the Secret in the target
-namespaces (External Secrets/Vault) or don't place that template.
-Protocol `credentialsSecretRef`s are NOT affected: they are
-resolved on the api-server side in the platform namespace.
+resolves in the **pod's** namespace, i.e. the target namespace — never
+the platform namespace, whatever the pattern. What the per-user default
+changes is that the target namespace is no longer **known in advance**:
+a Secret cannot simply be pre-provisioned once. Either provision the
+Secret into the target namespaces (External Secrets/Vault), or pin the
+template to a shared namespace known in advance where the Secret is
+pre-provisioned — what the dev `dev-ssh` template does with
+`placement.namespace: waas-workspaces`. Otherwise the pod breaks at
+startup (`CreateContainerConfigError`). Protocol `credentialsSecretRef`s
+are NOT affected: they are resolved on the api-server side in the
+platform namespace.
 
 ### GC and cleanup
 
@@ -196,7 +227,10 @@ resolved on the api-server side in the platform namespace.
   outlives workspace deletion — Retain is the only default that cannot
   destroy data. `DeleteWhenEmpty` (opt-in) only deletes if the
   operator created the namespace AND no waas object remains in it
-  (home PVC included).
+  (home PVC included). With the per-user default this means one
+  `waas-<user>` namespace per user survives the deletion of their last
+  workspace — coherent with Retain's reason to exist (the retained home
+  PVC lives there) and reused by the user's next workspace.
 - The cleanup policy is **frozen on the namespace at its creation**
   (label `waas.xorhub.io/cleanup`) and applied by the **namespace
   janitor**, an internal operator reconciler re-triggered by content

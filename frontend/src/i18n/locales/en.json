@@ -336,7 +336,7 @@
       "storageClassDefault": "(cluster default)",
       "placement": "Workload placement",
       "placementPattern": "Namespace pattern",
-      "placementHint": "Empty = the platform-wide pattern (operator env), then the built-in \"waas-workspaces\". Only NEW workspaces follow a change.",
+      "placementHint": "Empty = the platform-wide pattern (operator env), then the built-in per-user \"waas-{user}\". Only NEW workspaces follow a change.",
       "placementCleanup": "Namespace cleanup",
       "placementLabels": "Namespace labels",
       "placementAnnotations": "Namespace annotations",

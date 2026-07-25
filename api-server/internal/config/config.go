@@ -22,7 +22,7 @@ type Config struct {
 	// WorkspaceNamespace is where Workspace/WorkspaceTemplate CRs live.
 	WorkspaceNamespace string
 	// DefaultNamespacePattern is the operator-wide workload placement
-	// pattern (template pattern > this > built-in "waas-workspaces").
+	// pattern (template pattern > this > built-in per-user "waas-{user}").
 	// MUST carry the same value as the operator deployment — one Helm
 	// values key feeds both. Only affects NEW workspaces.
 	DefaultNamespacePattern string

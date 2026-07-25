@@ -112,12 +112,15 @@ spec:
     - name: WAAS_DESKTOP_PASSWORD
       valueFrom:
         secretKeyRef: { name: dev-ssh-credentials, key: password }
-  # NO template placement: this template follows the PRECEDENCE CHAIN
-  # (global WAAS_DEFAULT_NAMESPACE_PATTERN, else the built-in
-  # "waas-workspaces" shared namespace). The env above references the
-  # dev-ssh-credentials Secret and pods resolve secretKeyRef in THEIR OWN
-  # namespace — hack/dev/seed-ssh-secret.sh clones the Secret into the
-  # default workloads namespace for exactly this reason.
+  # EXPLICIT shared namespace — the canonical opt-in example. The env
+  # above references the dev-ssh-credentials Secret and pods resolve
+  # secretKeyRef in THEIR OWN namespace, so this template needs a
+  # namespace known IN ADVANCE where the Secret is pre-provisioned
+  # (hack/dev/seed-ssh-secret.sh clones it there). The built-in
+  # "waas-{user}" default would scatter pods across per-user namespaces
+  # holding no Secret (CreateContainerConfigError at startup).
+  placement:
+    namespace: waas-workspaces
   protocols:
     - name: ssh
       port: 2222

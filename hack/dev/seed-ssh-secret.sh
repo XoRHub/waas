@@ -7,9 +7,11 @@
 #   - the platform namespace (CR namespace, the release namespace by
 #     default): connect-time resolution of credentialsSecretRef always
 #     reads it there;
-#   - the default workloads namespace ("waas-workspaces", the built-in
-#     placement fallback): the pods' env secretKeyRef resolves in the
-#     POD's namespace, and new dev-ssh workspaces land there by default.
+#   - the shared workloads namespace the dev-ssh template explicitly
+#     targets (placement.namespace: waas-workspaces): the pods' env
+#     secretKeyRef resolves in the POD's namespace, which is exactly why
+#     that template pins a namespace known in advance instead of the
+#     per-user "waas-{user}" default.
 # The workloads copy is cloned from the platform one — two different
 # keypairs would break auth (resolver offers key A, pod authorizes key B).
 set -eu
