@@ -26,7 +26,7 @@ Current state:
 | 10 | Low | **Fixed** — desktop pods no longer mount the SA token |
 | 11 | Low | **Closed** — cluster-admin arbitration; catalog measured compliant with `restricted` (see the note below) |
 | 12 | Low | Deferred — prerequisite for taking KasmVNC out of experimental; residual documented in `docs/kasmvnc.md` |
-| 13 | Low | Deferred — closed by the planned token-refresh work, not on its own |
+| 13 | Low | **Fixed** — session moved to an httpOnly cookie; the SPA stores no credential |
 | 14 | Low | **Won't fix** — HSTS belongs to the operator's ingress / reverse proxy |
 | 15 | Low | **Fixed** — `postgres.sslMode` is a chart value |
 
