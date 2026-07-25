@@ -142,6 +142,28 @@ func TestAdminFloorIsOffWhenLocalLoginIsDisabled(t *testing.T) {
 	})
 }
 
+// Two refusals every admin edit goes past, and neither was pinned: an
+// unknown account must not read as a server fault, and an unknown role
+// must be caught before it reaches the column that per-request revocation
+// compares against.
+func TestUpdateRejectsUnknownAccountAndRole(t *testing.T) {
+	status := func(t *testing.T, err error, want int) {
+		t.Helper()
+		var p *apierror.Problem
+		if !errors.As(err, &p) || p.Status != want {
+			t.Fatalf("want %d Problem, got %v", want, err)
+		}
+	}
+	svc, _ := newUserFixture(t, []model.User{{ID: "u-bob", Username: "bob"}})
+
+	_, _, err := svc.Update(context.Background(), Actor{ID: "u-admin"}, "ghost", UpdateUserInput{})
+	status(t, err, 404)
+
+	bogus := auth.Role("superuser")
+	_, _, err = svc.Update(context.Background(), Actor{ID: "u-admin"}, "u-bob", UpdateUserInput{Role: &bogus})
+	status(t, err, 400)
+}
+
 func forbidden(t *testing.T, err error) {
 	t.Helper()
 	var p *apierror.Problem

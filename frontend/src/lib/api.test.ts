@@ -129,3 +129,30 @@ describe('api session-ended announcements', () => {
     expect(res.sessionEnded).toBeUndefined();
   });
 });
+
+// 204 has no body to parse, and it is the shape logout answers with —
+// the one response that both ends a session and carries nothing.
+describe('api empty responses', () => {
+  it('returns no data and still reports a session the server ended', async () => {
+    useAuthStore.getState().setUser(user);
+    fetchMock.mockResolvedValue(
+      new Response(null, { status: 204, headers: { 'X-Waas-Session-Ended': 'rights-changed' } }),
+    );
+
+    const res = await api.delete('/api/v1/remote-workspaces/rw1');
+
+    expect(res.data).toBeUndefined();
+    expect(res.sessionEnded).toBe('rights-changed');
+    expect(useAuthStore.getState().signedOutReason).toBe('rights-changed');
+  });
+
+  it('returns no data on a plain 204', async () => {
+    useAuthStore.getState().setUser(user);
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+    const res = await api.delete('/api/v1/remote-workspaces/rw1');
+
+    expect(res.data).toBeUndefined();
+    expect(useAuthStore.getState().user).toEqual(user);
+  });
+});
