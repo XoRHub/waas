@@ -451,10 +451,10 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 
 	img := &waasv1alpha1.WorkspaceImage{}
 	err = s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, img)
-	// Creation counts as a source change; an update only when
-	// spec.catalog itself moved — display-field edits must not refetch
-	// (same rule as the watch path's source discriminant).
-	sourceChanged := true
+	// Creation always syncs; an update only when spec.catalog itself
+	// moved — display-field edits must not refetch (same rule as the
+	// watch path's source discriminant).
+	needsSync := true
 	switch {
 	case apierrors.IsNotFound(err):
 		img = &waasv1alpha1.WorkspaceImage{
@@ -468,7 +468,11 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 	case err != nil:
 		return nil, fmt.Errorf("fetching workspace image %s: %w", name, err)
 	default:
-		sourceChanged = !reflect.DeepEqual(img.Spec.Catalog, spec.Catalog)
+		// An entry that was not eligible before (exact-image mode, or no
+		// catalog block: nothing forbids carrying one) syncs too — this is
+		// the first time it ever could, even if the catalog block itself
+		// is byte-identical.
+		needsSync = !reflect.DeepEqual(img.Spec.Catalog, spec.Catalog) || !catalogSyncEligible(img)
 		img.Spec = spec
 		if err := s.kube.Update(ctx, img); err != nil {
 			return nil, fmt.Errorf("updating workspace image %s: %w", name, err)
@@ -476,7 +480,7 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 		s.audit.Record(ctx, actor, "catalog.image_updated", "workspaceimage", name,
 			fmt.Sprintf("enabled=%t image=%s", spec.Enabled, in.Image))
 	}
-	if sourceChanged {
+	if needsSync {
 		// Best-effort synchronous sync (bounded by catalogFetchTimeout),
 		// before imageToModel so the response already carries the
 		// discovered entries. The CR is valid regardless of its source's

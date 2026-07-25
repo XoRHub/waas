@@ -153,6 +153,46 @@ func urlCatalogInput(url string) UpsertImageInput {
 	return registryImageInput(&model.CatalogSourceModel{From: model.CatalogSourceFrom{URL: url}})
 }
 
+// TestAdminUpsertImageSyncsWhenItBecomesEligible covers the entry that
+// carried a catalog block while it could never sync (exact-image mode —
+// nothing forbids the block there) and is then switched to registry
+// mode: the source did not move, but this is the first PUT that can
+// sync, so the response must already carry the entries.
+func TestAdminUpsertImageSyncsWhenItBecomesEligible(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(workerCatalogManifest))
+	}))
+	defer srv.Close()
+
+	svc, _ := newSyncFixture(t)
+	admin := Actor{ID: "a1", Username: "admin", Role: string(auth.RoleAdmin)}
+	ctx := context.Background()
+
+	exact := urlCatalogInput(srv.URL)
+	exact.Registry = ""
+	exact.Image = "docker.io/xorhub/firefox:1.0.0"
+	if _, err := svc.AdminUpsertImage(ctx, admin, "becomes-eligible", exact); err != nil {
+		t.Fatalf("creating the exact-image entry: %v", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("manifest fetches = %d for an exact-image entry, want 0", hits.Load())
+	}
+
+	// Same catalog block, registry mode this time.
+	m, err := svc.AdminUpsertImage(ctx, admin, "becomes-eligible", urlCatalogInput(srv.URL))
+	if err != nil {
+		t.Fatalf("switching to registry mode: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("manifest fetches = %d once the entry became eligible, want 1", hits.Load())
+	}
+	if len(m.Discovered) != 2 {
+		t.Fatalf("discovered = %+v, want the 2 manifest entries in the PUT response", m.Discovered)
+	}
+}
+
 // TestAdminUpsertImageCreateSyncsCatalog pins the auto-sync on the API
 // creation path: the PUT response must already carry the discovered
 // entries — no tick, no manual "Sync now".
