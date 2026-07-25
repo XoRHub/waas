@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -449,6 +451,10 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 
 	img := &waasv1alpha1.WorkspaceImage{}
 	err = s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, img)
+	// Creation counts as a source change; an update only when
+	// spec.catalog itself moved — display-field edits must not refetch
+	// (same rule as the watch path's source discriminant).
+	sourceChanged := true
 	switch {
 	case apierrors.IsNotFound(err):
 		img = &waasv1alpha1.WorkspaceImage{
@@ -462,12 +468,25 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 	case err != nil:
 		return nil, fmt.Errorf("fetching workspace image %s: %w", name, err)
 	default:
+		sourceChanged = !reflect.DeepEqual(img.Spec.Catalog, spec.Catalog)
 		img.Spec = spec
 		if err := s.kube.Update(ctx, img); err != nil {
 			return nil, fmt.Errorf("updating workspace image %s: %w", name, err)
 		}
 		s.audit.Record(ctx, actor, "catalog.image_updated", "workspaceimage", name,
 			fmt.Sprintf("enabled=%t image=%s", spec.Enabled, in.Image))
+	}
+	if sourceChanged {
+		// Best-effort synchronous sync (bounded by catalogFetchTimeout),
+		// before imageToModel so the response already carries the
+		// discovered entries. The CR is valid regardless of its source's
+		// health: a fetch failure never fails the PUT — it is audited,
+		// logged, and surfaced through status.catalog.lastSyncError,
+		// which the response projects.
+		if err := s.syncCatalog(ctx, actor, img); err != nil &&
+			!errors.Is(err, errCatalogNotEligible) && !errors.Is(err, errCatalogSyncDisabled) {
+			slog.Warn("catalog sync on upsert failed", "workspaceImage", name, "error", err)
+		}
 	}
 	m, err := s.imageToModel(ctx, img)
 	if err != nil {
