@@ -135,9 +135,21 @@ func TestUserRepositorySuite(t *testing.T) {
 			t.Fatalf("RecordLogin round-trip: last_login_at %v updated_at %v", got.LastLoginAt, got.UpdatedAt)
 		}
 
-		// Missing rows fail typed, not with sql.ErrNoRows.
+		// Missing rows fail typed, not with sql.ErrNoRows. The targeted
+		// writers need saying too: an UPDATE matching no row is not an SQL
+		// error, so only the RowsAffected check stands between a caller and
+		// a silent nil on a user that no longer exists.
 		if _, err := repo.FindByID(ctx, "ghost"); !errors.Is(err, ErrUserNotFound) {
 			t.Fatalf("want ErrUserNotFound, got %v", err)
+		}
+		if err := repo.RecordLogin(ctx, "ghost", loginAt); !errors.Is(err, ErrUserNotFound) {
+			t.Fatalf("RecordLogin on a missing user: want ErrUserNotFound, got %v", err)
+		}
+		if err := repo.SetRole(ctx, "ghost", auth.RoleAdmin); !errors.Is(err, ErrUserNotFound) {
+			t.Fatalf("SetRole on a missing user: want ErrUserNotFound, got %v", err)
+		}
+		if err := repo.SetActive(ctx, "ghost", true); !errors.Is(err, ErrUserNotFound) {
+			t.Fatalf("SetActive on a missing user: want ErrUserNotFound, got %v", err)
 		}
 
 		if n, err := repo.Count(ctx); err != nil || n != 1 {
