@@ -243,6 +243,19 @@ Codecov posts its own PR comment (`comment.layout` in `codecov.yml`)
 breaking coverage down by flag, and the root `README.md` embeds one
 badge per component (`?flag=<name>` on the badge URL).
 
+What actually **blocks** a merge, and what only informs:
+
+| Gate | Where | Blocking |
+|---|---|---|
+| per-package floors (`internal/handler:40`, `internal/repository:50`, `pkg/policy:84`) | `hack/ci/coverage-ratchet.sh`, called by `ci-go.yml` | **yes** — raise them as coverage grows, never lower them |
+| project status, `target: auto` within `threshold: 1%` | `codecov.yml` | **yes**, but loosely: api-server's ~3 700 statements make that band worth ~50 entirely uncovered new lines |
+| patch status (the diff's own new lines) | `codecov.yml`, `informational: true` | no — it reports a number, it never fails the PR |
+
+The patch status was `off` until the frontend climbed out of the range
+where every PR would have shown red; informational is what puts the
+number back in front of a reviewer without training them to ignore a
+failing check.
+
 Upload uses `use_oidc: true` (`permissions: id-token: write`, passed
 through the `go`/`frontend` reusable-workflow calls in `ci.yml` — GitHub
 only lets a reusable workflow **keep or reduce** permissions from its
