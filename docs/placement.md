@@ -65,7 +65,7 @@ List served by `GET /api/v1/meta/placeholders` (single source:
 
 | Token | Source | Absence |
 |---|---|---|
-| `{user}` | OIDC IdP username (trusted identity) | never absent (identity required) |
+| `{user}` | username (the account's label, not its UUID) | never absent (identity required) |
 | `{workspace}` | workspace displayName | empty → `x` (sanitization) |
 | `{templateName}` | template `metadata.name` | never absent |
 | `{os}` | `template.spec.os` — the actual provisioning path (pod vs VM), required and enum-validated | never absent |
@@ -79,7 +79,22 @@ Cross-cutting rules:
   after the literals; a value that overflows its budget is truncated **and**
   suffixed with a short deterministic hash of the raw value — two distinct
   long values can never silently merge, and the same value always lands
-  in the same namespace. Short values stay readable (no hash).
+  in the same namespace. Short values stay readable (no hash);
+- **usernames with no DNS-usable character** (Cyrillic, CJK, Greek,
+  Arabic) would all sanitize to the same fallback, so `{user}` resolves
+  through the account id instead — its first and last groups,
+  `waas-a1b2c3d4-ef1234567890`. Predictable rather than hashed: an admin
+  reading the namespace finds the account with a prefix query, and the
+  name then derives from the same key as the `owner` label. Above three
+  tokens the segment is truncated like any other value; the queryable
+  head survives. A pattern resolved without an account id **fails**
+  rather than falling back on a shared name;
+- **distinct usernames, distinct namespaces**: sanitization is lossy, so
+  `alice.smith` and `alice_smith` would project onto one namespace. The
+  api-server refuses the second account rather than renaming it — `409`
+  at creation, failed login with an audited `user.sso_placement_conflict`
+  at first SSO provisioning. That refusal is what makes `waas-{user}`
+  one namespace per *user*; see `docs/accepted-limitations.md` §4.
 
 ## Target namespace (`spec.targetNamespace`)
 

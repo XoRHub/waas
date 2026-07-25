@@ -225,7 +225,7 @@ func (s *WorkspaceService) Create(ctx context.Context, actor Actor, in CreateWor
 	// pattern > built-in — so UI display and enforcement cannot diverge).
 	targetNamespace := in.TargetNamespace
 	if targetNamespace == "" {
-		targetNamespace, err = s.resolveDefaultNamespace(tpl, owner.Username, in.DisplayName)
+		targetNamespace, err = s.resolveDefaultNamespace(tpl, owner.Username, owner.ID, in.DisplayName)
 		if err != nil {
 			return nil, apierror.BadRequest(fmt.Sprintf("template placement: %v", err))
 		}
@@ -1042,10 +1042,11 @@ func policyDenial(err error) (string, bool) {
 
 // resolveDefaultNamespace applies the placement precedence chain for one
 // creation: template pattern > global pattern > built-in.
-func (s *WorkspaceService) resolveDefaultNamespace(tpl *waasv1alpha1.WorkspaceTemplate, username, displayName string) (string, error) {
+func (s *WorkspaceService) resolveDefaultNamespace(tpl *waasv1alpha1.WorkspaceTemplate, username, userID, displayName string) (string, error) {
 	pattern := naming.EffectivePattern(tpl.Spec.PlacementNamespacePattern(), s.defaultNamespacePattern)
 	return naming.ResolveNamespace(pattern, naming.PatternValues{
 		User:         username,
+		UserID:       userID,
 		Workspace:    displayName,
 		TemplateName: tpl.Name,
 		OS:           string(tpl.Spec.OS),
@@ -1068,7 +1069,7 @@ func (s *WorkspaceService) NamespacePreview(ctx context.Context, actor Actor, te
 		}
 		return "", fmt.Errorf("fetching template %s: %w", templateRef, err)
 	}
-	return s.resolveDefaultNamespace(tpl, owner.Username, displayName)
+	return s.resolveDefaultNamespace(tpl, owner.Username, owner.ID, displayName)
 }
 
 // resolveWorkloadName derives the frozen workload name from the display

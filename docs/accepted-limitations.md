@@ -126,3 +126,66 @@ displays.
 **Revisit trigger.** Support sees actual confusion. Then: extract
 `workloadMeta` into a shared package and expose an `effective*`
 projection on the model — never read workloads from the api-server.
+
+## 4. Usernames must stay distinct once projected into a DNS label
+
+**State.** The built-in placement default gives each user their own
+namespace, named from `naming.Sanitize(username)` — a lossy projection:
+`alice.smith`, `alice_smith`, `Alice Smith` and `ALICE.SMITH` all become
+`alice-smith`. The database's `UNIQUE` constraint is on the raw column,
+so such accounts are distinct to the platform and would share one
+namespace, one ownership label and one ResourceQuota. WaaS refuses the
+second account instead of disambiguating it: `409` at creation
+(`UserService.Create`), and a failed login with an audited
+`user.sso_placement_conflict` at first SSO provisioning
+(`OIDCService.resolveUser`).
+
+**Why accepted.** Directories already number their homonyms (`jdoe`,
+`jdoe2`) — rewriting that convention is not the platform's job, and a
+generated discriminator would put a hash in every namespace name to
+serve a case that a well-formed directory does not produce. Refusing
+keeps the names readable and makes the anomaly visible where it can be
+corrected.
+
+**It is an identity rule, not a placement one.** The check runs whatever
+the placement pattern resolves to, including a deployment that opted
+into a shared namespace with a token-less literal: two accounts whose
+names are indistinguishable in every DNS-derived artifact are a
+directory defect on their own, and a template added later can put
+`{user}` back in a pattern at any time. For local accounts the platform
+owns the namespace of names and enforces it outright. For SSO it does
+not: the directory is the authority, so the fix belongs there — WaaS
+only has to refuse clearly and say why in the audit trail.
+
+**Not the same as an unrepresentable username.** A Cyrillic, CJK, Greek
+or Arabic username leaves *no* DNS-1123 character at all, so every such
+account would project onto the same label. Those are **not** refused:
+the `{user}` token falls back on the first and last groups of the
+account id (`waas-a1b2c3d4-ef1234567890`, `naming.IdentitySegment`),
+which is unique per account and, unlike a hash, lets an admin find the
+owner with a prefix query. The refusal above only concerns usernames
+that *do* produce a label and produce the *same* one.
+
+**Implication (example).** An admin creates `alice-smith` locally,
+Authentik later provisions `alice.smith` for the same person: the second
+login fails with *"SSO login failed for this account — contact an
+administrator"*. The user-facing message stays generic on purpose — the
+caller is unauthenticated and the detail would disclose another
+account's username. The admin finds it in the audit trail: `username
+"alice.smith" normalizes to "alice-smith", already used by account
+"alice-smith"`. Remedy: rename one account in the directory, or delete
+the stale local one.
+
+**Not enforced by the database.** Both checks read the username column
+and then insert; the `UNIQUE` constraint is on the raw value and cannot
+see the projection. Two colliding accounts created concurrently — two
+`POST /api/v1/users`, or two first SSO logins — can therefore both land,
+and nothing re-checks afterwards. That needs the square of two rare
+events (a name collision *and* simultaneity), so it is accepted rather
+than paid for with a maintained normalized column and a unique index,
+which is the fix if it ever happens.
+
+**Revisit trigger.** A directory that cannot be changed hits this.
+Then: a configurable **alias claim** on the SSO token, consulted as the
+placement name when the username collides — the fallback that keeps the
+refusal from being a dead end, without WaaS inventing names.

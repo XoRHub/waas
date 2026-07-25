@@ -70,6 +70,29 @@ func (r *SQLUserRepository) findBy(ctx context.Context, column, value string) (*
 	return user, nil
 }
 
+// ListUsernames returns every account's username. Unpaginated on
+// purpose: the callers project each one into a DNS-1123 label (Unicode
+// NFKD — no SQL equivalent) to detect a placement-namespace collision,
+// so the whole column is the input. Both call sites are cold — creating
+// an account, and the first login of an unknown SSO subject.
+func (r *SQLUserRepository) ListUsernames(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT username FROM users`)
+	if err != nil {
+		return nil, fmt.Errorf("listing usernames: %w", err)
+	}
+	defer rows.Close()
+
+	usernames := []string{}
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, fmt.Errorf("scanning username row: %w", err)
+		}
+		usernames = append(usernames, username)
+	}
+	return usernames, rows.Err()
+}
+
 func (r *SQLUserRepository) List(ctx context.Context, page, pageSize int) ([]model.User, int, error) {
 	total, err := r.Count(ctx)
 	if err != nil {

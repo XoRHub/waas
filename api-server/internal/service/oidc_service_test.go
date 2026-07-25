@@ -12,6 +12,7 @@ import (
 	"github.com/xorhub/waas/api-server/internal/database"
 	"github.com/xorhub/waas/api-server/internal/model"
 	"github.com/xorhub/waas/api-server/internal/repository"
+	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/shared/auth"
 )
 
@@ -97,6 +98,66 @@ func TestSyncUserRefusesUsernameCollision(t *testing.T) {
 				t.Fatalf("account subject must stay untouched, got %q", stored.OIDCSubject)
 			}
 		})
+	}
+}
+
+// A username the IdP considers distinct, but which projects onto an
+// existing account's placement namespace, is refused at provisioning:
+// admitting it would put two accounts in one namespace, sharing its
+// ownership label and its ResourceQuota.
+func TestSyncUserRefusesPlacementNamespaceCollision(t *testing.T) {
+	for name, claimed := range map[string]string{
+		"separator": "alice_smith",
+		"case":      "ALICE.SMITH",
+		"accent":    "álice.smith",
+		"spacing":   "Alice Smith",
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, users := newOIDCFixture(t, config.OIDCConfig{}, []model.User{
+				{ID: "u-alice", Username: "alice.smith", OIDCSubject: "sub-alice"},
+			})
+			_, err := svc.syncUser(context.Background(), "sub-newcomer", oidcIdentity{Username: claimed}, "1.2.3.4")
+			unauthorized(t, err)
+			if _, err := users.FindByUsername(context.Background(), claimed); !errors.Is(err, repository.ErrUserNotFound) {
+				t.Fatalf("the colliding account must not be provisioned, got %v", err)
+			}
+		})
+	}
+}
+
+// Usernames that leave no DNS-1123 character all sanitize to "x", but
+// they resolve through the account id, so they never collide and must
+// never be refused — a Cyrillic or CJK directory would otherwise get
+// exactly one working account.
+func TestSyncUserProvisionsUnrepresentableUsernames(t *testing.T) {
+	svc, users := newOIDCFixture(t, config.OIDCConfig{}, nil)
+	seen := map[string]bool{}
+	for _, claimed := range []string{"иван", "王五", "Ωμέγα", "علي"} {
+		user, err := svc.syncUser(context.Background(), "sub-"+claimed, oidcIdentity{Username: claimed}, "1.2.3.4")
+		if err != nil {
+			t.Fatalf("provisioning %q must be allowed: %v", claimed, err)
+		}
+		ns := naming.PersonalNamespace(user.Username, user.ID)
+		if ns == "" || seen[ns] {
+			t.Fatalf("account %q got a shared or unresolvable namespace: %q", claimed, ns)
+		}
+		seen[ns] = true
+	}
+	if _, _, err := users.List(context.Background(), 1, 10); err != nil {
+		t.Fatalf("listing users: %v", err)
+	}
+}
+
+// The guard must not fire on names that merely look alike: only an
+// IDENTICAL projection is a collision.
+func TestSyncUserProvisionsDistinctNormalizations(t *testing.T) {
+	svc, _ := newOIDCFixture(t, config.OIDCConfig{}, []model.User{
+		{ID: "u-alice", Username: "alice.smith", OIDCSubject: "sub-alice"},
+	})
+	for _, claimed := range []string{"alice.smith2", "alicesmith", "alice.smyth", "bob"} {
+		if _, err := svc.syncUser(context.Background(), "sub-"+claimed, oidcIdentity{Username: claimed}, "1.2.3.4"); err != nil {
+			t.Fatalf("provisioning %q must be allowed: %v", claimed, err)
+		}
 	}
 }
 

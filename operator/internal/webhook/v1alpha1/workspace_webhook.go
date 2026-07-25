@@ -315,8 +315,8 @@ func (v *WorkspaceValidator) checkPlacementOwnership(ctx context.Context, ws *wa
 	// diverges from what the api-server froze for a long username, and
 	// the user would be denied their OWN namespace. userNS is for the
 	// denial message; the rule itself is the shared predicate.
-	userNS := naming.PersonalNamespace(id.Username)
-	if naming.IsPersonalNamespaceOf(id.Username, tns) {
+	userNS := naming.PersonalNamespace(id.Username, id.Owner)
+	if naming.IsPersonalNamespaceOf(id.Username, id.Owner, tns) {
 		// A name rule is not proof of ownership (see the predicate's
 		// doc): an existing namespace owned by someone else is refused,
 		// a free name stays this user's to create.

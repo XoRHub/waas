@@ -279,7 +279,7 @@ func isPersonalNamespace(ws *waasv1alpha1.Workspace) bool {
 	if username == "" {
 		return false
 	}
-	return naming.IsPersonalNamespaceOf(username, computeNamespace(ws))
+	return naming.IsPersonalNamespaceOf(username, ws.Spec.Owner, computeNamespace(ws))
 }
 
 // teardownPlacement deletes the cross-namespace compute and service of a

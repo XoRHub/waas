@@ -16,7 +16,11 @@
 //
 // Normalization is lossy ("Zoé" and "zoe" collide): callers that need
 // uniqueness append Suffix() of the raw value, or check collisions
-// explicitly at creation time.
+// explicitly at creation time. The {user} token takes the second route:
+// the api-server refuses an account whose username projects onto an
+// existing one (see docs/accepted-limitations.md §4), which is what
+// makes the built-in per-user default one namespace per USER and not
+// merely one per sanitized username.
 package naming
 
 import (
@@ -48,6 +52,16 @@ func Sanitize(s string) string { return SanitizeWithLimit(s, MaxLabel) }
 // SanitizeWithLimit normalizes s into a DNS-1123 label of at most limit
 // characters (callers reserve room for prefixes/suffixes this way).
 func SanitizeWithLimit(s string, limit int) string {
+	if out := normalizeLabel(s, limit); out != "" {
+		return out
+	}
+	return "x"
+}
+
+// normalizeLabel is SanitizeWithLimit without the "x" fallback: it
+// returns "" when nothing of s survives normalization. Callers that must
+// TELL an erased value from a value that legitimately reads "x" use this.
+func normalizeLabel(s string, limit int) string {
 	if limit <= 0 || limit > MaxLabel {
 		limit = MaxLabel
 	}
@@ -73,9 +87,6 @@ func SanitizeWithLimit(s string, limit int) string {
 	if len(out) > limit {
 		out = strings.TrimRight(out[:limit], "-")
 	}
-	if out == "" {
-		return "x"
-	}
 	return out
 }
 
@@ -85,6 +96,27 @@ func SanitizeWithLimit(s string, limit int) string {
 func Suffix(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return "-" + hex.EncodeToString(sum[:])[:5]
+}
+
+// IdentitySegment is the {user} segment for an account whose username
+// normalizes to NOTHING — Kubernetes namespace names are DNS-1123, so a
+// Cyrillic, CJK, Greek or Arabic username leaves no character behind and
+// every such account would otherwise land in the same namespace.
+//
+// It joins the FIRST and LAST groups of the account id
+// ("a1b2c3d4-…-ef1234567890" → "a1b2c3d4-ef1234567890"). Predictable
+// rather than hashed on purpose: an admin reading a namespace name finds
+// the account with a prefix query, which a one-way hash of the username
+// would not allow, and the name then derives from the same key as the
+// ownership label. 21 characters, so a pattern leaving less than that
+// per token truncates it — the head stays queryable.
+func IdentitySegment(userID string) string {
+	parts := strings.Split(userID, "-")
+	seg := parts[0]
+	if len(parts) > 1 {
+		seg += "-" + parts[len(parts)-1]
+	}
+	return Sanitize(seg)
 }
 
 // BuiltinNamespacePattern is the last resort of the precedence chain
@@ -111,8 +143,8 @@ const BuiltinNamespacePattern = "waas-" + TokenUser
 // namespace: no ownership label, no quota, no placement right.
 // Empty (never expected for the constant built-in pattern) means "no
 // personal namespace" — callers must not treat it as a match.
-func PersonalNamespace(username string) string {
-	ns, err := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: username})
+func PersonalNamespace(username, userID string) string {
+	ns, err := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: username, UserID: userID})
 	if err != nil {
 		return ""
 	}
@@ -131,8 +163,8 @@ func PersonalNamespace(username string) string {
 // it just because the string starts with hers. Callers that grant
 // something (placement, ownership) check the existing namespace's owner
 // label on top — see the webhook's checkPlacementOwnership.
-func IsPersonalNamespaceOf(username, ns string) bool {
-	userNS := PersonalNamespace(username)
+func IsPersonalNamespaceOf(username, userID, ns string) bool {
+	userNS := PersonalNamespace(username, userID)
 	if userNS == "" || ns == "" {
 		return false
 	}
@@ -152,7 +184,7 @@ type Placeholder struct {
 // before entering a name; none can be absent at creation time.
 func Placeholders() []Placeholder {
 	return []Placeholder{
-		{Token: TokenUser, Source: "identity (IdP username)", Description: "owner of the workspace"},
+		{Token: TokenUser, Source: "username (the account's label, not its UUID)", Description: "owner of the workspace"},
 		{Token: TokenWorkspace, Source: "workspace displayName", Description: "the workspace being created"},
 		{Token: TokenTemplateName, Source: "WorkspaceTemplate metadata.name", Description: "template the workspace is stamped from"},
 		{Token: TokenOS, Source: "WorkspaceTemplate spec.os", Description: "linux or windows — the actual provisioning path"},
@@ -160,8 +192,14 @@ func Placeholders() []Placeholder {
 }
 
 // PatternValues carries the resolved raw values, one per placeholder.
+// UserID is not a placeholder: it is the account id the {user} token
+// falls back on when the username normalizes to nothing (IdentitySegment).
+// Every caller resolving a real workspace has it — omit it only where no
+// account exists yet, and accept that such a username then fails to
+// resolve rather than silently merging with another.
 type PatternValues struct {
 	User         string
+	UserID       string
 	Workspace    string
 	TemplateName string
 	OS           string
@@ -229,9 +267,24 @@ func ResolveNamespace(pattern string, values PatternValues) (string, error) {
 		return "", fmt.Errorf("placement namespace pattern %q leaves no room for its tokens", pattern)
 	}
 
+	var tokenErr error
 	out := tokenRE.ReplaceAllStringFunc(pattern, func(tok string) string {
-		return fitSegment(known[tok], budget)
+		raw := known[tok]
+		// A username with no DNS-usable character resolves through the
+		// account id instead: falling back on Sanitize's "x" would put
+		// every such account in one namespace (see IdentitySegment).
+		if tok == TokenUser && normalizeLabel(raw, MaxLabel) == "" {
+			if values.UserID == "" {
+				tokenErr = fmt.Errorf("username %q leaves no DNS-1123 character and no account id was supplied to fall back on", raw)
+				return ""
+			}
+			raw = IdentitySegment(values.UserID)
+		}
+		return fitSegment(raw, budget)
 	})
+	if tokenErr != nil {
+		return "", tokenErr
+	}
 	if err := ValidateLabel(out); err != nil {
 		return "", fmt.Errorf("placement namespace pattern %q resolves to an invalid namespace name: %w", pattern, err)
 	}
