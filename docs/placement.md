@@ -96,6 +96,38 @@ Cross-cutting rules:
   at first SSO provisioning. That refusal is what makes `waas-{user}`
   one namespace per *user*; see `docs/accepted-limitations.md` §4.
 
+### The 63-character budget, in practice
+
+`budget = (63 − literals) ÷ number of tokens`, computed from the PATTERN
+alone and applied identically to every token — it never looks at the
+values. A token that fits keeps its value whole; one that overflows is
+cut to `budget − 6` and carries `-xxxxx` (5 hex of the raw value).
+
+| Pattern | Tokens | Budget each | A value is hashed above |
+|---|---|---|---|
+| `waas-{user}` (built-in) | 1 | 58 | 58 characters — unreachable in practice |
+| `waas-{user}-{workspace}` | 2 | 28 | 28 characters |
+| `waas-{os}-{templateName}` | 2 | 28 | 28 characters |
+| `waas-{user}-{templateName}-{workspace}` | 3 | 18 | 18 characters |
+
+**The share is fixed, never redistributed.** A short value does not lend
+its unused characters to a long one: under `waas-{user}-{workspace}`,
+`alice` + "Poste de travail graphique Ubuntu" (33 sanitized) resolves to
+`waas-alice-poste-de-travail-graph-8b0d3` even though the full name
+would have fit in 44 of the 63 available. Known, deliberate: making the
+split adaptive would relocate the FUTURE workspaces of users whose names
+are currently truncated, for a purely cosmetic gain.
+
+Consequences worth knowing before choosing a pattern:
+- **each extra token roughly halves, then thirds, the room** — the
+  built-in single-token default is the only shape where truncation is
+  effectively unreachable;
+- **display names are user-supplied**, so a `{workspace}` token makes
+  hashed namespaces an ordinary occurrence, not an edge case;
+- **the identity fallback is 21 characters by construction**
+  (`a1b2c3d4-ef1234567890`), so it survives 2 tokens and gets truncated
+  at 3 — the queryable head remains.
+
 ## Target namespace (`spec.targetNamespace`)
 
 - The api-server **resolves the pattern once at creation** and writes
