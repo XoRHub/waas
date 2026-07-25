@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xorhub/waas/api-server/internal/model"
+	"github.com/xorhub/waas/shared/auth"
 )
 
 var (
@@ -25,11 +26,18 @@ type UserRepository interface {
 	FindByUsername(ctx context.Context, username string) (*model.User, error)
 	FindByOIDCSubject(ctx context.Context, subject string) (*model.User, error)
 	List(ctx context.Context, page, pageSize int) ([]model.User, int, error)
+	// Update rewrites the row EXCEPT tokens_valid_after, role and active:
+	// those are revocation substrate, written only through the targeted
+	// setters below so a read-modify-write can never carry a stale copy
+	// over a concurrent revocation, demotion or deactivation (rationale
+	// on SQLUserRepository.Update).
 	Update(ctx context.Context, user *model.User) error
-	// SetTokensValidAfter stamps the user's token-validity bound in one
-	// targeted write. Callers that already rewrite the whole row (Update)
-	// set model.User.TokensValidAfter instead, atomically with the change
-	// that motivates the revocation.
+	// RecordLogin stamps last_login_at/updated_at in one targeted write —
+	// the login paths' only row write, since their copy of the row
+	// predates password verification.
+	RecordLogin(ctx context.Context, id string, at time.Time) error
+	SetRole(ctx context.Context, id string, role auth.Role) error
+	SetActive(ctx context.Context, id string, active bool) error
 	SetTokensValidAfter(ctx context.Context, id string, at time.Time) error
 	Delete(ctx context.Context, id string) error
 	Count(ctx context.Context) (int, error)

@@ -172,6 +172,21 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
 	}
+	// role/active live outside the full-row Update (they are what
+	// per-request revocation reads — see the repository's Update doc);
+	// the admin's change is written targeted, and only when the request
+	// actually carried the field, so a read-modify-write here can never
+	// clobber a concurrent edit of either.
+	if in.Role != nil {
+		if err := s.users.SetRole(ctx, user.ID, *in.Role); err != nil {
+			return nil, fmt.Errorf("setting role for %s: %w", user.ID, err)
+		}
+	}
+	if in.Active != nil {
+		if err := s.users.SetActive(ctx, user.ID, *in.Active); err != nil {
+			return nil, fmt.Errorf("setting activation for %s: %w", user.ID, err)
+		}
+	}
 	if revoke {
 		now := user.UpdatedAt
 		if err := s.users.SetTokensValidAfter(ctx, user.ID, now); err != nil {

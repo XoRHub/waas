@@ -252,7 +252,13 @@ func (s *OIDCService) syncUser(ctx context.Context, subject string, id oidcIdent
 		if user.DisplayName == "" && id.DisplayName != "" {
 			user.DisplayName = id.DisplayName
 		}
-		if len(s.cfg.AdminGroups) > 0 {
+		if len(s.cfg.AdminGroups) > 0 && user.Role != role {
+			// Role is out of the full-row Update (revocation substrate —
+			// see the repository's Update doc), so the IdP-driven change
+			// gets its own targeted write.
+			if err := s.users.SetRole(ctx, user.ID, role); err != nil {
+				return nil, fmt.Errorf("syncing role for SSO user %s: %w", id.Username, err)
+			}
 			user.Role = role
 		}
 		user.UpdatedAt = now

@@ -85,7 +85,11 @@ func (s *AuthService) Login(ctx context.Context, username, password, clientIP st
 	now := time.Now().UTC()
 	user.LastLoginAt = &now
 	user.UpdatedAt = now
-	if err := s.users.Update(ctx, user); err != nil {
+	// Targeted write, never the full row: this copy of the row predates
+	// the ~50-100ms of argon2id above, and writing it back whole would
+	// silently undo an admin change — a deactivation or demotion — that
+	// landed in between.
+	if err := s.users.RecordLogin(ctx, user.ID, now); err != nil {
 		return nil, fmt.Errorf("recording last login for %s: %w", username, err)
 	}
 	s.audit.Record(ctx, Actor{ID: user.ID, Username: user.Username, ClientIP: clientIP}, "user.logged_in", "user", user.ID, "")

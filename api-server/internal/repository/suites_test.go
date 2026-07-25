@@ -68,8 +68,10 @@ func TestUserRepositorySuite(t *testing.T) {
 		// silently change which tokens die.
 		bound := time.Date(2026, 7, 8, 11, 0, 0, 500_000_000, time.UTC)
 		got.Groups = []string{"sec"}
-		got.Role = auth.RoleAdmin
 		if err := repo.Update(ctx, got); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.SetRole(ctx, "u1", auth.RoleAdmin); err != nil {
 			t.Fatal(err)
 		}
 		if err := repo.SetTokensValidAfter(ctx, "u1", bound); err != nil {
@@ -86,9 +88,18 @@ func TestUserRepositorySuite(t *testing.T) {
 			t.Fatalf("tokens_valid_after round-trip: want %v got %v", bound, got.TokensValidAfter)
 		}
 
-		// The revocation must survive a later full-row write: Update carries
-		// a copy read BEFORE the bound existed, and writing it back would
-		// resurrect every token the revocation had just killed.
+		// Revocation substrate must survive a later full-row write: Update
+		// carries a copy read BEFORE the bound, demotion and deactivation
+		// existed, and writing it back would resurrect revoked tokens, an
+		// old role and a disabled account (audit 2026-07-25, F5). got was
+		// fetched before these setters run, so it is exactly that stale
+		// copy — admin, active, and (nulled below) no bound.
+		if err := repo.SetRole(ctx, "u1", auth.RoleUser); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.SetActive(ctx, "u1", false); err != nil {
+			t.Fatal(err)
+		}
 		got.TokensValidAfter = nil
 		got.DisplayName = "post-revocation edit"
 		if err := repo.Update(ctx, got); err != nil {
@@ -100,6 +111,28 @@ func TestUserRepositorySuite(t *testing.T) {
 		}
 		if got.TokensValidAfter == nil || !got.TokensValidAfter.Equal(bound) {
 			t.Fatalf("a full-row Update must not clear the token bound, got %v", got.TokensValidAfter)
+		}
+		if got.Role != auth.RoleUser {
+			t.Fatalf("a full-row Update must not undo a demotion, got role %q", got.Role)
+		}
+		if got.Active {
+			t.Fatal("a full-row Update must not reactivate a deactivated account")
+		}
+		if got.DisplayName != "post-revocation edit" {
+			t.Fatalf("the non-substrate columns must still round-trip, got %q", got.DisplayName)
+		}
+
+		// RecordLogin: the login paths' only write — targeted, both stamps.
+		loginAt := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+		if err := repo.RecordLogin(ctx, "u1", loginAt); err != nil {
+			t.Fatal(err)
+		}
+		got, err = repo.FindByID(ctx, "u1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.LastLoginAt == nil || !got.LastLoginAt.Equal(loginAt) || !got.UpdatedAt.Equal(loginAt) {
+			t.Fatalf("RecordLogin round-trip: last_login_at %v updated_at %v", got.LastLoginAt, got.UpdatedAt)
 		}
 
 		// Missing rows fail typed, not with sql.ErrNoRows.
