@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -633,6 +634,34 @@ func TestCatalogSyncWorkerSyncNowFailureReturnsErrorAndKeepsEntries(t *testing.T
 	st := workerCatalogStatus(t, c, "default", "waas-images")
 	if st.LastSyncError == "" {
 		t.Fatal("want lastSyncError patched on failure")
+	}
+}
+
+// TestCatalogSyncWorkerSyncNowBoundedWhileBusy pins the F8 bound: a
+// force-sync queued behind another image's in-flight sync must give up
+// at its deadline with context.DeadlineExceeded instead of hanging the
+// HTTP request that carries it. The held semaphore stands in for that
+// unrelated in-flight sync; the short caller deadline (tighter than
+// catalogForceSyncTimeout, which WithTimeout only ever lowers to) keeps
+// the test fast.
+func TestCatalogSyncWorkerSyncNowBoundedWhileBusy(t *testing.T) {
+	img := workerRegistryImage("waas-images", workerURLSource("http://catalog.invalid"))
+	w, _, _ := catalogWorkerFixture(t, img)
+
+	w.syncSem <- struct{}{}
+	defer func() { <-w.syncSem }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- w.SyncNow(ctx, img) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("SyncNow error = %v, want context.DeadlineExceeded", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("SyncNow still blocked behind the busy sync at its deadline")
 	}
 }
 
