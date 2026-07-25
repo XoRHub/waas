@@ -6,6 +6,33 @@ the 2026-07-08 quality audit (`audit-2026-07.md`): here every finding is a
 potential *exploitable* weakness, reasoned against an explicit threat
 model, then adversarially verified.
 
+## Remediation status
+
+This report is a **point-in-time record of 2026-07-20**, kept as written.
+The findings below are not a list of open weaknesses — most are closed.
+Current state:
+
+| # | Severity | Status |
+|---|---|---|
+| 1 | High | **Fixed** |
+| 2 | Medium | **Fixed** — per-request revocation + server-side logout |
+| 3 | Medium | **Fixed** — override `env` is literal-only |
+| 4 | Medium | **Fixed** — dedicated short-lived SSE stream token |
+| 5 | Medium | **Fixed** — default-deny egress on desktop namespaces |
+| 6 | Low | **Fixed** — query-string auth scoped to the SSE stream |
+| 7 | Low | In progress |
+| 8 | Low | **Fixed** — with 5 |
+| 9 | Low | **Closed** — cluster-admin arbitration, default tightened (see the note below) |
+| 10 | Low | **Fixed** — desktop pods no longer mount the SA token |
+| 11 | Low | Open, reframed — WaaS should be *compliant* with PSA `restricted`, not enforce a level |
+| 12 | Low | Deferred — prerequisite for taking KasmVNC out of experimental; residual documented in `docs/kasmvnc.md` |
+| 13 | Low | Deferred — closed by the planned token-refresh work, not on its own |
+| 14 | Low | **Won't fix** — HSTS belongs to the operator's ingress / reverse proxy |
+| 15 | Low | **Fixed** — `postgres.sslMode` is a chart value |
+
+Anything below describing a weakness marked *Fixed* describes the code as
+it stood on 2026-07-20, not as it stands today.
+
 ## Method
 
 - **Static** — a fleet of six independent auditors (one per security
