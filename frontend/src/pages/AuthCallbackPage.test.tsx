@@ -44,6 +44,9 @@ it('signs the user in and sends them to their landing page', async () => {
 
   await waitFor(() => expect(useAuthStore.getState().user).toEqual(user));
   expect(navigate).toHaveBeenCalledWith('/', { replace: true });
+  // The session cookie is already set; this is the only thing the page
+  // fetches, and a wrong route would send every SSO sign-in to /login.
+  expect(apiMock.api.get).toHaveBeenCalledWith('/api/v1/auth/me');
 });
 
 it('sends an admin to the console', async () => {

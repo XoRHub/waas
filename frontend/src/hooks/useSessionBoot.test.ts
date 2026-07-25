@@ -37,6 +37,9 @@ it('restores the profile when the cookie is still good', async () => {
 
   await waitFor(() => expect(useAuthStore.getState().user).toEqual(user));
   expect(useAuthStore.getState().ready).toBe(true);
+  // Pinned: a probe pointed at a route that does not exist would 404,
+  // and every boot would land on the "unavailable" screen instead.
+  expect(apiMock.api.get).toHaveBeenCalledWith('/api/v1/auth/me');
 });
 
 // The whole point of the api-server answering 503 rather than 401 on a

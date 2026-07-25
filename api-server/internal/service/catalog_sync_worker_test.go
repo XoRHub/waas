@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -801,32 +802,80 @@ func TestCatalogSyncWorkerSkipsNonCatalogEntries(t *testing.T) {
 	}
 }
 
+// captureLogs redirects the default slog handler into a buffer for the
+// duration of a test, so a decision whose whole point is to STAY SILENT
+// can be asserted instead of merely described in a comment.
+func captureLogs(t *testing.T) *strings.Builder {
+	t.Helper()
+	var buf strings.Builder
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return &buf
+}
+
 // syncPending re-reads the image at consume time because the event that
-// queued the name may be stale. Both failures of that re-read are
-// swallowed on purpose — the queue is best-effort and the next event
-// re-queues — so nothing but a test proves they do not take the worker
-// down with them. The distinction matters: a deleted image is the
-// ORDINARY outcome of a delete event and must stay silent, while an
-// unreachable API server is worth a log line.
-func TestSyncPendingSurvivesAVanishedOrUnreadableImage(t *testing.T) {
+// queued the name may be stale. Three outcomes share that one read, and
+// the two failing ones are swallowed on purpose — the queue is
+// best-effort and the next event re-queues — so only a test can show
+// that they neither take the consumer loop down nor blur into each
+// other: a deleted image is the ORDINARY outcome of a delete event and
+// must stay silent, while an unreachable API server is worth a log line.
+func TestSyncPendingHandlesTheThreeOutcomesOfItsRead(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(workerCatalogManifest))
+	}))
+	defer srv.Close()
+
+	// The nominal case first: without it the two failure cases below pass
+	// against a syncPending that does nothing at all.
+	t.Run("image present: the queued name is actually synced", func(t *testing.T) {
+		logs := captureLogs(t)
+		img := workerRegistryImage("waas-images", workerURLSource(srv.URL))
+		w, _, catalogRepo := catalogWorkerFixture(t, img)
+
+		w.syncPending(context.Background(), "waas-images")
+
+		entries, err := catalogRepo.ListEntries(context.Background(), "waas-images")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 2 {
+			t.Fatalf("consuming a queued name must sync it, got %d entries", len(entries))
+		}
+		if logs.String() != "" {
+			t.Fatalf("a successful sync must log no error, got %q", logs.String())
+		}
+	})
+
 	t.Run("image deleted between the event and the consume", func(t *testing.T) {
+		logs := captureLogs(t)
+		// Same image as above, absent from the cluster: the read fails
+		// with NotFound where it would otherwise have produced 2 entries.
 		w, _, catalogRepo := catalogWorkerFixture(t)
 
-		w.syncPending(context.Background(), "gone")
+		w.syncPending(context.Background(), "waas-images")
 
-		if entries, err := catalogRepo.ListEntries(context.Background(), "gone"); err != nil || len(entries) != 0 {
-			t.Fatalf("a vanished image must sync nothing, got %+v %v", entries, err)
+		if entries, _ := catalogRepo.ListEntries(context.Background(), "waas-images"); len(entries) != 0 {
+			t.Fatalf("a vanished image must sync nothing, got %+v", entries)
+		}
+		// The distinction that matters: a delete event is routine, and
+		// logging it as an error would turn ordinary use into noise.
+		if logs.String() != "" {
+			t.Fatalf("a deleted image must stay silent, got %q", logs.String())
 		}
 	})
 
 	t.Run("the read itself fails", func(t *testing.T) {
-		boom := errors.New("apiserver unreachable")
+		logs := captureLogs(t)
+		img := workerRegistryImage("waas-images", workerURLSource(srv.URL))
 		c := fake.NewClientBuilder().
 			WithScheme(k8s.Scheme).
+			WithObjects(img).
 			WithStatusSubresource(&waasv1alpha1.WorkspaceImage{}).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
-					return boom
+					return errors.New("apiserver unreachable")
 				},
 			}).
 			Build()
@@ -838,12 +887,17 @@ func TestSyncPendingSurvivesAVanishedOrUnreadableImage(t *testing.T) {
 		catalogRepo := repository.NewSQLCatalogRepository(db)
 		w := NewCatalogSyncWorker(c, "default", catalogRepo, time.Minute)
 
-		// The point: it returns rather than propagating or panicking, so
-		// one unreadable image cannot stop the consumer loop.
-		w.syncPending(context.Background(), "unreadable")
+		// The image exists here — only the read is broken — so a sync
+		// would have produced entries. It must not, and it must not
+		// propagate or panic either: one unreadable image cannot stop the
+		// consumer loop.
+		w.syncPending(context.Background(), "waas-images")
 
-		if entries, err := catalogRepo.ListEntries(context.Background(), "unreadable"); err != nil || len(entries) != 0 {
-			t.Fatalf("a failed read must sync nothing, got %+v %v", entries, err)
+		if entries, _ := catalogRepo.ListEntries(context.Background(), "waas-images"); len(entries) != 0 {
+			t.Fatalf("a failed read must sync nothing, got %+v", entries)
+		}
+		if !strings.Contains(logs.String(), "apiserver unreachable") {
+			t.Fatalf("an unreadable image must be reported, got %q", logs.String())
 		}
 	})
 }
