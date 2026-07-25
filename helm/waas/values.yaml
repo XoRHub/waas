@@ -373,7 +373,9 @@ apiServer:
   # picker metadata — a longer interval only delays logos, never
   # workspace creation. Owned by the api-server (CatalogSyncWorker):
   # it is the component with both database and k8s access to sync
-  # discovered images into catalog_entries (Postgres).
+  # discovered images into catalog_entries (Postgres). <= 0 disables
+  # only this periodic pass — creation/source-change and manual syncs
+  # still run (see docs/image-catalog.md).
   # -- Re-sync cadence of WorkspaceImage catalog sources (cosmetic picker metadata only).
   catalogSyncInterval: 6h
   # Cluster DNS domain used by the remote-workspace host guard to
