@@ -328,7 +328,7 @@ anywhere, guarded by tests (below).
 |---|---|---|
 | `env` | merge env vars over the template's | admission (creation/update) |
 | `securityContext` / `podSecurityContext` | replace the container / pod security context | admission |
-| `volumes` | add volumes and mounts | admission |
+| `volumes` | add volumes and mounts — no longer granted by the chart's bootstrap default policy (it used to be); re-grant it explicitly via `defaultPolicy.overrides.allowedFields` | admission |
 | `nodeSelector` / `tolerations` | steer pod scheduling | admission |
 | `resources` | choose the sizing — **`spec.resources` present = override, whatever its values**; policy limits keep bounding them separately | admission |
 | `protocol` | pick the default protocol among the template's | admission |

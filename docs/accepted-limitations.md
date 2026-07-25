@@ -69,8 +69,10 @@ So the rule is: **delegate these rights only to principals you would
 trust with the namespace itself**, and pair the delegation with an
 admission policy if that trust is partial. The bootstrap default policy
 does not grant them; the shipped `gitops/governance/policies.yaml`
-standard-user policy does not either. Granting them is an explicit,
-auditable act.
+standard-user policy does not either. (`volumes` used to be in the
+bootstrap default's allow-list; deployments that relied on that grant
+now re-add it explicitly via `defaultPolicy.overrides.allowedFields`.)
+Granting them is an explicit, auditable act.
 
 **Revisit trigger.** A real persona asks for it repeatedly. If built:
 a collapsed YAML section in the creation dialog (reuse `YamlEditor`,
