@@ -109,6 +109,22 @@ so the operation is idempotent. Audit: `remote_workspace.woke`.
 - guacd must be able to **egress** to target machines: adapt
   NetworkPolicies (the `waas-images/examples/networkpolicy-workspaces.yaml`
   example only covers in-cluster traffic).
+- The api-server refuses hostnames that point a "remote machine" at the
+  cluster itself: loopback, link-local (including the cloud IMDS at
+  `169.254.169.254`), the kube-apiserver ClusterIP, single-label names
+  and `*.svc` / `*.<cluster domain>` names, plus any CIDR listed in
+  `apiServer.remoteBlockedCIDRs` (add your cluster's pod and service
+  CIDRs there — they cannot be discovered from inside a pod). Enforced
+  at create, update **and** connect, so entries registered before the
+  guard existed are covered too. Two deliberate choices: RFC1918
+  addresses stay **allowed** (a legitimate remote machine commonly sits
+  on a private LAN reached over VPN or peering), and a hostname that
+  fails to resolve is **allowed** (registering a machine that is off,
+  or behind DNS the api-server cannot see, must keep working). This is
+  a guardrail, not a security boundary: guacd re-resolves the name when
+  it dials, so DNS rebinding bypasses the check — the structural answer
+  is an egress NetworkPolicy on the platform pods (guacd/wwt), which
+  does not exist yet.
 - The api-server's Role gained `create/update/delete` on Secrets
   in the workspaces namespace (still without `list`/`watch`) — see
   `helm/waas/templates/api-server/roles.yaml`.

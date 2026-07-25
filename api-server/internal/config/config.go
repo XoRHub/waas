@@ -42,6 +42,18 @@ type Config struct {
 	// WebSocket proxy (mounted from the same Secret in both pods).
 	InternalToken string
 
+	// ClusterDomain is the cluster's DNS domain, used to recognize
+	// in-cluster names (*.svc.<domain>). WAAS_CLUSTER_DOMAIN when set,
+	// otherwise discovered from the pod's /etc/resolv.conf with a
+	// cluster.local fallback (see DiscoverClusterDomain).
+	ClusterDomain string
+	// RemoteBlockedCIDRs are extra CIDRs refused as remote-workspace
+	// targets — typically the cluster's pod and service CIDRs, which
+	// nothing can discover reliably from inside a pod. Kept as raw
+	// strings here; parsing (and the refuse-to-start on a malformed
+	// entry) happens in service.ParseBlockedCIDRs.
+	RemoteBlockedCIDRs []string
+
 	// Bootstrap admin, created on first boot when the users table is empty.
 	AdminUsername string
 	AdminPassword string
@@ -158,6 +170,8 @@ func Load() (*Config, error) {
 		ConnectionTokenTTL:      durationOr("WAAS_CONNECTION_TOKEN_TTL", 5*time.Minute),
 		StreamTokenTTL:          durationOr("WAAS_STREAM_TOKEN_TTL", 2*time.Minute),
 		InternalToken:           os.Getenv("WAAS_INTERNAL_TOKEN"),
+		ClusterDomain:           envOr("WAAS_CLUSTER_DOMAIN", DiscoverClusterDomain()),
+		RemoteBlockedCIDRs:      splitList(os.Getenv("WAAS_REMOTE_BLOCKED_CIDRS")),
 		AdminUsername:           envOr("WAAS_ADMIN_USERNAME", "admin"),
 		AdminPassword:           os.Getenv("WAAS_ADMIN_PASSWORD"),
 		TLSCertFile:             os.Getenv("WAAS_TLS_CERT_FILE"),

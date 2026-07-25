@@ -131,6 +131,8 @@ table is a quick *what*.
 | apiServer.streamTokenTTL | string | `"2m"` | Short-lived SSE stream token lifetime (verified once, at stream open). |
 | apiServer.eventsPollInterval | string | `"10s"` | Poll interval used by the workspace Events panel. |
 | apiServer.catalogSyncInterval | string | `"6h"` | Re-sync cadence of WorkspaceImage catalog sources (cosmetic picker metadata only). |
+| apiServer.clusterDomain | string | `""` | Cluster DNS domain for the remote-workspace host guard; empty = auto-discovered. |
+| apiServer.remoteBlockedCIDRs | list | `[]` | CIDRs refused as remote-workspace targets (add your cluster's pod/service CIDRs). |
 | apiServer.adminUsername | string | `"admin"` | Bootstrap admin username. |
 | apiServer.adminPassword | string | `""` | Bootstrap admin password; empty generates one and prints it once in the logs. |
 | apiServer.adminPasswordSecretRef.name | string | `""` | Secret name to read the admin password from instead of `adminPassword` above. |

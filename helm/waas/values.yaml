@@ -376,6 +376,23 @@ apiServer:
   # discovered images into catalog_entries (Postgres).
   # -- Re-sync cadence of WorkspaceImage catalog sources (cosmetic picker metadata only).
   catalogSyncInterval: 6h
+  # Cluster DNS domain used by the remote-workspace host guard to
+  # recognize in-cluster names (*.svc.<domain>). Empty = discovered from
+  # the api-server pod's /etc/resolv.conf (cluster.local fallback) —
+  # only set this if discovery is wrong for your cluster.
+  # -- Cluster DNS domain for the remote-workspace host guard; empty = auto-discovered.
+  clusterDomain: ""
+  # CIDRs refused as remote-workspace targets, on top of the built-in
+  # filter (loopback, link-local/IMDS, kube-apiserver ClusterIP,
+  # in-cluster names). Add your cluster's pod and service CIDRs here —
+  # they cannot be discovered from inside a pod. Deliberately does NOT
+  # default to the RFC1918 ranges: legitimate remote machines commonly
+  # live on private LANs (VPN/peering). This guard closes the naive
+  # case only — guacd re-resolves at dial time, so DNS rebinding
+  # bypasses it; real containment needs an egress NetworkPolicy on the
+  # platform pods.
+  # -- CIDRs refused as remote-workspace targets (add your cluster's pod/service CIDRs).
+  remoteBlockedCIDRs: []
   # Bootstrap admin password. Empty = generated and printed once in the
   # api-server logs on first boot.
   # -- Bootstrap admin username.
