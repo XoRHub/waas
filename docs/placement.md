@@ -46,6 +46,15 @@ workspaces keep their namespace — this is intended, not a bug.
 > workspaces land per-user. An admin who wants to keep the previous
 > shared behavior declares it explicitly:
 > `workspaces.defaultNamespacePattern: waas-workspaces` (Helm).
+>
+> **Retained home volumes do not follow.** A PVC is namespaced and only
+> attachable in the namespace it was left in, so homes retained in the
+> old shared namespace no longer appear when creating a workspace that
+> now resolves to `waas-<user>`. Moving that data is a storage
+> operation, outside the platform's scope: use the usual tooling
+> (VolumeSnapshot, or a backup/restore round-trip with Longhorn, Velero
+> or equivalent). Keeping the shared pattern, as above, avoids the
+> question entirely.
 
 ## Placeholders
 
@@ -193,10 +202,10 @@ its own pods. Note the label cannot be set through
 platform admin — cannot lower a namespace to `privileged`.
 
 ⚠️ **secretKeyRef constraint**: a template's `env.valueFrom.secretKeyRef`
-resolves in the **pod's** namespace, i.e. the target namespace — and
-with the per-user default, **every** workspace now lands outside the
-platform namespace, so this constraint applies to every template using
-`secretKeyRef`, not just explicitly placed ones. Either provision the
+resolves in the **pod's** namespace, i.e. the target namespace — never
+the platform namespace, whatever the pattern. What the per-user default
+changes is that the target namespace is no longer **known in advance**:
+a Secret cannot simply be pre-provisioned once. Either provision the
 Secret into the target namespaces (External Secrets/Vault), or pin the
 template to a shared namespace known in advance where the Secret is
 pre-provisioned — what the dev `dev-ssh` template does with
