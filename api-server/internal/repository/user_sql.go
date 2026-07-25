@@ -311,41 +311,18 @@ func isUniqueViolation(err error) bool {
 	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
 }
 
-// isSerializationFailure reports a transaction the engine refused rather
-// than let it interleave into an inconsistent result (SQLSTATE 40001).
-// Only PostgreSQL produces it: the SQLite pool is capped at one
-// connection, so its transactions never interleave in the first place.
-func isSerializationFailure(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "40001") || strings.Contains(msg, "could not serialize")
-}
-
 // withAdminFloor runs write in a transaction that is rolled back unless at
 // least one active administrator remains afterwards.
 //
 // The count is taken INSIDE the transaction and AFTER the write, so it
-// judges the state the caller is actually about to commit. Serializable is
-// what makes that judgement hold under concurrency: two admins demoting
-// themselves at the same moment each write a DIFFERENT row, so row locks
-// alone would let both pass a count that still sees the other — the
-// classic write skew, and here it ends in a platform nobody can
-// administer. One retry, because the engine's refusal means the other
-// transaction won: the retry re-counts and refuses on its own terms.
+// judges the state the caller is actually about to commit — and the lock
+// below is what makes that judgement hold when two admins act at once.
+//
+// Serializable isolation plus a retry was the first design and is worse:
+// the engine aborts the loser instead of queuing it, and the retry can
+// conflict again. Blocking on a lock has neither problem, so this stays on
+// the default isolation level and never has to be re-run.
 func (r *SQLUserRepository) withAdminFloor(ctx context.Context, id string, write func(*sql.Tx) error) error {
-	for attempt := 0; attempt < 2; attempt++ {
-		err := r.tryWithAdminFloor(ctx, id, write)
-		if isSerializationFailure(err) && attempt == 0 {
-			continue
-		}
-		return err
-	}
-	return nil
-}
-
-func (r *SQLUserRepository) tryWithAdminFloor(ctx context.Context, id string, write func(*sql.Tx) error) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
