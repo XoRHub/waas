@@ -13,34 +13,70 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/xorhub/waas/api-server/internal/apierror"
 	"github.com/xorhub/waas/api-server/internal/model"
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
 
-// SetPaused pauses or resumes a workspace.
-func (s *WorkspaceService) SetPaused(ctx context.Context, actor Actor, id string, paused bool) (*model.Workspace, error) {
-	ws, err := s.fetchByID(ctx, actor, id)
+// updateWithConflictRetry runs one fetch → mutate → Update cycle under
+// retry.RetryOnConflict (DefaultRetry): the operator's reconciler
+// status-patches the same CR while it converges, so a single Update can
+// lose the resourceVersion race and come back 409 on a perfectly valid
+// request. The re-fetch lives inside the loop — retrying an Update with
+// the stale object can never succeed — which is why mutate must be safe
+// to re-run against a freshly fetched object. A conflict that outlives
+// every attempt maps to a client-facing 409 ("send it again"), never
+// the opaque 500 the raw error would otherwise become.
+func (s *WorkspaceService) updateWithConflictRetry(ctx context.Context, actor Actor, id string,
+	mutate func(*waasv1alpha1.Workspace) error) (*waasv1alpha1.Workspace, error) {
+	var ws *waasv1alpha1.Workspace
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var err error
+		ws, err = s.fetchByID(ctx, actor, id)
+		if err != nil {
+			return err
+		}
+		if err := mutate(ws); err != nil {
+			return err
+		}
+		if err := s.kube.Update(ctx, ws); err != nil {
+			return fmt.Errorf("updating workspace %s: %w", ws.Name, err)
+		}
+		return nil
+	})
+	if apierrors.IsConflict(err) {
+		return nil, apierror.Conflict("workspace was modified concurrently; retry the request")
+	}
 	if err != nil {
 		return nil, err
 	}
-	ws.Spec.Paused = paused
-	// Stamp the manual-action time so the schedule evaluator can apply
-	// conflict rule B (a manual pause/resume wins until the next opposite
-	// scheduled edge). Both pause and resume record it.
-	if ws.Annotations == nil {
-		ws.Annotations = map[string]string{}
-	}
-	ws.Annotations[waasv1alpha1.AnnotationManualStateAt] = time.Now().UTC().Format(time.RFC3339)
-	if err := s.kube.Update(ctx, ws); err != nil {
+	return ws, nil
+}
+
+// SetPaused pauses or resumes a workspace.
+func (s *WorkspaceService) SetPaused(ctx context.Context, actor Actor, id string, paused bool) (*model.Workspace, error) {
+	ws, err := s.updateWithConflictRetry(ctx, actor, id, func(ws *waasv1alpha1.Workspace) error {
+		ws.Spec.Paused = paused
+		// Stamp the manual-action time so the schedule evaluator can apply
+		// conflict rule B (a manual pause/resume wins until the next opposite
+		// scheduled edge). Both pause and resume record it.
+		if ws.Annotations == nil {
+			ws.Annotations = map[string]string{}
+		}
+		ws.Annotations[waasv1alpha1.AnnotationManualStateAt] = time.Now().UTC().Format(time.RFC3339)
+		return nil
+	})
+	if err != nil {
 		// Resuming re-acquires compute: the webhook may deny it if the
 		// image was disabled or the quota shrank in the meantime.
 		if denial, ok := policyDenial(err); ok {
 			s.audit.Record(ctx, actor, "workspace.denied", "workspace", id, denial)
 			return nil, apierror.Forbidden(denial)
 		}
-		return nil, fmt.Errorf("updating workspace %s: %w", ws.Name, err)
+		return nil, err
 	}
 	action := "workspace.resumed"
 	if paused {
@@ -91,73 +127,78 @@ func (s *WorkspaceService) UpdateOverrides(ctx context.Context, actor Actor, id 
 			return nil, err
 		}
 	}
-	ws, err := s.fetchByID(ctx, actor, id)
-	if err != nil {
-		return nil, err
-	}
-	ov := ws.Spec.Overrides
-	if ov == nil {
-		ov = &waasv1alpha1.WorkspaceOverrides{}
-	}
-	// Empty collections normalize to nil: "cleared" and "never set" must
-	// be the same state on the CR (presence = override).
-	if in.Env != nil {
-		ov.Env = *in.Env
-		if len(ov.Env) == 0 {
-			ov.Env = nil
-		}
-	}
-	if in.NodeSelector != nil {
-		ov.NodeSelector = *in.NodeSelector
-		if len(ov.NodeSelector) == 0 {
-			ov.NodeSelector = nil
-		}
-	}
-	if in.Tolerations != nil {
-		ov.Tolerations = *in.Tolerations
-		if len(ov.Tolerations) == 0 {
-			ov.Tolerations = nil
-		}
-	}
-	if in.Labels != nil {
-		ov.Labels = *in.Labels
-		if len(ov.Labels) == 0 {
-			ov.Labels = nil
-		}
-	}
-	if in.Annotations != nil {
-		ov.Annotations = *in.Annotations
-		if len(ov.Annotations) == 0 {
-			ov.Annotations = nil
-		}
-	}
-	if in.Schedule != nil {
-		ov.Schedule = in.Schedule
-		// A zero struct clears the override, like the empty collections
-		// above: back to the template's schedule.
-		if reflect.DeepEqual(*in.Schedule, waasv1alpha1.WorkspaceSchedule{}) {
-			ov.Schedule = nil
-		}
-	}
-	// An all-empty overrides block means "no deviation": store nil, as a
-	// creation without overrides would.
-	if reflect.DeepEqual(*ov, waasv1alpha1.WorkspaceOverrides{}) {
-		ov = nil
-	}
-	ws.Spec.Overrides = ov
+	// Parse the sizing before the retry loop: a malformed quantity is a
+	// 400 regardless of what the cluster holds.
+	var rr *corev1.ResourceRequirements
 	if in.Resources != nil {
-		rr, err := requirementsFrom(*in.Resources)
+		var err error
+		rr, err = requirementsFrom(*in.Resources)
 		if err != nil {
 			return nil, err
 		}
-		ws.Spec.Resources = rr
 	}
-	if err := s.kube.Update(ctx, ws); err != nil {
+	ws, err := s.updateWithConflictRetry(ctx, actor, id, func(ws *waasv1alpha1.Workspace) error {
+		ov := ws.Spec.Overrides
+		if ov == nil {
+			ov = &waasv1alpha1.WorkspaceOverrides{}
+		}
+		// Empty collections normalize to nil: "cleared" and "never set" must
+		// be the same state on the CR (presence = override).
+		if in.Env != nil {
+			ov.Env = *in.Env
+			if len(ov.Env) == 0 {
+				ov.Env = nil
+			}
+		}
+		if in.NodeSelector != nil {
+			ov.NodeSelector = *in.NodeSelector
+			if len(ov.NodeSelector) == 0 {
+				ov.NodeSelector = nil
+			}
+		}
+		if in.Tolerations != nil {
+			ov.Tolerations = *in.Tolerations
+			if len(ov.Tolerations) == 0 {
+				ov.Tolerations = nil
+			}
+		}
+		if in.Labels != nil {
+			ov.Labels = *in.Labels
+			if len(ov.Labels) == 0 {
+				ov.Labels = nil
+			}
+		}
+		if in.Annotations != nil {
+			ov.Annotations = *in.Annotations
+			if len(ov.Annotations) == 0 {
+				ov.Annotations = nil
+			}
+		}
+		if in.Schedule != nil {
+			ov.Schedule = in.Schedule
+			// A zero struct clears the override, like the empty collections
+			// above: back to the template's schedule.
+			if reflect.DeepEqual(*in.Schedule, waasv1alpha1.WorkspaceSchedule{}) {
+				ov.Schedule = nil
+			}
+		}
+		// An all-empty overrides block means "no deviation": store nil, as a
+		// creation without overrides would.
+		if reflect.DeepEqual(*ov, waasv1alpha1.WorkspaceOverrides{}) {
+			ov = nil
+		}
+		ws.Spec.Overrides = ov
+		if in.Resources != nil {
+			ws.Spec.Resources = rr
+		}
+		return nil
+	})
+	if err != nil {
 		if denial, ok := policyDenial(err); ok {
 			s.audit.Record(ctx, actor, "workspace.denied", "workspace", id, denial)
 			return nil, apierror.Forbidden(denial)
 		}
-		return nil, fmt.Errorf("updating workspace %s: %w", ws.Name, err)
+		return nil, err
 	}
 	// Same audit contract as workspace.overrides_applied at creation:
 	// field names and env var NAMES, never values (an env override may
@@ -226,20 +267,19 @@ func updateOverridesSummary(in UpdateOverridesInput) string {
 // disturb the schedule conflict resolution (rule B) or the pause
 // intent (docs/workspace-lifecycle.md).
 func (s *WorkspaceService) Reload(ctx context.Context, actor Actor, id string) (*model.Workspace, error) {
-	ws, err := s.fetchByID(ctx, actor, id)
+	ws, err := s.updateWithConflictRetry(ctx, actor, id, func(ws *waasv1alpha1.Workspace) error {
+		if ws.Status.Phase != waasv1alpha1.PhaseRunning {
+			return apierror.Conflict(fmt.Sprintf(
+				"workspace is %s, not Running; pending changes apply when it next starts", ws.Status.Phase))
+		}
+		if ws.Annotations == nil {
+			ws.Annotations = map[string]string{}
+		}
+		ws.Annotations[waasv1alpha1.AnnotationReloadRequestedAt] = time.Now().UTC().Format(time.RFC3339)
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	if ws.Status.Phase != waasv1alpha1.PhaseRunning {
-		return nil, apierror.Conflict(fmt.Sprintf(
-			"workspace is %s, not Running; pending changes apply when it next starts", ws.Status.Phase))
-	}
-	if ws.Annotations == nil {
-		ws.Annotations = map[string]string{}
-	}
-	ws.Annotations[waasv1alpha1.AnnotationReloadRequestedAt] = time.Now().UTC().Format(time.RFC3339)
-	if err := s.kube.Update(ctx, ws); err != nil {
-		return nil, fmt.Errorf("updating workspace %s: %w", ws.Name, err)
 	}
 	s.audit.Record(ctx, actor, "workspace.reloaded", "workspace", id, "name="+ws.Name)
 	m := workspaceToModel(ws, s.templateOf(ctx, ws))

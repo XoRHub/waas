@@ -141,3 +141,12 @@ A reload deliberately touches **neither** `spec.paused` **nor**
 `waas.xorhub.io/manual-state-at`: it is not a pause/resume and never
 shifts the schedule conflict resolution (rule B above).
 
+## Concurrent writes never 500
+
+Every lifecycle write (pause/resume, `PATCH …/overrides`, reload) races
+the operator, which status-patches the same Workspace CR while it
+converges. The api-server retries a resourceVersion conflict against a
+freshly fetched CR (`retry.RetryOnConflict`); a conflict that outlives
+the retries surfaces as a **409** asking the client to send the request
+again — never as a 500.
+
