@@ -116,4 +116,10 @@ func TestSyncUserRefreshesGroupsMirror(t *testing.T) {
 	if len(stored.Groups) != 2 || stored.Groups[0] != "platform-admins" {
 		t.Fatalf("groups mirror not refreshed: %v", stored.Groups)
 	}
+	// The promotion must be persisted, not just returned: role is written
+	// through its targeted setter, and an in-memory-only promotion would
+	// mint admin claims that vetBearer rejects on the very next request.
+	if stored.Role != auth.RoleAdmin {
+		t.Fatalf("IdP-driven promotion must reach the row, got %s", stored.Role)
+	}
 }

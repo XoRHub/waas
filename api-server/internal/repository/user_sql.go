@@ -94,22 +94,73 @@ func (r *SQLUserRepository) List(ctx context.Context, page, pageSize int) ([]mod
 }
 
 // Update rewrites the mutable columns of a user row from an in-memory
-// copy. It deliberately does NOT write tokens_valid_after: every caller
-// here is a read-modify-write, and the read can predate a revocation by
-// however long the operation takes — Login alone spends ~50-100ms in
-// argon2id between its read and its write. Writing the column back from
-// that stale copy would silently resurrect every token a concurrent
-// logout had just revoked. SetTokensValidAfter is the only writer.
+// copy. It deliberately does NOT write tokens_valid_after, role or
+// active: every caller here is a read-modify-write, and the read can
+// predate a concurrent change by however long the operation takes —
+// Login alone spends ~50-100ms in argon2id between its read and its
+// write. Written back from that stale copy, tokens_valid_after would
+// resurrect every token a concurrent logout had just revoked, and
+// role/active — the two columns per-request revocation reads on every
+// call (middleware.vetBearer) — would silently undo a concurrent
+// demotion or deactivation. SetTokensValidAfter, SetRole and SetActive
+// are their only writers.
 func (r *SQLUserRepository) Update(ctx context.Context, user *model.User) error {
-	query := r.db.Rebind(`UPDATE users SET email = ?, password_hash = ?, role = ?, active = ?,
+	query := r.db.Rebind(`UPDATE users SET email = ?, password_hash = ?,
 		max_workspaces = ?, updated_at = ?, last_login_at = ?, user_groups = ?, display_name = ?, preferences = ?, oidc_subject = ? WHERE id = ?`)
 	res, err := r.db.ExecContext(ctx, query,
-		nullable(user.Email), user.PasswordHash, string(user.Role), user.Active,
+		nullable(user.Email), user.PasswordHash,
 		user.MaxWorkspaces, timeArg(user.UpdatedAt), timePtrArg(user.LastLoginAt),
 		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.OIDCSubject,
 		user.ID)
 	if err != nil {
 		return fmt.Errorf("updating user %s: %w", user.ID, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+// RecordLogin stamps a successful login with a single targeted UPDATE.
+// The login paths must use it instead of Update: they hold a copy of the
+// row read before password verification, and a full-row write from that
+// copy would carry everything else back stale too.
+func (r *SQLUserRepository) RecordLogin(ctx context.Context, id string, at time.Time) error {
+	query := r.db.Rebind(`UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?`)
+	res, err := r.db.ExecContext(ctx, query, timeArg(at), timeArg(at), id)
+	if err != nil {
+		return fmt.Errorf("recording login for user %s: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+// SetRole changes the account role with a single targeted UPDATE. Like
+// SetTokensValidAfter it is the ONLY writer of its column: Update leaves
+// role alone so that no read-modify-write on the rest of the row can
+// race a demotion and write the old role back.
+func (r *SQLUserRepository) SetRole(ctx context.Context, id string, role auth.Role) error {
+	query := r.db.Rebind(`UPDATE users SET role = ? WHERE id = ?`)
+	res, err := r.db.ExecContext(ctx, query, string(role), id)
+	if err != nil {
+		return fmt.Errorf("setting role for user %s: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+// SetActive flips account activation with a single targeted UPDATE —
+// same rationale as SetRole: a stale full-row write must never be able
+// to reactivate an account a concurrent admin edit just disabled.
+func (r *SQLUserRepository) SetActive(ctx context.Context, id string, active bool) error {
+	query := r.db.Rebind(`UPDATE users SET active = ? WHERE id = ?`)
+	res, err := r.db.ExecContext(ctx, query, active, id)
+	if err != nil {
+		return fmt.Errorf("setting activation for user %s: %w", id, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrUserNotFound

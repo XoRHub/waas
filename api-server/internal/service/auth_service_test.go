@@ -65,9 +65,9 @@ func TestLogoutOfMissingUserIsIdempotent(t *testing.T) {
 	}
 }
 
-// Login rewrites the whole user row (last_login_at); a past revocation
-// bound must survive it — otherwise a fresh login would resurrect every
-// token stolen before the previous logout.
+// Login stamps last_login_at; a past revocation bound must survive it —
+// otherwise a fresh login would resurrect every token stolen before the
+// previous logout.
 func TestLoginPreservesTokenBound(t *testing.T) {
 	hash, err := HashPassword("secret-password")
 	if err != nil {
@@ -86,5 +86,59 @@ func TestLoginPreservesTokenBound(t *testing.T) {
 	}
 	if stored.TokensValidAfter == nil || !stored.TokensValidAfter.Equal(bound) {
 		t.Fatalf("login must preserve the token bound %v, got %v", bound, stored.TokensValidAfter)
+	}
+}
+
+// demotingUsers lands an admin deactivation + demotion right after Login's
+// read returns — deterministically inside the argon2id window the F5 race
+// (audit 2026-07-25) needs.
+type demotingUsers struct {
+	repository.UserRepository
+	t *testing.T
+}
+
+func (r *demotingUsers) FindByUsername(ctx context.Context, username string) (*model.User, error) {
+	user, err := r.UserRepository.FindByUsername(ctx, username)
+	if err == nil {
+		if err := r.SetActive(ctx, user.ID, false); err != nil {
+			r.t.Fatalf("concurrent deactivation: %v", err)
+		}
+		if err := r.SetRole(ctx, user.ID, auth.RoleUser); err != nil {
+			r.t.Fatalf("concurrent demotion: %v", err)
+		}
+	}
+	return user, err
+}
+
+// A deactivation or demotion that lands while Login verifies the password
+// (~50-100ms of argon2id) must survive the login's own row write: Login
+// holds a copy read before the change, and writing it back whole would
+// silently undo it. The login itself still succeeds — it was checked
+// against a then-valid copy — but per-request revocation catches the
+// account on its next call, so the row must keep the truth.
+func TestLoginPreservesConcurrentDeactivationAndDemotion(t *testing.T) {
+	hash, err := HashPassword("secret-password")
+	if err != nil {
+		t.Fatalf("hashing seed password: %v", err)
+	}
+	svc, users := newAuthFixture(t, &model.User{
+		ID: "u1", Username: "alice", PasswordHash: hash, Role: auth.RoleAdmin,
+	})
+	svc.users = &demotingUsers{UserRepository: users, t: t}
+	if _, err := svc.Login(context.Background(), "alice", "secret-password", "10.0.0.1"); err != nil {
+		t.Fatalf("login against a then-valid copy: %v", err)
+	}
+	stored, err := users.FindByID(context.Background(), "u1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Active {
+		t.Fatal("login must not reactivate an account deactivated during password verification")
+	}
+	if stored.Role != auth.RoleUser {
+		t.Fatalf("login must not undo a demotion landed during password verification, got role %q", stored.Role)
+	}
+	if stored.LastLoginAt == nil {
+		t.Fatal("the login stamp itself must still land")
 	}
 }
