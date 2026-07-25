@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createApiMock } from '@/test/apiMock';
 import { useAuthStore } from '@/stores/authStore';
 import { useEvents } from './useEvents';
+import type { User } from '@/types';
 
 const apiMock = createApiMock();
 vi.mock('@/lib/api', () => ({
@@ -30,7 +31,10 @@ class FakeEventSource {
 vi.stubGlobal('EventSource', FakeEventSource);
 
 // Distinctive on purpose: every URL is asserted NOT to contain it.
-const API_BEARER = 'api-bearer-8h-never-in-a-url';
+// The session is an httpOnly cookie now, so there is no bearer to leak
+// into a URL — but the stream token must still be the ONLY credential
+// that ever appears there.
+const SIGNED_IN = { id: 'u1', username: 'marc', role: 'user' } as User;
 
 // Hoisted so its identity is stable across renders — a fresh client per
 // render would re-run the effect and reconnect on its own.
@@ -45,7 +49,7 @@ const openedUrls = () => FakeEventSource.instances.map((s) => s.url);
 
 beforeEach(() => {
   vi.useFakeTimers();
-  useAuthStore.setState({ accessToken: API_BEARER });
+  useAuthStore.setState({ user: SIGNED_IN, ready: true });
   let minted = 0;
   apiMock.api.post.mockImplementation(() =>
     Promise.resolve({ data: { streamToken: `stream-token-${++minted}` } }),
@@ -56,7 +60,7 @@ afterEach(() => {
   vi.useRealTimers();
   apiMock.api.post.mockReset();
   FakeEventSource.instances = [];
-  useAuthStore.setState({ accessToken: null, user: null });
+  useAuthStore.setState({ user: null, ready: false });
 });
 
 describe('useEvents connect', () => {
@@ -67,11 +71,11 @@ describe('useEvents connect', () => {
     expect(apiMock.api.post).toHaveBeenCalledTimes(1);
     expect(apiMock.api.post).toHaveBeenCalledWith('/api/v1/auth/stream-token');
     expect(openedUrls()).toEqual(['/api/v1/events?access_token=stream-token-1']);
-    expect(openedUrls()[0]).not.toContain(API_BEARER);
+    expect(openedUrls()[0]).toMatch(/access_token=stream-token-/);
   });
 
   it('stays offline while signed out', async () => {
-    useAuthStore.setState({ accessToken: null });
+    useAuthStore.setState({ user: null, ready: true });
     mount();
     await vi.advanceTimersByTimeAsync(0);
 
@@ -93,7 +97,7 @@ describe('useEvents connect', () => {
       '/api/v1/events?access_token=stream-token-2',
     ]);
     for (const url of openedUrls()) {
-      expect(url).not.toContain(API_BEARER);
+      expect(url).toMatch(/access_token=stream-token-/);
     }
   });
 });

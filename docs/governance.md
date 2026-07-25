@@ -184,6 +184,25 @@ the handler sets it, the middleware reads and expires it, and a cookie
 cleared with attributes that do not match the ones it was set with is a
 cookie the browser simply keeps.
 
+**The portal uses the cookie and nothing else.** No credential is stored
+client-side — no `localStorage`, no in-memory token, and the SSO callback
+no longer hands one back in the URL fragment. The frontend cannot read
+the cookie, so "am I signed in?" is answered by a `GET /auth/me` probe at
+boot; until it settles, protected routes render a loading state rather
+than bouncing a perfectly valid session to the login page. A page reload
+keeps the session because the cookie survives it.
+
+That probe distinguishes three answers, and the difference matters: a 401
+is "signed out", but a 503 or a network failure only means the server
+could not tell — the portal then offers a retry instead of presenting the
+user as signed out, since re-authenticating is not what fixes a database
+failover. A 401 that arrives about a session which has already been
+replaced (the boot probe racing a sign-in on a cold server) is ignored
+outright; the store versions each session for exactly that. Upgrading a
+browser also evicts the pre-cookie `waas-auth` localStorage entry, which
+would otherwise leave a live bearer readable by the very XSS this change
+was about.
+
 `Auth` reads the header first, then the cookie. Everything below applies
 identically whichever answered.
 

@@ -14,7 +14,7 @@ void i18n.changeLanguage('en');
 
 afterEach(() => {
   cleanup();
-  useAuthStore.setState({ accessToken: null, user: null });
+  useAuthStore.setState({ user: null, ready: false });
 });
 
 /**
@@ -37,10 +37,14 @@ export function renderWithProviders(ui: ReactElement) {
   );
 }
 
-/** signIn seeds the auth store the way a real login does. */
+/**
+ * signIn seeds the auth store the way a real login does. No credential:
+ * the session is an httpOnly cookie, so the store only ever holds the
+ * profile — `ready` marks the boot probe as settled.
+ */
 export function signIn(user: Partial<User> & { username: string }) {
   useAuthStore.setState({
-    accessToken: 'test-token',
+    ready: true,
     user: {
       id: 'u1',
       role: 'user',

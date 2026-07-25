@@ -12,7 +12,8 @@
     "create": "Créer",
     "actions": "Actions",
     "edit": "Modifier",
-    "close": "Fermer"
+    "close": "Fermer",
+    "unreachable": "Serveur injoignable pour le moment. Votre session est peut-être toujours valide — réessayez dans un instant."
   },
   "login": {
     "title": "Bienvenue sur votre nouveau bureau",
@@ -24,7 +25,9 @@
     "or": "ou",
     "sso": "Se connecter avec {{provider}}",
     "ssoFailed": "Échec de la connexion SSO",
-    "ssoCompleting": "Connexion en cours…"
+    "ssoCompleting": "Connexion en cours…",
+    "sessionEnded": "Votre session a pris fin. Merci de vous reconnecter.",
+    "ssoCookieBlocked": "Connexion réussie, mais ce navigateur n'a pas conservé le cookie de session. Vérifiez que les cookies sont autorisés pour ce site."
   },
   "paramField": {
     "boolDefault": "Défaut ({{value}})",

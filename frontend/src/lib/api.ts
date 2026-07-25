@@ -24,21 +24,33 @@ interface Envelope<T> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
-  const token = useAuthStore.getState().accessToken;
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
 
-  const response = await fetch(path, { ...init, headers });
+  // The session travels in the httpOnly `waas_session` cookie, which this
+  // code cannot read and does not need to: `same-origin` is what attaches
+  // it. No Authorization header — that transport is for clients that are
+  // not this browser.
+  // Which session this request is about. Captured BEFORE it leaves, so a
+  // late answer can be told apart from one about the session we hold now.
+  const epoch = useAuthStore.getState().epoch;
 
-  if (response.status === 401 && useAuthStore.getState().accessToken) {
+  const response = await fetch(path, { ...init, headers, credentials: 'same-origin' });
+
+  if (response.status === 401) {
+    const state = useAuthStore.getState();
     // Expired, revoked, or minted for a role that has since changed: the
-    // server has already rejected this token, so drop it locally only.
-    // Calling logout() would POST a revocation the server would refuse
-    // anyway, and turn one rejected request into a fleet-wide sign-out.
-    useAuthStore.getState().clearLocal();
+    // server has already rejected this session, so drop our view of it
+    // locally only. Calling logout() would revoke every session of the
+    // account — turning one rejected request into a fleet-wide sign-out.
+    //
+    // The epoch check is what keeps a stale answer from doing that: the
+    // boot probe leaves before anyone is signed in and is guaranteed to
+    // 401, so on a cold server it can land AFTER the user has signed in
+    // and would otherwise sign them straight back out.
+    if (state.user && state.epoch === epoch) {
+      state.clearLocal('rejected');
+    }
   }
   if (!response.ok) {
     let problem: Problem = {

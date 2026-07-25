@@ -85,8 +85,15 @@ export function useAuditLogs(q: AuditQuery) {
 
 export function useLogin() {
   return useMutation({
-    mutationFn: (input: { username: string; password: string }) =>
-      api.post<LoginResult>('/api/v1/auth/login', input),
+    mutationFn: async (input: { username: string; password: string }) => {
+      const { data } = await api.post<LoginResult>('/api/v1/auth/login', input);
+      // Keep only the profile. The body also carries the access token —
+      // that is how a non-browser client gets one — and returning it here
+      // would park a live credential in the mutation cache, which is
+      // exactly the reach finding #13 took it out of. The browser is
+      // already authenticated by the cookie the response set.
+      return { data: { user: data.user } };
+    },
   });
 }
 

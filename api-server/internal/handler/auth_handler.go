@@ -198,21 +198,24 @@ func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		h.redirectToFrontend(w, r, url.Values{"error": {msg}})
 		return
 	}
+	// The session rides the cookie set above, never the redirect URL: a
+	// fragment stays out of server logs but is still handed to JavaScript,
+	// which is the exposure this closes (finding #13). The SPA learns who
+	// signed in from /auth/me.
 	middleware.SetSessionCookie(w, r, result.AccessToken, result.ExpiresAt)
-	// The fragment still carries the token: the SPA reads it from there
-	// until the frontend switches to the cookie. The fragment never
-	// reaches a server log, so the two transports overlap harmlessly.
-	h.redirectToFrontend(w, r, url.Values{
-		"token":     {result.AccessToken},
-		"expiresAt": {result.ExpiresAt.Format(time.RFC3339)},
-	})
+	h.redirectToFrontend(w, r, nil)
 }
 
-// redirectToFrontend sends the browser to the SPA's /auth/callback route
-// with the payload in the fragment.
+// redirectToFrontend sends the browser to the SPA's /auth/callback route.
+// The fragment now only ever carries an error message — never a
+// credential — and stays a fragment so it reaches no server log.
 func (h *AuthHandler) redirectToFrontend(w http.ResponseWriter, r *http.Request, values url.Values) {
 	base := strings.TrimSuffix(h.oidcCfg.FrontendURL, "/")
-	http.Redirect(w, r, base+"/auth/callback#"+values.Encode(), http.StatusFound)
+	target := base + "/auth/callback"
+	if len(values) > 0 {
+		target += "#" + values.Encode()
+	}
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 // JWKS handles GET /.well-known/jwks.json — the public verification keys

@@ -12,7 +12,8 @@
     "create": "Create",
     "actions": "Actions",
     "edit": "Edit",
-    "close": "Close"
+    "close": "Close",
+    "unreachable": "Can't reach the server right now. Your session may still be valid — try again in a moment."
   },
   "login": {
     "title": "Welcome to your new desktop",
@@ -24,7 +25,9 @@
     "or": "or",
     "sso": "Sign in with {{provider}}",
     "ssoFailed": "SSO login failed",
-    "ssoCompleting": "Completing sign-in…"
+    "ssoCompleting": "Completing sign-in…",
+    "sessionEnded": "Your session has ended. Please sign in again.",
+    "ssoCookieBlocked": "Sign-in succeeded but this browser did not keep the session cookie. Check that cookies are allowed for this site."
   },
   "paramField": {
     "boolDefault": "Default ({{value}})",

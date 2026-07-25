@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createBrowserRouter, createRoutesFromElements, Route, RouterProvider } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { ApiError, api } from '@/lib/api';
 import { applyTheme, storedTheme, watchSystemTheme } from '@/lib/theme';
 import { useAuthStore } from '@/stores/authStore';
-import type { Theme } from '@/types';
+import type { Theme, User } from '@/types';
 import { LoginPage } from '@/pages/LoginPage';
 import { AuthCallbackPage } from '@/pages/AuthCallbackPage';
 import { PortalPage } from '@/pages/PortalPage';
@@ -40,6 +41,44 @@ function useTheme() {
   }, [theme]);
 }
 
+// The session lives in an httpOnly cookie this code cannot read, so the
+// only way to know whether one is active is to ask. One probe at boot,
+// before any protected route gets to decide on a redirect — and it is
+// also what restores the profile after a page reload, now that nothing
+// is persisted client-side.
+function useSessionBoot() {
+  const probed = useRef(false);
+  useEffect(() => {
+    if (probed.current) return; // StrictMode double-invoke guard
+    probed.current = true;
+    // The SSO landing runs this exact request itself and owns what
+    // happens next; probing here too would double the lookup and let the
+    // two writers decide the sign-in state by whichever settles last.
+    if (window.location.pathname === '/auth/callback') return;
+
+    api
+      .get<User>('/api/v1/auth/me')
+      .then(({ data }) => useAuthStore.getState().setUser(data))
+      .catch((error: unknown) => {
+        // A sign-in can complete while this is in flight (the form beats
+        // a cold server): that session is the current one, and this
+        // answer is about the absence that preceded it.
+        if (useAuthStore.getState().user) return;
+        // Only a 401 means "no session". Anything else — 503 during a
+        // database failover, a rolling restart, a proxy blip — means the
+        // server could not tell us, and presenting that as signed out
+        // throws away the whole point of it answering 503 rather than 401.
+        useAuthStore
+          .getState()
+          .clearLocal(
+            error instanceof ApiError && error.problem.status === 401
+              ? 'no-session'
+              : 'unavailable',
+          );
+      });
+  }, []);
+}
+
 // Data router (not declarative <BrowserRouter>): the viewTransition
 // navigate option only works through RouterProvider, which is what
 // animates opening a workspace. Module scope — created once, never
@@ -71,6 +110,7 @@ const router = createBrowserRouter(
 
 export function App() {
   useTheme();
+  useSessionBoot();
   return (
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />

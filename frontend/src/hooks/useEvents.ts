@@ -32,20 +32,26 @@ const BACKOFF_RESET_AFTER_MS = 10_000;
 
 /**
  * Live updates over SSE: one EventSource per app (mounted by the portal
- * and the admin console — sibling routes, never both at once). The API
- * bearer never touches the URL: each (re)connect first POSTs
- * /auth/stream-token (header auth) for a short-lived waas-stream token,
- * the only credential /events accepts in the query string. The existing
+ * and the admin console — sibling routes, never both at once). The
+ * session never touches the URL: each (re)connect first POSTs
+ * /auth/stream-token (authenticated by the session cookie) for a
+ * short-lived waas-stream token, the only credential /events accepts in
+ * the query string — and one that grants nothing else. The existing
  * polling stays untouched as the degraded mode — SSE only makes
  * convergence immediate (cron transitions, kubectl edits, other
  * tabs/devices).
  */
 export function useEvents() {
   const queryClient = useQueryClient();
-  const token = useAuthStore((s) => s.accessToken);
+  // Keyed on the signed-in identity, not on a credential: the session is
+  // a cookie this code cannot see, so "am I signed in" is only observable
+  // through the profile. The id and not the object — a profile update
+  // (a theme preference, say) hands back a fresh object, and keying on it
+  // would tear down and re-open the stream for nothing.
+  const userID = useAuthStore((s) => s.user?.id);
 
   useEffect(() => {
-    if (!token) return;
+    if (!userID) return;
     let source: EventSource | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stableTimer: ReturnType<typeof setTimeout> | undefined;
@@ -65,8 +71,8 @@ export function useEvents() {
         const { data } = await api.post<{ streamToken: string }>('/api/v1/auth/stream-token');
         streamToken = data.streamToken;
       } catch {
-        // Includes an expired API bearer (api.ts then logs out and the
-        // effect re-runs with token=null); otherwise keep backing off.
+        // Includes a rejected session (api.ts then clears the profile and
+        // the effect re-runs with no userID); otherwise keep backing off.
         retry();
         return;
       }
@@ -98,5 +104,5 @@ export function useEvents() {
       clearTimeout(stableTimer);
       source?.close();
     };
-  }, [token, queryClient]);
+  }, [userID, queryClient]);
 }
