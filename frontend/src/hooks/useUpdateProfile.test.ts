@@ -36,23 +36,26 @@ afterEach(() => {
   apiMock.api.patch.mockReset();
 });
 
-// The password change revoked every token of the account server-side and
-// the response already expired the cookie. Staying on screen as if signed
-// in only defers the discovery to the next request's 401 — and to a
-// notice that reads like a failure rather than like what the user just
-// asked for (audit 3, F9).
-it('signs the browser out with its own reason after a password change', async () => {
+// The sign-out itself belongs to the api layer, which reads the server's
+// announcement (see lib/api.test.ts). What this hook must not do is put
+// the user back from a body describing an account they just lost — the
+// response still carries the updated profile, and storing it would
+// resurrect a session the server has ended (audit 3, F9).
+it('does not resurrect the user when the server ended the session', async () => {
+  apiMock.api.patch.mockImplementation(async () => {
+    // What the real api layer does before this hook's onSuccess runs.
+    useAuthStore.getState().clearLocal('password-changed');
+    return { data: user, sessionEnded: 'password-changed' };
+  });
   const { result } = renderHook(() => useUpdateProfile(), { wrapper });
 
   await act(async () => {
     result.current.mutate({ currentPassword: 'old-one', newPassword: 'a-new-one' });
   });
 
-  await waitFor(() => expect(useAuthStore.getState().user).toBeNull());
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  expect(useAuthStore.getState().user).toBeNull();
   expect(useAuthStore.getState().signedOutReason).toBe('password-changed');
-  // ready stays true: this is a settled verdict, not a boot probe in
-  // flight, so ProtectedRoute must redirect instead of showing a spinner.
-  expect(useAuthStore.getState().ready).toBe(true);
 });
 
 it('keeps the session and refreshes the user on an ordinary profile edit', async () => {

@@ -36,13 +36,16 @@ try {
  *   database hiccup precisely so an outage does not sign the fleet out.
  * - `rejected` — the server refused a session we believed in: it expired
  *   or was revoked, or the browser never stored the cookie to begin with.
- * - `password-changed` — the user changed their own password, which
- *   revokes every session of the account including this one. Told apart
- *   from `rejected` because it is the expected outcome of what they just
- *   did, not a failure: "your password changed, sign in again" instead
- *   of a generic expiry notice.
+ * - `password-changed` / `rights-changed` — the user ended their own
+ *   session by what they just did: changing their password, or demoting
+ *   or deactivating their own account through the admin API. Both revoke
+ *   every session of the account, this one included. Told apart from
+ *   `rejected` because they are the expected outcome of a deliberate
+ *   action, not a failure — and both are announced by the server in the
+ *   response itself (see SESSION_ENDED_HEADER), never guessed here.
  */
-export type SignedOutReason = 'no-session' | 'unavailable' | 'rejected' | 'password-changed';
+export type SignedOutReason =
+  'no-session' | 'unavailable' | 'rejected' | 'password-changed' | 'rights-changed';
 
 interface AuthState {
   user: User | null;

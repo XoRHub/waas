@@ -1,4 +1,4 @@
-import { useAuthStore } from '@/stores/authStore';
+import { useAuthStore, type SignedOutReason } from '@/stores/authStore';
 import type { ListMeta } from '@/types';
 
 // RFC 7807 problem details, as returned by the API server.
@@ -21,7 +21,25 @@ export class ApiError extends Error {
 interface Envelope<T> {
   data: T;
   meta?: ListMeta;
+  /**
+   * Set when the server ended this browser's session in the very
+   * response being read — see SESSION_ENDED_HEADER. The sign-out already
+   * happened; callers only need it to avoid putting the user back
+   * (a mutation whose body still describes the account they just lost).
+   */
+  sessionEnded?: SignedOutReason;
 }
+
+/**
+ * The server announces a session it ended in the response itself, because
+ * a browser cannot observe it any other way: the credential is an
+ * HttpOnly cookie and `Set-Cookie` is unreadable from JavaScript. Without
+ * this the UI keeps rendering a dead session until some later request
+ * happens to 401 — and then blames a generic expiry for what the user
+ * deliberately did.
+ */
+const SESSION_ENDED_HEADER = 'X-Waas-Session-Ended';
+const SESSION_ENDED_REASONS: SignedOutReason[] = ['password-changed', 'rights-changed'];
 
 async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
   const headers = new Headers(init?.headers);
@@ -65,10 +83,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>
     }
     throw new ApiError(problem);
   }
-  if (response.status === 204) {
-    return { data: undefined as T };
+  // Only ever announced on a response the caller asked for, so the epoch
+  // guard is the same one the 401 path uses: an answer about a session
+  // that has already been replaced must not tear down the current one.
+  const announced = response.headers.get(SESSION_ENDED_HEADER);
+  const ended = SESSION_ENDED_REASONS.find((reason) => reason === announced);
+  if (ended) {
+    const state = useAuthStore.getState();
+    if (state.user && state.epoch === epoch) {
+      state.clearLocal(ended);
+    }
   }
-  return (await response.json()) as Envelope<T>;
+
+  if (response.status === 204) {
+    return { data: undefined as T, sessionEnded: ended };
+  }
+  return { ...((await response.json()) as Envelope<T>), sessionEnded: ended };
 }
 
 export const api = {

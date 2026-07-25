@@ -86,6 +86,16 @@ describe('LoginPage signed-out notice', () => {
     expect(screen.queryByText('Your session has ended. Please sign in again.')).toBeNull();
   });
 
+  it('names an admin self-edit that ended the session', async () => {
+    apiMock.route('/api/v1/auth/providers', providers({ local: true }));
+    useAuthStore.setState({ user: null, ready: true, signedOutReason: 'rights-changed' });
+    renderWithProviders(<LoginPage />);
+
+    expect(
+      await screen.findByText('Your own account changed, which ended your session. Sign in again.'),
+    ).toBeInTheDocument();
+  });
+
   it('keeps the generic notice for a session the server rejected', async () => {
     apiMock.route('/api/v1/auth/providers', providers({ local: true }));
     useAuthStore.setState({ user: null, ready: true, signedOutReason: 'rejected' });
