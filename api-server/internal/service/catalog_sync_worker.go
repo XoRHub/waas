@@ -180,7 +180,27 @@ func (w *CatalogSyncWorker) SyncNow(ctx context.Context, img *waasv1alpha1.Works
 func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.WorkspaceImage) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	return w.syncLocked(ctx, img)
+}
 
+// syncIfSourceChanged is the watch path's entry point: it evaluates the
+// source discriminant while ALREADY HOLDING the sync mutex, so a
+// concurrent sync of the same image (the startup syncAll, the
+// synchronous upsert sync) cannot slip between the check and the fetch
+// and leave both paths fetching the same manifest. The ticker and the
+// manual force-sync deliberately do NOT go through this gate: they must
+// refetch a source that never moved.
+func (w *CatalogSyncWorker) syncIfSourceChanged(ctx context.Context, img *waasv1alpha1.WorkspaceImage) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !catalogSyncEligible(img) || !w.sourceChanged(img) {
+		return nil
+	}
+	return w.syncLocked(ctx, img)
+}
+
+// syncLocked is syncOne's body; the caller holds w.mu.
+func (w *CatalogSyncWorker) syncLocked(ctx context.Context, img *waasv1alpha1.WorkspaceImage) error {
 	// Record the attempted source first, success and failure alike: the
 	// status patches below emit MODIFIED watch events, and this record is
 	// what keeps OnImageEvent from turning a failed fetch into a hot
@@ -274,10 +294,11 @@ func (w *CatalogSyncWorker) RunEventSync(ctx context.Context) {
 	}
 }
 
-// syncPending re-reads the image and re-checks both gates at consume
-// time: the event that queued the name may be stale — already covered
-// by the startup syncAll or the synchronous upsert sync — or the image
-// may be gone.
+// syncPending re-reads the image at consume time — the event that
+// queued the name may be stale, or the image may be gone — and hands it
+// to the gated sync path, which re-evaluates the discriminant under the
+// sync mutex (the queued event may already have been covered by the
+// startup syncAll or the synchronous upsert sync).
 func (w *CatalogSyncWorker) syncPending(ctx context.Context, name string) {
 	img := &waasv1alpha1.WorkspaceImage{}
 	if err := w.kube.Get(ctx, types.NamespacedName{Namespace: w.namespace, Name: name}, img); err != nil {
@@ -286,10 +307,7 @@ func (w *CatalogSyncWorker) syncPending(ctx context.Context, name string) {
 		}
 		return
 	}
-	if !catalogSyncEligible(img) || !w.sourceChanged(img) {
-		return
-	}
-	if err := w.syncOne(ctx, img); err != nil {
+	if err := w.syncIfSourceChanged(ctx, img); err != nil {
 		slog.Error("catalog sync failed", "workspaceImage", name, "error", err)
 	}
 }
