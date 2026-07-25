@@ -1,0 +1,28 @@
+suite: api-server remote-workspace host guard wiring
+templates:
+  - api-server/deployment.yaml
+release:
+  name: waas
+tests:
+  - it: renders empty defaults (domain auto-discovered, no extra CIDRs)
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_CLUSTER_DOMAIN")].value
+          value: ""
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_REMOTE_BLOCKED_CIDRS")].value
+          value: ""
+
+  - it: wires an overridden clusterDomain and remoteBlockedCIDRs
+    set:
+      apiServer.clusterDomain: corp.k8s
+      apiServer.remoteBlockedCIDRs:
+        - 10.42.0.0/16
+        - 10.43.0.0/16
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_CLUSTER_DOMAIN")].value
+          value: corp.k8s
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_REMOTE_BLOCKED_CIDRS")].value
+          value: 10.42.0.0/16,10.43.0.0/16
