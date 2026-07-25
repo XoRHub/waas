@@ -288,12 +288,24 @@ request**, not at token expiry. Two semantics to know:
 - **The last active administrator cannot lose their rights through
   `PATCH /users/{id}`.** A demotion or deactivation that would leave zero
   active admins is refused with `400` ("promote another account first").
-  The **OIDC role sync is deliberately not covered**: when `adminGroups`
-  is configured the IdP owns the role, and refusing its verdict would
-  make the platform disagree with the directory it declares
-  authoritative. The asymmetry is safe because the outcomes differ — an
-  IdP-driven demotion is undone by re-adding the group and signing in
-  again, while the API path has no way back at all. Losing the last one has no
+  Enforced by the **write**, not by a count taken beforehand: the
+  repository performs it inside a transaction that first locks the admin
+  seats (`SELECT … FOR UPDATE`), because two admins dropping their rights
+  at the same moment write two *different* rows — neither blocks the
+  other, and both would count a seat the other is about to vacate. The
+  service still pre-checks, but only to answer with the message instead
+  of a rolled-back write.
+  Two deliberate exemptions:
+  - **The OIDC role sync is not covered.** When `adminGroups` is
+    configured the IdP owns the role, and refusing its verdict would make
+    the platform disagree with the directory it declares authoritative.
+    Safe because the outcomes differ: an IdP-driven demotion is undone by
+    re-adding the group and signing in again.
+  - **`WAAS_LOGIN_OIDC_ONLY` switches the floor off entirely.** The floor
+    exists because the loss has no way back; in that mode it does — the
+    documented break-glass is a redeploy without the flag, signing in as
+    the bootstrap admin. What the floor would do instead is block the
+    cleanup of a local admin account nobody can sign into any more. Losing the last one has no
   in-product way back — it would take a database edit, or a redeploy
   against an empty database for `WAAS_ADMIN_PASSWORD` to seed a new one
   (`EnsureBootstrapAdmin` only ever creates when the users table is

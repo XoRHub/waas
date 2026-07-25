@@ -97,7 +97,7 @@ func run() error {
 				"(unreachable while this flag is set) has the admin role")
 		}
 	}
-	userSvc := service.NewUserService(users, audit)
+	userSvc := service.NewUserService(users, audit).WithLocalLoginDisabled(cfg.OIDC.OIDCOnly)
 	templateSvc := service.NewTemplateService(kube, cfg.WorkspaceNamespace, audit)
 	workspaceSvc := service.NewWorkspaceService(kube, cfg.WorkspaceNamespace, users, sessions, audit, signer,
 		cfg.JWTIssuer, cfg.ConnectionTokenTTL).

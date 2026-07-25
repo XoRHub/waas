@@ -17,6 +17,8 @@ var (
 	ErrSessionNotFound         = errors.New("session not found")
 	ErrRemoteWorkspaceNotFound = errors.New("remote workspace not found")
 	ErrDuplicate               = errors.New("duplicate record")
+	// ErrLastAdmin: the write would have left no active administrator.
+	ErrLastAdmin = errors.New("last active administrator")
 )
 
 // UserRepository persists platform accounts.
@@ -41,6 +43,13 @@ type UserRepository interface {
 	RecordLogin(ctx context.Context, id string, at time.Time) error
 	SetRole(ctx context.Context, id string, role auth.Role) error
 	SetActive(ctx context.Context, id string, active bool) error
+	// SetRoleUnlessLastAdmin and SetActiveUnlessLastAdmin are the admin
+	// API's writers: they refuse (ErrLastAdmin) when the change would
+	// leave the platform with no active administrator, judged inside the
+	// transaction that performs it. The unguarded setters above stay for
+	// the OIDC role sync, where the IdP owns the role.
+	SetRoleUnlessLastAdmin(ctx context.Context, id string, role auth.Role) error
+	SetActiveUnlessLastAdmin(ctx context.Context, id string, active bool) error
 	SetTokensValidAfter(ctx context.Context, id string, at time.Time) error
 	Delete(ctx context.Context, id string) error
 	Count(ctx context.Context) (int, error)

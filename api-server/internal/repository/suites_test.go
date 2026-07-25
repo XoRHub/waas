@@ -164,6 +164,118 @@ func TestUserRepositorySuite(t *testing.T) {
 	})
 }
 
+// The admin floor is enforced by the WRITE, not by a count the caller
+// took earlier: a pre-check cannot survive two admins dropping their
+// rights at the same moment. Runs on both backends because the mechanism
+// differs — PostgreSQL needs serializable isolation, SQLite serializes on
+// its single connection.
+func TestAdminFloorIsEnforcedByTheWrite(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, db *database.DB) {
+		repo := NewSQLUserRepository(db)
+		ctx := context.Background()
+		now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+		seed := func(id string, role auth.Role, active bool) {
+			t.Helper()
+			u := &model.User{ID: id, Username: id, Role: role, Active: active, CreatedAt: now, UpdatedAt: now}
+			if err := repo.Create(ctx, u); err != nil {
+				t.Fatalf("seeding %s: %v", id, err)
+			}
+		}
+		seed("admin-1", auth.RoleAdmin, true)
+		seed("admin-2", auth.RoleAdmin, true)
+		seed("plain", auth.RoleUser, true)
+
+		// Two admins: either may step down.
+		if err := repo.SetRoleUnlessLastAdmin(ctx, "admin-2", auth.RoleUser); err != nil {
+			t.Fatalf("demoting one of two admins: %v", err)
+		}
+		// One left: it cannot, by demotion or by deactivation.
+		if err := repo.SetRoleUnlessLastAdmin(ctx, "admin-1", auth.RoleUser); !errors.Is(err, ErrLastAdmin) {
+			t.Fatalf("demoting the last admin: want ErrLastAdmin, got %v", err)
+		}
+		if err := repo.SetActiveUnlessLastAdmin(ctx, "admin-1", false); !errors.Is(err, ErrLastAdmin) {
+			t.Fatalf("deactivating the last admin: want ErrLastAdmin, got %v", err)
+		}
+		// And the refusal rolled the write back rather than half-applying.
+		if got, err := repo.FindByID(ctx, "admin-1"); err != nil {
+			t.Fatal(err)
+		} else if got.Role != auth.RoleAdmin || !got.Active {
+			t.Fatalf("a refused write must leave the row untouched, got role=%s active=%v", got.Role, got.Active)
+		}
+
+		// The floor is about REMOVING the last admin, not about the table
+		// always having one: a non-admin's edit is never held hostage by it.
+		if err := repo.SetActiveUnlessLastAdmin(ctx, "plain", false); err != nil {
+			t.Fatalf("deactivating a non-admin: %v", err)
+		}
+		if err := repo.SetRoleUnlessLastAdmin(ctx, "ghost", auth.RoleUser); !errors.Is(err, ErrUserNotFound) {
+			t.Fatalf("missing account: want ErrUserNotFound, got %v", err)
+		}
+
+		// Promoting is never refused — that is how you get out of the
+		// refusal above.
+		if err := repo.SetRoleUnlessLastAdmin(ctx, "admin-2", auth.RoleAdmin); err != nil {
+			t.Fatalf("promoting back: %v", err)
+		}
+		if err := repo.SetRoleUnlessLastAdmin(ctx, "admin-1", auth.RoleUser); err != nil {
+			t.Fatalf("demotion must be allowed once a replacement exists: %v", err)
+		}
+	})
+}
+
+// The property the floor actually has to hold: two admins dropping their
+// rights at the SAME moment write two DIFFERENT rows, so row locks alone
+// would let both pass a count that still sees the other — write skew,
+// ending in a platform nobody can administer. Repeated because a race
+// that only fails sometimes is a race that passes sometimes.
+func TestAdminFloorSurvivesConcurrentDemotions(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, db *database.DB) {
+		repo := NewSQLUserRepository(db)
+		ctx := context.Background()
+		now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+		for round := 0; round < 20; round++ {
+			for _, id := range []string{"a", "b"} {
+				_ = repo.Delete(ctx, id)
+				u := &model.User{ID: id, Username: id, Role: auth.RoleAdmin, Active: true, CreatedAt: now, UpdatedAt: now}
+				if err := repo.Create(ctx, u); err != nil {
+					t.Fatalf("seeding %s: %v", id, err)
+				}
+			}
+
+			start := make(chan struct{})
+			errs := make(chan error, 2)
+			for _, id := range []string{"a", "b"} {
+				go func() {
+					<-start
+					errs <- repo.SetRoleUnlessLastAdmin(ctx, id, auth.RoleUser)
+				}()
+			}
+			close(start)
+			first, second := <-errs, <-errs
+
+			admins, err := repo.CountActiveAdmins(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if admins < 1 {
+				t.Fatalf("round %d: both demotions landed, no administrator left (%v / %v)", round, first, second)
+			}
+			// One of them must have been told why it did not go through,
+			// rather than silently no-oping.
+			if first == nil && second == nil {
+				t.Fatalf("round %d: both reported success with %d admin(s) left", round, admins)
+			}
+			if first != nil && !errors.Is(first, ErrLastAdmin) {
+				t.Fatalf("round %d: unexpected error %v", round, first)
+			}
+			if second != nil && !errors.Is(second, ErrLastAdmin) {
+				t.Fatalf("round %d: unexpected error %v", round, second)
+			}
+		}
+	})
+}
+
 func TestSessionRepositorySuite(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, db *database.DB) {
 		repo := NewSQLSessionRepository(db)

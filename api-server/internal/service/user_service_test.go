@@ -110,6 +110,38 @@ func TestCreateRefusesPlacementNamespaceCollision(t *testing.T) {
 	})
 }
 
+// The floor protects an unrecoverable state. Under WAAS_LOGIN_OIDC_ONLY
+// that state is recoverable — redeploy without the flag and sign in as
+// the bootstrap admin — while the floor would block the very cleanup the
+// mode calls for: a local admin account nobody can sign into any more.
+func TestAdminFloorIsOffWhenLocalLoginIsDisabled(t *testing.T) {
+	seed := []model.User{{ID: "u-admin", Username: "admin", Role: auth.RoleAdmin, PasswordHash: "argon2:x"}}
+	roleptr := func(r auth.Role) *auth.Role { return &r }
+
+	t.Run("enforced with local login available", func(t *testing.T) {
+		svc, _ := newUserFixture(t, seed)
+		_, _, err := svc.Update(context.Background(), Actor{ID: "u-admin"}, "u-admin",
+			UpdateUserInput{Role: roleptr(auth.RoleUser)})
+		var p *apierror.Problem
+		if !errors.As(err, &p) || p.Status != 400 {
+			t.Fatalf("want 400 Problem, got %v", err)
+		}
+	})
+
+	t.Run("off under OIDC-only", func(t *testing.T) {
+		svc, users := newUserFixture(t, seed)
+		svc.WithLocalLoginDisabled(true)
+		if _, _, err := svc.Update(context.Background(), Actor{ID: "u-admin"}, "u-admin",
+			UpdateUserInput{Role: roleptr(auth.RoleUser)}); err != nil {
+			t.Fatalf("demotion must be allowed: %v", err)
+		}
+		stored, _ := users.FindByID(context.Background(), "u-admin")
+		if stored.Role != auth.RoleUser {
+			t.Fatalf("demotion must land, got role=%s", stored.Role)
+		}
+	})
+}
+
 func forbidden(t *testing.T, err error) {
 	t.Helper()
 	var p *apierror.Problem

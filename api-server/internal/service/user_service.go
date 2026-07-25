@@ -24,10 +24,29 @@ const defaultMaxWorkspaces = 3
 type UserService struct {
 	users repository.UserRepository
 	audit *AuditService
+
+	// localLoginDisabled mirrors WAAS_LOGIN_OIDC_ONLY. It switches the
+	// admin floor OFF — see WithLocalLoginDisabled.
+	localLoginDisabled bool
 }
 
 func NewUserService(users repository.UserRepository, audit *AuditService) *UserService {
 	return &UserService{users: users, audit: audit}
+}
+
+// WithLocalLoginDisabled reports WAAS_LOGIN_OIDC_ONLY, which turns the
+// last-admin floor OFF.
+//
+// The floor exists because losing the last administrator has no way back.
+// That premise does not hold here: local sign-in is disabled, so admin
+// rights come from the IdP's group mapping, and the deployment keeps a
+// documented break-glass — redeploy without the flag and sign in as the
+// bootstrap admin (main.go says so at startup). What the floor WOULD do
+// in this mode is refuse to clean up a local admin account that cannot
+// log in any more, which is the opposite of helping.
+func (s *UserService) WithLocalLoginDisabled(disabled bool) *UserService {
+	s.localLoginDisabled = disabled
+	return s
 }
 
 // CreateUserInput is the admin-facing account creation payload.
@@ -112,6 +131,13 @@ func (s *UserService) Create(ctx context.Context, actor Actor, in CreateUserInpu
 	return user, nil
 }
 
+// errLastAdmin is the single wording for the admin floor, raised both by
+// the pre-check and by the guarded write that actually enforces it.
+func errLastAdmin() error {
+	return apierror.BadRequest(
+		"the platform must keep at least one active administrator — promote another account first")
+}
+
 // normalizeGroups trims, de-dups and drops blanks from a group list.
 func normalizeGroups(in []string) []string {
 	seen := map[string]bool{}
@@ -186,8 +212,16 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	// against an empty database. Compared as two states rather than
 	// per-field, so one request touching both role and active is judged
 	// on what it actually leaves behind.
+	//
+	// This is the FRIENDLY check: it refuses before any write, so the
+	// caller gets the message instead of a half-applied edit. It is not
+	// the enforcement — two admins demoting themselves at the same moment
+	// would both pass it. The floor is held by the writes below, inside
+	// the transaction that performs them.
 	stillActiveAdmin := user.Role == auth.RoleAdmin && user.Active
-	if wasActiveAdmin && !stillActiveAdmin {
+	// Off entirely under WAAS_LOGIN_OIDC_ONLY — see WithLocalLoginDisabled.
+	guardAdminFloor := wasActiveAdmin && !stillActiveAdmin && !s.localLoginDisabled
+	if guardAdminFloor {
 		admins, err := s.users.CountActiveAdmins(ctx)
 		if err != nil {
 			return nil, false, fmt.Errorf("counting active admins: %w", err)
@@ -195,8 +229,7 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 		// This account is still counted (the write has not landed yet), so
 		// 1 means it is the only one left.
 		if admins <= 1 {
-			return nil, false, apierror.BadRequest(
-				"the platform must keep at least one active administrator — promote another account first")
+			return nil, false, errLastAdmin()
 		}
 	}
 	if in.MaxWorkspaces != nil {
@@ -214,13 +247,27 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	// the admin's change is written targeted, and only when the request
 	// actually carried the field, so a read-modify-write here can never
 	// clobber a concurrent edit of either.
+	// The guarded writers hold the admin floor inside the transaction that
+	// performs the write, which is what makes it survive two admins
+	// dropping their rights at the same moment. The plain ones are used
+	// when there is no floor to hold.
+	setRole, setActive := s.users.SetRole, s.users.SetActive
+	if guardAdminFloor {
+		setRole, setActive = s.users.SetRoleUnlessLastAdmin, s.users.SetActiveUnlessLastAdmin
+	}
 	if in.Role != nil {
-		if err := s.users.SetRole(ctx, user.ID, *in.Role); err != nil {
+		if err := setRole(ctx, user.ID, *in.Role); err != nil {
+			if errors.Is(err, repository.ErrLastAdmin) {
+				return nil, false, errLastAdmin()
+			}
 			return nil, false, fmt.Errorf("setting role for %s: %w", user.ID, err)
 		}
 	}
 	if in.Active != nil {
-		if err := s.users.SetActive(ctx, user.ID, *in.Active); err != nil {
+		if err := setActive(ctx, user.ID, *in.Active); err != nil {
+			if errors.Is(err, repository.ErrLastAdmin) {
+				return nil, false, errLastAdmin()
+			}
 			return nil, false, fmt.Errorf("setting activation for %s: %w", user.ID, err)
 		}
 	}
