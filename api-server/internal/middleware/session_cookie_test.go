@@ -81,6 +81,95 @@ func TestAuthSessionCookieTransport(t *testing.T) {
 	}
 }
 
+// A cookie the server refuses must come back expired: the route that
+// would clear it (logout) is itself behind this middleware, so a browser
+// whose token died would otherwise keep sending a dead credential until
+// the cookie's own Expires date. Two deliberate exceptions — a 503, which
+// says nothing about the session, and a cross-site rejection, which would
+// otherwise hand any page on the internet a one-request sign-out.
+func TestAuthExpiresARejectedSessionCookie(t *testing.T) {
+	signer, err := auth.GenerateSigner()
+	if err != nil {
+		t.Fatalf("GenerateSigner: %v", err)
+	}
+	const issuer = "waas-test"
+	token, err := signer.Sign(auth.NewAccessClaims(issuer, "user-1", auth.RoleUser, time.Minute))
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	expired, err := signer.Sign(auth.NewAccessClaims(issuer, "user-1", auth.RoleUser, -time.Minute))
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	for name, tc := range map[string]struct {
+		cookie     string
+		fetchSite  string
+		users      UserSource
+		wantStatus int
+		wantClear  bool
+	}{
+		"expired token": {expired, "same-origin", activeUser(auth.RoleUser), http.StatusUnauthorized, true},
+		"deactivated account": {token, "same-origin", userSourceFunc(func(_ context.Context, id string) (*model.User, error) {
+			return &model.User{ID: id, Role: auth.RoleUser, Active: false}, nil
+		}), http.StatusUnauthorized, true},
+		"account deleted": {token, "same-origin", userSourceFunc(func(_ context.Context, _ string) (*model.User, error) {
+			return nil, repository.ErrUserNotFound
+		}), http.StatusUnauthorized, true},
+		// The api-server answers 503 rather than 401 on a database hiccup so
+		// an outage is not a fleet-wide sign-out; dropping the cookie here
+		// would sign everyone out anyway, through the back door.
+		"database down": {token, "same-origin", userSourceFunc(func(_ context.Context, _ string) (*model.User, error) {
+			return nil, context.DeadlineExceeded
+		}), http.StatusServiceUnavailable, false},
+		"cross-site rejection": {token, "cross-site", activeUser(auth.RoleUser), http.StatusUnauthorized, false},
+		"valid session":        {token, "same-origin", activeUser(auth.RoleUser), http.StatusOK, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/api/v1/some-route", nil)
+			r.AddCookie(&http.Cookie{Name: SessionCookie, Value: tc.cookie})
+			r.Header.Set("Sec-Fetch-Site", tc.fetchSite)
+			w := httptest.NewRecorder()
+			Auth(signer, issuer, tc.users)(next).ServeHTTP(w, r)
+
+			if w.Code != tc.wantStatus {
+				t.Fatalf("want %d, got %d: %s", tc.wantStatus, w.Code, w.Body.String())
+			}
+			var cleared bool
+			for _, c := range w.Result().Cookies() {
+				if c.Name == SessionCookie && c.MaxAge < 0 {
+					cleared = true
+				}
+			}
+			if cleared != tc.wantClear {
+				t.Fatalf("want the cookie expired=%v, got %v", tc.wantClear, cleared)
+			}
+		})
+	}
+}
+
+// A header-borne token must never make the middleware emit a Set-Cookie:
+// that transport belongs to clients that hold no cookie at all.
+func TestAuthNeverTouchesCookiesOnTheHeaderTransport(t *testing.T) {
+	signer, err := auth.GenerateSigner()
+	if err != nil {
+		t.Fatalf("GenerateSigner: %v", err)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/some-route", nil)
+	r.Header.Set("Authorization", "Bearer not-a-token")
+	w := httptest.NewRecorder()
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	Auth(signer, "waas-test", activeUser(auth.RoleUser))(next).ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", w.Code)
+	}
+	if cookies := w.Result().Cookies(); len(cookies) != 0 {
+		t.Fatalf("no Set-Cookie expected on the header transport, got %+v", cookies)
+	}
+}
+
 // The per-request user re-check (finding #2) is transport-agnostic: a
 // cookie must not become a way around revocation, and a database failure
 // on the cookie path must still read as 503 rather than 401 — a 401 makes

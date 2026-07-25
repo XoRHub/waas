@@ -32,11 +32,6 @@ type UserSource interface {
 	FindByID(ctx context.Context, id string) (*model.User, error)
 }
 
-// SessionCookie is the browser transport for the access token: the same
-// waas-api JWT the Authorization header carries, kept out of JavaScript's
-// reach (security audit 2026-07-20, finding #13).
-const SessionCookie = "waas_session"
-
 // Auth validates the access token on every request and stores the claims
 // in the request context. Two transports, in this order:
 //
@@ -61,15 +56,19 @@ func Auth(signer *auth.Signer, issuer string, users UserSource) func(http.Handle
 			// attacker's page cannot set it. Hence the check applies to the
 			// cookie only.
 			if fromCookie && !sameOriginRequest(r) {
+				// Written directly, NOT through denySession: expiring the
+				// cookie here would hand any cross-site page a one-request
+				// way to sign the user out.
 				apierror.Write(w, apierror.Unauthorized("cross-site request rejected"))
 				return
 			}
 			claims, err := auth.VerifyAccessToken(token, issuer, signer.Public())
 			if err != nil {
-				apierror.Write(w, apierror.Unauthorized("invalid or expired token"))
+				denySession(w, r, fromCookie, apierror.Unauthorized("invalid or expired token"))
 				return
 			}
-			if !vetBearer(w, r, users, claims) {
+			if err := vetBearer(r.Context(), users, claims); err != nil {
+				denySession(w, r, fromCookie, err)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey, claims)))
@@ -108,37 +107,77 @@ func sameOriginRequest(r *http.Request) bool {
 	}
 }
 
+// SameOrigin applies that same guard to the routes that MINT the session
+// cookie. Auth covers the routes that consume it, but login runs before
+// any credential exists, so SameSite is no protection there: it governs
+// whether a cookie is SENT, not whether one may be SET, and a top-level
+// form POST lands in a first-party context. Ungated, a cross-site form
+// submitting the attacker's own credentials silently signs the victim's
+// browser into the attacker's account (login CSRF / session fixation) —
+// and since the SPA now derives identity solely from the cookie, the
+// victim's workspaces and clipboard land in that account.
+//
+// The "header absent" branch keeps non-browser clients working: they read
+// the token from the JSON body and never rely on the cookie. The OIDC
+// callback also mints the cookie but must NOT be gated — it arrives as a
+// cross-site navigation from the IdP, and the one-shot state cookie is
+// what authenticates it.
+func SameOrigin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !sameOriginRequest(r) {
+			apierror.Write(w, apierror.Forbidden("cross-site request rejected"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// denySession writes an authentication failure, expiring the session
+// cookie when that cookie is what just failed. Without this a browser
+// whose token expired or was revoked keeps sending a dead credential on
+// every request until its Expires date — including the logout call meant
+// to get rid of it, which never reaches its handler because this
+// middleware rejects it first. Only 401 clears: a 503 means the server
+// could not tell, and throwing the cookie away over a database hiccup
+// would sign the fleet out.
+func denySession(w http.ResponseWriter, r *http.Request, fromCookie bool, err error) {
+	if fromCookie && apierror.IsUnauthorized(err) {
+		ClearSessionCookie(w, r)
+	}
+	apierror.Write(w, err)
+}
+
 // vetBearer re-checks the token bearer against CURRENT user state — this
 // is what makes deactivation, demotion and logout effective immediately
 // instead of at token expiry (security audit 2026-07-20, finding #2). One
 // primary-key read per request, deliberately uncached: a cache would
-// reopen the revocation window this exists to close. Writes the response
-// and returns false when the bearer must not pass.
-func vetBearer(w http.ResponseWriter, r *http.Request, users UserSource, claims *auth.AccessClaims) bool {
-	user, err := users.FindByID(r.Context(), claims.Subject)
+// reopen the revocation window this exists to close. Returns nil when the
+// bearer may pass, and the problem to answer with otherwise — the caller
+// writes it, since only the caller knows which transport carried the
+// token and therefore whether a cookie needs expiring.
+func vetBearer(ctx context.Context, users UserSource, claims *auth.AccessClaims) error {
+	user, err := users.FindByID(ctx, claims.Subject)
 	switch {
 	case errors.Is(err, repository.ErrUserNotFound):
-		apierror.Write(w, apierror.Unauthorized("account no longer exists"))
+		return apierror.Unauthorized("account no longer exists")
 	case err != nil:
 		// NOT a 401: the frontend drops its auth state on every 401, so a
 		// database hiccup must read as a server failure, never as a
 		// revocation — or an outage logs out the whole fleet.
-		slog.ErrorContext(r.Context(), "auth user lookup failed", "user", claims.Subject, "error", err)
-		apierror.Write(w, apierror.Unavailable("user state is temporarily unavailable"))
+		slog.ErrorContext(ctx, "auth user lookup failed", "user", claims.Subject, "error", err)
+		return apierror.Unavailable("user state is temporarily unavailable")
 	case !user.Active:
-		apierror.Write(w, apierror.Unauthorized("account is disabled"))
+		return apierror.Unauthorized("account is disabled")
 	case user.Role != claims.Role:
 		// A role that diverged from the claims rejects instead of silently
 		// serving the database role: honoring the token with a substituted
 		// role would split the request between two sources of truth.
 		// Re-login mints claims matching the new role.
-		apierror.Write(w, apierror.Unauthorized("role has changed — sign in again"))
+		return apierror.Unauthorized("role has changed — sign in again")
 	case revoked(user, claims):
-		apierror.Write(w, apierror.Unauthorized("token has been revoked"))
-	default:
-		return true
+		return apierror.Unauthorized("token has been revoked")
 	}
-	return false
+	return nil
 }
 
 // revoked reports whether the token was issued before the user's validity
@@ -188,7 +227,10 @@ func StreamAuth(signer *auth.Signer, issuer string, users UserSource) func(http.
 			// Same state re-check as Auth: an unexpired stream token must
 			// not open a NEW stream after revocation. A stream already
 			// open is never re-vetted — documented limitation.
-			if !vetBearer(w, r, users, claims) {
+			if err := vetBearer(r.Context(), users, claims); err != nil {
+				// No cookie on this path — the stream token travels in the
+				// query string — so nothing to expire.
+				apierror.Write(w, err)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey, claims)))
