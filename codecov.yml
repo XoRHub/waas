@@ -12,7 +12,19 @@ coverage:
       default:
         target: auto
         threshold: 1%
-    patch: off
+    # informational, not off: the diff's own new lines get a number on
+    # every PR, and none of them blocks a merge.
+    #
+    # `off` was right when the frontend sat at 7.9% and any patch status
+    # would have been red on every PR, so the signal would have been
+    # trained away rather than read. That is no longer the case, and the
+    # project status alone does not replace it: with ~3 700 statements in
+    # api-server, its 1% band absorbs ~50 entirely uncovered new lines
+    # before it turns red — and a wave lands as many small PRs, each
+    # fitting inside that band with room to spare.
+    patch:
+      default:
+        informational: true
 
 flags:
   operator:
