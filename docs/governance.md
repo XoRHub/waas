@@ -164,6 +164,84 @@ the IdP. Opt-in, never the default. Behavior:
   configured) while the bootstrap admin is unreachable — the api-server
   logs a startup warning for this combination.
 
+### Session transport: header or cookie
+
+The access token has two transports and they carry the **same** JWT — one
+credential, not two:
+
+- **`Authorization: Bearer`** — every non-browser client, unchanged.
+- **`waas_session` cookie** — browsers. `HttpOnly` (JavaScript cannot read
+  it, which is the point: an XSS can no longer exfiltrate a usable
+  bearer), `Secure` when the request arrived over https (the **first**
+  element of `X-Forwarded-Proto`, case-insensitively — the ingress
+  terminates TLS, and the header is a comma-separated list as soon as a
+  second proxy is in the path), `SameSite=Strict`, scoped to `Path=/api`.
+  wwt's `/ws` and `/kasm` sit outside that scope on purpose — they
+  authenticate with connection tokens.
+
+Name and attributes have a single owner, `middleware/session_cookie.go`:
+the handler sets it, the middleware reads and expires it, and a cookie
+cleared with attributes that do not match the ones it was set with is a
+cookie the browser simply keeps.
+
+**The portal uses the cookie and nothing else.** No credential is stored
+client-side — no `localStorage`, no in-memory token, and the SSO callback
+no longer hands one back in the URL fragment. The frontend cannot read
+the cookie, so "am I signed in?" is answered by a `GET /auth/me` probe at
+boot; until it settles, protected routes render a loading state rather
+than bouncing a perfectly valid session to the login page. A page reload
+keeps the session because the cookie survives it.
+
+That probe distinguishes three answers, and the difference matters: a 401
+is "signed out", but a 503 or a network failure only means the server
+could not tell — the portal then offers a retry instead of presenting the
+user as signed out, since re-authenticating is not what fixes a database
+failover. A 401 that arrives about a session which has already been
+replaced (the boot probe racing a sign-in on a cold server) is ignored
+outright; the store versions each session for exactly that. Upgrading a
+browser also evicts the pre-cookie `waas-auth` localStorage entry, which
+would otherwise leave a live bearer readable by the very XSS this change
+was about.
+
+`Auth` reads the header first, then the cookie. Everything below applies
+identically whichever answered.
+
+`SameSite=Strict` is affordable here even though it normally breaks cold
+external links: the SPA document is static and served without auth, and
+every authenticated call is a same-site XHR that carries the cookie.
+
+**CSRF.** A cookie rides along by itself, so it is the transport a
+cross-site page could abuse — a header is not, since such a page cannot
+set one. A cookie-authenticated request is therefore rejected unless
+`Sec-Fetch-Site` says `same-origin`. Fetch Metadata rather than a
+synchronized token: every current browser sends it and a script cannot
+forge it. A request without the header is not a browser (it uses the
+header transport), and `SameSite=Strict` is the backstop that stopped the
+cookie from being attached at all. Note `CORS` never sets
+`Access-Control-Allow-Credentials` — do not add it.
+
+The same gate guards `POST /auth/login`, which *mints* the cookie rather
+than consuming one. `SameSite` is no help there: it governs whether a
+cookie is sent, not whether one may be set, and a top-level form POST
+lands in a first-party context. Ungated, a cross-site form carrying the
+attacker's own credentials would silently sign the victim's browser into
+the attacker's account — and since the portal derives identity solely
+from the cookie, the victim's workspaces and clipboard would follow. The
+OIDC callback also mints the cookie but is deliberately **not** gated: it
+arrives as a cross-site navigation from the IdP, and the one-shot state
+cookie is what authenticates it.
+
+**A refused cookie is expired on the spot.** When `Auth` answers 401 to a
+cookie-borne token — expired, revoked, account disabled or deleted — it
+also sends a clearing `Set-Cookie`. The route that would otherwise do it,
+`POST /auth/logout`, sits behind `Auth` itself, so a browser whose session
+had already died could never reach it and would keep transmitting a dead
+credential until the cookie's own `Expires` date. Two deliberate
+exceptions: a **503** never clears (it says nothing about the session, and
+clearing would turn a database hiccup into the fleet-wide sign-out the 503
+exists to prevent), and neither does a **cross-site rejection**, which
+would otherwise hand any page on the internet a one-request sign-out.
+
 ### Session revocation (`users.tokens_valid_after`)
 
 Access tokens are JWTs, but their statelessness stops at the api-server:

@@ -24,12 +24,13 @@ export function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const login = useAuthStore((s) => s.login);
+  const setUser = useAuthStore((s) => s.setUser);
   const mutation = useLogin();
   const providers = useAuthProviders();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const ssoError = (location.state as { ssoError?: string } | null)?.ssoError;
+  const signedOutReason = useAuthStore((s) => s.signedOutReason);
   const oidc = providers.data?.data.oidc;
   const localEnabled = providers.data?.data.local ?? true;
 
@@ -39,12 +40,24 @@ export function LoginPage() {
       { username, password },
       {
         onSuccess: ({ data }) => {
-          login(data.accessToken, data.user);
+          // The credential is already in the httpOnly cookie the response
+          // set; only the profile is ours to keep. The body still carries
+          // an accessToken for non-browser clients — deliberately ignored
+          // here, storing it is exactly what finding #13 was about.
+          setUser(data.user);
           navigate(data.user.role === 'admin' ? '/admin' : '/', { replace: true });
         },
       },
     );
   };
+
+  // Landing here after the server refused a session we held: say so. It
+  // covers the ordinary expiry, and it is also the only visible trace of a
+  // cookie the browser never stored — that case would otherwise bounce the
+  // user back here silently, forever, on every sign-in attempt.
+  const notice = !ssoError && signedOutReason === 'rejected' && (
+    <p className="text-sm text-amber-600 dark:text-amber-400">{t('login.sessionEnded')}</p>
+  );
 
   // Don't flash the local form while the providers request is in flight:
   // if the answer is local: false it would pop in and vanish.
@@ -90,6 +103,7 @@ export function LoginPage() {
       <div className="flex min-h-screen items-center justify-center app-background">
         <div className="w-full max-w-sm space-y-4 rounded-xl bg-white p-8 shadow dark:bg-slate-800">
           <LoginHeading />
+          {notice}
           {ssoError && (
             <p className="text-sm text-red-600 dark:text-red-400">
               {t('login.ssoFailed')}: {ssoError}
@@ -129,6 +143,7 @@ export function LoginPage() {
             required
           />
         </label>
+        {notice}
         {mutation.isError && (
           <p className="text-sm text-red-600 dark:text-red-400">{t('login.failed')}</p>
         )}

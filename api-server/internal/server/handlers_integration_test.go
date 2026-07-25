@@ -434,8 +434,23 @@ func TestOIDCCallbackMirrorsGroupsAndSyncsAdminRole(t *testing.T) {
 	if strings.Contains(redirect, "error=") {
 		t.Fatalf("callback failed: %s", redirect)
 	}
-	if !strings.Contains(redirect, "token=") {
-		t.Fatalf("expected a token in the fragment redirect, got %s", redirect)
+	// The session arrives as an httpOnly cookie, never in the redirect: a
+	// fragment stays out of server logs but is still handed to
+	// JavaScript, which is the exposure finding #13 was about.
+	if strings.Contains(redirect, "token=") {
+		t.Fatalf("the SSO redirect must not carry a credential, got %s", redirect)
+	}
+	var session *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "waas_session" {
+			session = c
+		}
+	}
+	if session == nil || session.Value == "" {
+		t.Fatal("the SSO callback must set the waas_session cookie")
+	}
+	if !session.HttpOnly || session.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("SSO session cookie must be HttpOnly + SameSite=Strict, got %+v", session)
 	}
 	// The token exchange must prove possession of the PKCE verifier
 	// matching the challenge sent at authorize time.

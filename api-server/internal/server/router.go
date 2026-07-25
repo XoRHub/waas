@@ -72,7 +72,12 @@ func New(cfg *config.Config, signer *auth.Signer, users middleware.UserSource, h
 		// trusted client IP). Per-IP only — keying on the username too
 		// would require buffering the body before the handler reads it,
 		// and argon2id (~50ms/try) already bounds per-account throughput.
-		r.With(httprate.LimitBy(10, time.Minute, loginRateLimitKey)).Post("/auth/login", h.Auth.Login)
+		// SameOrigin, not Auth: login has no credential to check yet, but it
+		// hands out the session cookie, so it needs the same Fetch Metadata
+		// gate — otherwise a cross-site form logs the victim's browser into
+		// the attacker's account.
+		r.With(middleware.SameOrigin, httprate.LimitBy(10, time.Minute, loginRateLimitKey)).
+			Post("/auth/login", h.Auth.Login)
 		r.Get("/auth/providers", h.Auth.Providers)
 		r.Get("/auth/oidc/start", h.Auth.OIDCStart)
 		r.Get("/auth/oidc/callback", h.Auth.OIDCCallback)

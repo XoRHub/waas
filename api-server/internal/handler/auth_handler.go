@@ -33,7 +33,13 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-// Login handles POST /api/v1/auth/login.
+// Login handles POST /api/v1/auth/login. The response carries the very
+// same access token twice — one credential, two transports: the session
+// cookie a BROWSER uses, HttpOnly so an XSS can neither read nor
+// exfiltrate it (security audit 2026-07-20, finding #13), and the JSON
+// body every other kind of client reads it from. The cookie's name and
+// attributes live in the middleware package, the side that reads and
+// expires it.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if h.oidcCfg.OIDCOnly {
 		fail(w, r, apierror.NotFound("local login is disabled — sign in via SSO"))
@@ -49,6 +55,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	middleware.SetSessionCookie(w, r, result.AccessToken, result.ExpiresAt)
+	// The token also stays in the body: it is how a non-browser client
+	// obtains one. The SPA deliberately drops it on the floor — storing it
+	// is exactly what finding #13 was about.
 	ok(w, result)
 }
 
@@ -59,6 +69,10 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	// Drop this browser's cookie too. The revocation above already made
+	// the token worthless everywhere; this just avoids leaving a dead
+	// credential sitting in the jar.
+	middleware.ClearSessionCookie(w, r)
 	noContent(w)
 }
 
@@ -141,7 +155,7 @@ func (h *AuthHandler) OIDCStart(w http.ResponseWriter, r *http.Request) {
 		Path:     "/api/v1/auth/oidc",
 		MaxAge:   int((10 * time.Minute).Seconds()),
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   middleware.IsHTTPS(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, req.URL, http.StatusFound)
@@ -184,17 +198,24 @@ func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		h.redirectToFrontend(w, r, url.Values{"error": {msg}})
 		return
 	}
-	h.redirectToFrontend(w, r, url.Values{
-		"token":     {result.AccessToken},
-		"expiresAt": {result.ExpiresAt.Format(time.RFC3339)},
-	})
+	// The session rides the cookie set above, never the redirect URL: a
+	// fragment stays out of server logs but is still handed to JavaScript,
+	// which is the exposure this closes (finding #13). The SPA learns who
+	// signed in from /auth/me.
+	middleware.SetSessionCookie(w, r, result.AccessToken, result.ExpiresAt)
+	h.redirectToFrontend(w, r, nil)
 }
 
-// redirectToFrontend sends the browser to the SPA's /auth/callback route
-// with the payload in the fragment.
+// redirectToFrontend sends the browser to the SPA's /auth/callback route.
+// The fragment now only ever carries an error message — never a
+// credential — and stays a fragment so it reaches no server log.
 func (h *AuthHandler) redirectToFrontend(w http.ResponseWriter, r *http.Request, values url.Values) {
 	base := strings.TrimSuffix(h.oidcCfg.FrontendURL, "/")
-	http.Redirect(w, r, base+"/auth/callback#"+values.Encode(), http.StatusFound)
+	target := base + "/auth/callback"
+	if len(values) > 0 {
+		target += "#" + values.Encode()
+	}
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 // JWKS handles GET /.well-known/jwks.json — the public verification keys
