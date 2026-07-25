@@ -100,6 +100,25 @@ func Suffix(raw string) string {
 // owners, so it gets neither ownership label nor auto-quota.
 const BuiltinNamespacePattern = "waas-" + TokenUser
 
+// PersonalNamespace returns the namespace the built-in per-user default
+// resolves to for username: the ONLY way to ask "which namespace is this
+// user's own". It goes through ResolveNamespace, so it inherits the token
+// budgeting, the truncation and the deterministic suffix — recomposing
+// "waas-" + Sanitize(user) by hand looks equivalent but diverges above
+// the token budget (a username sanitizing to more than 58 characters
+// resolves to a truncated+suffixed namespace), and a caller comparing
+// against the hand-made form then fails to recognize a user's own
+// namespace: no ownership label, no quota, no placement right.
+// Empty (never expected for the constant built-in pattern) means "no
+// personal namespace" — callers must not treat it as a match.
+func PersonalNamespace(username string) string {
+	ns, err := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: username})
+	if err != nil {
+		return ""
+	}
+	return ns
+}
+
 // Placeholder documents one pattern token: THE source the UI contextual
 // help and the docs render — never a hand-maintained copy.
 type Placeholder struct {

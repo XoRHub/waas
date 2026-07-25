@@ -265,17 +265,24 @@ func workspaceOwnerLabels(ws *waasv1alpha1.Workspace) map[string]string {
 }
 
 // isPersonalNamespace reports whether the workspace's target namespace
-// is dedicated to its owner: it matches the identity-derived
-// "waas-<user>" prefix (frozen username annotation) — the nominal case,
-// since the built-in "waas-{user}" default resolves exactly there.
-// Anything else — an admin-chosen shared literal ("waas-workspaces"),
-// {os}/{templateName} patterns — is shared.
+// is dedicated to its owner: it matches the identity-derived personal
+// namespace (frozen username annotation) or a suffixed variant of it —
+// the nominal case, since the built-in "waas-{user}" default resolves
+// exactly there. Anything else — an admin-chosen shared literal
+// ("waas-workspaces"), {os}/{templateName} patterns — is shared.
+// naming.PersonalNamespace is the shared resolution: computing the name
+// here would drift from what the api-server actually froze into the spec
+// for long usernames, and this workspace's namespace would silently lose
+// its ownership label and its quota.
 func isPersonalNamespace(ws *waasv1alpha1.Workspace) bool {
 	username := ws.Annotations[waasv1alpha1.AnnotationUsername]
 	if username == "" {
 		return false
 	}
-	userNS := "waas-" + naming.Sanitize(username)
+	userNS := naming.PersonalNamespace(username)
+	if userNS == "" {
+		return false
+	}
 	tns := computeNamespace(ws)
 	return tns == userNS || strings.HasPrefix(tns, userNS+"-")
 }

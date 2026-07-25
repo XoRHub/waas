@@ -10,6 +10,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -22,6 +23,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/naming"
 )
 
 // placedWorkspace mirrors what the api-server produces: the target
@@ -494,6 +496,44 @@ func TestSharedNamespaceGetsNoOwnershipNorQuota(t *testing.T) {
 	err := c.Get(context.Background(), types.NamespacedName{Namespace: "waas-workspaces", Name: "waas-quota"}, &corev1.ResourceQuota{})
 	if !apierrors.IsNotFound(err) {
 		t.Fatalf("shared namespace must not receive an auto-quota, got %v", err)
+	}
+}
+
+// TestTruncatedPerUserNamespaceStaysPersonal: a username long enough to
+// overflow the token budget resolves to a TRUNCATED, hash-suffixed
+// namespace. Recomputing "waas-"+Sanitize(user) here would produce a
+// different string, and the user's own namespace would be treated as
+// shared — no ownership label, no quota, exactly the protections the
+// per-user default exists for.
+func TestTruncatedPerUserNamespaceStaysPersonal(t *testing.T) {
+	longUser := strings.Repeat("engineering-platform", 5)
+	target := naming.PersonalNamespace(longUser)
+	if target == "waas-"+naming.Sanitize(longUser) {
+		t.Fatalf("fixture is not exercising truncation: %q", target)
+	}
+
+	tpl := linuxTemplate()
+	tpl.Spec.Resources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("2Gi")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("2Gi")},
+	}
+	ws := placedWorkspace()
+	ws.Annotations[waasv1alpha1.AnnotationUsername] = longUser
+	ws.Spec.TargetNamespace = target
+	r, c := newFixture(t, tpl, ws,
+		aggregatePolicy(resource.MustParse("8"), resource.MustParse("32Gi")), xfceCatalogImage())
+
+	reconcile(t, r, ws)
+
+	ns := &corev1.Namespace{}
+	if err := c.Get(context.Background(), types.NamespacedName{Name: target}, ns); err != nil {
+		t.Fatalf("expected bootstrapped namespace: %v", err)
+	}
+	if ns.Labels[labelOwner] != ws.Spec.Owner {
+		t.Fatalf("truncated per-user namespace must carry the ownership label, got %v", ns.Labels)
+	}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: target, Name: "waas-quota"}, &corev1.ResourceQuota{}); err != nil {
+		t.Fatalf("truncated per-user namespace must receive the policy quota: %v", err)
 	}
 }
 

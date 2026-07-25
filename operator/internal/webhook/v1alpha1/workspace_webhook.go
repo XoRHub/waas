@@ -304,8 +304,11 @@ func (v *WorkspaceValidator) checkPlacementOwnership(ctx context.Context, ws *wa
 	if def, err := policy.ResolvedDefaultNamespace(ws, tpl, id, v.DefaultNamespacePattern); err == nil && tns == def {
 		return nil
 	}
-	userNS := "waas-" + naming.Sanitize(id.Username)
-	if tns == userNS || strings.HasPrefix(tns, userNS+"-") {
+	// Shared resolution (naming.PersonalNamespace): a hand-made
+	// "waas-"+Sanitize(user) diverges from what the api-server froze for
+	// a long username, and the user would be denied their OWN namespace.
+	userNS := naming.PersonalNamespace(id.Username)
+	if userNS != "" && (tns == userNS || strings.HasPrefix(tns, userNS+"-")) {
 		return nil
 	}
 	existing := &corev1.Namespace{}
