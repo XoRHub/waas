@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -143,6 +144,192 @@ func TestAdminSyncImageNotFound(t *testing.T) {
 	_, err := svc.AdminSyncImage(context.Background(), admin, "ghost")
 	if !apierror.IsNotFound(err) {
 		t.Fatalf("err = %v, want 404 problem", err)
+	}
+}
+
+// urlCatalogInput is registryImageInput pointed at a live url source —
+// the shape the governance editor sends for a fetched catalog.
+func urlCatalogInput(url string) UpsertImageInput {
+	return registryImageInput(&model.CatalogSourceModel{From: model.CatalogSourceFrom{URL: url}})
+}
+
+// TestAdminUpsertImageSyncsWhenItBecomesEligible covers the entry that
+// carried a catalog block while it could never sync (exact-image mode —
+// nothing forbids the block there) and is then switched to registry
+// mode: the source did not move, but this is the first PUT that can
+// sync, so the response must already carry the entries.
+func TestAdminUpsertImageSyncsWhenItBecomesEligible(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(workerCatalogManifest))
+	}))
+	defer srv.Close()
+
+	svc, _ := newSyncFixture(t)
+	admin := Actor{ID: "a1", Username: "admin", Role: string(auth.RoleAdmin)}
+	ctx := context.Background()
+
+	exact := urlCatalogInput(srv.URL)
+	exact.Registry = ""
+	exact.Image = "docker.io/xorhub/firefox:1.0.0"
+	if _, err := svc.AdminUpsertImage(ctx, admin, "becomes-eligible", exact); err != nil {
+		t.Fatalf("creating the exact-image entry: %v", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("manifest fetches = %d for an exact-image entry, want 0", hits.Load())
+	}
+
+	// Same catalog block, registry mode this time.
+	m, err := svc.AdminUpsertImage(ctx, admin, "becomes-eligible", urlCatalogInput(srv.URL))
+	if err != nil {
+		t.Fatalf("switching to registry mode: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("manifest fetches = %d once the entry became eligible, want 1", hits.Load())
+	}
+	if len(m.Discovered) != 2 {
+		t.Fatalf("discovered = %+v, want the 2 manifest entries in the PUT response", m.Discovered)
+	}
+}
+
+// TestAdminUpsertImageCreateSyncsCatalog pins the auto-sync on the API
+// creation path: the PUT response must already carry the discovered
+// entries — no tick, no manual "Sync now".
+func TestAdminUpsertImageCreateSyncsCatalog(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(workerCatalogManifest))
+	}))
+	defer srv.Close()
+
+	svc, audit := newSyncFixture(t)
+	admin := Actor{ID: "a1", Username: "admin", Role: string(auth.RoleAdmin)}
+
+	m, err := svc.AdminUpsertImage(context.Background(), admin, "waas-images", urlCatalogInput(srv.URL))
+	if err != nil {
+		t.Fatalf("AdminUpsertImage: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("manifest fetches = %d, want exactly 1 on creation", hits.Load())
+	}
+	if m.Catalog == nil || m.Catalog.LastSyncTime == nil || m.Catalog.LastSyncError != "" {
+		t.Fatalf("catalog status = %+v, want fresh success in the PUT response", m.Catalog)
+	}
+	if len(m.Discovered) != 2 {
+		t.Fatalf("discovered = %+v, want the 2 manifest entries in the PUT response", m.Discovered)
+	}
+	row := lastAudit(t, audit)
+	if row == nil || row.Action != "catalog.image_synced" || row.Detail != "" {
+		t.Fatalf("audit row = %+v, want clean catalog.image_synced after image_created", row)
+	}
+}
+
+// TestAdminUpsertImageSyncFailureDoesNotFailPut pins the best-effort
+// contract: the CR write succeeds, the fetch error only lands in
+// lastSyncError, and previously discovered entries survive
+// (stale-but-served).
+func TestAdminUpsertImageSyncFailureDoesNotFailPut(t *testing.T) {
+	healthy := atomic.Bool{}
+	healthy.Store(true)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if !healthy.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(workerCatalogManifest))
+	}))
+	defer srv.Close()
+
+	svc, _ := newSyncFixture(t)
+	admin := Actor{ID: "a1", Username: "admin", Role: string(auth.RoleAdmin)}
+	ctx := context.Background()
+
+	if _, err := svc.AdminUpsertImage(ctx, admin, "waas-images", urlCatalogInput(srv.URL)); err != nil {
+		t.Fatalf("precondition upsert: %v", err)
+	}
+
+	// Repoint the source while it is broken: the update must still be a
+	// success carrying the stale entries.
+	healthy.Store(false)
+	m, err := svc.AdminUpsertImage(ctx, admin, "waas-images", urlCatalogInput(srv.URL+"/v2"))
+	if err != nil {
+		t.Fatalf("upsert must not fail on a fetch error: %v", err)
+	}
+	if m.Catalog == nil || m.Catalog.LastSyncError == "" {
+		t.Fatalf("catalog status = %+v, want lastSyncError surfaced", m.Catalog)
+	}
+	if len(m.Discovered) != 2 {
+		t.Fatalf("discovered = %+v, want the stale 2 entries kept", m.Discovered)
+	}
+}
+
+// TestAdminUpsertImageWithoutCatalogNoFetch: ineligible entries (exact
+// image, or registry without spec.catalog) must not trigger any fetch.
+func TestAdminUpsertImageWithoutCatalogNoFetch(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+	}))
+	defer srv.Close()
+
+	svc, _ := newSyncFixture(t)
+	admin := Actor{ID: "a1", Username: "admin", Role: string(auth.RoleAdmin)}
+	ctx := context.Background()
+
+	exact := UpsertImageInput{
+		DisplayName: "Exact entry",
+		Image:       "docker.io/xorhub/firefox:1.0.0@sha256:def",
+		Protocols:   []string{"vnc"},
+	}
+	if _, err := svc.AdminUpsertImage(ctx, admin, "exact", exact); err != nil {
+		t.Fatalf("AdminUpsertImage(exact): %v", err)
+	}
+	if _, err := svc.AdminUpsertImage(ctx, admin, "registry-plain", registryImageInput(nil)); err != nil {
+		t.Fatalf("AdminUpsertImage(registry-plain): %v", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("manifest fetches = %d, want none for ineligible entries", hits.Load())
+	}
+}
+
+// TestAdminUpsertImageResyncsOnlyWhenSourceChanges pins the settled
+// update rule: editing display fields never refetches; repointing
+// spec.catalog does.
+func TestAdminUpsertImageResyncsOnlyWhenSourceChanges(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(workerCatalogManifest))
+	}))
+	defer srv.Close()
+
+	svc, _ := newSyncFixture(t)
+	admin := Actor{ID: "a1", Username: "admin", Role: string(auth.RoleAdmin)}
+	ctx := context.Background()
+
+	if _, err := svc.AdminUpsertImage(ctx, admin, "waas-images", urlCatalogInput(srv.URL)); err != nil {
+		t.Fatalf("creation upsert: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("manifest fetches = %d after creation, want 1", hits.Load())
+	}
+
+	renamed := urlCatalogInput(srv.URL)
+	renamed.DisplayName = "Renamed images"
+	if _, err := svc.AdminUpsertImage(ctx, admin, "waas-images", renamed); err != nil {
+		t.Fatalf("display-only update: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("manifest fetches = %d after a display-only edit, want still 1", hits.Load())
+	}
+
+	if _, err := svc.AdminUpsertImage(ctx, admin, "waas-images", urlCatalogInput(srv.URL+"/v2")); err != nil {
+		t.Fatalf("source update: %v", err)
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("manifest fetches = %d after repointing the source, want 2", hits.Load())
 	}
 }
 

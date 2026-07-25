@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -449,6 +451,10 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 
 	img := &waasv1alpha1.WorkspaceImage{}
 	err = s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, img)
+	// Creation always syncs; an update only when spec.catalog itself
+	// moved — display-field edits must not refetch (same rule as the
+	// watch path's source discriminant).
+	needsSync := true
 	switch {
 	case apierrors.IsNotFound(err):
 		img = &waasv1alpha1.WorkspaceImage{
@@ -462,12 +468,29 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 	case err != nil:
 		return nil, fmt.Errorf("fetching workspace image %s: %w", name, err)
 	default:
+		// An entry that was not eligible before (exact-image mode, or no
+		// catalog block: nothing forbids carrying one) syncs too — this is
+		// the first time it ever could, even if the catalog block itself
+		// is byte-identical.
+		needsSync = !reflect.DeepEqual(img.Spec.Catalog, spec.Catalog) || !catalogSyncEligible(img)
 		img.Spec = spec
 		if err := s.kube.Update(ctx, img); err != nil {
 			return nil, fmt.Errorf("updating workspace image %s: %w", name, err)
 		}
 		s.audit.Record(ctx, actor, "catalog.image_updated", "workspaceimage", name,
 			fmt.Sprintf("enabled=%t image=%s", spec.Enabled, in.Image))
+	}
+	if needsSync {
+		// Best-effort synchronous sync (bounded by catalogFetchTimeout),
+		// before imageToModel so the response already carries the
+		// discovered entries. The CR is valid regardless of its source's
+		// health: a fetch failure never fails the PUT — it is audited,
+		// logged, and surfaced through status.catalog.lastSyncError,
+		// which the response projects.
+		if err := s.syncCatalog(ctx, actor, img); err != nil &&
+			!errors.Is(err, errCatalogNotEligible) && !errors.Is(err, errCatalogSyncDisabled) {
+			slog.Warn("catalog sync on upsert failed", "workspaceImage", name, "error", err)
+		}
 	}
 	m, err := s.imageToModel(ctx, img)
 	if err != nil {
@@ -497,6 +520,35 @@ func (s *GovernanceService) AdminSetImageEnabled(ctx context.Context, actor Acto
 	return &m, nil
 }
 
+// Sentinels of syncCatalog: "sync does not apply here", as opposed to a
+// real fetch failure. Callers map them — the explicit force-sync into
+// 400/503 problems, the upsert auto-sync into a silent skip.
+var (
+	errCatalogNotEligible  = errors.New("image has no catalog source")
+	errCatalogSyncDisabled = errors.New("catalog sync is not available")
+)
+
+// syncCatalog runs one immediate, synchronous catalog sync of img
+// through the shared worker (bounded by catalogFetchTimeout) and writes
+// the catalog.image_synced audit row. Fail-soft semantics come from
+// SyncNow: entries stay stale-but-served, lastSyncError is patched, and
+// the fetch error is returned for the caller to map.
+func (s *GovernanceService) syncCatalog(ctx context.Context, actor Actor, img *waasv1alpha1.WorkspaceImage) error {
+	// Same eligibility gate as the ticker's syncAll.
+	if !catalogSyncEligible(img) {
+		return errCatalogNotEligible
+	}
+	if s.syncer == nil {
+		return errCatalogSyncDisabled
+	}
+	if err := s.syncer.SyncNow(ctx, img); err != nil {
+		s.audit.Record(ctx, actor, "catalog.image_synced", "workspaceimage", img.Name, "error="+err.Error())
+		return err
+	}
+	s.audit.Record(ctx, actor, "catalog.image_synced", "workspaceimage", img.Name, "")
+	return nil
+}
+
 // AdminSyncImage forces an immediate catalog re-fetch of one entry —
 // synchronous (bounded by catalogFetchTimeout) so the response carries
 // the fresh status and discovered entries. Failure keeps the fail-soft
@@ -510,18 +562,15 @@ func (s *GovernanceService) AdminSyncImage(ctx context.Context, actor Actor, nam
 		}
 		return nil, fmt.Errorf("fetching workspace image %s: %w", name, err)
 	}
-	// Same eligibility gate as the ticker's syncAll.
-	if img.Spec.Registry == "" || img.Spec.Catalog == nil {
-		return nil, apierror.BadRequest("image has no catalog source (spec.catalog)")
-	}
-	if s.syncer == nil {
-		return nil, apierror.Unavailable("catalog sync is not available")
-	}
-	if err := s.syncer.SyncNow(ctx, img); err != nil {
-		s.audit.Record(ctx, actor, "catalog.image_synced", "workspaceimage", name, "error="+err.Error())
+	if err := s.syncCatalog(ctx, actor, img); err != nil {
+		switch {
+		case errors.Is(err, errCatalogNotEligible):
+			return nil, apierror.BadRequest("image has no catalog source (spec.catalog)")
+		case errors.Is(err, errCatalogSyncDisabled):
+			return nil, apierror.Unavailable("catalog sync is not available")
+		}
 		return nil, apierror.BadGateway("catalog sync failed: " + err.Error())
 	}
-	s.audit.Record(ctx, actor, "catalog.image_synced", "workspaceimage", name, "")
 	m, err := s.imageToModel(ctx, img)
 	if err != nil {
 		return nil, err

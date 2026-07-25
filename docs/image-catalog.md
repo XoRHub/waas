@@ -89,7 +89,29 @@ registry outage never blocks the rest):
   and failure alike. There is deliberately **no watch on the referenced
   ConfigMap/Secret**: those reads bypass the cache by existing design
   (no `watch` RBAC verb on them), so the static branch accepts the same
-  propagation delay as the live one.
+  propagation delay as the live one;
+- also syncs **on creation and on source change**, without waiting for
+  a tick, on both write paths: the admin PUT (see below) and
+  manifest/GitOps applies — the process's one shared `WorkspaceImage`
+  watch (the SSE hub's) feeds the worker through a non-blocking
+  observer and a coalescing queue, so a `kubectl apply` of a new
+  catalog-bearing image shows its entries within seconds. The resync
+  discriminant is the **source itself** (the last `spec.catalog` any
+  sync path attempted, tracked in memory, purged on delete): the sync's
+  own status patch, watch re-lists after a reconnect, and display-field
+  edits are all no-ops — only a moved source refetches. The source is
+  recorded on **failure too**, on purpose: a failed fetch keeps emitting
+  a status patch, and re-queueing on it would spin a hot retry loop
+  against a broken registry. Retrying a failed sync is therefore the
+  ticker's job (or the admin's, through *Sync now*), never the watch's;
+- Setting `apiServer.catalogSyncInterval` ≤ 0 disables **only the
+  ticker**: creation/source-change syncs, like the manual force-sync,
+  keep working. What is lost is everything periodic — the pick-up of new
+  content published under an unchanged source, **and** the retry of a
+  failed sync. A transient fetch failure while applying a new image then
+  leaves that image without catalog entries until an admin clicks *Sync
+  now* or the source itself moves, so a zero interval is only reasonable
+  where those syncs are driven deliberately.
 
 The status patch never bumps `metadata.generation`, so the periodic
 sync never triggers `workspace_controller.go`'s
@@ -99,10 +121,24 @@ The api-server's RBAC grants `workspaceimages/status` `get`/`patch`
 only (no `update`): it never needs to read-modify-write the whole
 status, just this one patch.
 
+### Automatic sync on admin writes
+
+`PUT /api/v1/admin/images/{name}` triggers the same sync
+**synchronously, best-effort** when it creates the entry or changes its
+`spec.catalog` block (editing display fields never refetches — same
+rule as the watch path): the response already carries the discovered
+entries, so the governance editor shows the entry count as soon as the
+form is saved. Best-effort means a fetch failure never fails the PUT —
+the CR is valid regardless of its source's health; the error is
+audited and surfaced through `status.catalog.lastSyncError`, which the
+response projects.
+
 ### Manual sync
 
 `POST /api/v1/admin/images/{name}/sync` (admin-only) forces an
-immediate re-fetch of one entry instead of waiting for the ticker —
+immediate re-fetch of one entry — the escape hatch when the manifest
+**content** changed under an unchanged source (re-published
+`catalog.yaml`), which no automatic trigger can see —
 the portal's Governance → Image catalog table exposes it as a
 per-image **Sync now** button, next to the sync state it now surfaces
 (`lastSyncTime`, discovered-entry count, `lastSyncError`). The
