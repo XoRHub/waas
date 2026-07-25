@@ -188,16 +188,99 @@ func TestPersonalNamespaceMatchesResolution(t *testing.T) {
 		strings.Repeat("a", 59),               // one over: truncated + suffixed
 		strings.Repeat("engineering-team", 6), // far over
 	} {
-		resolved, err := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: user})
+		resolved, err := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: user, UserID: "u-1"})
 		if err != nil {
 			t.Fatalf("resolving %d-char user: %v", len(user), err)
 		}
-		if got := PersonalNamespace(user); got != resolved {
+		if got := PersonalNamespace(user, "u-1"); got != resolved {
 			t.Errorf("PersonalNamespace(%d chars) = %q, resolution gives %q", len(user), got, resolved)
 		}
-		if got := PersonalNamespace(user); got == "waas-"+Sanitize(user) && len(Sanitize(user)) > 58 {
+		if got := PersonalNamespace(user, "u-1"); got == "waas-"+Sanitize(user) && len(Sanitize(user)) > 58 {
 			t.Errorf("a truncated username must not resolve to the naive prefix form (%q)", got)
 		}
+	}
+}
+
+// Kubernetes namespace names are DNS-1123, so a Cyrillic, CJK, Greek or
+// Arabic username leaves NO character behind. Without the account-id
+// fallback every such account resolves to Sanitize's "x" and they all
+// share one namespace — the very collision the per-user default exists
+// to prevent, at the scale of a whole directory.
+func TestErasedUsernameFallsBackOnAccountID(t *testing.T) {
+	const idA = "a1b2c3d4-5e6f-7890-abcd-ef1234567890"
+	const idB = "f0e9d8c7-6b5a-4321-9876-543210fedcba"
+
+	got, err := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: "иван", UserID: idA})
+	if err != nil {
+		t.Fatalf("resolving an erased username with an id: %v", err)
+	}
+	if got != "waas-a1b2c3d4-ef1234567890" {
+		t.Fatalf("expected the first and last id groups, got %q", got)
+	}
+	if err := ValidateLabel(got); err != nil {
+		t.Fatalf("fallback must stay a valid label: %v", err)
+	}
+
+	// Deterministic, and distinct accounts never merge.
+	again, _ := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: "иван", UserID: idA})
+	other, _ := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: "王五", UserID: idB})
+	if got != again {
+		t.Fatalf("fallback must be deterministic: %q vs %q", got, again)
+	}
+	if got == other {
+		t.Fatalf("two accounts must not share the fallback namespace: %q", got)
+	}
+
+	// A username that DOES survive normalization never touches the id.
+	latin, _ := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: "alice", UserID: idA})
+	if latin != "waas-alice" {
+		t.Fatalf("a usable username must not be replaced by the id, got %q", latin)
+	}
+
+	// No id to fall back on: fail loudly rather than resolve to "waas-x"
+	// and merge this account with every other unrepresentable one.
+	if _, err := ResolveNamespace(BuiltinNamespacePattern, PatternValues{User: "иван"}); err == nil {
+		t.Fatal("an erased username without an account id must be refused")
+	}
+}
+
+func TestIdentitySegment(t *testing.T) {
+	for in, want := range map[string]string{
+		"a1b2c3d4-5e6f-7890-abcd-ef1234567890": "a1b2c3d4-ef1234567890",
+		"u-alice":                              "u-alice",
+		"single":                               "single",
+	} {
+		if got := IdentitySegment(in); got != want {
+			t.Errorf("IdentitySegment(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The webhook and the operator decide placement and ownership with this
+// one predicate; a divergence would hand out a quota without an owner.
+func TestIsPersonalNamespaceOf(t *testing.T) {
+	for name, tc := range map[string]struct {
+		username string
+		ns       string
+		want     bool
+	}{
+		"own namespace": {"alice", "waas-alice", true},
+		// Also the personal namespace of the user "alice-lab": the
+		// predicate is a name rule, the caller checks the owner label.
+		"derived namespace":    {"alice", "waas-alice-lab", true},
+		"other user entirely":  {"alice", "waas-bob", false},
+		"shared namespace":     {"alice", "waas-workspaces", false},
+		"prefix without dash":  {"alice", "waas-alicia", false},
+		"empty username":       {"", "waas-alice", false},
+		"empty namespace":      {"alice", "", false},
+		"sanitized username":   {"Alice Smith", "waas-alice-smith", true},
+		"long username agrees": {strings.Repeat("a", 59), PersonalNamespace(strings.Repeat("a", 59), ""), true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := IsPersonalNamespaceOf(tc.username, "", tc.ns); got != tc.want {
+				t.Fatalf("IsPersonalNamespaceOf(%q, %q) = %v, want %v", tc.username, tc.ns, got, tc.want)
+			}
+		})
 	}
 }
 

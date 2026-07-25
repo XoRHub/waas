@@ -25,6 +25,9 @@ type UserRepository interface {
 	FindByID(ctx context.Context, id string) (*model.User, error)
 	FindByUsername(ctx context.Context, username string) (*model.User, error)
 	FindByOIDCSubject(ctx context.Context, subject string) (*model.User, error)
+	// ListUsernames returns every account's username, unpaginated: the
+	// callers compare DNS-1123 projections, which SQL cannot express.
+	ListUsernames(ctx context.Context) ([]string, error)
 	List(ctx context.Context, page, pageSize int) ([]model.User, int, error)
 	// Update rewrites the row EXCEPT tokens_valid_after, role and active:
 	// those are revocation substrate, written only through the targeted

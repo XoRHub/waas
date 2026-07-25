@@ -543,6 +543,7 @@ func CheckProtocol(tpl *waasv1alpha1.WorkspaceTemplate, img *waasv1alpha1.Worksp
 func PlacementValues(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, id Identity) naming.PatternValues {
 	return naming.PatternValues{
 		User:         id.Username,
+		UserID:       id.Owner,
 		Workspace:    ws.Spec.DisplayName,
 		TemplateName: tpl.Name,
 		OS:           string(tpl.Spec.OS),

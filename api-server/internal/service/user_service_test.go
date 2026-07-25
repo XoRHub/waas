@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/xorhub/waas/api-server/internal/database"
 	"github.com/xorhub/waas/api-server/internal/model"
 	"github.com/xorhub/waas/api-server/internal/repository"
+	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/shared/auth"
 )
 
@@ -37,6 +39,75 @@ func newUserFixture(t *testing.T, seed []model.User) (*UserService, repository.U
 		}
 	}
 	return NewUserService(users, NewAuditService(repository.NewSQLAuditRepository(db))), users
+}
+
+// Two usernames the database accepts as distinct, but which resolve to
+// one placement namespace, must not coexist: the second account would
+// silently land in the first one's namespace, quota included. Refused at
+// creation, where the admin can still pick another name.
+func TestCreateRefusesPlacementNamespaceCollision(t *testing.T) {
+	conflict := func(t *testing.T, err error) {
+		t.Helper()
+		var p *apierror.Problem
+		if !errors.As(err, &p) || p.Status != 409 {
+			t.Fatalf("want 409 Problem, got %v", err)
+		}
+	}
+	for name, username := range map[string]string{
+		"separator": "alice_smith",
+		"case":      "ALICE.SMITH",
+		"accent":    "álice.smith",
+		"spacing":   "Alice Smith",
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, _ := newUserFixture(t, []model.User{{ID: "u-alice", Username: "alice.smith", PasswordHash: "argon2:x"}})
+			_, err := svc.Create(context.Background(), Actor{Username: "admin"},
+				CreateUserInput{Username: username, Password: "s3cret-password"})
+			conflict(t, err)
+		})
+	}
+
+	// An EXACT duplicate keeps its own, plainer message: the UNIQUE
+	// constraint is what rejects it, not this guard.
+	t.Run("exact duplicate keeps the taken message", func(t *testing.T) {
+		svc, _ := newUserFixture(t, []model.User{{ID: "u-alice", Username: "alice.smith", PasswordHash: "argon2:x"}})
+		_, err := svc.Create(context.Background(), Actor{Username: "admin"},
+			CreateUserInput{Username: "alice.smith", Password: "s3cret-password"})
+		conflict(t, err)
+		if !strings.Contains(err.Error(), "already taken") {
+			t.Fatalf("want the duplicate-username message, got %v", err)
+		}
+	})
+
+	// Above the token budget the resolution truncates and appends a hash
+	// of the raw value, so two usernames sharing a sanitized form land in
+	// DIFFERENT namespaces. Comparing sanitized forms would refuse this
+	// pair for a collision that does not exist.
+	t.Run("same sanitized form, different namespaces", func(t *testing.T) {
+		long := strings.Repeat("a-b-c-d-e-f-g-h-i-j-", 3)[:59]
+		other := strings.ReplaceAll(long, "-", "_")
+		if naming.Sanitize(long) != naming.Sanitize(other) {
+			t.Fatalf("fixture no longer shares a sanitized form: %q vs %q", long, other)
+		}
+		if naming.PersonalNamespace(long, "") == naming.PersonalNamespace(other, "") {
+			t.Fatalf("fixture no longer resolves apart: %q", naming.PersonalNamespace(long, ""))
+		}
+		svc, _ := newUserFixture(t, []model.User{{ID: "u-long", Username: long, PasswordHash: "argon2:x"}})
+		if _, err := svc.Create(context.Background(), Actor{Username: "admin"},
+			CreateUserInput{Username: other, Password: "s3cret-password"}); err != nil {
+			t.Fatalf("distinct namespaces must not be refused: %v", err)
+		}
+	})
+
+	t.Run("distinct normalizations stay allowed", func(t *testing.T) {
+		svc, _ := newUserFixture(t, []model.User{{ID: "u-alice", Username: "alice.smith", PasswordHash: "argon2:x"}})
+		for _, username := range []string{"alice.smith2", "alicesmith", "bob"} {
+			if _, err := svc.Create(context.Background(), Actor{Username: "admin"},
+				CreateUserInput{Username: username, Password: "s3cret-password"}); err != nil {
+				t.Fatalf("creating %q must be allowed: %v", username, err)
+			}
+		}
+	})
 }
 
 func forbidden(t *testing.T, err error) {

@@ -125,6 +125,13 @@ once that takes over, same never-both-at-once rule as `adminPolicy`.
   username claim, so a collision is treated as an attempted takeover,
   never as a match. The fix for a legitimate collision is an admin
   renaming or deleting the conflicting account.
+- A second, narrower refusal exists on the same path: a username the IdP
+  considers distinct, but which resolves to the **personal namespace of
+  an existing account** (`alice.smith` vs `alice_smith`), is refused with
+  the same generic message and audited `user.sso_placement_conflict`.
+  The detail — both usernames and the namespace — is in the audit entry,
+  never in the response. Rationale and remedy:
+  `docs/accepted-limitations.md` §4.
 - Consequence: the IdP's subject must stay **stable**. In Authentik
   terms, never change the provider's `sub_mode` once users have logged
   in — every account would unbind and logins would be refused as

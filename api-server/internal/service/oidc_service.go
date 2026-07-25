@@ -278,7 +278,9 @@ func (s *OIDCService) syncUser(ctx context.Context, subject string, id oidcIdent
 // subject — the username claim never selects an account: a collision with
 // an existing username (local or bound to another subject) is treated as
 // an attempted takeover — many IdPs let users pick their own username
-// claim — and fails closed.
+// claim — and fails closed. A username that merely NORMALIZES onto an
+// existing one fails closed too, for a different reason: both accounts
+// would share a placement namespace (placementUsernameConflict).
 func (s *OIDCService) resolveUser(ctx context.Context, subject string, id oidcIdentity, clientIP string) (*model.User, error) {
 	user, err := s.users.FindByOIDCSubject(ctx, subject)
 	if err == nil {
@@ -290,6 +292,23 @@ func (s *OIDCService) resolveUser(ctx context.Context, subject string, id oidcId
 
 	user, err = s.users.FindByUsername(ctx, id.Username)
 	if errors.Is(err, repository.ErrUserNotFound) {
+		// No account owns this exact username, but one may still own the
+		// DNS-1123 label it projects onto — the placement namespace both
+		// would land in. Provisioning here would silently merge two
+		// accounts into one namespace, quota included.
+		conflict, cerr := placementUsernameConflict(ctx, s.users, id.Username)
+		if cerr != nil {
+			return nil, cerr
+		}
+		if conflict != nil {
+			// The detail goes to the audit trail and the logs, never to
+			// the login page: the caller is unauthenticated, and the
+			// message would disclose another account's username.
+			s.audit.Record(ctx, Actor{Username: id.Username, ClientIP: clientIP}, "user.sso_placement_conflict",
+				"user", "", fmt.Sprintf("username %q resolves to the personal namespace %q, already used by account %q",
+					id.Username, conflict.Namespace, conflict.Username))
+			return nil, apierror.Unauthorized("SSO login failed for this account — contact an administrator")
+		}
 		return nil, nil
 	}
 	if err != nil {

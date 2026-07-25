@@ -311,17 +311,15 @@ func (v *WorkspaceValidator) checkPlacementOwnership(ctx context.Context, ws *wa
 	if nsExists && existing.Labels[waasv1alpha1.LabelOwner] == ws.Spec.Owner {
 		return nil
 	}
-	// Shared resolution (naming.PersonalNamespace): a hand-made
-	// "waas-"+Sanitize(user) diverges from what the api-server froze for
-	// a long username, and the user would be denied their OWN namespace.
-	userNS := naming.PersonalNamespace(id.Username)
-	if userNS != "" && (tns == userNS || strings.HasPrefix(tns, userNS+"-")) {
-		// The prefix is a NAME rule, not a proof of ownership: now that
-		// "waas-{user}" is the default, "waas-alice-lab" is the personal
-		// namespace of the user alice-lab, quota and retained volumes
-		// included — alice must not walk into it just because the string
-		// starts with hers. An existing namespace owned by someone else
-		// is refused; a free name stays hers to create.
+	// Shared resolution (naming): a hand-made "waas-"+Sanitize(user)
+	// diverges from what the api-server froze for a long username, and
+	// the user would be denied their OWN namespace. userNS is for the
+	// denial message; the rule itself is the shared predicate.
+	userNS := naming.PersonalNamespace(id.Username, id.Owner)
+	if naming.IsPersonalNamespaceOf(id.Username, id.Owner, tns) {
+		// A name rule is not proof of ownership (see the predicate's
+		// doc): an existing namespace owned by someone else is refused,
+		// a free name stays this user's to create.
 		if nsExists && existing.Labels[waasv1alpha1.LabelOwner] != "" {
 			return &policy.Denial{Reason: policy.ReasonPlacementDenied, Message: fmt.Sprintf(
 				"spec.targetNamespace %q is the personal namespace of another user", tns)}

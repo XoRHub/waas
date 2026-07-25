@@ -507,7 +507,7 @@ func TestSharedNamespaceGetsNoOwnershipNorQuota(t *testing.T) {
 // per-user default exists for.
 func TestTruncatedPerUserNamespaceStaysPersonal(t *testing.T) {
 	longUser := strings.Repeat("engineering-platform", 5)
-	target := naming.PersonalNamespace(longUser)
+	target := naming.PersonalNamespace(longUser, "")
 	if target == "waas-"+naming.Sanitize(longUser) {
 		t.Fatalf("fixture is not exercising truncation: %q", target)
 	}

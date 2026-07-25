@@ -279,12 +279,7 @@ func isPersonalNamespace(ws *waasv1alpha1.Workspace) bool {
 	if username == "" {
 		return false
 	}
-	userNS := naming.PersonalNamespace(username)
-	if userNS == "" {
-		return false
-	}
-	tns := computeNamespace(ws)
-	return tns == userNS || strings.HasPrefix(tns, userNS+"-")
+	return naming.IsPersonalNamespaceOf(username, ws.Spec.Owner, computeNamespace(ws))
 }
 
 // teardownPlacement deletes the cross-namespace compute and service of a

@@ -70,6 +70,17 @@ func (s *UserService) Create(ctx context.Context, actor Actor, in CreateUserInpu
 		in.MaxWorkspaces = defaultMaxWorkspaces
 	}
 
+	// Before argon2id, so a rejected creation costs nothing.
+	conflict, err := placementUsernameConflict(ctx, s.users, in.Username)
+	if err != nil {
+		return nil, err
+	}
+	if conflict != nil {
+		return nil, apierror.Conflict(fmt.Sprintf(
+			"username %q collides with the existing account %q: both resolve to the personal namespace %q — pick a username that differs by more than case, accents or separators",
+			in.Username, conflict.Username, conflict.Namespace))
+	}
+
 	hash, err := HashPassword(in.Password)
 	if err != nil {
 		return nil, fmt.Errorf("hashing password: %w", err)
