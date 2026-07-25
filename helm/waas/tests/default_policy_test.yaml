@@ -81,6 +81,20 @@ tests:
       - notExists:
           path: spec.limits.maxRunningWorkspaces
 
+  - it: never grants the pod-spec-shaped override rights to every authenticated user
+    set:
+      defaultPolicy.enabled: true
+    asserts:
+      - notContains:
+          path: spec.overrides.allowedFields
+          content: volumes
+      - notContains:
+          path: spec.overrides.allowedFields
+          content: securityContext
+      - notContains:
+          path: spec.overrides.allowedFields
+          content: podSecurityContext
+
   - it: restricting subjects and enabling overrides/remoteWorkspaces are supported for full bootstrap customization
     set:
       defaultPolicy.enabled: true
