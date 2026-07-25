@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 
@@ -798,4 +799,51 @@ func TestCatalogSyncWorkerSkipsNonCatalogEntries(t *testing.T) {
 			t.Errorf("%s: no status expected, got %+v", name, st)
 		}
 	}
+}
+
+// syncPending re-reads the image at consume time because the event that
+// queued the name may be stale. Both failures of that re-read are
+// swallowed on purpose — the queue is best-effort and the next event
+// re-queues — so nothing but a test proves they do not take the worker
+// down with them. The distinction matters: a deleted image is the
+// ORDINARY outcome of a delete event and must stay silent, while an
+// unreachable API server is worth a log line.
+func TestSyncPendingSurvivesAVanishedOrUnreadableImage(t *testing.T) {
+	t.Run("image deleted between the event and the consume", func(t *testing.T) {
+		w, _, catalogRepo := catalogWorkerFixture(t)
+
+		w.syncPending(context.Background(), "gone")
+
+		if entries, err := catalogRepo.ListEntries(context.Background(), "gone"); err != nil || len(entries) != 0 {
+			t.Fatalf("a vanished image must sync nothing, got %+v %v", entries, err)
+		}
+	})
+
+	t.Run("the read itself fails", func(t *testing.T) {
+		boom := errors.New("apiserver unreachable")
+		c := fake.NewClientBuilder().
+			WithScheme(k8s.Scheme).
+			WithStatusSubresource(&waasv1alpha1.WorkspaceImage{}).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+					return boom
+				},
+			}).
+			Build()
+		db, err := database.Open(filepath.Join(t.TempDir(), "catalog.db"))
+		if err != nil {
+			t.Fatalf("opening database: %v", err)
+		}
+		t.Cleanup(func() { db.Close() })
+		catalogRepo := repository.NewSQLCatalogRepository(db)
+		w := NewCatalogSyncWorker(c, "default", catalogRepo, time.Minute)
+
+		// The point: it returns rather than propagating or panicking, so
+		// one unreadable image cannot stop the consumer loop.
+		w.syncPending(context.Background(), "unreadable")
+
+		if entries, err := catalogRepo.ListEntries(context.Background(), "unreadable"); err != nil || len(entries) != 0 {
+			t.Fatalf("a failed read must sync nothing, got %+v %v", entries, err)
+		}
+	})
 }
