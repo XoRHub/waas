@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
@@ -116,6 +117,29 @@ func waitForEntries(t *testing.T, repo repository.CatalogRepository, name string
 	})
 }
 
+// repointSource re-points an image's catalog source, retrying on
+// conflict: the worker status-patches the same object as soon as a sync
+// lands (and waitForEntries returns BEFORE that patch, since
+// ReplaceEntries precedes it), so a plain read-modify-Update would flake
+// on the resourceVersion check.
+func repointSource(t *testing.T, c client.Client, name, url string) {
+	t.Helper()
+	ctx := context.Background()
+	key := types.NamespacedName{Namespace: "default", Name: name}
+	waitForCondition(t, "re-pointing "+name+" kept conflicting", func() bool {
+		got := &waasv1alpha1.WorkspaceImage{}
+		if err := c.Get(ctx, key, got); err != nil {
+			t.Fatal(err)
+		}
+		got.Spec.Catalog = workerURLSource(url)
+		err := c.Update(ctx, got)
+		if err != nil && !apierrors.IsConflict(err) {
+			t.Fatal(err)
+		}
+		return err == nil
+	})
+}
+
 // countingCatalogServer serves workerCatalogManifest on every path and
 // counts hits per path, so a test can prove which sources were fetched
 // and how many times.
@@ -174,14 +198,7 @@ func watchSyncFixture(t *testing.T, srvURL string) (*CatalogSyncWorker, client.W
 			t.Fatal("watch never became live")
 		case <-time.After(20 * time.Millisecond):
 		}
-		got := &waasv1alpha1.WorkspaceImage{}
-		if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "watch-warmup"}, got); err != nil {
-			t.Fatal(err)
-		}
-		got.Spec.Catalog = workerURLSource(fmt.Sprintf("%s/warmup/%d", srvURL, i))
-		if err := c.Update(ctx, got); err != nil {
-			t.Fatal(err)
-		}
+		repointSource(t, c, "watch-warmup", fmt.Sprintf("%s/warmup/%d", srvURL, i))
 	}
 }
 
@@ -216,13 +233,7 @@ func TestCatalogWorkerWatchSyncsManifestCreations(t *testing.T) {
 	if err := c.Status().Patch(ctx, got, client.MergeFrom(orig)); err != nil {
 		t.Fatalf("status patch: %v", err)
 	}
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "manifest-img"}, got); err != nil {
-		t.Fatal(err)
-	}
-	got.Spec.Catalog = workerURLSource(srv.URL + "/b")
-	if err := c.Update(ctx, got); err != nil {
-		t.Fatalf("Update: %v", err)
-	}
+	repointSource(t, c, "manifest-img", srv.URL+"/b")
 	waitForCondition(t, "source change never triggered a re-fetch", func() bool { return hitCount("/b") == 1 })
 	if got := hitCount("/a"); got != 1 {
 		t.Fatalf("manifest fetches = %d on the old source, want still 1 (status patch must not refetch)", got)
