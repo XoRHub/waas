@@ -81,6 +81,16 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	if in.NewPassword != "" {
+		// The service just revoked every token of this account, this
+		// browser's included. Expire the cookie in the SAME response
+		// rather than leave a dead credential in the jar until some
+		// later request 401s — the caller learns now, not three clicks
+		// later. Re-minting instead is not an option: a token issued in
+		// the same second as the revocation bound is itself rejected
+		// (middleware.vetBearer, deliberate).
+		middleware.ClearSessionCookie(w, r)
+	}
 	ok(w, user)
 }
 

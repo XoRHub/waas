@@ -24,7 +24,19 @@ func sessionCookieOf(rec *httptest.ResponseRecorder) *http.Cookie {
 // switches.
 func withCookie(t *testing.T, h http.Handler, method, path string, cookie *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(method, path, nil)
+	return withCookieJSON(t, h, method, path, cookie, nil)
+}
+
+// withCookieJSON is withCookie with a JSON body.
+func withCookieJSON(t *testing.T, h http.Handler, method, path string, cookie *http.Cookie, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encoding body: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &buf)
 	req.AddCookie(cookie)
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	rec := httptest.NewRecorder()
@@ -199,6 +211,46 @@ func TestRejectedSessionCookieIsExpired(t *testing.T) {
 
 // Logout revokes server-side (finding #2) AND expires the cookie, so the
 // browser is not left holding a dead credential.
+// A self-service password change revokes every token of the account —
+// this browser's included. The cookie must die in the SAME response:
+// leaving it in the jar makes the UI look signed in until some later
+// request 401s, which is how the user discovers it (audit 3, F9).
+func TestPasswordChangeExpiresTheSessionCookie(t *testing.T) {
+	h, _ := newTestServer(t)
+
+	login := doJSON(t, h, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "admin-password",
+	})
+	c := sessionCookieOf(login)
+	if c == nil {
+		t.Fatal("login must set the waas_session cookie")
+	}
+
+	// A profile edit that touches no credential must leave the session
+	// alone — the control that keeps this from over-firing.
+	if rec := withCookieJSON(t, h, http.MethodPatch, "/api/v1/me", c,
+		map[string]string{"displayName": "Admin"}); rec.Code != http.StatusOK {
+		t.Fatalf("plain profile edit: expected 200, got %d: %s", rec.Code, rec.Body)
+	} else if got := sessionCookieOf(rec); got != nil {
+		t.Fatalf("a profile edit must not touch the cookie, got %+v", got)
+	}
+
+	rec := withCookieJSON(t, h, http.MethodPatch, "/api/v1/me", c, map[string]string{
+		"currentPassword": "admin-password", "newPassword": "a-brand-new-password",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("password change: expected 200, got %d: %s", rec.Code, rec.Body)
+	}
+	cleared := sessionCookieOf(rec)
+	if cleared == nil || cleared.MaxAge >= 0 {
+		t.Fatalf("a password change must expire the cookie, got %+v", cleared)
+	}
+	// And the value is genuinely dead, not merely dropped from the jar.
+	if out := withCookie(t, h, http.MethodGet, "/api/v1/auth/me", c); out.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked cookie: expected 401, got %d: %s", out.Code, out.Body)
+	}
+}
+
 func TestLogoutExpiresTheSessionCookie(t *testing.T) {
 	h, _ := newTestServer(t)
 

@@ -270,6 +270,13 @@ request**, not at token expiry. Two semantics to know:
   everywhere. That is the intended default for a security control —
   per-device revocation would require per-session server state (`jti`
   denylist), deliberately not built.
+- **A password change signs the author out too**, on the spot: the bound
+  covers the browser that made the change, so `PATCH /me` expires the
+  session cookie in its own response and the SPA lands on the login page
+  naming the reason. Re-minting instead cannot work — a token issued in
+  the same second as the bound is itself rejected (the second-truncated
+  `iat` comparison below), and silently keeping the caller signed in
+  would only defer the discovery to the next request's 401.
 - **Already-open connections survive revocation.** A desktop tunnel is
   authorized by a `waas-connection` token that wwt verifies **once**, at
   the WebSocket open — a revoked or deactivated user keeps an
