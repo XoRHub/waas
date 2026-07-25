@@ -270,6 +270,49 @@ request**, not at token expiry. Two semantics to know:
   everywhere. That is the intended default for a security control —
   per-device revocation would require per-session server state (`jti`
   denylist), deliberately not built.
+- **An edit that revokes its own author signs them out on the spot.** Two
+  paths reach it: a self-service password change (`PATCH /me`) and an
+  admin demoting, deactivating or password-resetting their **own** account
+  (`PATCH /users/{id}` with `id` = the caller). Both end the session in
+  their own response — `middleware.EndSession`, the single writer:
+  it expires the cookie **and** names the reason in an
+  `X-Waas-Session-Ended` header. The header exists because a browser
+  cannot observe the rest: the credential is HttpOnly and `Set-Cookie` is
+  unreadable from JavaScript, so without it the SPA renders a dead
+  session until some later request happens to 401 — and then blames a
+  generic expiry for what the user deliberately did. The api layer is its
+  only reader, so any endpoint that revokes its own caller is covered
+  without repeating the rule client-side. Re-minting instead cannot work:
+  a token issued in the same second as the bound is itself rejected (the
+  second-truncated `iat` comparison below).
+- **The last active administrator cannot lose their rights through
+  `PATCH /users/{id}`.** A demotion or deactivation that would leave zero
+  active admins is refused with `400` ("promote another account first").
+  Enforced by the **write**, not by a count taken beforehand: the
+  repository performs it inside a transaction that first locks the admin
+  seats (`SELECT … FOR UPDATE`), because two admins dropping their rights
+  at the same moment write two *different* rows — neither blocks the
+  other, and both would count a seat the other is about to vacate. The
+  service still pre-checks, but only to answer with the message instead
+  of a rolled-back write.
+  Two deliberate exemptions:
+  - **The OIDC role sync is not covered.** When `adminGroups` is
+    configured the IdP owns the role, and refusing its verdict would make
+    the platform disagree with the directory it declares authoritative.
+    Safe because the outcomes differ: an IdP-driven demotion is undone by
+    re-adding the group and signing in again.
+  - **`WAAS_LOGIN_OIDC_ONLY` switches the floor off entirely.** The floor
+    exists because the loss has no way back; in that mode it does — the
+    documented break-glass is a redeploy without the flag, signing in as
+    the bootstrap admin. What the floor would do instead is block the
+    cleanup of a local admin account nobody can sign into any more. Losing the last one has no
+  in-product way back — it would take a database edit, or a redeploy
+  against an empty database for `WAAS_ADMIN_PASSWORD` to seed a new one
+  (`EnsureBootstrapAdmin` only ever creates when the users table is
+  empty; it never re-applies the env password to an existing account).
+  The rule compares the account's state before and after the edit, so a
+  request touching `role` and `active` at once is judged on what it
+  actually leaves behind.
 - **Already-open connections survive revocation.** A desktop tunnel is
   authorized by a `waas-connection` token that wwt verifies **once**, at
   the WebSocket open — a revoked or deactivated user keeps an

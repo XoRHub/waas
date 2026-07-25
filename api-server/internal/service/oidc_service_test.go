@@ -161,6 +161,45 @@ func TestSyncUserProvisionsDistinctNormalizations(t *testing.T) {
 	}
 }
 
+// The admin API refuses to demote the last active administrator. The IdP
+// sync deliberately does NOT: with adminGroups configured the directory
+// owns the role, and making the platform overrule it would leave the two
+// permanently disagreeing. Safe because this one is recoverable — put the
+// group back, sign in again. Pinned here because the exemption is stated
+// in docs/governance.md and would otherwise break silently the day
+// someone routes this path through the guarded writer.
+func TestSyncUserDemotesEvenTheLastAdmin(t *testing.T) {
+	svc, users := newOIDCFixture(t, config.OIDCConfig{AdminGroups: []string{"platform-admins"}}, []model.User{
+		{ID: "u-solo", Username: "solo", Role: auth.RoleAdmin, OIDCSubject: "sub-solo", Groups: []string{"platform-admins"}},
+	})
+	if admins, err := users.CountActiveAdmins(context.Background()); err != nil || admins != 1 {
+		t.Fatalf("fixture must hold exactly one active admin, got %d (%v)", admins, err)
+	}
+
+	// Their admin group is gone from the IdP.
+	user, err := svc.syncUser(context.Background(), "sub-solo",
+		oidcIdentity{Username: "solo", Groups: []string{"dev"}}, "1.2.3.4")
+	if err != nil {
+		t.Fatalf("syncUser: %v", err)
+	}
+	if user.Role != auth.RoleUser {
+		t.Fatalf("the IdP verdict must win, got role=%s", user.Role)
+	}
+	if admins, _ := users.CountActiveAdmins(context.Background()); admins != 0 {
+		t.Fatalf("the platform is left without an admin by design here, got %d", admins)
+	}
+
+	// And it is recoverable exactly as documented: the group comes back.
+	back, err := svc.syncUser(context.Background(), "sub-solo",
+		oidcIdentity{Username: "solo", Groups: []string{"platform-admins"}}, "1.2.3.4")
+	if err != nil {
+		t.Fatalf("syncUser: %v", err)
+	}
+	if back.Role != auth.RoleAdmin {
+		t.Fatalf("re-adding the group must restore the role, got %s", back.Role)
+	}
+}
+
 func TestSyncUserRefreshesGroupsMirror(t *testing.T) {
 	svc, users := newOIDCFixture(t, config.OIDCConfig{AdminGroups: []string{"platform-admins"}}, []model.User{
 		{ID: "u-erin", Username: "erin", OIDCSubject: "sub-erin", Groups: []string{"old"}},

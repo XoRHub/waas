@@ -24,10 +24,29 @@ const defaultMaxWorkspaces = 3
 type UserService struct {
 	users repository.UserRepository
 	audit *AuditService
+
+	// localLoginDisabled mirrors WAAS_LOGIN_OIDC_ONLY. It switches the
+	// admin floor OFF — see WithLocalLoginDisabled.
+	localLoginDisabled bool
 }
 
 func NewUserService(users repository.UserRepository, audit *AuditService) *UserService {
 	return &UserService{users: users, audit: audit}
+}
+
+// WithLocalLoginDisabled reports WAAS_LOGIN_OIDC_ONLY, which turns the
+// last-admin floor OFF.
+//
+// The floor exists because losing the last administrator has no way back.
+// That premise does not hold here: local sign-in is disabled, so admin
+// rights come from the IdP's group mapping, and the deployment keeps a
+// documented break-glass — redeploy without the flag and sign in as the
+// bootstrap admin (main.go says so at startup). What the floor WOULD do
+// in this mode is refuse to clean up a local admin account that cannot
+// log in any more, which is the opposite of helping.
+func (s *UserService) WithLocalLoginDisabled(disabled bool) *UserService {
+	s.localLoginDisabled = disabled
+	return s
 }
 
 // CreateUserInput is the admin-facing account creation payload.
@@ -112,6 +131,13 @@ func (s *UserService) Create(ctx context.Context, actor Actor, in CreateUserInpu
 	return user, nil
 }
 
+// errLastAdmin is the single wording for the admin floor, raised both by
+// the pre-check and by the guarded write that actually enforces it.
+func errLastAdmin() error {
+	return apierror.BadRequest(
+		"the platform must keep at least one active administrator — promote another account first")
+}
+
 // normalizeGroups trims, de-dups and drops blanks from a group list.
 func normalizeGroups(in []string) []string {
 	seen := map[string]bool{}
@@ -139,10 +165,14 @@ func (s *UserService) List(ctx context.Context, page, pageSize int) ([]model.Use
 	return s.users.List(ctx, page, pageSize)
 }
 
-func (s *UserService) Update(ctx context.Context, actor Actor, id string, in UpdateUserInput) (*model.User, error) {
+// Update applies an admin edit. The bool reports whether the edit
+// REVOKED the account's tokens — the caller needs it when an admin does
+// this to their OWN account: their session dies with the edit, and the
+// handler has to expire the cookie that carried it.
+func (s *UserService) Update(ctx context.Context, actor Actor, id string, in UpdateUserInput) (*model.User, bool, error) {
 	user, err := s.Get(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// revoke: a security-relevant change (deactivation, role change,
 	// password reset) bounds the validity of every outstanding token to
@@ -151,20 +181,23 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	// carries a copy read before this call and would clobber a concurrent
 	// revocation.
 	revoke := false
+	// Captured before the fields are applied: the last-admin guard below
+	// compares this account's state before and after the edit.
+	wasActiveAdmin := user.Role == auth.RoleAdmin && user.Active
 	if in.Email != nil {
 		user.Email = *in.Email
 	}
 	if in.Password != nil {
 		hash, err := HashPassword(*in.Password)
 		if err != nil {
-			return nil, fmt.Errorf("hashing password: %w", err)
+			return nil, false, fmt.Errorf("hashing password: %w", err)
 		}
 		user.PasswordHash = hash
 		revoke = true
 	}
 	if in.Role != nil {
 		if *in.Role != auth.RoleAdmin && *in.Role != auth.RoleUser {
-			return nil, apierror.BadRequest("role must be admin or user")
+			return nil, false, apierror.BadRequest("role must be admin or user")
 		}
 		revoke = revoke || *in.Role != user.Role
 		user.Role = *in.Role
@@ -172,6 +205,32 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	if in.Active != nil {
 		revoke = revoke || (user.Active && !*in.Active)
 		user.Active = *in.Active
+	}
+	// The platform must keep an administrator. Demoting or deactivating
+	// the last active one locks everyone out of governance with no
+	// in-product way back — it would take a database edit or a redeploy
+	// against an empty database. Compared as two states rather than
+	// per-field, so one request touching both role and active is judged
+	// on what it actually leaves behind.
+	//
+	// This is the FRIENDLY check: it refuses before any write, so the
+	// caller gets the message instead of a half-applied edit. It is not
+	// the enforcement — two admins demoting themselves at the same moment
+	// would both pass it. The floor is held by the writes below, inside
+	// the transaction that performs them.
+	stillActiveAdmin := user.Role == auth.RoleAdmin && user.Active
+	// Off entirely under WAAS_LOGIN_OIDC_ONLY — see WithLocalLoginDisabled.
+	guardAdminFloor := wasActiveAdmin && !stillActiveAdmin && !s.localLoginDisabled
+	if guardAdminFloor {
+		admins, err := s.users.CountActiveAdmins(ctx)
+		if err != nil {
+			return nil, false, fmt.Errorf("counting active admins: %w", err)
+		}
+		// This account is still counted (the write has not landed yet), so
+		// 1 means it is the only one left.
+		if admins <= 1 {
+			return nil, false, errLastAdmin()
+		}
 	}
 	if in.MaxWorkspaces != nil {
 		user.MaxWorkspaces = *in.MaxWorkspaces
@@ -181,32 +240,46 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	}
 	user.UpdatedAt = time.Now().UTC()
 	if err := s.users.Update(ctx, user); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// role/active live outside the full-row Update (they are what
 	// per-request revocation reads — see the repository's Update doc);
 	// the admin's change is written targeted, and only when the request
 	// actually carried the field, so a read-modify-write here can never
 	// clobber a concurrent edit of either.
+	// The guarded writers hold the admin floor inside the transaction that
+	// performs the write, which is what makes it survive two admins
+	// dropping their rights at the same moment. The plain ones are used
+	// when there is no floor to hold.
+	setRole, setActive := s.users.SetRole, s.users.SetActive
+	if guardAdminFloor {
+		setRole, setActive = s.users.SetRoleUnlessLastAdmin, s.users.SetActiveUnlessLastAdmin
+	}
 	if in.Role != nil {
-		if err := s.users.SetRole(ctx, user.ID, *in.Role); err != nil {
-			return nil, fmt.Errorf("setting role for %s: %w", user.ID, err)
+		if err := setRole(ctx, user.ID, *in.Role); err != nil {
+			if errors.Is(err, repository.ErrLastAdmin) {
+				return nil, false, errLastAdmin()
+			}
+			return nil, false, fmt.Errorf("setting role for %s: %w", user.ID, err)
 		}
 	}
 	if in.Active != nil {
-		if err := s.users.SetActive(ctx, user.ID, *in.Active); err != nil {
-			return nil, fmt.Errorf("setting activation for %s: %w", user.ID, err)
+		if err := setActive(ctx, user.ID, *in.Active); err != nil {
+			if errors.Is(err, repository.ErrLastAdmin) {
+				return nil, false, errLastAdmin()
+			}
+			return nil, false, fmt.Errorf("setting activation for %s: %w", user.ID, err)
 		}
 	}
 	if revoke {
 		now := user.UpdatedAt
 		if err := s.users.SetTokensValidAfter(ctx, user.ID, now); err != nil {
-			return nil, fmt.Errorf("revoking tokens for %s: %w", user.ID, err)
+			return nil, false, fmt.Errorf("revoking tokens for %s: %w", user.ID, err)
 		}
 		user.TokensValidAfter = &now
 	}
 	s.audit.Record(ctx, actor, "user.updated", "user", user.ID, "")
-	return user, nil
+	return user, revoke, nil
 }
 
 // UpdateProfileInput is the self-service subset of a user record (nil =

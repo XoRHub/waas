@@ -24,7 +24,19 @@ func sessionCookieOf(rec *httptest.ResponseRecorder) *http.Cookie {
 // switches.
 func withCookie(t *testing.T, h http.Handler, method, path string, cookie *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(method, path, nil)
+	return withCookieJSON(t, h, method, path, cookie, nil)
+}
+
+// withCookieJSON is withCookie with a JSON body.
+func withCookieJSON(t *testing.T, h http.Handler, method, path string, cookie *http.Cookie, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encoding body: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &buf)
 	req.AddCookie(cookie)
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	rec := httptest.NewRecorder()
@@ -199,6 +211,154 @@ func TestRejectedSessionCookieIsExpired(t *testing.T) {
 
 // Logout revokes server-side (finding #2) AND expires the cookie, so the
 // browser is not left holding a dead credential.
+// A self-service password change revokes every token of the account —
+// this browser's included. The cookie must die in the SAME response:
+// leaving it in the jar makes the UI look signed in until some later
+// request 401s, which is how the user discovers it (audit 3, F9).
+func TestPasswordChangeExpiresTheSessionCookie(t *testing.T) {
+	h, _ := newTestServer(t)
+
+	login := doJSON(t, h, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "admin-password",
+	})
+	c := sessionCookieOf(login)
+	if c == nil {
+		t.Fatal("login must set the waas_session cookie")
+	}
+
+	// A profile edit that touches no credential must leave the session
+	// alone — the control that keeps this from over-firing.
+	if rec := withCookieJSON(t, h, http.MethodPatch, "/api/v1/me", c,
+		map[string]string{"displayName": "Admin"}); rec.Code != http.StatusOK {
+		t.Fatalf("plain profile edit: expected 200, got %d: %s", rec.Code, rec.Body)
+	} else if got := sessionCookieOf(rec); got != nil {
+		t.Fatalf("a profile edit must not touch the cookie, got %+v", got)
+	}
+
+	rec := withCookieJSON(t, h, http.MethodPatch, "/api/v1/me", c, map[string]string{
+		"currentPassword": "admin-password", "newPassword": "a-brand-new-password",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("password change: expected 200, got %d: %s", rec.Code, rec.Body)
+	}
+	cleared := sessionCookieOf(rec)
+	if cleared == nil || cleared.MaxAge >= 0 {
+		t.Fatalf("a password change must expire the cookie, got %+v", cleared)
+	}
+	// And the value is genuinely dead, not merely dropped from the jar.
+	if out := withCookie(t, h, http.MethodGet, "/api/v1/auth/me", c); out.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked cookie: expected 401, got %d: %s", out.Code, out.Body)
+	}
+}
+
+// Same class as the password change, on the admin path: an admin who
+// demotes, deactivates or resets the password of their OWN account
+// revokes their own session doing it. Editing someone else's must leave
+// this browser's session strictly alone.
+func TestAdminSelfEditExpiresTheSessionCookie(t *testing.T) {
+	h, _ := newTestServer(t)
+
+	login := doJSON(t, h, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "admin-password",
+	})
+	c := sessionCookieOf(login)
+	if c == nil {
+		t.Fatal("login must set the waas_session cookie")
+	}
+	self := userIDOf(t, h, c)
+
+	// A second admin, or the last-admin guard would refuse the demotion
+	// below — and rightly so, that is its own test.
+	if rec := withCookieJSON(t, h, http.MethodPost, "/api/v1/users", c, map[string]any{
+		"username": "second-admin", "password": "another-password", "role": "admin",
+	}); rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("seeding a second admin: got %d: %s", rec.Code, rec.Body)
+	}
+
+	// An edit that revokes nothing must not touch the session — the
+	// control that keeps this from signing an admin out for a quota bump.
+	if rec := withCookieJSON(t, h, http.MethodPatch, "/api/v1/users/"+self, c,
+		map[string]any{"maxWorkspaces": 7}); rec.Code != http.StatusOK {
+		t.Fatalf("quota edit: expected 200, got %d: %s", rec.Code, rec.Body)
+	} else if got := sessionCookieOf(rec); got != nil {
+		t.Fatalf("a non-revoking edit must not touch the cookie, got %+v", got)
+	} else if h := rec.Header().Get("X-Waas-Session-Ended"); h != "" {
+		t.Fatalf("a non-revoking edit must not announce a session end, got %q", h)
+	}
+
+	// Demoting yourself revokes your own tokens: the cookie must die with
+	// them, in this very response, and the SPA must be told why — it
+	// cannot see the cookie go.
+	rec := withCookieJSON(t, h, http.MethodPatch, "/api/v1/users/"+self, c,
+		map[string]any{"role": "user"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("self-demotion: expected 200, got %d: %s", rec.Code, rec.Body)
+	}
+	cleared := sessionCookieOf(rec)
+	if cleared == nil || cleared.MaxAge >= 0 {
+		t.Fatalf("a self-revoking edit must expire the cookie, got %+v", cleared)
+	}
+	if got := rec.Header().Get("X-Waas-Session-Ended"); got != "rights-changed" {
+		t.Fatalf("expected the rights-changed reason, got %q", got)
+	}
+	if out := withCookie(t, h, http.MethodGet, "/api/v1/auth/me", c); out.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked cookie: expected 401, got %d: %s", out.Code, out.Body)
+	}
+}
+
+// Losing the last administrator has no in-product way back: it would take
+// a database edit or a redeploy against an empty one. The platform refuses
+// rather than letting an admin strand it.
+func TestLastAdminCannotDropTheirOwnRights(t *testing.T) {
+	for name, body := range map[string]map[string]any{
+		"demotion":     {"role": "user"},
+		"deactivation": {"active": false},
+		"both at once": {"role": "user", "active": false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, _ := newTestServer(t)
+			login := doJSON(t, h, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+				"username": "admin", "password": "admin-password",
+			})
+			c := sessionCookieOf(login)
+			self := userIDOf(t, h, c)
+
+			rec := withCookieJSON(t, h, http.MethodPatch, "/api/v1/users/"+self, c, body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body)
+			}
+			// A refused edit must leave the session strictly alone.
+			if got := sessionCookieOf(rec); got != nil {
+				t.Fatalf("a refused edit must not touch the cookie, got %+v", got)
+			}
+			if out := withCookie(t, h, http.MethodGet, "/api/v1/auth/me", c); out.Code != http.StatusOK {
+				t.Fatalf("session must survive a refused edit: got %d", out.Code)
+			}
+		})
+	}
+}
+
+// userIDOf reads the caller's own account id through /auth/me.
+func userIDOf(t *testing.T, h http.Handler, cookie *http.Cookie) string {
+	t.Helper()
+	rec := withCookie(t, h, http.MethodGet, "/api/v1/auth/me", cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/auth/me: expected 200, got %d: %s", rec.Code, rec.Body)
+	}
+	var body struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding /auth/me: %v", err)
+	}
+	if body.Data.ID == "" {
+		t.Fatalf("/auth/me carried no id: %s", rec.Body)
+	}
+	return body.Data.ID
+}
+
 func TestLogoutExpiresTheSessionCookie(t *testing.T) {
 	h, _ := newTestServer(t)
 

@@ -27,6 +27,8 @@
     "ssoFailed": "Échec de la connexion SSO",
     "ssoCompleting": "Connexion en cours…",
     "sessionEnded": "Votre session a pris fin. Merci de vous reconnecter.",
+    "passwordChanged": "Votre mot de passe a été modifié. Reconnectez-vous avec le nouveau.",
+    "rightsChanged": "Votre propre compte a changé, ce qui a mis fin à votre session. Reconnectez-vous.",
     "ssoCookieBlocked": "Connexion réussie, mais ce navigateur n'a pas conservé le cookie de session. Vérifiez que les cookies sont autorisés pour ce site."
   },
   "paramField": {

@@ -457,12 +457,19 @@ export interface UpdateProfileInput {
   newPassword?: string;
 }
 
-// Updates the caller's own profile and refreshes the persisted auth user.
+// Updates the caller's own profile and refreshes the signed-in user.
 export function useUpdateProfile() {
   const setUser = useAuthStore((s) => s.setUser);
   return useMutation({
     mutationFn: (input: UpdateProfileInput) => api.patch<User>('/api/v1/me', input),
-    onSuccess: (res) => setUser(res.data),
+    onSuccess: (res) => {
+      // A password change revokes every session of the account, this
+      // browser's included: the server says so in the response and the
+      // api layer has already signed us out. Do not put the user back
+      // from a body that describes an account we can no longer act as.
+      if (res.sessionEnded) return;
+      setUser(res.data);
+    },
   });
 }
 

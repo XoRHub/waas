@@ -228,6 +228,18 @@ func (r *SQLUserRepository) Count(ctx context.Context) (int, error) {
 	return total, nil
 }
 
+// CountActiveAdmins counts the accounts that can still administer the
+// platform. Excludes deactivated ones: a disabled admin cannot sign in,
+// so it is no help against locking everyone out.
+func (r *SQLUserRepository) CountActiveAdmins(ctx context.Context) (int, error) {
+	query := r.db.Rebind(`SELECT COUNT(*) FROM users WHERE role = ? AND active = ?`)
+	var total int
+	if err := r.db.QueryRowContext(ctx, query, string(auth.RoleAdmin), true).Scan(&total); err != nil {
+		return 0, fmt.Errorf("counting active admins: %w", err)
+	}
+	return total, nil
+}
+
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanUser(row rowScanner) (*model.User, error) {
@@ -297,4 +309,107 @@ func nullable(s string) any {
 func isUniqueViolation(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
+}
+
+// withAdminFloor runs write in a transaction that is rolled back unless at
+// least one active administrator remains afterwards.
+//
+// The count is taken INSIDE the transaction and AFTER the write, so it
+// judges the state the caller is actually about to commit — and the lock
+// below is what makes that judgement hold when two admins act at once.
+//
+// Serializable isolation plus a retry was the first design and is worse:
+// the engine aborts the loser instead of queuing it, and the retry can
+// conflict again. Blocking on a lock has neither problem, so this stays on
+// the default isolation level and never has to be re-run.
+func (r *SQLUserRepository) withAdminFloor(ctx context.Context, id string, write func(*sql.Tx) error) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+
+	// Hold the admin seats for the duration of the decision. Without this
+	// two transactions demoting two DIFFERENT admins never touch the same
+	// row, so neither blocks the other and both count a seat the other is
+	// about to vacate — write skew, ending with nobody able to administer
+	// the platform. Locking blocks the second one until the first commits,
+	// which is deterministic where serializable isolation would instead
+	// abort it and need a retry that can conflict again.
+	//
+	// ORDER BY id fixes the lock order, so two concurrent guards cannot
+	// deadlock on each other. SQLite has no FOR UPDATE and needs none: its
+	// pool is capped at a single connection, so writers never interleave.
+	if r.db.Dialect == database.DialectPostgres {
+		lock := `SELECT id FROM users WHERE role = $1 AND active = $2 ORDER BY id FOR UPDATE`
+		rows, err := tx.QueryContext(ctx, lock, string(auth.RoleAdmin), true)
+		if err != nil {
+			return fmt.Errorf("locking the administrator seats: %w", err)
+		}
+		if err := rows.Close(); err != nil {
+			return fmt.Errorf("locking the administrator seats: %w", err)
+		}
+	}
+
+	// Read inside the transaction, not from whatever the caller fetched
+	// earlier: only an account that IS an active admin can take the last
+	// one away, and that has to be judged against the state being written.
+	var role string
+	var active bool
+	read := r.db.Rebind(`SELECT role, active FROM users WHERE id = ?`)
+	switch err := tx.QueryRowContext(ctx, read, id).Scan(&role, &active); {
+	case errors.Is(err, sql.ErrNoRows):
+		return ErrUserNotFound
+	case err != nil:
+		return fmt.Errorf("reading account %s: %w", id, err)
+	}
+	wasActiveAdmin := role == string(auth.RoleAdmin) && active
+
+	if err := write(tx); err != nil {
+		return err
+	}
+	// A write by anyone else cannot reduce the admin count, so the floor
+	// only applies to the account that was holding a seat.
+	if wasActiveAdmin {
+		count := r.db.Rebind(`SELECT COUNT(*) FROM users WHERE role = ? AND active = ?`)
+		var admins int
+		if err := tx.QueryRowContext(ctx, count, string(auth.RoleAdmin), true).Scan(&admins); err != nil {
+			return fmt.Errorf("counting active admins: %w", err)
+		}
+		if admins == 0 {
+			return ErrLastAdmin
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing: %w", err)
+	}
+	return nil
+}
+
+// SetRoleUnlessLastAdmin is SetRole for the admin API: it refuses to leave
+// the platform with no active administrator (ErrLastAdmin). The OIDC role
+// sync deliberately uses the unguarded SetRole — with adminGroups
+// configured the IdP owns the role, and an IdP-driven demotion is undone
+// by re-adding the group, unlike this path which has no way back.
+func (r *SQLUserRepository) SetRoleUnlessLastAdmin(ctx context.Context, id string, role auth.Role) error {
+	return r.withAdminFloor(ctx, id, func(tx *sql.Tx) error {
+		query := r.db.Rebind(`UPDATE users SET role = ? WHERE id = ?`)
+		_, err := tx.ExecContext(ctx, query, string(role), id)
+		if err != nil {
+			return fmt.Errorf("setting role for %s: %w", id, err)
+		}
+		return nil
+	})
+}
+
+// SetActiveUnlessLastAdmin is SetActive under the same floor.
+func (r *SQLUserRepository) SetActiveUnlessLastAdmin(ctx context.Context, id string, active bool) error {
+	return r.withAdminFloor(ctx, id, func(tx *sql.Tx) error {
+		query := r.db.Rebind(`UPDATE users SET active = ? WHERE id = ?`)
+		_, err := tx.ExecContext(ctx, query, active, id)
+		if err != nil {
+			return fmt.Errorf("setting activation for %s: %w", id, err)
+		}
+		return nil
+	})
 }
