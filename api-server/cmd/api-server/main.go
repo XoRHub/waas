@@ -159,7 +159,7 @@ func run() error {
 		func(obj k8sclient.Object) string { return obj.GetLabels()["waas.xorhub.io/owner"] },
 		k8sclient.MatchingLabels{"app.kubernetes.io/managed-by": "waas-operator"})
 
-	router := server.New(cfg, signer, server.Handlers{
+	router := server.New(cfg, signer, users, server.Handlers{
 		Auth:             handler.NewAuthHandler(authSvc, oidcSvc, cfg.OIDC, signer),
 		Users:            handler.NewUserHandler(userSvc),
 		Templates:        handler.NewTemplateHandler(templateSvc),

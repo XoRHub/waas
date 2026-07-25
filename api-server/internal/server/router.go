@@ -31,8 +31,9 @@ type Handlers struct {
 }
 
 // New builds the full route tree. Every /api/v1 route except login sits
-// behind the JWT middleware — no bypass routes.
-func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
+// behind the JWT middleware — no bypass routes. users feeds the
+// middleware's per-request user-state check (revocation, deactivation).
+func New(cfg *config.Config, signer *auth.Signer, users middleware.UserSource, h Handlers) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RequestID)
 	// Trust model: every Helm deployment (Ingress or HTTPRoute, both route
@@ -82,12 +83,15 @@ func New(cfg *config.Config, signer *auth.Signer, h Handlers) http.Handler {
 		// token in the query string (StreamAuth) — never the API bearer,
 		// which StreamAuth's audience check rejects. Polling stays as the
 		// fallback.
-		r.With(middleware.StreamAuth(signer, cfg.JWTIssuer)).Get("/events", h.Events.Stream)
+		r.With(middleware.StreamAuth(signer, cfg.JWTIssuer, users)).Get("/events", h.Events.Stream)
 
 		r.Group(func(r chi.Router) {
-			r.Use(middleware.Auth(signer, cfg.JWTIssuer))
+			r.Use(middleware.Auth(signer, cfg.JWTIssuer, users))
 
 			r.Get("/auth/me", h.Auth.Me)
+			// Server-side logout: revokes every outstanding token of the
+			// caller (global, not per device).
+			r.Post("/auth/logout", h.Auth.Logout)
 			// Mints the short-lived waas-stream token for GET /events —
 			// the only route that authenticates via the query string.
 			r.Post("/auth/stream-token", h.Auth.StreamToken)

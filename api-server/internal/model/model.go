@@ -55,6 +55,12 @@ type User struct {
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 	LastLoginAt   *time.Time `json:"lastLoginAt,omitempty"`
+	// TokensValidAfter, when set, is the lower bound on the issue time
+	// (JWT "iat") of acceptable access/stream tokens: the auth middleware
+	// rejects any token issued before it. Stamped to "now" on logout,
+	// deactivation, role change and password change (session revocation).
+	// nil = no bound. Never serialized.
+	TokensValidAfter *time.Time `json:"-"`
 	// Groups mirrors the IdP OIDC groups claim: admin-editable
 	// until SSO login refreshes it automatically. Drives WorkspacePolicy
 	// and WorkspaceImage group matching.

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/xorhub/waas/api-server/internal/database"
 	"github.com/xorhub/waas/api-server/internal/model"
@@ -22,14 +23,15 @@ func NewSQLUserRepository(db *database.DB) *SQLUserRepository {
 	return &SQLUserRepository{db: db}
 }
 
-const userColumns = "id, username, email, password_hash, role, active, max_workspaces, created_at, updated_at, last_login_at, user_groups, display_name, preferences, oidc_subject"
+const userColumns = "id, username, email, password_hash, role, active, max_workspaces, created_at, updated_at, last_login_at, user_groups, display_name, preferences, oidc_subject, tokens_valid_after"
 
 func (r *SQLUserRepository) Create(ctx context.Context, user *model.User) error {
-	query := r.db.Rebind(`INSERT INTO users (` + userColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	query := r.db.Rebind(`INSERT INTO users (` + userColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	_, err := r.db.ExecContext(ctx, query,
 		user.ID, user.Username, nullable(user.Email), user.PasswordHash, string(user.Role),
 		user.Active, user.MaxWorkspaces, timeArg(user.CreatedAt), timeArg(user.UpdatedAt), timePtrArg(user.LastLoginAt),
-		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.OIDCSubject)
+		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.OIDCSubject,
+		timePtrArg(user.TokensValidAfter))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("creating user %s: %w", user.Username, ErrDuplicate)
@@ -91,15 +93,41 @@ func (r *SQLUserRepository) List(ctx context.Context, page, pageSize int) ([]mod
 	return users, total, rows.Err()
 }
 
+// Update rewrites the mutable columns of a user row from an in-memory
+// copy. It deliberately does NOT write tokens_valid_after: every caller
+// here is a read-modify-write, and the read can predate a revocation by
+// however long the operation takes — Login alone spends ~50-100ms in
+// argon2id between its read and its write. Writing the column back from
+// that stale copy would silently resurrect every token a concurrent
+// logout had just revoked. SetTokensValidAfter is the only writer.
 func (r *SQLUserRepository) Update(ctx context.Context, user *model.User) error {
 	query := r.db.Rebind(`UPDATE users SET email = ?, password_hash = ?, role = ?, active = ?,
 		max_workspaces = ?, updated_at = ?, last_login_at = ?, user_groups = ?, display_name = ?, preferences = ?, oidc_subject = ? WHERE id = ?`)
 	res, err := r.db.ExecContext(ctx, query,
 		nullable(user.Email), user.PasswordHash, string(user.Role), user.Active,
 		user.MaxWorkspaces, timeArg(user.UpdatedAt), timePtrArg(user.LastLoginAt),
-		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.OIDCSubject, user.ID)
+		strings.Join(user.Groups, ","), user.DisplayName, marshalPreferences(user.Preferences), user.OIDCSubject,
+		user.ID)
 	if err != nil {
 		return fmt.Errorf("updating user %s: %w", user.ID, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+// SetTokensValidAfter revokes the user's outstanding tokens with a single
+// targeted UPDATE. It is the ONLY writer of tokens_valid_after: Update
+// leaves the column alone precisely so that no read-modify-write on the
+// rest of the row can race a revocation and write back a stale bound.
+// Callers that also mutate the row must run their Update FIRST and revoke
+// after, never the reverse.
+func (r *SQLUserRepository) SetTokensValidAfter(ctx context.Context, id string, at time.Time) error {
+	query := r.db.Rebind(`UPDATE users SET tokens_valid_after = ? WHERE id = ?`)
+	res, err := r.db.ExecContext(ctx, query, timeArg(at), id)
+	if err != nil {
+		return fmt.Errorf("setting token bound for user %s: %w", id, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrUserNotFound
@@ -138,7 +166,8 @@ func scanUser(row rowScanner) (*model.User, error) {
 	)
 	if err := row.Scan(&user.ID, &user.Username, &email, &user.PasswordHash, &role,
 		&user.Active, &user.MaxWorkspaces, scanTime{&user.CreatedAt}, scanTime{&user.UpdatedAt},
-		scanNullTime{&user.LastLoginAt}, &groups, &user.DisplayName, &prefs, &user.OIDCSubject); err != nil {
+		scanNullTime{&user.LastLoginAt}, &groups, &user.DisplayName, &prefs, &user.OIDCSubject,
+		scanNullTime{&user.TokensValidAfter}); err != nil {
 		return nil, err
 	}
 	user.Email = email.String

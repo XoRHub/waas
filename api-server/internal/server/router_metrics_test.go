@@ -19,8 +19,9 @@ func metricsRouter(t *testing.T, enabled bool) http.Handler {
 	if err != nil {
 		t.Fatalf("generating signer: %v", err)
 	}
-	// Empty Handlers: /metrics and /healthz never reach the nil handlers.
-	return New(&config.Config{JWTIssuer: "waas-test", MetricsEnabled: enabled}, signer, Handlers{})
+	// Empty Handlers: /metrics and /healthz never reach the nil handlers,
+	// and neither does the nil UserSource (both routes sit outside Auth).
+	return New(&config.Config{JWTIssuer: "waas-test", MetricsEnabled: enabled}, signer, nil, Handlers{})
 }
 
 func TestMetricsEndpointDisabledByDefault(t *testing.T) {

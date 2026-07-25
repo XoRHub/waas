@@ -133,6 +133,13 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	if err != nil {
 		return nil, err
 	}
+	// revoke: a security-relevant change (deactivation, role change,
+	// password reset) bounds the validity of every outstanding token to
+	// now. Written by SetTokensValidAfter AFTER the row update, never as
+	// part of it — see the Update doc in the repository: a full-row write
+	// carries a copy read before this call and would clobber a concurrent
+	// revocation.
+	revoke := false
 	if in.Email != nil {
 		user.Email = *in.Email
 	}
@@ -142,14 +149,17 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 			return nil, fmt.Errorf("hashing password: %w", err)
 		}
 		user.PasswordHash = hash
+		revoke = true
 	}
 	if in.Role != nil {
 		if *in.Role != auth.RoleAdmin && *in.Role != auth.RoleUser {
 			return nil, apierror.BadRequest("role must be admin or user")
 		}
+		revoke = revoke || *in.Role != user.Role
 		user.Role = *in.Role
 	}
 	if in.Active != nil {
+		revoke = revoke || (user.Active && !*in.Active)
 		user.Active = *in.Active
 	}
 	if in.MaxWorkspaces != nil {
@@ -161,6 +171,13 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	user.UpdatedAt = time.Now().UTC()
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
+	}
+	if revoke {
+		now := user.UpdatedAt
+		if err := s.users.SetTokensValidAfter(ctx, user.ID, now); err != nil {
+			return nil, fmt.Errorf("revoking tokens for %s: %w", user.ID, err)
+		}
+		user.TokensValidAfter = &now
 	}
 	s.audit.Record(ctx, actor, "user.updated", "user", user.ID, "")
 	return user, nil
@@ -219,6 +236,17 @@ func (s *UserService) UpdateProfile(ctx context.Context, actor Actor, in UpdateP
 	user.UpdatedAt = time.Now().UTC()
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
+	}
+	if in.NewPassword != "" {
+		// A credential change ends every session, the current device
+		// included: after a password change the only sound assumption is
+		// that the old credential may have been compromised. Revoked after
+		// the row write, never within it (see the repository's Update doc).
+		now := user.UpdatedAt
+		if err := s.users.SetTokensValidAfter(ctx, user.ID, now); err != nil {
+			return nil, fmt.Errorf("revoking tokens for %s: %w", user.ID, err)
+		}
+		user.TokensValidAfter = &now
 	}
 	s.audit.Record(ctx, actor, "user.profile_updated", "user", user.ID, "")
 	return user, nil

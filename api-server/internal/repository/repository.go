@@ -26,6 +26,11 @@ type UserRepository interface {
 	FindByOIDCSubject(ctx context.Context, subject string) (*model.User, error)
 	List(ctx context.Context, page, pageSize int) ([]model.User, int, error)
 	Update(ctx context.Context, user *model.User) error
+	// SetTokensValidAfter stamps the user's token-validity bound in one
+	// targeted write. Callers that already rewrite the whole row (Update)
+	// set model.User.TokensValidAfter instead, atomically with the change
+	// that motivates the revocation.
+	SetTokensValidAfter(ctx context.Context, id string, at time.Time) error
 	Delete(ctx context.Context, id string) error
 	Count(ctx context.Context) (int, error)
 }
