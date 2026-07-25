@@ -71,6 +71,13 @@ type CatalogSyncWorker struct {
 	HTTPClient *http.Client
 }
 
+// catalogSyncEligible reports whether img has a catalog source to sync
+// (registry mode + spec.catalog). Single home of the gate shared by the
+// ticker, the admin force-sync/upsert paths and the watch handler.
+func catalogSyncEligible(img *waasv1alpha1.WorkspaceImage) bool {
+	return img.Spec.Registry != "" && img.Spec.Catalog != nil
+}
+
 // NewCatalogSyncWorker builds the worker; interval <= 0 disables it.
 func NewCatalogSyncWorker(kube client.Client, namespace string, catalogRepo repository.CatalogRepository, interval time.Duration) *CatalogSyncWorker {
 	return &CatalogSyncWorker{kube: kube, namespace: namespace, catalog: catalogRepo, interval: interval}
@@ -109,7 +116,7 @@ func (w *CatalogSyncWorker) syncAll(ctx context.Context) {
 	}
 	for i := range images.Items {
 		img := &images.Items[i]
-		if img.Spec.Registry == "" || img.Spec.Catalog == nil {
+		if !catalogSyncEligible(img) {
 			continue
 		}
 		if err := w.syncOne(ctx, img); err != nil {
