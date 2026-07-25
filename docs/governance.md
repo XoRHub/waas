@@ -277,7 +277,11 @@ request**, not at token expiry. Two semantics to know:
   trade: routes that never touched Postgres — listing or pausing a
   workspace, `/meta/*`, all Kubernetes- or memory-backed — now fail with
   it. An outage that used to leave the portal partly usable takes it fully
-  dark. Immediate revocation is worth that; caching the read would buy the
+  dark. A mere *slowdown*, however, stays a slowdown: the Postgres pool
+  is capped (25 connections per replica, 30-minute lifetime), so slow
+  reads queue in the pool instead of amplifying into connection
+  exhaustion on the database server. Immediate revocation is worth that;
+  caching the read would buy the
   availability back at the cost of reopening the window this closes.
 
 The bound is never written at login: the token minted there would be

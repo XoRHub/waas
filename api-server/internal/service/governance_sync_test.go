@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -135,6 +136,54 @@ func TestAdminSyncImageFetchFailure(t *testing.T) {
 	row := lastAudit(t, audit)
 	if row == nil || row.Action != "catalog.image_synced" || row.Detail == "" {
 		t.Fatalf("audit row = %+v, want catalog.image_synced with error detail", row)
+	}
+}
+
+// TestAdminSyncImageBusyAnswers503 pins the status the F8 bound answers
+// with: a force-sync that hits its deadline while queued behind another
+// image's in-flight sync is a retryable server condition — 503, never
+// the 502 reserved for a broken catalog source.
+func TestAdminSyncImageBusyAnswers503(t *testing.T) {
+	svc, _ := newSyncFixture(t, syncRegistryImage("waas-images", "http://catalog.invalid"))
+	admin := Actor{ID: "a1", Username: "admin", Role: string(auth.RoleAdmin)}
+
+	// Stand-in for an unrelated image's sync in flight; the short caller
+	// deadline keeps the test fast (WithTimeout only ever lowers it).
+	svc.syncer.syncSem <- struct{}{}
+	defer func() { <-svc.syncer.syncSem }()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := svc.AdminSyncImage(ctx, admin, "waas-images")
+	var problem *apierror.Problem
+	if !errors.As(err, &problem) || problem.Status != http.StatusServiceUnavailable {
+		t.Fatalf("err = %v, want a 503 problem", err)
+	}
+}
+
+// TestAdminSyncImageHangingSourceAnswers502 pins the boundary of the
+// busy 503: a source that hangs until the fetch timeout is a broken
+// catalog source and must keep answering 502 with the fetch error,
+// exactly like a source answering 500. It exists because a Go
+// client-timeout error ALSO satisfies errors.Is(err,
+// context.DeadlineExceeded) — mapping the 503 on that instead of the
+// busy sentinel would misfile this case as "server busy".
+func TestAdminSyncImageHangingSourceAnswers502(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done() // hang until the client gives up
+	}))
+	defer srv.Close()
+
+	svc, _ := newSyncFixture(t, syncRegistryImage("waas-images", srv.URL))
+	// Injectable client: shrink the fetch timeout so the test does not
+	// sit through the real catalogFetchTimeout.
+	svc.syncer.HTTPClient = &http.Client{Timeout: 100 * time.Millisecond}
+	admin := Actor{ID: "a1", Username: "admin", Role: string(auth.RoleAdmin)}
+
+	_, err := svc.AdminSyncImage(context.Background(), admin, "waas-images")
+	var problem *apierror.Problem
+	if !errors.As(err, &problem) || problem.Status != http.StatusBadGateway {
+		t.Fatalf("err = %v, want a 502 problem", err)
 	}
 }
 

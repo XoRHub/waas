@@ -529,7 +529,9 @@ var (
 )
 
 // syncCatalog runs one immediate, synchronous catalog sync of img
-// through the shared worker (bounded by catalogFetchTimeout) and writes
+// through the shared worker (bounded end to end by
+// catalogForceSyncTimeout, including the wait behind another image's
+// in-flight sync) and writes
 // the catalog.image_synced audit row. Fail-soft semantics come from
 // SyncNow: entries stay stale-but-served, lastSyncError is patched, and
 // the fetch error is returned for the caller to map.
@@ -550,10 +552,12 @@ func (s *GovernanceService) syncCatalog(ctx context.Context, actor Actor, img *w
 }
 
 // AdminSyncImage forces an immediate catalog re-fetch of one entry —
-// synchronous (bounded by catalogFetchTimeout) so the response carries
-// the fresh status and discovered entries. Failure keeps the fail-soft
-// doctrine: entries stay stale-but-served, only lastSyncError is
-// patched, and the fetch error comes back as a 502 problem.
+// synchronous (bounded by catalogForceSyncTimeout) so the response
+// carries the fresh status and discovered entries. Failure keeps the
+// fail-soft doctrine: entries stay stale-but-served, only lastSyncError
+// is patched, and the fetch error comes back as a 502 problem — slow and
+// hanging sources included. The one 503: the sync never started because
+// it gave up waiting behind another image's in-flight sync (errSyncBusy).
 func (s *GovernanceService) AdminSyncImage(ctx context.Context, actor Actor, name string) (*model.CatalogImage, error) {
 	img := &waasv1alpha1.WorkspaceImage{}
 	if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, img); err != nil {
@@ -568,6 +572,14 @@ func (s *GovernanceService) AdminSyncImage(ctx context.Context, actor Actor, nam
 			return nil, apierror.BadRequest("image has no catalog source (spec.catalog)")
 		case errors.Is(err, errCatalogSyncDisabled):
 			return nil, apierror.Unavailable("catalog sync is not available")
+		case errors.Is(err, errSyncBusy):
+			// The force-sync gave up waiting behind another image's
+			// in-flight sync — a retryable server condition, not a broken
+			// catalog source. Only the wait maps here: a source that hangs
+			// until the fetch timeout keeps the 502 below (its error also
+			// satisfies errors.Is(err, context.DeadlineExceeded), which is
+			// why the match is on the sentinel, not on the ctx error).
+			return nil, apierror.Unavailable("another catalog sync is in progress — try again")
 		}
 		return nil, apierror.BadGateway("catalog sync failed: " + err.Error())
 	}

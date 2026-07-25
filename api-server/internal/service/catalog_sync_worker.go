@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -36,6 +37,15 @@ const (
 	catalogTokenKey = "token"
 	// catalogFetchTimeout bounds one live manifest GET.
 	catalogFetchTimeout = 10 * time.Second
+	// catalogForceSyncTimeout bounds the WHOLE admin force-sync — the
+	// wait behind another image's in-flight sync plus its own
+	// fetch/replace/status-patch — because it runs inside a user-facing
+	// HTTP request the server never times out (WriteTimeout stays 0 for
+	// SSE). One worst-case fetch plus headroom, deliberately less than
+	// two full fetches: when a force-sync queues behind a worst-case
+	// fetch AND its own fetch is as slow, a clean 503 the admin can
+	// retry beats a 20s+ hang.
+	catalogForceSyncTimeout = 15 * time.Second
 
 	catalogSourceFetched = "Fetched"
 	catalogSourceStatic  = "Static"
@@ -65,10 +75,13 @@ type CatalogSyncWorker struct {
 	namespace string
 	catalog   repository.CatalogRepository
 	interval  time.Duration
-	// mu serializes syncs: the admin force-sync (SyncNow) must never
-	// interleave its fetch/ReplaceEntries/status-patch with the ticker's
-	// pass over the same image.
-	mu sync.Mutex
+	// syncSem serializes syncs (capacity-1 semaphore): the admin
+	// force-sync (SyncNow) must never interleave its
+	// fetch/ReplaceEntries/status-patch with the ticker's pass over the
+	// same image. A channel rather than sync.Mutex so the force-sync can
+	// stop waiting when its deadline expires instead of hanging its HTTP
+	// request behind an unrelated image's fetch.
+	syncSem chan struct{}
 	// HTTPClient serves the live fetches; nil uses a default client
 	// with catalogFetchTimeout (injectable for tests).
 	HTTPClient *http.Client
@@ -87,7 +100,7 @@ type CatalogSyncWorker struct {
 
 	// pending coalesces watch-driven sync requests by image name for
 	// RunEventSync, so the watch goroutine (shared with the SSE
-	// notifications) never waits on the sync mutex. The set is bounded
+	// notifications) never waits on the sync semaphore. The set is bounded
 	// by the number of live images: a burst (kubectl apply -f dir/,
 	// ArgoCD resync, watch re-list) collapses to one entry per image,
 	// which is why no drop path is needed.
@@ -109,6 +122,7 @@ func catalogSyncEligible(img *waasv1alpha1.WorkspaceImage) bool {
 func NewCatalogSyncWorker(kube client.Client, namespace string, catalogRepo repository.CatalogRepository, interval time.Duration) *CatalogSyncWorker {
 	return &CatalogSyncWorker{
 		kube: kube, namespace: namespace, catalog: catalogRepo, interval: interval,
+		syncSem:    make(chan struct{}, 1),
 		lastSource: map[string]*waasv1alpha1.ImageCatalogSpec{},
 		pending:    map[string]struct{}{},
 		wake:       make(chan struct{}, 1),
@@ -161,10 +175,40 @@ func (w *CatalogSyncWorker) syncAll(ctx context.Context) {
 // periodic ticker. Same fail-soft/stale-but-served semantics as the
 // ticker path, but the sync error is returned to the caller; works
 // even when interval <= 0 disabled Run. Mutates img's status in place
-// on success, so the caller can project it without a re-Get.
+// on success, so the caller can project it without a re-Get. Bounded by
+// catalogForceSyncTimeout end to end: giving up the wait behind another
+// image's sync returns errSyncBusy (wrapping ctx.Err()); an expiry
+// mid-sync surfaces as the underlying fetch/patch error. Either way the
+// caller gets an error instead of an open-ended hang.
 func (w *CatalogSyncWorker) SyncNow(ctx context.Context, img *waasv1alpha1.WorkspaceImage) error {
+	ctx, cancel := context.WithTimeout(ctx, catalogForceSyncTimeout)
+	defer cancel()
 	return w.syncOne(ctx, img)
 }
+
+// errSyncBusy marks a sync that gave up WAITING for the semaphore
+// behind another image's in-flight sync. It is the discriminant the
+// admin force-sync maps to 503: matching context.DeadlineExceeded
+// instead would misfile a hanging catalog source, because a Go
+// client-timeout error also satisfies errors.Is(err,
+// context.DeadlineExceeded) — a broken source must stay a 502.
+var errSyncBusy = errors.New("waiting for an in-progress catalog sync")
+
+// acquireSync takes the sync semaphore, giving up when ctx ends — that
+// is the whole reason it is not a sync.Mutex: the force-sync deadline
+// must be able to interrupt the wait behind another image's fetch. The
+// ticker and event contexts carry no deadline, so those paths block
+// exactly as a mutex would.
+func (w *CatalogSyncWorker) acquireSync(ctx context.Context) error {
+	select {
+	case w.syncSem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("%w: %w", errSyncBusy, ctx.Err())
+	}
+}
+
+func (w *CatalogSyncWorker) releaseSync() { <-w.syncSem }
 
 // syncOne fetches/reads and parses one WorkspaceImage's catalog
 // manifest.
@@ -178,28 +222,32 @@ func (w *CatalogSyncWorker) SyncNow(ctx context.Context, img *waasv1alpha1.Works
 // then the sync error is returned (logged by syncAll, surfaced as a
 // problem response by the admin force-sync).
 func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.WorkspaceImage) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	if err := w.acquireSync(ctx); err != nil {
+		return err
+	}
+	defer w.releaseSync()
 	return w.syncLocked(ctx, img)
 }
 
 // syncIfSourceChanged is the watch path's entry point: it evaluates the
-// source discriminant while ALREADY HOLDING the sync mutex, so a
+// source discriminant while ALREADY HOLDING the sync semaphore, so a
 // concurrent sync of the same image (the startup syncAll, the
 // synchronous upsert sync) cannot slip between the check and the fetch
 // and leave both paths fetching the same manifest. The ticker and the
 // manual force-sync deliberately do NOT go through this gate: they must
 // refetch a source that never moved.
 func (w *CatalogSyncWorker) syncIfSourceChanged(ctx context.Context, img *waasv1alpha1.WorkspaceImage) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	if err := w.acquireSync(ctx); err != nil {
+		return err
+	}
+	defer w.releaseSync()
 	if !catalogSyncEligible(img) || !w.sourceChanged(img) {
 		return nil
 	}
 	return w.syncLocked(ctx, img)
 }
 
-// syncLocked is syncOne's body; the caller holds w.mu.
+// syncLocked is syncOne's body; the caller holds the sync semaphore.
 func (w *CatalogSyncWorker) syncLocked(ctx context.Context, img *waasv1alpha1.WorkspaceImage) error {
 	// Record the attempted source first, success and failure alike: the
 	// status patches below emit MODIFIED watch events, and this record is
@@ -297,7 +345,7 @@ func (w *CatalogSyncWorker) RunEventSync(ctx context.Context) {
 // syncPending re-reads the image at consume time — the event that
 // queued the name may be stale, or the image may be gone — and hands it
 // to the gated sync path, which re-evaluates the discriminant under the
-// sync mutex (the queued event may already have been covered by the
+// sync semaphore (the queued event may already have been covered by the
 // startup syncAll or the synchronous upsert sync).
 func (w *CatalogSyncWorker) syncPending(ctx context.Context, name string) {
 	img := &waasv1alpha1.WorkspaceImage{}
