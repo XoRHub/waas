@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratedb "github.com/golang-migrate/migrate/v4/database"
@@ -59,6 +60,24 @@ func Open(databaseURL string) (*DB, error) {
 	}
 	if dialect == DialectSQLite {
 		db.SetMaxOpenConns(1)
+	} else {
+		// Bound the pool: every authenticated request costs one
+		// primary-key read (the revocation check, deliberately uncached),
+		// so an uncapped pool converts a Postgres slowdown into unbounded
+		// connection growth against a server whose default max_connections
+		// is 100 — the slowdown amplifies into the full-dark outage
+		// docs/governance.md accepts only for a real database failure.
+		// Capped, a slowdown queues in the pool and degrades gracefully.
+		// 25 per replica leaves headroom for several replicas plus admin
+		// sessions on a default-tuned server; hardcoded because no
+		// workload this platform serves needs more concurrency per
+		// replica, and a knob would only invite raising it past what the
+		// database can take. Idle matches open so a steady load reuses
+		// connections instead of churning them; the lifetime cap lets the
+		// pool converge after failover or DNS changes.
+		db.SetMaxOpenConns(25)
+		db.SetMaxIdleConns(25)
+		db.SetConnMaxLifetime(30 * time.Minute)
 	}
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("pinging database: %w", err)
