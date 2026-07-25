@@ -4,6 +4,7 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
 import type { AuthProviders } from '@/types';
+import { useAuthStore } from '@/stores/authStore';
 import { LoginPage } from './LoginPage';
 
 const apiMock = createApiMock();
@@ -65,5 +66,33 @@ describe('LoginPage local-login toggle', () => {
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
     expect(container.querySelector('form')).toBeNull();
     expect(screen.queryByLabelText('Username')).toBeNull();
+  });
+});
+
+// Landing on the login page after your own password change is the
+// expected outcome of a deliberate action, not a failure: the generic
+// "session ended" reads like something went wrong (audit 3, F9).
+describe('LoginPage signed-out notice', () => {
+  it('names the password change instead of the generic expiry', async () => {
+    apiMock.route('/api/v1/auth/providers', providers({ local: true }));
+    useAuthStore.setState({ user: null, ready: true, signedOutReason: 'password-changed' });
+    renderWithProviders(<LoginPage />);
+
+    expect(
+      await screen.findByText(
+        'Your password has been changed. Sign in again with your new password.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Your session has ended. Please sign in again.')).toBeNull();
+  });
+
+  it('keeps the generic notice for a session the server rejected', async () => {
+    apiMock.route('/api/v1/auth/providers', providers({ local: true }));
+    useAuthStore.setState({ user: null, ready: true, signedOutReason: 'rejected' });
+    renderWithProviders(<LoginPage />);
+
+    expect(
+      await screen.findByText('Your session has ended. Please sign in again.'),
+    ).toBeInTheDocument();
   });
 });

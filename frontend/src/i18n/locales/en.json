@@ -27,6 +27,7 @@
     "ssoFailed": "SSO login failed",
     "ssoCompleting": "Completing sign-in…",
     "sessionEnded": "Your session has ended. Please sign in again.",
+    "passwordChanged": "Your password has been changed. Sign in again with your new password.",
     "ssoCookieBlocked": "Sign-in succeeded but this browser did not keep the session cookie. Check that cookies are allowed for this site."
   },
   "paramField": {

@@ -457,12 +457,25 @@ export interface UpdateProfileInput {
   newPassword?: string;
 }
 
-// Updates the caller's own profile and refreshes the persisted auth user.
+// Updates the caller's own profile and refreshes the signed-in user.
 export function useUpdateProfile() {
   const setUser = useAuthStore((s) => s.setUser);
+  const clearLocal = useAuthStore((s) => s.clearLocal);
   return useMutation({
     mutationFn: (input: UpdateProfileInput) => api.patch<User>('/api/v1/me', input),
-    onSuccess: (res) => setUser(res.data),
+    onSuccess: (res, input) => {
+      // A password change revokes every session of the account, this
+      // browser's included, and the response already expired the cookie.
+      // Sign out here and say why, instead of leaving a signed-in-looking
+      // UI that 401s into a generic "session ended" on the next click.
+      // Not logout(): there is nothing left to revoke, and the call would
+      // be refused by the very revocation it would be acting on.
+      if (input.newPassword) {
+        clearLocal('password-changed');
+        return;
+      }
+      setUser(res.data);
+    },
   });
 }
 

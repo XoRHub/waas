@@ -55,8 +55,16 @@ export function LoginPage() {
   // covers the ordinary expiry, and it is also the only visible trace of a
   // cookie the browser never stored — that case would otherwise bounce the
   // user back here silently, forever, on every sign-in attempt.
-  const notice = !ssoError && signedOutReason === 'rejected' && (
-    <p className="text-sm text-amber-600 dark:text-amber-400">{t('login.sessionEnded')}</p>
+  // A password change lands here too, but it is the expected outcome of a
+  // deliberate action: naming it avoids reading as a failure.
+  const noticeKey =
+    signedOutReason === 'rejected'
+      ? 'login.sessionEnded'
+      : signedOutReason === 'password-changed'
+        ? 'login.passwordChanged'
+        : null;
+  const notice = !ssoError && noticeKey && (
+    <p className="text-sm text-amber-600 dark:text-amber-400">{t(noticeKey)}</p>
   );
 
   // Don't flash the local form while the providers request is in flight:
