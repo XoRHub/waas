@@ -95,6 +95,27 @@ tests:
           path: spec.overrides.allowedFields
           content: podSecurityContext
 
+  # The exact list, not just the absences above: silently dropping a
+  # benign field (env, schedule) would otherwise pass the whole suite.
+  - it: grants exactly the benign override fields by default
+    set:
+      defaultPolicy.enabled: true
+    asserts:
+      - equal:
+          path: spec.overrides.allowedFields
+          value: [env, resources, schedule]
+
+  # The documented remediation for the default no longer granting
+  # volumes: an admin re-grants it explicitly.
+  - it: supports re-granting volumes explicitly on top of the default list
+    set:
+      defaultPolicy.enabled: true
+      defaultPolicy.overrides: { allowedFields: [env, resources, schedule, volumes] }
+    asserts:
+      - equal:
+          path: spec.overrides.allowedFields
+          value: [env, resources, schedule, volumes]
+
   - it: restricting subjects and enabling overrides/remoteWorkspaces are supported for full bootstrap customization
     set:
       defaultPolicy.enabled: true

@@ -1,0 +1,34 @@
+suite: workload placement pattern wiring (shared between operator and api-server)
+templates:
+  - operator/deployment.yaml
+  - api-server/deployment.yaml
+release:
+  name: waas
+tests:
+  # The webhook denies platform-resolved defaults as unauthorized
+  # overrides if the two components disagree on the pattern
+  # (workspace_webhook.go: MUST match), so both directions are asserted
+  # on both Deployments.
+  - it: leaves the pattern empty by default so both components fall back to the built-in per-user waas-{user}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_DEFAULT_NAMESPACE_PATTERN")].value
+          value: ""
+        template: operator/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_DEFAULT_NAMESPACE_PATTERN")].value
+          value: ""
+        template: api-server/deployment.yaml
+
+  - it: feeds the shared-namespace opt-out to both components from the one values key
+    set:
+      workspaces.defaultNamespacePattern: waas-workspaces
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_DEFAULT_NAMESPACE_PATTERN")].value
+          value: waas-workspaces
+        template: operator/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="WAAS_DEFAULT_NAMESPACE_PATTERN")].value
+          value: waas-workspaces
+        template: api-server/deployment.yaml
