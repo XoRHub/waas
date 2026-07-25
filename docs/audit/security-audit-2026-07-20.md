@@ -6,6 +6,33 @@ the 2026-07-08 quality audit (`audit-2026-07.md`): here every finding is a
 potential *exploitable* weakness, reasoned against an explicit threat
 model, then adversarially verified.
 
+## Remediation status
+
+This report is a **point-in-time record of 2026-07-20**, kept as written.
+The findings below are not a list of open weaknesses — most are closed.
+Current state:
+
+| # | Severity | Status |
+|---|---|---|
+| 1 | High | **Fixed** |
+| 2 | Medium | **Fixed** — per-request revocation + server-side logout |
+| 3 | Medium | **Fixed** — override `env` is literal-only |
+| 4 | Medium | **Fixed** — dedicated short-lived SSE stream token |
+| 5 | Medium | **Fixed** — default-deny egress on desktop namespaces |
+| 6 | Low | **Fixed** — query-string auth scoped to the SSE stream |
+| 7 | Low | **Mitigated** — in-cluster targets refused at create, update and connect; a guardrail, not containment (see the note below) |
+| 8 | Low | **Fixed** — with 5 |
+| 9 | Low | **Closed** — cluster-admin arbitration, default tightened (see the note below) |
+| 10 | Low | **Fixed** — desktop pods no longer mount the SA token |
+| 11 | Low | **Closed** — cluster-admin arbitration; catalog measured compliant with `restricted` (see the note below) |
+| 12 | Low | Deferred — prerequisite for taking KasmVNC out of experimental; residual documented in `docs/kasmvnc.md` |
+| 13 | Low | Deferred — closed by the planned token-refresh work, not on its own |
+| 14 | Low | **Won't fix** — HSTS belongs to the operator's ingress / reverse proxy |
+| 15 | Low | **Fixed** — `postgres.sslMode` is a chart value |
+
+Anything below describing a weakness marked *Fixed* describes the code as
+it stood on 2026-07-20, not as it stands today.
+
 ## Method
 
 - **Static** — a fleet of six independent auditors (one per security
@@ -187,6 +214,61 @@ link-local metadata range.
 
 ### 6–15 — Low findings (hardening / defense-in-depth)
 
+> **Maintainer decision, 2026-07-25 — findings 9 and 11 are settled as an
+> arbitration OUTSIDE WaaS, not as platform defects.**
+>
+> Both ask WaaS to judge how a delegated pod-spec-shaped field may be
+> used, or which Pod Security Admission level a namespace must enforce.
+> Neither belongs to the platform: constraining a delegated pod-spec
+> field is what an admission policy engine is for
+> (ValidatingAdmissionPolicy, Kyverno, Gatekeeper), and the PSA level of
+> a namespace is the cluster administrator's call. Re-implementing either
+> inside WaaS would duplicate cluster tooling with a parallel policy
+> engine over a `VolumeSource` union that changes every Kubernetes
+> release — and would place the decision at the wrong layer.
+>
+> Note the audit's own mitigation claim for #9 is wrong and must not be
+> repeated: PSA does **not** backstop the `volumes` half. `restricted`
+> explicitly permits `secret` and `projected` volumes.
+>
+> What was done instead:
+> - **Defaults tightened**: the bootstrap policy no longer grants the
+>   `volumes` override to every authenticated user
+>   (`helm/waas/values.yaml`, `defaultPolicy.overrides.allowedFields`),
+>   aligning the chart with the GitOps reference policy which already
+>   omitted it. Granting it becomes an explicit, auditable act.
+> - **Documented honestly**: `docs/accepted-limitations.md` §1 now states
+>   what delegating `volumes`/`securityContext` actually grants, why WaaS
+>   does not validate the content, and which cluster-side tool to pair
+>   with the delegation. Mirrored user-side on the website.
+> - **#11 measured, then closed the same way.** Against the published
+>   catalog (`ubuntu-desktop-noble`, `firefox`, `kasmweb/terminal`), the
+>   desktop pod fails `restricted` on exactly three controls —
+>   `allowPrivilegeEscalation`, `capabilities.drop=[ALL]`,
+>   `seccompProfile=RuntimeDefault`; `runAsNonRoot` is already satisfied.
+>   Supplying those three, all three images start and serve normally
+>   under `enforce=restricted`, so **nothing in the catalog requires
+>   `baseline`** and no image change is needed anywhere.
+>
+>   WaaS still does **not** set them. Not from caution — from the same
+>   rule as #9, with a sharper mechanism: a hardened cluster fills the
+>   container `securityContext` with a cluster-wide mutation policy
+>   (Kyverno, `MutatingAdmissionPolicy`, Gatekeeper), and those are
+>   almost always written *add-if-absent*. An operator-supplied default
+>   would silently take desktop pods out of that policy's reach —
+>   hardened everywhere except where it matters — and a Helm toggle would
+>   not help, since the default behavior would still be the harmful one.
+>
+>   Delivered instead: the measurement and the procedure to raise the
+>   level are documented (`docs/placement.md`), and the code comment that
+>   justified `baseline` by a first-boot `chown` needing capabilities —
+>   now disproved — was corrected. `warn=restricted` was already in place
+>   and remains the canary.
+>
+> No content-validation code will be written for #9, and no default
+> security context will be set for #11. Do not re-open either as a
+> remediation item.
+
 - **6** `api-server/internal/middleware/middleware.go:35` — the
   `?access_token=` fallback lives in the shared `Auth` middleware, so it
   is accepted on *every* authenticated route, not just SSE. Scope it to
@@ -197,6 +279,39 @@ link-local metadata range.
   fail-closed admin feature-gate and the protocol set (vnc/rdp/ssh only —
   **no telnet**, so no generic TCP/HTTP client / metadata exfil).
   Add an IP denylist resolved at validate- and connect-time (anti-DNS-rebind).
+
+  > **Resolved 2026-07-25 (PR #103) — mitigated, not contained.** A
+  > `HostGuard` in the api-server refuses loopback, link-local (IMDS
+  > included), unspecified and multicast addresses, the kube-apiserver
+  > ClusterIP (read from `KUBERNETES_SERVICE_HOST`, no configuration),
+  > in-cluster name shapes (single-label, `*.svc`, `*.<cluster domain>` —
+  > the domain discovered from the pod's `resolv.conf`) and any CIDR in
+  > `apiServer.remoteBlockedCIDRs`. Enforced at create, update **and
+  > connect**, so entries registered before the guard are covered.
+  >
+  > Two deliberate departures from the recommendation above. RFC1918 is
+  > **not** blocked: unlike a desktop, a legitimate remote machine
+  > commonly sits on a private LAN reached over VPN or peering, so what
+  > is blocked is the cluster's address space, not private space. And a
+  > hostname that fails to resolve is **allowed** — registering a machine
+  > that is currently off must keep working.
+  >
+  > The recommendation's anti-DNS-rebind goal is **not** achieved and
+  > cannot be at this layer: the api-server validates the name, guacd
+  > resolves it when it dials. The guard closes the naive case and turns
+  > a silent timeout into a readable 400 — it is not a boundary, and the
+  > code and docs say so.
+  >
+  > **Residual, and larger than this finding:** there is **no
+  > NetworkPolicy on the platform namespace at all**. The policies added
+  > for findings 5/8/10 cover the desktop namespaces only, so guacd and
+  > wwt still have unrestricted egress — the real amplifier here, and the
+  > only thing that would actually contain it. Tracked as a hardening
+  > project, not as an audit item: an egress policy on those pods must
+  > still permit the in-cluster leg (guacd dials desktop pods), so it is
+  > a `namespaceSelector` + `ipBlock … except <cluster CIDRs>` design,
+  > not a private-range denylist.
+
 - **8** `placement.go:162` — same ingress-only policy as #5, restated
   from the operator domain.
 - **9** `workload.go:166` — override `securityContext`/`podSecurityContext`/

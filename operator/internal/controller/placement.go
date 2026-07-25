@@ -65,9 +65,18 @@ func (r *WorkspaceReconciler) ensureNamespace(ctx context.Context, ws *waasv1alp
 		// never the template, so a template deleted before its workspaces
 		// cannot silently turn DeleteWhenEmpty into Retain.
 		waasv1alpha1.LabelCleanup: string(tpl.Spec.CleanupPolicyOrDefault()),
-		// Desktop images run non-root but may need baseline-only
-		// capabilities (chown at first boot); warn on restricted so
-		// hardening candidates surface without breaking sessions.
+		// baseline enforced, restricted warned. NOT because the images
+		// need baseline — measured 2026-07-25, the catalog images run
+		// fine under restricted (see docs/placement.md) — but because
+		// the enforce level is the cluster admin's call, not ours: a
+		// desktop pod spec carries no container securityContext of its
+		// own, deliberately, so that a cluster-wide mutation policy
+		// (Kyverno, MutatingAdmissionPolicy, "add if absent") stays the
+		// thing that fills it. Pre-filling it here would silently take
+		// desktop pods out of that policy's reach. warn=restricted is
+		// the canary that lets an admin see what raising enforce would
+		// cost. Create-only (see above): relabel and the operator will
+		// not fight you.
 		"pod-security.kubernetes.io/enforce": "baseline",
 		"pod-security.kubernetes.io/warn":    "restricted",
 	}

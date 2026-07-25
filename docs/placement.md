@@ -108,11 +108,9 @@ afterward (admin settings are not overwritten):
 
 - **Labels**: `app.kubernetes.io/managed-by=waas-operator`,
   `waas.xorhub.io/owner=<owner>`, Pod Security
-  `enforce=baseline` / `warn=restricted` (desktops run non-root
-  but may require baseline; warn surfaces hardening candidates) +
-  template labels/annotations
-  (`placement.namespaceLabels/Annotations`, denylist applied, platform
-  keys always win).
+  `enforce=baseline` / `warn=restricted` (see below) + template
+  labels/annotations (`placement.namespaceLabels/Annotations`, denylist
+  applied, platform keys always win).
 - **`waas-quota` ResourceQuota** derived from the owner policy's
   aggregate caps (`limits.aggregate` → requests/limits cpu/memory,
   requests.storage). Defense in depth: the webhook remains the
@@ -138,6 +136,43 @@ afterward (admin settings are not overwritten):
 - **No user RBAC**: users never talk directly to the Kubernetes
   API (everything goes through the portal); creating any would be
   gratuitous attack surface.
+
+#### Pod Security: why `baseline`, and how to raise it
+
+`enforce=baseline` is **not** a statement that desktops need baseline.
+Measured on 2026-07-25 against the published catalog
+(`ubuntu-desktop-noble`, `firefox`, `kasmweb/terminal`): with
+`allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]` and
+`seccompProfile: RuntimeDefault`, all three start and serve normally in
+a namespace enforcing `restricted`. Nothing in the catalog requires
+baseline.
+
+The level is `baseline` because **choosing it is the cluster
+administrator's call, not the platform's** — and for a second reason
+that also explains why the desktop container carries no
+`securityContext` of its own: a hardened cluster usually fills that
+field with a cluster-wide mutation policy (Kyverno, an in-tree
+`MutatingAdmissionPolicy`, Gatekeeper), and those are almost always
+written as *add-if-absent*. If WaaS pre-filled the field, desktop pods
+would silently drop out of the admin's policy — hardened everywhere
+except where it matters. Leaving it empty keeps the admin's tooling in
+charge.
+
+`warn=restricted` is the canary: the cluster tells you what raising
+`enforce` would cost, without breaking a session. To raise it:
+
+```sh
+kubectl label ns <workspace-namespace> \
+  pod-security.kubernetes.io/enforce=restricted --overwrite
+```
+
+The bootstrap is create-only, so the operator never reverts it. Pair it
+with a template `workload.securityContext` (or a mutation policy)
+supplying the three controls above, otherwise the namespace will refuse
+its own pods. Note the label cannot be set through
+`placement.namespaceLabels`: `pkg/metakeys` denies every
+`*.kubernetes.io` key, so a template author — who is not necessarily a
+platform admin — cannot lower a namespace to `privileged`.
 
 ⚠️ **secretKeyRef constraint**: a template's `env.valueFrom.secretKeyRef`
 resolves in the **pod's** namespace, i.e. the target
