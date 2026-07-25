@@ -187,6 +187,40 @@ link-local metadata range.
 
 ### 6–15 — Low findings (hardening / defense-in-depth)
 
+> **Maintainer decision, 2026-07-25 — findings 9 and 11 are settled as an
+> arbitration OUTSIDE WaaS, not as platform defects.**
+>
+> Both ask WaaS to judge how a delegated pod-spec-shaped field may be
+> used, or which Pod Security Admission level a namespace must enforce.
+> Neither belongs to the platform: constraining a delegated pod-spec
+> field is what an admission policy engine is for
+> (ValidatingAdmissionPolicy, Kyverno, Gatekeeper), and the PSA level of
+> a namespace is the cluster administrator's call. Re-implementing either
+> inside WaaS would duplicate cluster tooling with a parallel policy
+> engine over a `VolumeSource` union that changes every Kubernetes
+> release — and would place the decision at the wrong layer.
+>
+> Note the audit's own mitigation claim for #9 is wrong and must not be
+> repeated: PSA does **not** backstop the `volumes` half. `restricted`
+> explicitly permits `secret` and `projected` volumes.
+>
+> What was done instead:
+> - **Defaults tightened**: the bootstrap policy no longer grants the
+>   `volumes` override to every authenticated user
+>   (`helm/waas/values.yaml`, `defaultPolicy.overrides.allowedFields`),
+>   aligning the chart with the GitOps reference policy which already
+>   omitted it. Granting it becomes an explicit, auditable act.
+> - **Documented honestly**: `docs/accepted-limitations.md` §1 now states
+>   what delegating `volumes`/`securityContext` actually grants, why WaaS
+>   does not validate the content, and which cluster-side tool to pair
+>   with the delegation. Mirrored user-side on the website.
+> - **#11 reframed**: the goal is for desktop pods to be *compliant* with
+>   `restricted` so an admin who enforces it is not broken by WaaS — not
+>   for WaaS to enforce a level. Tracked separately.
+>
+> No content-validation code will be written for #9. Do not re-open it as
+> a remediation item.
+
 - **6** `api-server/internal/middleware/middleware.go:35` — the
   `?access_token=` fallback lives in the shared `Auth` middleware, so it
   is accepted on *every* authenticated route, not just SSE. Scope it to
