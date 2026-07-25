@@ -24,7 +24,7 @@ Current state:
 | 8 | Low | **Fixed** — with 5 |
 | 9 | Low | **Closed** — cluster-admin arbitration, default tightened (see the note below) |
 | 10 | Low | **Fixed** — desktop pods no longer mount the SA token |
-| 11 | Low | Open, reframed — WaaS should be *compliant* with PSA `restricted`, not enforce a level |
+| 11 | Low | **Closed** — cluster-admin arbitration; catalog measured compliant with `restricted` (see the note below) |
 | 12 | Low | Deferred — prerequisite for taking KasmVNC out of experimental; residual documented in `docs/kasmvnc.md` |
 | 13 | Low | Deferred — closed by the planned token-refresh work, not on its own |
 | 14 | Low | **Won't fix** — HSTS belongs to the operator's ingress / reverse proxy |
@@ -241,12 +241,33 @@ link-local metadata range.
 >   what delegating `volumes`/`securityContext` actually grants, why WaaS
 >   does not validate the content, and which cluster-side tool to pair
 >   with the delegation. Mirrored user-side on the website.
-> - **#11 reframed**: the goal is for desktop pods to be *compliant* with
->   `restricted` so an admin who enforces it is not broken by WaaS — not
->   for WaaS to enforce a level. Tracked separately.
+> - **#11 measured, then closed the same way.** Against the published
+>   catalog (`ubuntu-desktop-noble`, `firefox`, `kasmweb/terminal`), the
+>   desktop pod fails `restricted` on exactly three controls —
+>   `allowPrivilegeEscalation`, `capabilities.drop=[ALL]`,
+>   `seccompProfile=RuntimeDefault`; `runAsNonRoot` is already satisfied.
+>   Supplying those three, all three images start and serve normally
+>   under `enforce=restricted`, so **nothing in the catalog requires
+>   `baseline`** and no image change is needed anywhere.
 >
-> No content-validation code will be written for #9. Do not re-open it as
-> a remediation item.
+>   WaaS still does **not** set them. Not from caution — from the same
+>   rule as #9, with a sharper mechanism: a hardened cluster fills the
+>   container `securityContext` with a cluster-wide mutation policy
+>   (Kyverno, `MutatingAdmissionPolicy`, Gatekeeper), and those are
+>   almost always written *add-if-absent*. An operator-supplied default
+>   would silently take desktop pods out of that policy's reach —
+>   hardened everywhere except where it matters — and a Helm toggle would
+>   not help, since the default behavior would still be the harmful one.
+>
+>   Delivered instead: the measurement and the procedure to raise the
+>   level are documented (`docs/placement.md`), and the code comment that
+>   justified `baseline` by a first-boot `chown` needing capabilities —
+>   now disproved — was corrected. `warn=restricted` was already in place
+>   and remains the canary.
+>
+> No content-validation code will be written for #9, and no default
+> security context will be set for #11. Do not re-open either as a
+> remediation item.
 
 - **6** `api-server/internal/middleware/middleware.go:35` — the
   `?access_token=` fallback lives in the shared `Auth` middleware, so it
