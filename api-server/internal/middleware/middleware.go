@@ -32,19 +32,36 @@ type UserSource interface {
 	FindByID(ctx context.Context, id string) (*model.User, error)
 }
 
-// Auth validates the Bearer access token on every request and stores the
-// claims in the request context. The Authorization header is the ONLY
-// accepted transport: query-string credentials end up in proxy access logs,
-// browser history and Referer headers, so they are never read here. The SSE
-// stream, which cannot set headers, has its own middleware (StreamAuth) with
-// its own token audience.
+// SessionCookie is the browser transport for the access token: the same
+// waas-api JWT the Authorization header carries, kept out of JavaScript's
+// reach (security audit 2026-07-20, finding #13).
+const SessionCookie = "waas_session"
+
+// Auth validates the access token on every request and stores the claims
+// in the request context. Two transports, in this order:
+//
+//   - the Authorization header — every non-browser client, unchanged;
+//   - the session cookie — browsers, which must not hold a credential
+//     JavaScript can read.
+//
+// Query-string credentials are never accepted here: they end up in proxy
+// access logs, browser history and Referer headers. The SSE stream, which
+// cannot set headers, has its own middleware (StreamAuth) with its own
+// token audience.
 func Auth(signer *auth.Signer, issuer string, users UserSource) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			header := r.Header.Get("Authorization")
-			token, ok := strings.CutPrefix(header, "Bearer ")
-			if !ok || token == "" {
+			token, fromCookie := accessToken(r)
+			if token == "" {
 				apierror.Write(w, apierror.Unauthorized("missing bearer token"))
+				return
+			}
+			// A cookie rides along automatically, so it is the transport a
+			// cross-site page could abuse; the header is not, since an
+			// attacker's page cannot set it. Hence the check applies to the
+			// cookie only.
+			if fromCookie && !sameOriginRequest(r) {
+				apierror.Write(w, apierror.Unauthorized("cross-site request rejected"))
 				return
 			}
 			claims, err := auth.VerifyAccessToken(token, issuer, signer.Public())
@@ -57,6 +74,37 @@ func Auth(signer *auth.Signer, issuer string, users UserSource) func(http.Handle
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey, claims)))
 		})
+	}
+}
+
+// accessToken pulls the token from the header first, then the cookie, and
+// reports which one answered.
+func accessToken(r *http.Request) (token string, fromCookie bool) {
+	if header, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && header != "" {
+		return header, false
+	}
+	if c, err := r.Cookie(SessionCookie); err == nil && c.Value != "" {
+		return c.Value, true
+	}
+	return "", false
+}
+
+// sameOriginRequest is the CSRF guard on the cookie transport. Fetch
+// Metadata rather than a synchronized token: every current browser sends
+// Sec-Fetch-Site, and the header cannot be forged from a page (it is
+// forbidden to scripts). Requests without it are not browsers — they use
+// the Authorization transport — and SameSite=Strict on the cookie is the
+// backstop that stops it from being attached cross-site in the first
+// place. "same-origin" only: the platform is served from one origin, so
+// "same-site" would needlessly admit a sibling subdomain.
+func sameOriginRequest(r *http.Request) bool {
+	switch site := r.Header.Get("Sec-Fetch-Site"); site {
+	case "":
+		return true // not a browser; SameSite already governed the cookie
+	case "same-origin":
+		return true
+	default: // same-site, cross-site, none
+		return false
 	}
 }
 
