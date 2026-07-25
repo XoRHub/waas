@@ -63,6 +63,32 @@ func TestPlacementExistingOwnedNamespaceAllowed(t *testing.T) {
 	}
 }
 
+// Now that "waas-{user}" is the default, a namespace inside another
+// user's prefix territory IS that user's personal namespace — quota and
+// retained volumes included. The name prefix must not open it.
+func TestPlacementPrefixDoesNotOpenAnotherUsersNamespace(t *testing.T) {
+	// "waas-alice-lab" is alice's prefix territory AND the personal
+	// namespace of the user "alice-lab", already bootstrapped for them.
+	foreign := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   "waas-alice-lab",
+		Labels: map[string]string{waasv1alpha1.LabelOwner: "someone-else-uuid"},
+	}}
+	v := newValidator(t, placementTemplate(), catalogImage(), defaultPolicy(), foreign)
+	ws := workspace("w1", func(w *waasv1alpha1.Workspace) {
+		w.Spec.TargetNamespace = "waas-alice-lab"
+	})
+	_, err := v.ValidateCreate(asCaller(apiSA), ws)
+	if err == nil || !strings.Contains(err.Error(), "PlacementDenied") {
+		t.Fatalf("expected PlacementDenied on another user's personal namespace, got %v", err)
+	}
+
+	// The same name stays alice's to create while it does not exist.
+	free := newValidator(t, placementTemplate(), catalogImage(), defaultPolicy())
+	if _, err := free.ValidateCreate(asCaller(apiSA), ws); err != nil {
+		t.Fatalf("expected admit on a free name inside the user's prefix, got %v", err)
+	}
+}
+
 func TestPlacementSystemNamespaceDeniedForEveryone(t *testing.T) {
 	v := newValidator(t, placementTemplate(), catalogImage(), defaultPolicy())
 	for _, bad := range []string{"kube-system", nsName /* the platform namespace */} {

@@ -291,9 +291,11 @@ func (v *WorkspaceValidator) validateShape(ws *waasv1alpha1.Workspace) *policy.D
 //     it. Under the built-in "waas-{user}" default this branch coincides
 //     with (2) in the nominal case; it stays necessary for the shared
 //     patterns an admin opts into;
-//  2. a deviation matching the identity-derived "waas-<user>" prefix;
-//  3. a deviation to an existing namespace carrying this owner's
-//     ownership label.
+//  2. a deviation to an existing namespace carrying this owner's
+//     ownership label;
+//  3. a deviation matching the identity-derived personal-namespace
+//     prefix, UNLESS that namespace already exists and belongs to
+//     someone else (the prefix is a name rule, not proof of ownership).
 //
 // Admins may place anywhere.
 func (v *WorkspaceValidator) checkPlacementOwnership(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, id policy.Identity) *policy.Denial {
@@ -304,18 +306,27 @@ func (v *WorkspaceValidator) checkPlacementOwnership(ctx context.Context, ws *wa
 	if def, err := policy.ResolvedDefaultNamespace(ws, tpl, id, v.DefaultNamespacePattern); err == nil && tns == def {
 		return nil
 	}
+	existing := &corev1.Namespace{}
+	nsExists := v.Client.Get(ctx, types.NamespacedName{Name: tns}, existing) == nil
+	if nsExists && existing.Labels[waasv1alpha1.LabelOwner] == ws.Spec.Owner {
+		return nil
+	}
 	// Shared resolution (naming.PersonalNamespace): a hand-made
 	// "waas-"+Sanitize(user) diverges from what the api-server froze for
 	// a long username, and the user would be denied their OWN namespace.
 	userNS := naming.PersonalNamespace(id.Username)
 	if userNS != "" && (tns == userNS || strings.HasPrefix(tns, userNS+"-")) {
-		return nil
-	}
-	existing := &corev1.Namespace{}
-	if err := v.Client.Get(ctx, types.NamespacedName{Name: tns}, existing); err == nil {
-		if existing.Labels[waasv1alpha1.LabelOwner] == ws.Spec.Owner {
-			return nil
+		// The prefix is a NAME rule, not a proof of ownership: now that
+		// "waas-{user}" is the default, "waas-alice-lab" is the personal
+		// namespace of the user alice-lab, quota and retained volumes
+		// included — alice must not walk into it just because the string
+		// starts with hers. An existing namespace owned by someone else
+		// is refused; a free name stays hers to create.
+		if nsExists && existing.Labels[waasv1alpha1.LabelOwner] != "" {
+			return &policy.Denial{Reason: policy.ReasonPlacementDenied, Message: fmt.Sprintf(
+				"spec.targetNamespace %q is the personal namespace of another user", tns)}
 		}
+		return nil
 	}
 	return &policy.Denial{Reason: policy.ReasonPlacementDenied, Message: fmt.Sprintf(
 		"spec.targetNamespace %q does not belong to you (expected the resolved default, %q, or a namespace labeled %s=%s)",
