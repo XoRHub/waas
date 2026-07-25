@@ -241,6 +241,100 @@ func TestUpdateOverridesWebhookDenial(t *testing.T) {
 	}
 }
 
+// conflictingUpdate simulates the operator's reconciler status-patching
+// the CR between the service's fetch and its Update: the first `fail`
+// Updates come back 409 Conflict, later ones reach the fake cluster.
+type conflictingUpdate struct {
+	client.Client
+	fail  int
+	calls int
+}
+
+func (c *conflictingUpdate) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	c.calls++
+	if c.calls <= c.fail {
+		return apierrors.NewConflict(
+			schema.GroupResource{Group: "waas.xorhub.io", Resource: "workspaces"}, obj.GetName(),
+			errors.New("the object has been modified; please apply your changes to the latest version and try again"))
+	}
+	return c.Client.Update(ctx, obj, opts...)
+}
+
+// TestLifecycleUpdatesRetryTransientConflicts pins the fix for the
+// pentest's non-deterministic 500 on PATCH /overrides: a
+// resourceVersion conflict with a concurrent reconcile is retried
+// against a fresh fetch, so the request succeeds and the change lands.
+// Covers all three lifecycle writers (overrides, reload, pause).
+func TestLifecycleUpdatesRetryTransientConflicts(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{{ID: "u1", Username: "marc"}}, nil)
+	actor := Actor{ID: "u1", Username: "marc", Role: "user"}
+	ws := seedWorkspace(t, f, "marc-box", "u1")
+	id := string(ws.UID)
+	ws.Status.Phase = waasv1alpha1.PhaseRunning
+	if err := f.kube.Status().Update(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+
+	kube := &conflictingUpdate{Client: f.kube, fail: 2}
+	svc := NewWorkspaceService(kube, testNS, f.users, f.sessionsDB, f.auditSvc, f.signer, "waas-test", time.Minute)
+
+	env := []corev1.EnvVar{{Name: "X", Value: "y"}}
+	if _, err := svc.UpdateOverrides(ctx, actor, id, UpdateOverridesInput{Env: &env}); err != nil {
+		t.Fatalf("a transient conflict must be retried to success, got %v", err)
+	}
+	fresh := &waasv1alpha1.Workspace{}
+	if err := f.kube.Get(ctx, types.NamespacedName{Namespace: testNS, Name: "marc-box"}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Spec.Overrides == nil || len(fresh.Spec.Overrides.Env) != 1 {
+		t.Fatalf("the override must land after the retry: %+v", fresh.Spec.Overrides)
+	}
+
+	kube.calls = 0
+	if _, err := svc.Reload(ctx, actor, id); err != nil {
+		t.Fatalf("Reload must retry a transient conflict, got %v", err)
+	}
+	kube.calls = 0
+	if _, err := svc.SetPaused(ctx, actor, id, true); err != nil {
+		t.Fatalf("SetPaused must retry a transient conflict, got %v", err)
+	}
+	if err := f.kube.Get(ctx, types.NamespacedName{Namespace: testNS, Name: "marc-box"}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if !fresh.Spec.Paused {
+		t.Fatal("the pause must land after the retry")
+	}
+}
+
+// TestLifecycleUpdateConflictOutlivingRetriesIs409: when the object
+// keeps moving for every attempt, the client gets a 409 problem asking
+// to retry — never the raw conflict, which would render as a 500.
+func TestLifecycleUpdateConflictOutlivingRetriesIs409(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{{ID: "u1", Username: "marc"}}, nil)
+	actor := Actor{ID: "u1", Username: "marc", Role: "user"}
+	ws := seedWorkspace(t, f, "marc-box", "u1")
+	id := string(ws.UID)
+
+	// Conflict on every attempt: the object never stops moving.
+	kube := &conflictingUpdate{Client: f.kube, fail: 1 << 30}
+	svc := NewWorkspaceService(kube, testNS, f.users, f.sessionsDB, f.auditSvc, f.signer, "waas-test", time.Minute)
+
+	env := []corev1.EnvVar{{Name: "X", Value: "y"}}
+	if _, err := svc.UpdateOverrides(ctx, actor, id, UpdateOverridesInput{Env: &env}); !apierror.IsConflict(err) {
+		t.Fatalf("a conflict outliving the retries must surface as 409, got %v", err)
+	}
+	if _, err := svc.SetPaused(ctx, actor, id, true); !apierror.IsConflict(err) {
+		t.Fatalf("SetPaused: a conflict outliving the retries must surface as 409, got %v", err)
+	}
+	// DefaultRetry bounds the attempts: both requests above must give up
+	// after a handful of updates, not spin forever.
+	if kube.calls > 20 {
+		t.Fatalf("retries must be bounded, saw %d update calls", kube.calls)
+	}
+}
+
 // TestUpdateOverridesScoping: someone else's workspace is invisible
 // (404, not 403 — existence must not leak).
 func TestUpdateOverridesScoping(t *testing.T) {

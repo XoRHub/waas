@@ -73,6 +73,7 @@ func IsBadRequest(err error) bool   { return statusOf(err) == http.StatusBadRequ
 func IsUnauthorized(err error) bool { return statusOf(err) == http.StatusUnauthorized }
 func IsForbidden(err error) bool    { return statusOf(err) == http.StatusForbidden }
 func IsNotFound(err error) bool     { return statusOf(err) == http.StatusNotFound }
+func IsConflict(err error) bool     { return statusOf(err) == http.StatusConflict }
 
 // Write renders err as an RFC 7807 response. Non-Problem errors become an
 // opaque 500 so internals never leak to clients.

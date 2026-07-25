@@ -49,7 +49,7 @@ func TestIsHelpersUnwrap(t *testing.T) {
 	if !IsNotFound(wrapped) {
 		t.Error("IsNotFound must unwrap")
 	}
-	if !IsBadRequest(BadRequest("x")) || !IsForbidden(Forbidden("x")) {
+	if !IsBadRequest(BadRequest("x")) || !IsForbidden(Forbidden("x")) || !IsConflict(Conflict("x")) {
 		t.Error("direct Problems must match their helper")
 	}
 	if IsNotFound(fmt.Errorf("plain")) || IsForbidden(nil) {
