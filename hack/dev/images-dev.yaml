@@ -20,26 +20,14 @@ spec:
     default: { cpu: 500m, memory: 1Gi }
     min:     { cpu: 250m, memory: 512Mi }
     max:     { cpu: "2",  memory: 4Gi }
----
-# Same underlying image as ubuntu-xfce above (SSH is a capability of
-# ubuntu-desktop-noble, not a standalone image since the waas-images
-# 2026-07-10 catalog split) — kept as its own entry because the "dev-ssh"
-# WorkspaceTemplate enables a different protocol/credential shape.
-apiVersion: waas.xorhub.io/v1alpha1
-kind: WorkspaceImage
-metadata:
-  name: dev-ssh
-spec:
-  displayName: "Dev env — SSH"
-  description: "Environnement de dev terminal (git, tmux, build tools) via SSH, VNC en secours."
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.1.1
-  protocols: [ssh, vnc]
-  architectures: [amd64, arm64]
-  enabled: true
-  resources:
-    default: { cpu: 500m, memory: 1Gi }
-    min:     { cpu: 250m, memory: 512Mi }
-    max:     { cpu: "2",  memory: 4Gi }
+# SSH is a capability of ubuntu-desktop-noble, not a standalone image
+# (waas-images 2026-07-10 catalog split), so the "dev-ssh" WorkspaceTemplate
+# is approved by the entry above and needs no entry of its own. Giving it
+# one would approve the SAME ref twice: FindImage returns the first exact
+# match, so the narrower [ssh, vnc] envelope would win by name order and
+# silently shadow the rdp approval declared here — `make smoke` fails on
+# rdp with a ProtocolMismatch naming an image the template never picked.
+# One ref, one entry.
 ---
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceImage
