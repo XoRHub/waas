@@ -44,6 +44,9 @@ type UserRepository interface {
 	SetTokensValidAfter(ctx context.Context, id string, at time.Time) error
 	Delete(ctx context.Context, id string) error
 	Count(ctx context.Context) (int, error)
+	// CountActiveAdmins counts the accounts that can still administer the
+	// platform — deactivated ones excluded, they cannot sign in.
+	CountActiveAdmins(ctx context.Context) (int, error)
 }
 
 // SessionRepository persists desktop connection sessions.

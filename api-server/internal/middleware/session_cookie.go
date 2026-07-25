@@ -52,6 +52,40 @@ func ClearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// SessionEndedHeader tells the SPA that the response it is reading ended
+// the caller's own session, and why. A browser cannot see this any other
+// way: the credential is an HttpOnly cookie, and `Set-Cookie` is a
+// forbidden response header for JavaScript — so an endpoint that revokes
+// its own caller has to say so out of band, or the UI keeps rendering a
+// session that no longer exists until the next request happens to 401.
+//
+// Values are the frontend's SignedOutReason vocabulary; the SPA ignores
+// anything it does not know.
+const SessionEndedHeader = "X-Waas-Session-Ended"
+
+// Session-ending reasons carried by SessionEndedHeader.
+const (
+	// SessionEndedPasswordChanged: the caller changed their own password.
+	SessionEndedPasswordChanged = "password-changed"
+	// SessionEndedRightsChanged: the caller demoted, deactivated or reset
+	// the password of their own account through the admin API.
+	SessionEndedRightsChanged = "rights-changed"
+)
+
+// EndSession closes the caller's browser session in the response being
+// written: it expires the cookie and names the reason. THE single way to
+// do it — a handler that only cleared the cookie would leave the SPA
+// unable to tell why, and one that only set the header would leave a dead
+// credential in the jar.
+//
+// It does not revoke anything: the caller has already done that (the
+// revocation is what makes this necessary), and this cannot be inferred
+// from the response body.
+func EndSession(w http.ResponseWriter, r *http.Request, reason string) {
+	ClearSessionCookie(w, r)
+	w.Header().Set(SessionEndedHeader, reason)
+}
+
 // IsHTTPS reports whether the request reached the platform over TLS. The
 // ingress terminates it, so the connection to this process is plain http
 // and the forwarded header is the only truth available.

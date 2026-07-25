@@ -143,12 +143,19 @@ func TestAdminUpdateRevokesTokensOnlyOnSecurityChanges(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			svc, users := newUserFixture(t, []model.User{{ID: "u-bob", Username: "bob"}})
-			if _, err := svc.Update(context.Background(), Actor{ID: "u-admin"}, "u-bob", tc.in); err != nil {
+			_, revoked, err := svc.Update(context.Background(), Actor{ID: "u-admin"}, "u-bob", tc.in)
+			if err != nil {
 				t.Fatalf("update: %v", err)
 			}
 			stored, _ := users.FindByID(context.Background(), "u-bob")
 			if got := stored.TokensValidAfter != nil; got != tc.wantRevoke {
 				t.Fatalf("revocation stamp: want %v, got bound %v", tc.wantRevoke, stored.TokensValidAfter)
+			}
+			// The reported flag must agree with what landed in the row:
+			// the handler expires the caller's own session cookie from it,
+			// so a false positive would sign an admin out for a quota bump.
+			if revoked != tc.wantRevoke {
+				t.Fatalf("reported revocation: want %v, got %v", tc.wantRevoke, revoked)
 			}
 		})
 	}

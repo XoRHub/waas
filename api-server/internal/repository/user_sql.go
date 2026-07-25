@@ -228,6 +228,18 @@ func (r *SQLUserRepository) Count(ctx context.Context) (int, error) {
 	return total, nil
 }
 
+// CountActiveAdmins counts the accounts that can still administer the
+// platform. Excludes deactivated ones: a disabled admin cannot sign in,
+// so it is no help against locking everyone out.
+func (r *SQLUserRepository) CountActiveAdmins(ctx context.Context) (int, error) {
+	query := r.db.Rebind(`SELECT COUNT(*) FROM users WHERE role = ? AND active = ?`)
+	var total int
+	if err := r.db.QueryRowContext(ctx, query, string(auth.RoleAdmin), true).Scan(&total); err != nil {
+		return 0, fmt.Errorf("counting active admins: %w", err)
+	}
+	return total, nil
+}
+
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanUser(row rowScanner) (*model.User, error) {

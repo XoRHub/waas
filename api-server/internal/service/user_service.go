@@ -139,10 +139,14 @@ func (s *UserService) List(ctx context.Context, page, pageSize int) ([]model.Use
 	return s.users.List(ctx, page, pageSize)
 }
 
-func (s *UserService) Update(ctx context.Context, actor Actor, id string, in UpdateUserInput) (*model.User, error) {
+// Update applies an admin edit. The bool reports whether the edit
+// REVOKED the account's tokens — the caller needs it when an admin does
+// this to their OWN account: their session dies with the edit, and the
+// handler has to expire the cookie that carried it.
+func (s *UserService) Update(ctx context.Context, actor Actor, id string, in UpdateUserInput) (*model.User, bool, error) {
 	user, err := s.Get(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// revoke: a security-relevant change (deactivation, role change,
 	// password reset) bounds the validity of every outstanding token to
@@ -151,20 +155,23 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	// carries a copy read before this call and would clobber a concurrent
 	// revocation.
 	revoke := false
+	// Captured before the fields are applied: the last-admin guard below
+	// compares this account's state before and after the edit.
+	wasActiveAdmin := user.Role == auth.RoleAdmin && user.Active
 	if in.Email != nil {
 		user.Email = *in.Email
 	}
 	if in.Password != nil {
 		hash, err := HashPassword(*in.Password)
 		if err != nil {
-			return nil, fmt.Errorf("hashing password: %w", err)
+			return nil, false, fmt.Errorf("hashing password: %w", err)
 		}
 		user.PasswordHash = hash
 		revoke = true
 	}
 	if in.Role != nil {
 		if *in.Role != auth.RoleAdmin && *in.Role != auth.RoleUser {
-			return nil, apierror.BadRequest("role must be admin or user")
+			return nil, false, apierror.BadRequest("role must be admin or user")
 		}
 		revoke = revoke || *in.Role != user.Role
 		user.Role = *in.Role
@@ -172,6 +179,25 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	if in.Active != nil {
 		revoke = revoke || (user.Active && !*in.Active)
 		user.Active = *in.Active
+	}
+	// The platform must keep an administrator. Demoting or deactivating
+	// the last active one locks everyone out of governance with no
+	// in-product way back — it would take a database edit or a redeploy
+	// against an empty database. Compared as two states rather than
+	// per-field, so one request touching both role and active is judged
+	// on what it actually leaves behind.
+	stillActiveAdmin := user.Role == auth.RoleAdmin && user.Active
+	if wasActiveAdmin && !stillActiveAdmin {
+		admins, err := s.users.CountActiveAdmins(ctx)
+		if err != nil {
+			return nil, false, fmt.Errorf("counting active admins: %w", err)
+		}
+		// This account is still counted (the write has not landed yet), so
+		// 1 means it is the only one left.
+		if admins <= 1 {
+			return nil, false, apierror.BadRequest(
+				"the platform must keep at least one active administrator — promote another account first")
+		}
 	}
 	if in.MaxWorkspaces != nil {
 		user.MaxWorkspaces = *in.MaxWorkspaces
@@ -181,7 +207,7 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	}
 	user.UpdatedAt = time.Now().UTC()
 	if err := s.users.Update(ctx, user); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// role/active live outside the full-row Update (they are what
 	// per-request revocation reads — see the repository's Update doc);
@@ -190,23 +216,23 @@ func (s *UserService) Update(ctx context.Context, actor Actor, id string, in Upd
 	// clobber a concurrent edit of either.
 	if in.Role != nil {
 		if err := s.users.SetRole(ctx, user.ID, *in.Role); err != nil {
-			return nil, fmt.Errorf("setting role for %s: %w", user.ID, err)
+			return nil, false, fmt.Errorf("setting role for %s: %w", user.ID, err)
 		}
 	}
 	if in.Active != nil {
 		if err := s.users.SetActive(ctx, user.ID, *in.Active); err != nil {
-			return nil, fmt.Errorf("setting activation for %s: %w", user.ID, err)
+			return nil, false, fmt.Errorf("setting activation for %s: %w", user.ID, err)
 		}
 	}
 	if revoke {
 		now := user.UpdatedAt
 		if err := s.users.SetTokensValidAfter(ctx, user.ID, now); err != nil {
-			return nil, fmt.Errorf("revoking tokens for %s: %w", user.ID, err)
+			return nil, false, fmt.Errorf("revoking tokens for %s: %w", user.ID, err)
 		}
 		user.TokensValidAfter = &now
 	}
 	s.audit.Record(ctx, actor, "user.updated", "user", user.ID, "")
-	return user, nil
+	return user, revoke, nil
 }
 
 // UpdateProfileInput is the self-service subset of a user record (nil =

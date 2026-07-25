@@ -61,10 +61,17 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	user, err := h.svc.Update(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), in)
+	id := chi.URLParam(r, "id")
+	user, revoked, err := h.svc.Update(r.Context(), middleware.Actor(r), id, in)
 	if err != nil {
 		fail(w, r, err)
 		return
+	}
+	if revoked && id == middleware.Actor(r).ID {
+		// An admin who demotes, deactivates or resets the password of
+		// their OWN account revoked their own session doing it. Editing
+		// SOMEONE ELSE's account revokes their sessions, never this one's.
+		middleware.EndSession(w, r, middleware.SessionEndedRightsChanged)
 	}
 	ok(w, user)
 }
@@ -83,13 +90,13 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.NewPassword != "" {
 		// The service just revoked every token of this account, this
-		// browser's included. Expire the cookie in the SAME response
-		// rather than leave a dead credential in the jar until some
-		// later request 401s — the caller learns now, not three clicks
-		// later. Re-minting instead is not an option: a token issued in
-		// the same second as the revocation bound is itself rejected
-		// (middleware.vetBearer, deliberate).
-		middleware.ClearSessionCookie(w, r)
+		// browser's included. End the session in the SAME response rather
+		// than leave a dead credential in the jar until some later request
+		// 401s — the caller learns now, not three clicks later. Re-minting
+		// instead is not an option: a token issued in the same second as
+		// the revocation bound is itself rejected (middleware.vetBearer,
+		// deliberate).
+		middleware.EndSession(w, r, middleware.SessionEndedPasswordChanged)
 	}
 	ok(w, user)
 }

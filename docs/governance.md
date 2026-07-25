@@ -270,13 +270,31 @@ request**, not at token expiry. Two semantics to know:
   everywhere. That is the intended default for a security control —
   per-device revocation would require per-session server state (`jti`
   denylist), deliberately not built.
-- **A password change signs the author out too**, on the spot: the bound
-  covers the browser that made the change, so `PATCH /me` expires the
-  session cookie in its own response and the SPA lands on the login page
-  naming the reason. Re-minting instead cannot work — a token issued in
-  the same second as the bound is itself rejected (the second-truncated
-  `iat` comparison below), and silently keeping the caller signed in
-  would only defer the discovery to the next request's 401.
+- **An edit that revokes its own author signs them out on the spot.** Two
+  paths reach it: a self-service password change (`PATCH /me`) and an
+  admin demoting, deactivating or password-resetting their **own** account
+  (`PATCH /users/{id}` with `id` = the caller). Both end the session in
+  their own response — `middleware.EndSession`, the single writer:
+  it expires the cookie **and** names the reason in an
+  `X-Waas-Session-Ended` header. The header exists because a browser
+  cannot observe the rest: the credential is HttpOnly and `Set-Cookie` is
+  unreadable from JavaScript, so without it the SPA renders a dead
+  session until some later request happens to 401 — and then blames a
+  generic expiry for what the user deliberately did. The api layer is its
+  only reader, so any endpoint that revokes its own caller is covered
+  without repeating the rule client-side. Re-minting instead cannot work:
+  a token issued in the same second as the bound is itself rejected (the
+  second-truncated `iat` comparison below).
+- **The last active administrator cannot lose their rights.** A demotion
+  or deactivation that would leave zero active admins is refused with
+  `400` ("promote another account first"). Losing the last one has no
+  in-product way back — it would take a database edit, or a redeploy
+  against an empty database for `WAAS_ADMIN_PASSWORD` to seed a new one
+  (`EnsureBootstrapAdmin` only ever creates when the users table is
+  empty; it never re-applies the env password to an existing account).
+  The rule compares the account's state before and after the edit, so a
+  request touching `role` and `active` at once is judged on what it
+  actually leaves behind.
 - **Already-open connections survive revocation.** A desktop tunnel is
   authorized by a `waas-connection` token that wwt verifies **once**, at
   the WebSocket open — a revoked or deactivated user keeps an
