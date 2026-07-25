@@ -40,6 +40,38 @@ only via the API (see the website page for the full `curl`/CR example).
 comes): `securityContext`/`podSecurityContext` **replace** the
 template's; `volumes`/`volumeMounts` **append** (same name wins).
 
+**What delegating these rights actually grants.** The allow-list gates
+the *field*, never its *content* — there is no platform-side validation
+of what goes in it, by design (below). Read literally:
+
+- `volumes` accepts any `corev1.VolumeSource`. A `secret:` entry mounts
+  **any Secret co-located in the workspace namespace** — at minimum the
+  registry pull secret and the per-workspace SSH key. `projected:` can
+  additionally re-introduce a `serviceAccountToken` the platform
+  deliberately turns off (`AutomountServiceAccountToken: false`).
+  `csi`, `cephfs`, `rbd`, `iscsi` and friends carry their own
+  `secretRef`, so they are the same primitive by another route.
+- `securityContext` covers the whole struct, `privileged: true`
+  included. Only the namespace's Pod Security Admission level stops it.
+
+**Why WaaS does not validate this content.** Pod Security Admission does
+**not** cover it: `restricted` explicitly permits `secret` and
+`projected` volumes, because mounting a Secret from your own namespace is
+normal Kubernetes. Reimplementing that judgement inside WaaS would mean
+maintaining a parallel policy engine over a `VolumeSource` union that
+gains fields every Kubernetes release — and it would sit in the wrong
+place. Constraining *how* a delegated pod-spec field may be used is a
+cluster-administration decision, expressed with the tools built for it:
+**ValidatingAdmissionPolicy** (in-tree since 1.30, CEL, no dependency),
+Kyverno or Gatekeeper, scoped to the workspace namespaces.
+
+So the rule is: **delegate these rights only to principals you would
+trust with the namespace itself**, and pair the delegation with an
+admission policy if that trust is partial. The bootstrap default policy
+does not grant them; the shipped `gitops/governance/policies.yaml`
+standard-user policy does not either. Granting them is an explicit,
+auditable act.
+
 **Revisit trigger.** A real persona asks for it repeatedly. If built:
 a collapsed YAML section in the creation dialog (reuse `YamlEditor`,
 symmetric to the admin `WorkloadSection`), gated on the rights — **and**

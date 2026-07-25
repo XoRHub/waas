@@ -143,7 +143,7 @@ defaultPolicy:
     pasteToWorkspace: true
   # -- Template-override fields the matched user may set at instantiation time (intersected with the template's own allow-list); empty = no policy-level restriction, the template's allow-list alone applies.
   overrides:
-    allowedFields: [env, resources, schedule, volumes]
+    allowedFields: [env, resources, schedule]
   # -- Opt the matched user into the Remote Workspaces feature (out-of-cluster machines via guacd).
   remoteWorkspaces: false
 
