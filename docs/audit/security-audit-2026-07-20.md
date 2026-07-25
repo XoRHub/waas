@@ -20,7 +20,7 @@ Current state:
 | 4 | Medium | **Fixed** — dedicated short-lived SSE stream token |
 | 5 | Medium | **Fixed** — default-deny egress on desktop namespaces |
 | 6 | Low | **Fixed** — query-string auth scoped to the SSE stream |
-| 7 | Low | In progress |
+| 7 | Low | **Mitigated** — in-cluster targets refused at create, update and connect; a guardrail, not containment (see the note below) |
 | 8 | Low | **Fixed** — with 5 |
 | 9 | Low | **Closed** — cluster-admin arbitration, default tightened (see the note below) |
 | 10 | Low | **Fixed** — desktop pods no longer mount the SA token |
@@ -258,6 +258,39 @@ link-local metadata range.
   fail-closed admin feature-gate and the protocol set (vnc/rdp/ssh only —
   **no telnet**, so no generic TCP/HTTP client / metadata exfil).
   Add an IP denylist resolved at validate- and connect-time (anti-DNS-rebind).
+
+  > **Resolved 2026-07-25 (PR #103) — mitigated, not contained.** A
+  > `HostGuard` in the api-server refuses loopback, link-local (IMDS
+  > included), unspecified and multicast addresses, the kube-apiserver
+  > ClusterIP (read from `KUBERNETES_SERVICE_HOST`, no configuration),
+  > in-cluster name shapes (single-label, `*.svc`, `*.<cluster domain>` —
+  > the domain discovered from the pod's `resolv.conf`) and any CIDR in
+  > `apiServer.remoteBlockedCIDRs`. Enforced at create, update **and
+  > connect**, so entries registered before the guard are covered.
+  >
+  > Two deliberate departures from the recommendation above. RFC1918 is
+  > **not** blocked: unlike a desktop, a legitimate remote machine
+  > commonly sits on a private LAN reached over VPN or peering, so what
+  > is blocked is the cluster's address space, not private space. And a
+  > hostname that fails to resolve is **allowed** — registering a machine
+  > that is currently off must keep working.
+  >
+  > The recommendation's anti-DNS-rebind goal is **not** achieved and
+  > cannot be at this layer: the api-server validates the name, guacd
+  > resolves it when it dials. The guard closes the naive case and turns
+  > a silent timeout into a readable 400 — it is not a boundary, and the
+  > code and docs say so.
+  >
+  > **Residual, and larger than this finding:** there is **no
+  > NetworkPolicy on the platform namespace at all**. The policies added
+  > for findings 5/8/10 cover the desktop namespaces only, so guacd and
+  > wwt still have unrestricted egress — the real amplifier here, and the
+  > only thing that would actually contain it. Tracked as a hardening
+  > project, not as an audit item: an egress policy on those pods must
+  > still permit the in-cluster leg (guacd dials desktop pods), so it is
+  > a `namespaceSelector` + `ipBlock … except <cluster CIDRs>` design,
+  > not a private-range denylist.
+
 - **8** `placement.go:162` — same ingress-only policy as #5, restated
   from the operator domain.
 - **9** `workload.go:166` — override `securityContext`/`podSecurityContext`/
