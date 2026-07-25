@@ -210,6 +210,7 @@ table is a quick *what*.
 | postgres.passwordSecretRef.key | string | `""` | Secret key. Defaults to `"postgres-password"`. |
 | postgres.storage | string | `"10Gi"` | Size of the postgres data PVC. |
 | postgres.storageClassName | string | `""` | storageClassName for the postgres data PVC; empty uses the cluster default. |
+| postgres.sslMode | string | `"disable"` | libpq sslmode for the bundled instance's connection URL. Only used when postgres.enabled is true. |
 | postgres.externalURL | string | `""` | Full external connection URL; required when postgres.enabled is false (unless externalURLSecretRef is set). |
 | postgres.externalURLSecretRef.name | string | `""` | Secret name to read the full external connection URL from instead of `externalURL` above. |
 | postgres.externalURLSecretRef.key | string | `""` | Secret key. Defaults to `"database-url"`. |

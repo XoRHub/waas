@@ -625,6 +625,14 @@ postgres:
   storage: 10Gi
   # -- storageClassName for the postgres data PVC; empty uses the cluster default.
   storageClassName: ""
+  # libpq sslmode for the connection URL the chart builds for its own
+  # instance. The bundled StatefulSet serves no TLS, so "disable" is what
+  # actually happens rather than a downgrade — raise it only after wiring
+  # certificates into that instance yourself. Ignored when
+  # postgres.enabled is false: an external URL carries its own sslmode,
+  # and securing that connection is the operator's responsibility.
+  # -- libpq sslmode for the bundled instance's connection URL. Only used when postgres.enabled is true.
+  sslMode: disable
   # Only used when postgres.enabled is false.
   # -- Full external connection URL; required when postgres.enabled is false (unless externalURLSecretRef is set).
   externalURL: ""
