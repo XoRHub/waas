@@ -201,6 +201,34 @@ func TestPersonalNamespaceMatchesResolution(t *testing.T) {
 	}
 }
 
+// The webhook and the operator decide placement and ownership with this
+// one predicate; a divergence would hand out a quota without an owner.
+func TestIsPersonalNamespaceOf(t *testing.T) {
+	for name, tc := range map[string]struct {
+		username string
+		ns       string
+		want     bool
+	}{
+		"own namespace": {"alice", "waas-alice", true},
+		// Also the personal namespace of the user "alice-lab": the
+		// predicate is a name rule, the caller checks the owner label.
+		"derived namespace":    {"alice", "waas-alice-lab", true},
+		"other user entirely":  {"alice", "waas-bob", false},
+		"shared namespace":     {"alice", "waas-workspaces", false},
+		"prefix without dash":  {"alice", "waas-alicia", false},
+		"empty username":       {"", "waas-alice", false},
+		"empty namespace":      {"alice", "", false},
+		"sanitized username":   {"Alice Smith", "waas-alice-smith", true},
+		"long username agrees": {strings.Repeat("a", 59), PersonalNamespace(strings.Repeat("a", 59)), true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := IsPersonalNamespaceOf(tc.username, tc.ns); got != tc.want {
+				t.Fatalf("IsPersonalNamespaceOf(%q, %q) = %v, want %v", tc.username, tc.ns, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidatePattern(t *testing.T) {
 	// "waas-workspaces" is no longer the default but stays a legitimate
 	// pattern: the explicit shared-namespace opt-in.

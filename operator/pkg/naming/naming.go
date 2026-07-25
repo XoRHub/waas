@@ -119,6 +119,26 @@ func PersonalNamespace(username string) string {
 	return ns
 }
 
+// IsPersonalNamespaceOf reports whether ns is username's own namespace,
+// or one derived from it ("<personal>-lab"). THE single expression of
+// that rule: the webhook admits placement with it and the operator
+// decides ownership labelling and auto-quota with it, and the two must
+// agree — a namespace one of them calls personal and the other does not
+// gets a quota without an owner, or an owner without a quota.
+//
+// It is a NAME rule, not proof of ownership: "waas-alice-lab" is the
+// personal namespace of the user alice-lab, so alice must not walk into
+// it just because the string starts with hers. Callers that grant
+// something (placement, ownership) check the existing namespace's owner
+// label on top — see the webhook's checkPlacementOwnership.
+func IsPersonalNamespaceOf(username, ns string) bool {
+	userNS := PersonalNamespace(username)
+	if userNS == "" || ns == "" {
+		return false
+	}
+	return ns == userNS || strings.HasPrefix(ns, userNS+"-")
+}
+
 // Placeholder documents one pattern token: THE source the UI contextual
 // help and the docs render — never a hand-maintained copy.
 type Placeholder struct {
