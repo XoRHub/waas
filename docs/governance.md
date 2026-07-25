@@ -285,9 +285,15 @@ request**, not at token expiry. Two semantics to know:
   without repeating the rule client-side. Re-minting instead cannot work:
   a token issued in the same second as the bound is itself rejected (the
   second-truncated `iat` comparison below).
-- **The last active administrator cannot lose their rights.** A demotion
-  or deactivation that would leave zero active admins is refused with
-  `400` ("promote another account first"). Losing the last one has no
+- **The last active administrator cannot lose their rights through
+  `PATCH /users/{id}`.** A demotion or deactivation that would leave zero
+  active admins is refused with `400` ("promote another account first").
+  The **OIDC role sync is deliberately not covered**: when `adminGroups`
+  is configured the IdP owns the role, and refusing its verdict would
+  make the platform disagree with the directory it declares
+  authoritative. The asymmetry is safe because the outcomes differ — an
+  IdP-driven demotion is undone by re-adding the group and signing in
+  again, while the API path has no way back at all. Losing the last one has no
   in-product way back — it would take a database edit, or a redeploy
   against an empty database for `WAAS_ADMIN_PASSWORD` to seed a new one
   (`EnsureBootstrapAdmin` only ever creates when the users table is

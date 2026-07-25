@@ -291,6 +291,14 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+				// Non-safelisted response headers are hidden from JS on a
+				// cross-origin answer. The portal never gets here — it
+				// fetches relative paths, and its SameSite=Strict cookie
+				// would not travel cross-site anyway — but a browser client
+				// served from another origin would otherwise lose the
+				// session-ended announcement silently, which is worse than
+				// not having it.
+				w.Header().Set("Access-Control-Expose-Headers", SessionEndedHeader)
 			}
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
