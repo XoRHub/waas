@@ -48,6 +48,9 @@ type RemoteWorkspaceService struct {
 	wol WoLSender
 	// events notifies the SSE hub on mutations; nil = no live updates.
 	events *EventHub
+	// hostGuard refuses hostnames that target the cluster itself; nil =
+	// disabled (unit tests only — main.go always wires it).
+	hostGuard *HostGuard
 
 	issuer        string
 	connectionTTL time.Duration
@@ -72,6 +75,14 @@ func (s *RemoteWorkspaceService) WithWoL(wol WoLSender) *RemoteWorkspaceService 
 // WithEvents wires the SSE hub (same optional pattern as WithWoL).
 func (s *RemoteWorkspaceService) WithEvents(hub *EventHub) *RemoteWorkspaceService {
 	s.events = hub
+	return s
+}
+
+// WithHostGuard wires the in-cluster target guard (same optional
+// pattern as WithWoL). main.go always sets it; only unit tests leave
+// it nil.
+func (s *RemoteWorkspaceService) WithHostGuard(g *HostGuard) *RemoteWorkspaceService {
+	s.hostGuard = g
 	return s
 }
 
@@ -216,13 +227,19 @@ func normalizeRemoteProtocols(in RemoteWorkspaceInput) ([]model.RemoteProtocol, 
 	return out, nil
 }
 
-func validateRemoteInput(in RemoteWorkspaceInput) error {
+// validateRemoteInput is a method (not a free function) to reach the
+// host guard: the hostname is user-chosen and must not target the
+// cluster itself (see remote_host_guard.go).
+func (s *RemoteWorkspaceService) validateRemoteInput(ctx context.Context, in RemoteWorkspaceInput) error {
 	if strings.TrimSpace(in.Name) == "" {
 		return apierror.BadRequest("name is required")
 	}
 	host := strings.TrimSpace(in.Hostname)
 	if host == "" || strings.ContainsAny(host, " \t/@") {
 		return apierror.BadRequest("hostname must be a bare host or IP (no scheme, no path, no credentials)")
+	}
+	if err := s.hostGuard.Check(ctx, host); err != nil {
+		return err
 	}
 	if in.MACAddress != "" {
 		if _, err := normalizeMAC(in.MACAddress); err != nil {
@@ -265,7 +282,7 @@ func (s *RemoteWorkspaceService) Create(ctx context.Context, actor Actor, in Rem
 	if err := s.requireFeature(ctx, actor); err != nil {
 		return nil, err
 	}
-	if err := validateRemoteInput(in); err != nil {
+	if err := s.validateRemoteInput(ctx, in); err != nil {
 		return nil, err
 	}
 	protocols, err := normalizeRemoteProtocols(in)
@@ -328,7 +345,7 @@ func (s *RemoteWorkspaceService) Update(ctx context.Context, actor Actor, id str
 	if err != nil {
 		return nil, err
 	}
-	if err := validateRemoteInput(in); err != nil {
+	if err := s.validateRemoteInput(ctx, in); err != nil {
 		return nil, err
 	}
 	protocols, err := normalizeRemoteProtocols(in)
@@ -410,6 +427,10 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 	}
 	// Entries stored before the kasmvnc ban stay rejected at connect time.
 	if err := validateRemoteProtocolName(entry.Name); err != nil {
+		return nil, err
+	}
+	// Entries stored before the host guard stay rejected at connect time.
+	if err := s.hostGuard.Check(ctx, rw.Hostname); err != nil {
 		return nil, err
 	}
 	// Connect-time tweaks go through the same registry gate as the stored

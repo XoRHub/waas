@@ -114,6 +114,15 @@ func run() error {
 	}
 	remoteSvc := service.NewRemoteWorkspaceService(kube, cfg.WorkspaceNamespace, users, remotes, sessions,
 		audit, signer, cfg.JWTIssuer, cfg.ConnectionTokenTTL)
+	// Host guard: refuses remote workspaces pointed at the cluster's own
+	// address space. A guardrail, not a boundary (guacd re-resolves at
+	// dial time) — see remote_host_guard.go. Same startup contract as the
+	// operator's egress CIDRs: a malformed list refuses to start.
+	remoteBlocked, err := service.ParseBlockedCIDRs(cfg.RemoteBlockedCIDRs)
+	if err != nil {
+		return fmt.Errorf("invalid WAAS_REMOTE_BLOCKED_CIDRS: %w", err)
+	}
+	remoteSvc = remoteSvc.WithHostGuard(service.NewHostGuard(cfg.ClusterDomain, remoteBlocked))
 	if relay := service.NewHTTPWoLRelay(cfg.WoL.RelayURL, cfg.WoL.AuthToken); relay != nil {
 		remoteSvc = remoteSvc.WithWoL(relay)
 		slog.Info("Wake-on-LAN relay enabled", "url", cfg.WoL.RelayURL)
