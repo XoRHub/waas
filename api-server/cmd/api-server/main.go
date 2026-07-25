@@ -156,13 +156,21 @@ func run() error {
 	// ArgoCD prune) or whose end-of-session callback was lost.
 	go service.NewSessionSweeper(kube, cfg.WorkspaceNamespace, sessions, remotes, audit, cfg.SessionSweepInterval).Run(ctx)
 	go catalogWorker.Run(ctx)
+	// Watch-driven catalog sync consumer, started OUTSIDE Run on
+	// purpose: manifest-applied images must sync on creation even when
+	// catalogSyncInterval <= 0 disables the ticker.
+	go catalogWorker.RunEventSync(ctx)
 	go events.RunWorkspaceWatch(ctx, kube, cfg.WorkspaceNamespace)
 	// Admin-managed objects change through GitOps and kubectl too: watch
 	// them and broadcast their KIND (never data — clients re-fetch through
 	// the per-user authorized API). Home volumes live wherever their
 	// workspace was placed: cluster-wide watch, scoped to the owner.
 	go events.RunWatch(ctx, kube, &waasv1alpha1.WorkspaceTemplateList{}, "templates", nil, k8sclient.InNamespace(cfg.WorkspaceNamespace))
-	go events.RunWatch(ctx, kube, &waasv1alpha1.WorkspaceImageList{}, "images", nil, k8sclient.InNamespace(cfg.WorkspaceNamespace))
+	// The image watch doubles as the catalog-sync trigger for
+	// manifest/GitOps creations — one shared watch, observer hands off to
+	// RunEventSync (see CatalogSyncWorker.OnImageEvent).
+	go events.RunWatchWithObserver(ctx, kube, &waasv1alpha1.WorkspaceImageList{}, "images", nil,
+		catalogWorker.OnImageEvent, k8sclient.InNamespace(cfg.WorkspaceNamespace))
 	go events.RunWatch(ctx, kube, &waasv1alpha1.WorkspacePolicyList{}, "policies", nil, k8sclient.InNamespace(cfg.WorkspaceNamespace))
 	go events.RunWatch(ctx, kube, &corev1.PersistentVolumeClaimList{}, "volumes",
 		func(obj k8sclient.Object) string { return obj.GetLabels()["waas.xorhub.io/owner"] },

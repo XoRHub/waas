@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -15,6 +17,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -42,7 +45,7 @@ images:
 // catalogWorkerFixture builds a CatalogSyncWorker on a fake k8s client
 // (status subresource enabled for WorkspaceImage) and a real
 // SQLCatalogRepository backed by a throwaway sqlite file.
-func catalogWorkerFixture(t *testing.T, objs ...client.Object) (*CatalogSyncWorker, client.Client, repository.CatalogRepository) {
+func catalogWorkerFixture(t *testing.T, objs ...client.Object) (*CatalogSyncWorker, client.WithWatch, repository.CatalogRepository) {
 	t.Helper()
 	c := fake.NewClientBuilder().
 		WithScheme(k8s.Scheme).
@@ -83,6 +86,212 @@ func workerCatalogStatus(t *testing.T, c client.Client, namespace, name string) 
 		t.Fatalf("Get: %v", err)
 	}
 	return got.Status.Catalog
+}
+
+// waitForCondition is the package's bounded-wait helper: every wait
+// synchronizes on an observable effect (an HTTP hit, a database row) —
+// never an arbitrary sleep.
+func waitForCondition(t *testing.T, msg string, cond func() bool) {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for !cond() {
+		select {
+		case <-deadline:
+			t.Fatal(msg)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+// waitForEntries blocks until the image has n catalog entries — the
+// observable end of an asynchronous sync.
+func waitForEntries(t *testing.T, repo repository.CatalogRepository, name string, n int) {
+	t.Helper()
+	waitForCondition(t, fmt.Sprintf("%s never reached %d catalog entries", name, n), func() bool {
+		entries, err := repo.ListEntries(context.Background(), name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(entries) == n
+	})
+}
+
+// countingCatalogServer serves workerCatalogManifest on every path and
+// counts hits per path, so a test can prove which sources were fetched
+// and how many times.
+func countingCatalogServer(t *testing.T) (*httptest.Server, func(path string) int) {
+	t.Helper()
+	var mu sync.Mutex
+	hits := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(wr http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits[r.URL.Path]++
+		mu.Unlock()
+		_, _ = wr.Write([]byte(workerCatalogManifest))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func(path string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return hits[path]
+	}
+}
+
+// watchSyncFixture wires the fixture exactly like main.go: the shared
+// image watch with the worker as observer plus the RunEventSync
+// consumer — with the ticker disabled (interval 0), the configuration
+// where the watch path must carry manifest creations on its own.
+//
+// It only returns once the watch is proven live: a fake-client watch
+// delivers nothing emitted before its (goroutine-side) registration, so
+// a warmup image's source is re-pointed until one of its syncs lands.
+func watchSyncFixture(t *testing.T, srvURL string) (*CatalogSyncWorker, client.WithWatch, repository.CatalogRepository) {
+	t.Helper()
+	w, c, catalogRepo := catalogWorkerFixture(t)
+	w.interval = 0
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	hub := NewEventHub()
+	go hub.RunWatchWithObserver(ctx, c, &waasv1alpha1.WorkspaceImageList{}, "images", nil,
+		w.OnImageEvent, client.InNamespace("default"))
+	go w.RunEventSync(ctx)
+
+	warmup := workerRegistryImage("watch-warmup", workerURLSource(srvURL+"/warmup"))
+	if err := c.Create(ctx, warmup); err != nil {
+		t.Fatalf("creating warmup image: %v", err)
+	}
+	deadline := time.After(3 * time.Second)
+	for i := 0; ; i++ {
+		entries, err := catalogRepo.ListEntries(ctx, "watch-warmup")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) > 0 {
+			return w, c, catalogRepo
+		}
+		select {
+		case <-deadline:
+			t.Fatal("watch never became live")
+		case <-time.After(20 * time.Millisecond):
+		}
+		got := &waasv1alpha1.WorkspaceImage{}
+		if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "watch-warmup"}, got); err != nil {
+			t.Fatal(err)
+		}
+		got.Spec.Catalog = workerURLSource(fmt.Sprintf("%s/warmup/%d", srvURL, i))
+		if err := c.Update(ctx, got); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestCatalogWorkerWatchSyncsManifestCreations covers the GitOps path
+// end to end: a WorkspaceImage applied through the k8s API syncs
+// without any tick (the ticker is disabled), a pure status patch does
+// not refetch, and repointing spec.catalog does.
+func TestCatalogWorkerWatchSyncsManifestCreations(t *testing.T) {
+	srv, hitCount := countingCatalogServer(t)
+	_, c, catalogRepo := watchSyncFixture(t, srv.URL)
+	ctx := context.Background()
+
+	img := workerRegistryImage("manifest-img", workerURLSource(srv.URL+"/a"))
+	if err := c.Create(ctx, img); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	waitForEntries(t, catalogRepo, "manifest-img", 2)
+	if got := hitCount("/a"); got != 1 {
+		t.Fatalf("manifest fetches = %d after creation, want 1", got)
+	}
+
+	// A pure status patch (what every sync emits) must not refetch. The
+	// proof is ordered, not timed: watch events are delivered in order,
+	// so once the later source change has synced, the status event has
+	// necessarily been processed — without a fetch.
+	got := &waasv1alpha1.WorkspaceImage{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "manifest-img"}, got); err != nil {
+		t.Fatal(err)
+	}
+	orig := got.DeepCopy()
+	got.Status.Catalog.LastSyncError = "poked by test"
+	if err := c.Status().Patch(ctx, got, client.MergeFrom(orig)); err != nil {
+		t.Fatalf("status patch: %v", err)
+	}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "manifest-img"}, got); err != nil {
+		t.Fatal(err)
+	}
+	got.Spec.Catalog = workerURLSource(srv.URL + "/b")
+	if err := c.Update(ctx, got); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	waitForCondition(t, "source change never triggered a re-fetch", func() bool { return hitCount("/b") == 1 })
+	if got := hitCount("/a"); got != 1 {
+		t.Fatalf("manifest fetches = %d on the old source, want still 1 (status patch must not refetch)", got)
+	}
+}
+
+// TestCatalogWorkerOnImageEventDiscriminant pins the watch handler's
+// decision table without goroutines: what lands in the pending set is
+// asserted directly, so re-deliveries and status noise are proven
+// no-ops deterministically (regardless of fake-vs-real generation
+// semantics — the discriminant is the source itself).
+func TestCatalogWorkerOnImageEventDiscriminant(t *testing.T) {
+	srv, _ := countingCatalogServer(t)
+	img := workerRegistryImage("waas-images", workerURLSource(srv.URL))
+	w, _, _ := catalogWorkerFixture(t, img)
+	ctx := context.Background()
+
+	if err := w.syncOne(ctx, img); err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+
+	// ADDED re-delivery (watch restart re-lists everything): no-op.
+	w.OnImageEvent(watch.Added, img)
+	if pending := w.drainPending(); len(pending) != 0 {
+		t.Fatalf("ADDED re-delivery queued %v, want nothing", pending)
+	}
+
+	// Status-only MODIFIED (every sync emits one): no-op.
+	statusOnly := img.DeepCopy()
+	statusOnly.Status.Catalog = &waasv1alpha1.ImageCatalogStatus{LastSyncError: "x"}
+	w.OnImageEvent(watch.Modified, statusOnly)
+	if pending := w.drainPending(); len(pending) != 0 {
+		t.Fatalf("status-only change queued %v, want nothing", pending)
+	}
+
+	// Non-WorkspaceImage objects flow through the same hub: ignored.
+	w.OnImageEvent(watch.Added, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "default"}})
+	if pending := w.drainPending(); len(pending) != 0 {
+		t.Fatalf("foreign object queued %v, want nothing", pending)
+	}
+
+	// A moved source queues a sync.
+	moved := img.DeepCopy()
+	moved.Spec.Catalog = workerURLSource(srv.URL + "/v2")
+	w.OnImageEvent(watch.Modified, moved)
+	if pending := w.drainPending(); len(pending) != 1 || pending[0] != "waas-images" {
+		t.Fatalf("source change queued %v, want [waas-images]", pending)
+	}
+
+	// Removing the source forgets it, so re-adding the SAME source
+	// resyncs instead of being mistaken for already-synced.
+	removed := img.DeepCopy()
+	removed.Spec.Catalog = nil
+	w.OnImageEvent(watch.Modified, removed)
+	w.OnImageEvent(watch.Modified, img)
+	if pending := w.drainPending(); len(pending) != 1 {
+		t.Fatalf("re-added source queued %v, want one sync", pending)
+	}
+
+	// DELETED purges the tracking: a deleted-then-recreated image (same
+	// name, same source) resyncs.
+	if err := w.syncOne(ctx, img); err != nil {
+		t.Fatalf("re-sync: %v", err)
+	}
+	w.OnImageEvent(watch.Deleted, img)
+	w.OnImageEvent(watch.Added, img)
+	if pending := w.drainPending(); len(pending) != 1 {
+		t.Fatalf("recreated image queued %v, want one sync", pending)
+	}
 }
 
 func TestCatalogSyncWorkerSuccessPopulatesTable(t *testing.T) {
@@ -482,21 +691,7 @@ func TestCatalogSyncWorkerRunSyncsImmediately(t *testing.T) {
 		close(done)
 	}()
 
-	deadline := time.After(time.Second)
-	for {
-		entries, err := catalogRepo.ListEntries(context.Background(), "waas-images")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(entries) == 2 {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("Run() did not sync immediately on start")
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
+	waitForEntries(t, catalogRepo, "waas-images", 2)
 	cancel()
 	<-done
 }

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
@@ -90,6 +91,18 @@ func (h *EventHub) RunWorkspaceWatch(ctx context.Context, kube client.WithWatch,
 // re-fetch goes through the normal per-user authorized API.
 func (h *EventHub) RunWatch(ctx context.Context, kube client.WithWatch, list client.ObjectList,
 	kind string, ownerOf func(client.Object) string, opts ...client.ListOption) {
+	h.RunWatchWithObserver(ctx, kube, list, kind, ownerOf, nil, opts...)
+}
+
+// RunWatchWithObserver is RunWatch with a per-event observer invoked
+// before the SSE fan-out — how the catalog sync worker rides the one
+// shared WorkspaceImage watch instead of opening a second one. The
+// observer runs on the watch goroutine, so it must hand work off and
+// never block: a stall here would stall every SSE notification of this
+// kind.
+func (h *EventHub) RunWatchWithObserver(ctx context.Context, kube client.WithWatch, list client.ObjectList,
+	kind string, ownerOf func(client.Object) string, observe func(watch.EventType, client.Object),
+	opts ...client.ListOption) {
 	for ctx.Err() == nil {
 		w, err := kube.Watch(ctx, list, opts...)
 		if err != nil {
@@ -105,6 +118,9 @@ func (h *EventHub) RunWatch(ctx context.Context, kube client.WithWatch, list cli
 			obj, ok := ev.Object.(client.Object)
 			if !ok {
 				continue
+			}
+			if observe != nil {
+				observe(ev.Type, obj)
 			}
 			owner := ""
 			if ownerOf != nil {

@@ -7,14 +7,17 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
@@ -69,6 +72,28 @@ type CatalogSyncWorker struct {
 	// HTTPClient serves the live fetches; nil uses a default client
 	// with catalogFetchTimeout (injectable for tests).
 	HTTPClient *http.Client
+
+	// lastSource remembers, per image, the catalog source last handed to
+	// syncOne by ANY path (ticker, force-sync, upsert, watch). It is the
+	// watch discriminant: an event only queues a fetch when the source it
+	// carries differs — so status patches, ADDED re-deliveries after a
+	// watch (re)start, and display-field edits are all no-ops. The source
+	// itself (not metadata.generation) is compared because the settled
+	// rule is to refetch only when spec.catalog moves, and source
+	// equality behaves identically under the real API server and the
+	// fake client used in dev/tests.
+	sourceMu   sync.Mutex
+	lastSource map[string]*waasv1alpha1.ImageCatalogSpec
+
+	// pending coalesces watch-driven sync requests by image name for
+	// RunEventSync, so the watch goroutine (shared with the SSE
+	// notifications) never waits on the sync mutex. The set is bounded
+	// by the number of live images: a burst (kubectl apply -f dir/,
+	// ArgoCD resync, watch re-list) collapses to one entry per image,
+	// which is why no drop path is needed.
+	pendingMu sync.Mutex
+	pending   map[string]struct{}
+	wake      chan struct{}
 }
 
 // catalogSyncEligible reports whether img has a catalog source to sync
@@ -78,9 +103,16 @@ func catalogSyncEligible(img *waasv1alpha1.WorkspaceImage) bool {
 	return img.Spec.Registry != "" && img.Spec.Catalog != nil
 }
 
-// NewCatalogSyncWorker builds the worker; interval <= 0 disables it.
+// NewCatalogSyncWorker builds the worker; interval <= 0 disables the
+// periodic ticker only — the watch-driven, force-sync and upsert paths
+// keep working.
 func NewCatalogSyncWorker(kube client.Client, namespace string, catalogRepo repository.CatalogRepository, interval time.Duration) *CatalogSyncWorker {
-	return &CatalogSyncWorker{kube: kube, namespace: namespace, catalog: catalogRepo, interval: interval}
+	return &CatalogSyncWorker{
+		kube: kube, namespace: namespace, catalog: catalogRepo, interval: interval,
+		lastSource: map[string]*waasv1alpha1.ImageCatalogSpec{},
+		pending:    map[string]struct{}{},
+		wake:       make(chan struct{}, 1),
+	}
 }
 
 // Run blocks until ctx is done. Unlike IdleSweeper/SessionSweeper, it
@@ -149,6 +181,12 @@ func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.Works
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	// Record the attempted source first, success and failure alike: the
+	// status patches below emit MODIFIED watch events, and this record is
+	// what keeps OnImageEvent from turning a failed fetch into a hot
+	// retry loop — retries stay on the ticker (fail-soft doctrine).
+	w.recordSource(img)
+
 	entries, source, syncErr := w.fetchAndParse(ctx, img)
 
 	orig := img.DeepCopy()
@@ -191,6 +229,115 @@ func (w *CatalogSyncWorker) syncOne(ctx context.Context, img *waasv1alpha1.Works
 		return fmt.Errorf("patching catalog status of %s: %w", img.Name, err)
 	}
 	return nil
+}
+
+// ---------------------------------------------------- watch-driven sync
+
+// OnImageEvent is the WorkspaceImage watch observer (wired to the one
+// shared watch in main.go). It runs on the watch goroutine that also
+// feeds the SSE notifications, so it must never block: it only updates
+// the source tracking and hands eligible work to RunEventSync through
+// the coalescing pending set.
+func (w *CatalogSyncWorker) OnImageEvent(evType watch.EventType, obj client.Object) {
+	img, ok := obj.(*waasv1alpha1.WorkspaceImage)
+	if !ok {
+		return
+	}
+	switch {
+	case evType == watch.Deleted:
+		// Purge so a deleted-then-recreated image resyncs, and so the
+		// tracking map cannot outgrow the live image set.
+		w.forgetSource(img.Name)
+	case !catalogSyncEligible(img):
+		// Removing the source forgets it too: re-adding the same source
+		// later must resync.
+		w.forgetSource(img.Name)
+	case w.sourceChanged(img):
+		w.enqueue(img.Name)
+	}
+}
+
+// RunEventSync consumes watch-driven sync requests until ctx ends. It
+// is deliberately independent of Run: manifest-applied images must keep
+// syncing when interval <= 0 disables the ticker, the same contract the
+// manual force-sync already honors.
+func (w *CatalogSyncWorker) RunEventSync(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.wake:
+		}
+		for _, name := range w.drainPending() {
+			w.syncPending(ctx, name)
+		}
+	}
+}
+
+// syncPending re-reads the image and re-checks both gates at consume
+// time: the event that queued the name may be stale — already covered
+// by the startup syncAll or the synchronous upsert sync — or the image
+// may be gone.
+func (w *CatalogSyncWorker) syncPending(ctx context.Context, name string) {
+	img := &waasv1alpha1.WorkspaceImage{}
+	if err := w.kube.Get(ctx, types.NamespacedName{Namespace: w.namespace, Name: name}, img); err != nil {
+		if !apierrors.IsNotFound(err) {
+			slog.Error("catalog sync: reading workspace image failed", "workspaceImage", name, "error", err)
+		}
+		return
+	}
+	if !catalogSyncEligible(img) || !w.sourceChanged(img) {
+		return
+	}
+	if err := w.syncOne(ctx, img); err != nil {
+		slog.Error("catalog sync failed", "workspaceImage", name, "error", err)
+	}
+}
+
+// enqueue never blocks: redundant requests coalesce into set
+// membership, and the wake channel only needs capacity 1 to guarantee
+// the consumer runs after the last enqueue.
+func (w *CatalogSyncWorker) enqueue(name string) {
+	w.pendingMu.Lock()
+	w.pending[name] = struct{}{}
+	w.pendingMu.Unlock()
+	select {
+	case w.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (w *CatalogSyncWorker) drainPending() []string {
+	w.pendingMu.Lock()
+	defer w.pendingMu.Unlock()
+	names := make([]string, 0, len(w.pending))
+	for name := range w.pending {
+		names = append(names, name)
+	}
+	clear(w.pending)
+	return names
+}
+
+func (w *CatalogSyncWorker) recordSource(img *waasv1alpha1.WorkspaceImage) {
+	w.sourceMu.Lock()
+	defer w.sourceMu.Unlock()
+	w.lastSource[img.Name] = img.Spec.Catalog.DeepCopy()
+}
+
+func (w *CatalogSyncWorker) forgetSource(name string) {
+	w.sourceMu.Lock()
+	defer w.sourceMu.Unlock()
+	delete(w.lastSource, name)
+}
+
+// sourceChanged reports whether img's catalog source differs from the
+// last one any sync path attempted in this process (an unseen image
+// counts as changed).
+func (w *CatalogSyncWorker) sourceChanged(img *waasv1alpha1.WorkspaceImage) bool {
+	w.sourceMu.Lock()
+	defer w.sourceMu.Unlock()
+	last, ok := w.lastSource[img.Name]
+	return !ok || !reflect.DeepEqual(last, img.Spec.Catalog)
 }
 
 // marshalRecommended serializes a parsed recommendation for the JSON
