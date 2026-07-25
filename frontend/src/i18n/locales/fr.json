@@ -336,7 +336,7 @@
       "storageClassDefault": "(défaut du cluster)",
       "placement": "Placement des workloads",
       "placementPattern": "Pattern de namespace",
-      "placementHint": "Vide = pattern global de la plateforme (env operator), puis le défaut « waas-workspaces ». Un changement ne concerne que les NOUVEAUX workspaces.",
+      "placementHint": "Vide = pattern global de la plateforme (env operator), puis le défaut par utilisateur « waas-{user} ». Un changement ne concerne que les NOUVEAUX workspaces.",
       "placementCleanup": "Cleanup du namespace",
       "placementLabels": "Labels du namespace",
       "placementAnnotations": "Annotations du namespace",
