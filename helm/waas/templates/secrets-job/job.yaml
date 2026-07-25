@@ -77,6 +77,8 @@ spec:
               value: {{ .Release.Name }}-postgres
             - name: POSTGRES_DB
               value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_SSLMODE
+              value: {{ .Values.postgres.sslMode | quote }}
             {{- else if not .Values.postgres.externalURLSecretRef.name }}
             # Only needed when nothing else already provides the full URL:
             # externalURLSecretRef makes api-server read it directly and
@@ -128,7 +130,7 @@ spec:
               token_b64=$(ensure internal-token gen_token)
 
               if [ "$POSTGRES_ENABLED" = "true" ]; then
-                dburl="postgres://${POSTGRES_USER}:$(printf '%s' "$pg_b64" | base64 -d)@${POSTGRES_HOST}:5432/${POSTGRES_DB}?sslmode=disable"
+                dburl="postgres://${POSTGRES_USER}:$(printf '%s' "$pg_b64" | base64 -d)@${POSTGRES_HOST}:5432/${POSTGRES_DB}?sslmode=${POSTGRES_SSLMODE}"
               else
                 dburl="$EXTERNAL_DATABASE_URL"
               fi
