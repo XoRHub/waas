@@ -99,11 +99,19 @@ registry outage never blocks the rest):
   discriminant is the **source itself** (the last `spec.catalog` any
   sync path attempted, tracked in memory, purged on delete): the sync's
   own status patch, watch re-lists after a reconnect, and display-field
-  edits are all no-ops — only a moved source refetches. Setting
-  `apiServer.catalogSyncInterval` ≤ 0 disables **only the ticker**:
-  creation/source-change syncs, like the manual force-sync, keep
-  working; what is lost is the periodic pick-up of new content
-  published under an unchanged source.
+  edits are all no-ops — only a moved source refetches. The source is
+  recorded on **failure too**, on purpose: a failed fetch keeps emitting
+  a status patch, and re-queueing on it would spin a hot retry loop
+  against a broken registry. Retrying a failed sync is therefore the
+  ticker's job (or the admin's, through *Sync now*), never the watch's;
+- Setting `apiServer.catalogSyncInterval` ≤ 0 disables **only the
+  ticker**: creation/source-change syncs, like the manual force-sync,
+  keep working. What is lost is everything periodic — the pick-up of new
+  content published under an unchanged source, **and** the retry of a
+  failed sync. A transient fetch failure while applying a new image then
+  leaves that image without catalog entries until an admin clicks *Sync
+  now* or the source itself moves, so a zero interval is only reasonable
+  where those syncs are driven deliberately.
 
 The status patch never bumps `metadata.generation`, so the periodic
 sync never triggers `workspace_controller.go`'s
