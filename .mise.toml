@@ -33,5 +33,5 @@ uv = "0.11.32"
 postinstall = """
 command -v helm >/dev/null 2>&1 || exit 0
 helm version --short 2>/dev/null | grep -q '^v[4-9]' || exit 0
-helm plugin list 2>/dev/null | grep -q '^unittest' || helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.1 --verify=false
+helm plugin list 2>/dev/null | grep -q '^unittest' || helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.2 --verify=false
 """
