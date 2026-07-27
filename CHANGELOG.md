@@ -1,5 +1,81 @@
 # Changelog
 
+## [0.3.0](https://github.com/XoRHub/waas/compare/v0.2.0...v0.3.0) (2026-07-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **frontend:** the SSO callback redirect no longer carries a token in its fragment. Anything that scraped it must read GET /auth/me instead.
+* **operator:** default workload placement to a per-user namespace
+* **api-server:** stop accepting access_token query auth outside the SSE stream
+* drop the v prefix from appVersion and promoted image tags
+
+### Features
+
+* **api-server:** accept the access token from a session cookie ([7d05385](https://github.com/XoRHub/waas/commit/7d053851a805e9561c73c95fbcbfde782c043203))
+* **api-server:** discover the cluster DNS domain from resolv.conf ([82d60bd](https://github.com/XoRHub/waas/commit/82d60bd68b9babb5d0fbf1bd1bf14117a77f1bb4))
+* **api-server:** end the session when an edit revokes its own author ([0a9e398](https://github.com/XoRHub/waas/commit/0a9e3983ae856b4ab6e86c406eed2c8e512a853a))
+* **api-server:** fetch the catalog when an admin creates or repoints an image ([726c0ec](https://github.com/XoRHub/waas/commit/726c0ec55276242dfe4267539e78ef4102c29a07))
+* **api-server:** hand browsers a session cookie at login and SSO callback ([616cb5b](https://github.com/XoRHub/waas/commit/616cb5ba5290f42179ff2af579c0bfdca0c0fe46))
+* **api-server:** make the per-user namespace actually per-user ([4014cf7](https://github.com/XoRHub/waas/commit/4014cf7da8d232c4ffca34d85df350e717eee842))
+* **api-server:** mint short-lived stream tokens via POST /auth/stream-token ([5572876](https://github.com/XoRHub/waas/commit/557287637aa913a8205916318e5868a515e8bee7))
+* **api-server:** persist a per-user token-validity bound ([898b99e](https://github.com/XoRHub/waas/commit/898b99eae89bfad541a7345e0faf36cfbf8c5598))
+* **api-server:** reject in-cluster targets for remote workspaces ([89979f3](https://github.com/XoRHub/waas/commit/89979f36b28d8e78c0c60156dc8781c7798a4e9f))
+* **api-server:** revoke sessions on logout, deactivation, role and password change ([25ffb30](https://github.com/XoRHub/waas/commit/25ffb30a6373f07ed5bd978218cf3007c105a10d))
+* **api-server:** sync manifest-created catalog sources from the shared image watch ([b7ac606](https://github.com/XoRHub/waas/commit/b7ac606398c858d7add0b504dc405e5433543a37))
+* **frontend:** authenticate with the session cookie, store no credential ([6a55424](https://github.com/XoRHub/waas/commit/6a554248046aa0df37f5031321c512732be0a13b))
+* **frontend:** revoke the session server-side on logout ([da30963](https://github.com/XoRHub/waas/commit/da3096341a9c9f124cbf378b0842c0a9be08d191))
+* **helm:** parameterize the bundled postgres sslmode ([4394709](https://github.com/XoRHub/waas/commit/43947097a9f2fbc96c1a8430458359da45db7d58))
+* **helm:** parameterize the bundled postgres sslmode ([4b0245c](https://github.com/XoRHub/waas/commit/4b0245c419713cae6c5b34e55c0ff010f7513fd5))
+* **operator:** default workload placement to a per-user namespace ([aa76c9a](https://github.com/XoRHub/waas/commit/aa76c9ac25e43fb3d3072824ab23aaa0e991154c))
+* **shared:** add waas-stream token audience for the SSE stream ([fff570c](https://github.com/XoRHub/waas/commit/fff570c2d69ba12fe4daf0653d31389b3e0f4078))
+
+
+### Bug Fixes
+
+* **api-server:** bound the admin catalog force-sync with a deadline ([8bd2907](https://github.com/XoRHub/waas/commit/8bd29074ad4d1b49283a37f63594593cdd5a13aa))
+* **api-server:** cap the Postgres connection pool ([4b75a8a](https://github.com/XoRHub/waas/commit/4b75a8aac957421ef61e6a31fbfe4f72fb87f79b))
+* **api-server:** cap the Postgres connection pool ([9c56ccc](https://github.com/XoRHub/waas/commit/9c56ccc474de2d191d04af49fa84d927124a9487))
+* **api-server:** enforce immediate session revocation ([fa34294](https://github.com/XoRHub/waas/commit/fa3429494412fb72ee206cece4a9b3ac9f77257a))
+* **api-server:** enforce the admin floor in the write, not in a pre-check ([007e91f](https://github.com/XoRHub/waas/commit/007e91f745fab61bf26f24dc0a705d34f31b6d9d))
+* **api-server:** evaluate the catalog resync discriminant under the sync lock ([c59a14e](https://github.com/XoRHub/waas/commit/c59a14e3e5b5d4690a7594d42da9e3708f74275f))
+* **api-server:** expire the session cookie when the caller changes their password ([aedbf78](https://github.com/XoRHub/waas/commit/aedbf7884a967eb91a9dae11190bee9b32df3902))
+* **api-server:** keep a hanging catalog source a 502, not a busy 503 ([60b9b57](https://github.com/XoRHub/waas/commit/60b9b57b89ccc0c5b3cdac0b1d3d827b1a694d70))
+* **api-server:** keep role and active out of full-row user writes ([acf15e4](https://github.com/XoRHub/waas/commit/acf15e4cab71187ba634cbfa70d4399235f59df7))
+* **api-server:** keep role and active out of full-row user writes ([949f476](https://github.com/XoRHub/waas/commit/949f4765bab46acf05f6f44c7dd2b0110cef2879))
+* **api-server:** keep the token bound out of full-row user writes ([c8d9268](https://github.com/XoRHub/waas/commit/c8d9268d9b55fd48fb35c2772b467be3e122cb3e))
+* **api-server:** re-check user state on every authenticated request ([4fe23bb](https://github.com/XoRHub/waas/commit/4fe23bbd5678a71d9fb579a5f65e4b19eb3b5473))
+* **api-server:** reject in-cluster targets for remote workspaces ([3a85015](https://github.com/XoRHub/waas/commit/3a85015560553a8c98f1622e7d02073954409eb8))
+* **api-server:** reject valueFrom in override env input ([d878cdf](https://github.com/XoRHub/waas/commit/d878cdfc0bfa383887ee986bb1928677dfe6885d))
+* **api-server:** restore modernc.org/libc to v1.74.1 ([e01ac1f](https://github.com/XoRHub/waas/commit/e01ac1f5c0d9494a32140c978d3f6db1da08d17c))
+* **api-server:** retry lifecycle updates on conflict, surface 409 ([f42ad4f](https://github.com/XoRHub/waas/commit/f42ad4fbf961799d17c15e57ebf053d83c3bb84e))
+* **api-server:** retry lifecycle updates on conflict, surface 409 ([436b9e3](https://github.com/XoRHub/waas/commit/436b9e34beebb433eb3fb3e4cd34b6301fdf4888))
+* **api-server:** stop accepting access_token query auth outside the SSE stream ([d878b1e](https://github.com/XoRHub/waas/commit/d878b1e2788966eeffa56ae4b4a5e3c097d79ab7))
+* **api-server:** sync the catalog when an image first becomes eligible ([1439797](https://github.com/XoRHub/waas/commit/14397971bab0d6047e34f17703afccc641f553ff))
+* **deps:** update go-non-major ([eb51e04](https://github.com/XoRHub/waas/commit/eb51e04926b39985ad20ec6d769bb831f0b6d006))
+* **deps:** update go-non-major ([ed084e3](https://github.com/XoRHub/waas/commit/ed084e3aa6622cd915765553ac3fade9c606ed0d))
+* **dev:** pin dev-ssh to the shared namespace its seeded Secret lives in ([097e9ce](https://github.com/XoRHub/waas/commit/097e9cef710ce5f9f24082f026f83fe7a0333bf6))
+* **frontend:** cite the per-user default in the placement hint ([1b6d914](https://github.com/XoRHub/waas/commit/1b6d9148869a1de63b02fa9e5c95b06bd73ebfe4))
+* **frontend:** clear local auth state instead of revoking on error paths ([5e4b9fc](https://github.com/XoRHub/waas/commit/5e4b9fcd5286adf888ec07773341ec1ac6b00619))
+* **frontend:** open the SSE stream with a minted stream token, not the API bearer ([d8a4d40](https://github.com/XoRHub/waas/commit/d8a4d409e7b5f7b51b618e33d06551f74c77f6bf))
+* **frontend:** sign out explicitly after a password change ([7b6980b](https://github.com/XoRHub/waas/commit/7b6980b730cfcd80a6bd340bbeb33208e6a313a3))
+* **frontend:** sign out from the server's session-ended announcement ([ce014d6](https://github.com/XoRHub/waas/commit/ce014d6c0c14fe498e820da4e45db8ce8f0a1f66))
+* make the per-user namespace actually per-user ([f8870fe](https://github.com/XoRHub/waas/commit/f8870fe4bce4dfeafb7aa384f79e34a1ee74b6f1))
+* **operator:** default-deny egress on placed namespaces ([70b8304](https://github.com/XoRHub/waas/commit/70b8304bef1bc7fc3d746ebd6c3acdc414cd125f))
+* **operator:** refuse a deviation into another user's personal namespace ([d362ba6](https://github.com/XoRHub/waas/commit/d362ba6e5fa205a026cd8fe932aea0b442c2a87c))
+* **operator:** reject valueFrom in workspace override env ([746dbb5](https://github.com/XoRHub/waas/commit/746dbb5dd6e97e597447b7a7ad108e26402bbf9a))
+* **operator:** reject valueFrom in workspace override env ([976da9a](https://github.com/XoRHub/waas/commit/976da9abbf189c29775c61259f416c5f3eecea38))
+* **operator:** resolve the personal namespace instead of rebuilding it ([00c1797](https://github.com/XoRHub/waas/commit/00c179760c2387cc051354bd5db4cfe33ef62f83))
+* **operator:** stop auto-mounting the SA token in desktop pods ([4f664d8](https://github.com/XoRHub/waas/commit/4f664d8c5fd018f5b65047a18ba0e901a62c0007))
+* **operator:** stop auto-mounting the SA token in desktop pods and netpol block on critical intern cluster stuff ([976e6d0](https://github.com/XoRHub/waas/commit/976e6d038fb88e98d570a2402f2d2edd9e078084))
+* **wwt:** bound guacamole element length to stop remote crash of the  of the shared tunnel ([067536c](https://github.com/XoRHub/waas/commit/067536cd9a3118b8e2a8a9822343419cd5ff4625))
+* **wwt:** bound guacamole element length to stop remote crash of the shared tunnel ([f60d9f9](https://github.com/XoRHub/waas/commit/f60d9f9c1a29c8bea0960de2da57f51ff90d6b76))
+
+
+### Continuous Integration
+
+* drop the v prefix from appVersion and promoted image tags ([d33c6f9](https://github.com/XoRHub/waas/commit/d33c6f9e5c60d8aac7e93083afc30a8eae759443))
+
 ## [0.2.0](https://github.com/XoRHub/waas/compare/v0.1.0...v0.2.0) (2026-07-19)
 
 
