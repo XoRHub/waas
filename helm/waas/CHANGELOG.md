@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.3.0](https://github.com/XoRHub/waas/compare/chart-0.2.0...chart-0.3.0) (2026-07-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **helm:** with workspaces.defaultNamespacePattern unset, new workspaces now land in "waas-{user}" instead of the shared "waas-workspaces". Existing workspaces keep their frozen spec.targetNamespace; set defaultNamespacePattern to "waas-workspaces" to keep the previous shared behavior.
+* **helm:** users covered only by the bootstrap default policy can no longer set `spec.overrides.volumes` at creation. Deployments that relied on it must grant the right explicitly via defaultPolicy.overrides.allowedFields or a higher-priority WorkspacePolicy, and should read the implications in docs/accepted-limitations.md first.
+* drop the v prefix from appVersion and promoted image tags
+
+### ci
+
+* drop the v prefix from appVersion and promoted image tags ([d33c6f9](https://github.com/XoRHub/waas/commit/d33c6f9e5c60d8aac7e93083afc30a8eae759443))
+
+
+### Features
+
+* **helm:** default workload placement to a per-user namespace ([60532d2](https://github.com/XoRHub/waas/commit/60532d2de871193a064bc374c8b193ab5d6c43e3))
+* **helm:** expose apiServer.clusterDomain and remoteBlockedCIDRs ([637a45d](https://github.com/XoRHub/waas/commit/637a45dabb847af1db2a8ce18938e1fede5c3a46))
+* **helm:** expose apiServer.streamTokenTTL ([9688144](https://github.com/XoRHub/waas/commit/9688144bd263ca23df070915230eec2ae06c88e0))
+* **helm:** expose operator.desktopEgress values ([463dea4](https://github.com/XoRHub/waas/commit/463dea4c7ae958fc1141ab2c36d6ff2cd7947590))
+* **helm:** parameterize the bundled postgres sslmode ([4394709](https://github.com/XoRHub/waas/commit/43947097a9f2fbc96c1a8430458359da45db7d58))
+* **helm:** parameterize the bundled postgres sslmode ([4b0245c](https://github.com/XoRHub/waas/commit/4b0245c419713cae6c5b34e55c0ff010f7513fd5))
+
+
+### Bug Fixes
+
+* **api-server:** reject in-cluster targets for remote workspaces ([3a85015](https://github.com/XoRHub/waas/commit/3a85015560553a8c98f1622e7d02073954409eb8))
+* **helm:** stop granting the volumes override in the default policy ([fc614eb](https://github.com/XoRHub/waas/commit/fc614eb2a368f8caaee408db3c086bc31e9a5504))
+* **operator:** stop auto-mounting the SA token in desktop pods and netpol block on critical intern cluster stuff ([976e6d0](https://github.com/XoRHub/waas/commit/976e6d038fb88e98d570a2402f2d2edd9e078084))
+
+
+### Chores
+
+* **deps:** update bitnami/kubectl:latest docker digest to 95de17e ([8903648](https://github.com/XoRHub/waas/commit/8903648f6e64689c06eb6b6f3215621464d2cb84))
+* **deps:** update bitnami/kubectl:latest docker digest to 95de17e ([f558af9](https://github.com/XoRHub/waas/commit/f558af95cf2767e2935131476156235436dce8db))
+* **main:** release 0.3.0 ([dad86d0](https://github.com/XoRHub/waas/commit/dad86d043f8768672302759dd432c853000ae903))
+* **main:** release 0.3.0 ([35b3c17](https://github.com/XoRHub/waas/commit/35b3c1788bbb2a0405a047cf8f286a146da222fa))
+
 ## [0.2.0](https://github.com/XoRHub/waas/compare/waas-chart-0.1.0...waas-chart-0.2.0) (2026-07-19)
 
 
