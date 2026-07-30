@@ -68,7 +68,7 @@ jobs:
     # legs simply never connect.
     services:
       postgres:
-        image: postgres:17-alpine@sha256:af194ccf3e2d7fe367012c7b88ce8b816c5c889b18a5b316799a1f0d7eac746a
+        image: postgres:18-alpine@sha256:b6a16ed0eb96e2c362811f7eeb951eac8b459e7b40be4149ea5444aa7c65569b
         env:
           POSTGRES_PASSWORD: pg
         ports:
