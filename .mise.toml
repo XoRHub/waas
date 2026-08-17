@@ -9,7 +9,7 @@ golangci-lint = "2.12.2" # keep >= the go directive of the modules it lints
 # k3d pin = the version installed in dev at pin time; the k3s image it
 # boots is pinned in hack/dev/k3d-config.yaml (keep both in sync).
 k3d = "5.9.0"
-helm = "4.2.3"
+helm = "4.2.4"
 helm-docs = "1.14.2"
 # runs hack/ci/crd_to_jsonschema.py (PEP 723 inline deps — the script
 # pins its own pyyaml).
