@@ -5,7 +5,14 @@
 [tools]
 go = "1.27.0" # keep >= the modules' `go 1.26` directive (go.work + every go.mod)
 node = "24.19.0"
-golangci-lint = "2.13.1" # keep >= the go directive of the modules it lints
+# Must be BUILT WITH a Go >= the `go` pin above — not merely >= the modules'
+# `go` directive. golangci-lint typechecks the installed stdlib with its own
+# embedded go/types, so a build older than the toolchain chokes on new
+# language features: 2.12.2 (built with go1.26.2) rejected the generic
+# methods Go 1.27 added in math/rand/v2 and broke every go-lint job on main.
+# `golangci-lint version` prints the build toolchain — check it, not the tag.
+# Renovate keeps this pin and `go` in one PR (see renovate.json).
+golangci-lint = "2.13.1"
 # k3d pin = the version installed in dev at pin time; the k3s image it
 # boots is pinned in hack/dev/k3d-config.yaml (keep both in sync).
 k3d = "5.9.0"
