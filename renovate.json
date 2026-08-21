@@ -41,6 +41,13 @@
       "platformAutomerge": true
     },
     {
+      "description": "`go` and `golangci-lint` in .mise.toml must co-travel: golangci-lint typechecks the installed stdlib with its own embedded go/types, so a build older than the go pin fails on new language features. Split PRs already broke main — go 1.27.0 landed alone (#149) while golangci-lint 2.12.2, built with go1.26.2, rejected the generic methods Go 1.27 added in math/rand/v2, and all five go-lint jobs went red until #157 landed. One reviewed PR, never automerged: a Go minor is a language change the lint gate cannot vet on its own.",
+      "matchManagers": ["mise"],
+      "matchPackageNames": ["go", "golangci-lint"],
+      "groupName": "go-toolchain",
+      "automerge": false
+    },
+    {
       "description": "Frontend devDependencies patch/minor bumps in one weekly PR, automerged: they never reach the shipped bundle, so a bad bump fails CI, not users.",
       "matchManagers": ["npm"],
       "matchDepTypes": ["devDependencies"],
