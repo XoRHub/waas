@@ -5,7 +5,7 @@
 [tools]
 go = "1.27.0" # keep >= the modules' `go 1.26` directive (go.work + every go.mod)
 node = "24.19.0"
-golangci-lint = "2.12.2" # keep >= the go directive of the modules it lints
+golangci-lint = "2.13.1" # keep >= the go directive of the modules it lints
 # k3d pin = the version installed in dev at pin time; the k3s image it
 # boots is pinned in hack/dev/k3d-config.yaml (keep both in sync).
 k3d = "5.9.0"
