@@ -12,7 +12,7 @@ node = "24.19.0"
 # methods Go 1.27 added in math/rand/v2 and broke every go-lint job on main.
 # `golangci-lint version` prints the build toolchain — check it, not the tag.
 # Renovate keeps this pin and `go` in one PR (see renovate.json).
-golangci-lint = "2.13.1"
+golangci-lint = "2.13.2"
 # k3d pin = the version installed in dev at pin time; the k3s image it
 # boots is pinned in hack/dev/k3d-config.yaml (keep both in sync).
 k3d = "5.9.0"
