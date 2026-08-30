@@ -50,7 +50,7 @@ secretsJob:
   # bitnami/ only publishes a moving `latest` tag since the 2025 catalog
   # change; kubectl does not have to match the cluster version exactly.
   # -- Image used by the secrets-generation hook Job.
-  image: bitnami/kubectl:latest@sha256:c12989b8ecaecbd9d9a49828bfdb727ef222a6747a8984701e2a3cdf9c1cb168
+  image: bitnami/kubectl:latest@sha256:65447dcbb2813878e22265949a4ba4cca02f8d008ff3fe66a25354b511f28015
 
 # internal-token: the shared bearer secret wwt sends (X-Internal-Token
 # header) and api-server checks (subtle.ConstantTimeCompare, no format
@@ -77,7 +77,7 @@ internalTokenSecretRef:
 # refuses to start without — hence no toggle, ever.
 jwtJob:
   # -- Image used by the JWT signing-key hook Job (kubectl + openssl, same as secretsJob's).
-  image: bitnami/kubectl:latest@sha256:c12989b8ecaecbd9d9a49828bfdb727ef222a6747a8984701e2a3cdf9c1cb168
+  image: bitnami/kubectl:latest@sha256:65447dcbb2813878e22265949a4ba4cca02f8d008ff3fe66a25354b511f28015
 
 # Namespace where Workspace/WorkspaceTemplate CRs live. Empty (default)
 # = the release namespace, i.e. the same place the operator/api-server

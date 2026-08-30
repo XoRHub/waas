@@ -50,10 +50,10 @@ table is a quick *what*.
 | image.tag | string | `""` | Image tag for every component; empty defaults to Chart.yaml's appVersion (bumped on every app release). |
 | image.pullPolicy | string | `"IfNotPresent"` | imagePullPolicy for every component's pods. |
 | secretsJob.enabled | bool | `true` | Generate/manage the release Secrets in-cluster; disable once every `*SecretRef` below is set. |
-| secretsJob.image | string | `"bitnami/kubectl:latest@sha256:c12989b8ecaecbd9d9a49828bfdb727ef222a6747a8984701e2a3cdf9c1cb168"` | Image used by the secrets-generation hook Job. |
+| secretsJob.image | string | `"bitnami/kubectl:latest@sha256:65447dcbb2813878e22265949a4ba4cca02f8d008ff3fe66a25354b511f28015"` | Image used by the secrets-generation hook Job. |
 | internalTokenSecretRef.name | string | `""` | Secret name to read the internal-token from instead of the chart-generated one. |
 | internalTokenSecretRef.key | string | `""` | Secret key. Defaults to `"internal-token"`. |
-| jwtJob.image | string | `"bitnami/kubectl:latest@sha256:c12989b8ecaecbd9d9a49828bfdb727ef222a6747a8984701e2a3cdf9c1cb168"` | Image used by the JWT signing-key hook Job (kubectl + openssl, same as secretsJob's). |
+| jwtJob.image | string | `"bitnami/kubectl:latest@sha256:65447dcbb2813878e22265949a4ba4cca02f8d008ff3fe66a25354b511f28015"` | Image used by the JWT signing-key hook Job (kubectl + openssl, same as secretsJob's). |
 | workspaces.namespace | string | `""` | Namespace for Workspace/WorkspaceTemplate CRs; empty defaults to the release namespace. |
 | workspaces.create | bool | `true` | Create the namespace above when it differs from the release namespace. |
 | workspaces.defaultNamespacePattern | string | `""` | Operator-wide namespace placement pattern; empty uses the built-in default. |
