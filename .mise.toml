@@ -24,7 +24,7 @@ uv = "0.12.6"
 # go: backend (no registry short name) — Renovate's mise manager bumps
 # backend-prefixed tools like core ones. Used by ci-security.yml and
 # `make vulncheck-go`.
-"go:golang.org/x/vuln/cmd/govulncheck" = "1.6.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.7.0"
 
 [hooks]
 # helm-unittest is a helm PLUGIN, not a standalone binary — no mise
