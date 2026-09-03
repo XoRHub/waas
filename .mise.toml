@@ -4,7 +4,7 @@
 # "passes here, fails in CI" incident (audit 2026-07, C6).
 [tools]
 go = "1.27.0" # keep >= the modules' `go 1.26` directive (go.work + every go.mod)
-node = "24.19.0"
+node = "24.20.0"
 # Must be BUILT WITH a Go >= the `go` pin above — not merely >= the modules'
 # `go` directive. golangci-lint typechecks the installed stdlib with its own
 # embedded go/types, so a build older than the toolchain chokes on new
