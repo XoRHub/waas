@@ -20,7 +20,7 @@ helm = "4.2.4"
 helm-docs = "1.14.2"
 # runs hack/ci/crd_to_jsonschema.py (PEP 723 inline deps — the script
 # pins its own pyyaml).
-uv = "0.12.7"
+uv = "0.12.10"
 # go: backend (no registry short name) — Renovate's mise manager bumps
 # backend-prefixed tools like core ones. Used by ci-security.yml and
 # `make vulncheck-go`.
