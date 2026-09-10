@@ -1,6 +1,6 @@
 # Build from the repository root (the module replaces ../shared):
 #   docker build -f wwt/Dockerfile .
-FROM --platform=$BUILDPLATFORM golang:1.27.0@sha256:4013ae0f9e7994f8535c58c811f8f863fbed38b72e0d51e6592156f758d66146 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.1@sha256:f44f6e88636cfb311f9ebace870ded69d943f227bb3cb27d32ffd84ea18c43ea AS builder
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY shared/ shared/
