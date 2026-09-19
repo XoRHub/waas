@@ -1,6 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Monorepo config: Dockerfiles, CI job images across .github/workflows/, tool pins in scripts and Makefiles. The waas-images repo (split out 2026-07-10) carries its own config again.",
+  "description": [
+    "Monorepo config: Dockerfiles, CI job images across .github/workflows/, tool pins in scripts and Makefiles. The waas-images repo (split out 2026-07-10) carries its own config again.",
+    "prConcurrentLimit is raised from the config:recommended default of 10: at that ceiling a single red gate deadlocks the repo. CVE-2026-56854 in x/crypto failed the Trivy gate on every branch, so no automerge fired, the queue filled with PRs that could not go green, and the weekly go-non-major PR carrying the very bump that fixes it stayed rate-limited from 2026-08-10 to 2026-09-19 — six missed windows, unstuck only by bumping the dep by hand. The budget also has to absorb the major-version PRs that sit open under manual review indefinitely (eslint, typescript, react-router), which the automerged groups cannot drain."
+  ],
   "extends": [
     "config:recommended",
     "docker:pinDigests",
@@ -8,6 +11,7 @@
     "mergeConfidence:all-badges"
   ],
   "postUpdateOptions": ["gomodTidy"],
+  "prConcurrentLimit": 20,
   "packageRules": [
     {
       "description": "Bump indirect Go deps too (off by Renovate default): the Trivy gate blocks main on HIGH/CRITICAL CVEs in go.mod, and x/net-style CVEs live in indirect deps.",
