@@ -9,7 +9,7 @@ CONTROLLER_GEN := go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTR
 # webhooks end-to-end, finalizer lifecycle). SETUP_ENVTEST_VERSION is the
 # downloader tool; ENVTEST_K8S_VERSION picks the control-plane binaries
 # and should track the k8s.io/* minor in go.mod.
-SETUP_ENVTEST_VERSION ?= v0.24.1
+SETUP_ENVTEST_VERSION ?= v0.25.1
 ENVTEST_K8S_VERSION ?= 1.35.x
 SETUP_ENVTEST := go run sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
 
