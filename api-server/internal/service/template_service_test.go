@@ -7,6 +7,13 @@ import (
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
 
+// onWindows turns a linux input into a KubeVirt VM one — the only OS
+// where rdp is admitted, so every multi-guacd-protocol case lives there.
+func onWindows(in TemplateInput) TemplateInput {
+	in.OS = "windows"
+	return in
+}
+
 // specFromInput mirrors the admission webhook's exposeAudioPort gates
 // with 400s: vnc-only, and no protocol may squat the PulseAudio port.
 func TestTemplateInputValidatesExposeAudioPort(t *testing.T) {
@@ -28,16 +35,16 @@ func TestTemplateInputValidatesExposeAudioPort(t *testing.T) {
 			"",
 		},
 		{
-			"audio port on ssh",
-			base(TemplateProtocolInput{Name: "ssh", Port: 22, ExposeAudioPort: true}),
+			"audio port on kasmvnc",
+			base(TemplateProtocolInput{Name: "kasmvnc", Port: 6901, ExposeAudioPort: true}),
 			"only the vnc protocol",
 		},
 		{
 			"audio port colliding with a protocol port",
-			base(
+			onWindows(base(
 				TemplateProtocolInput{Name: "vnc", Port: 5901, ExposeAudioPort: true},
 				TemplateProtocolInput{Name: "rdp", Port: 4713},
-			),
+			)),
 			"collides with the exposed PulseAudio port",
 		},
 	}
@@ -58,8 +65,10 @@ func TestTemplateInputValidatesExposeAudioPort(t *testing.T) {
 }
 
 // specFromInput mirrors the admission webhook's structural protocol
-// gates with 400s: no duplicate declaration, and kasmvnc is exclusive
-// (it bypasses guacd and must be the template's only protocol).
+// gates with 400s: no duplicate declaration, kasmvnc is exclusive (it
+// bypasses guacd and must be the template's only protocol), rdp is
+// windows-only (in-cluster RDP is the KubeVirt VM path) and kasmvnc is
+// linux-only (a VM runs no kasmweb image).
 func TestTemplateInputValidatesProtocolCombinations(t *testing.T) {
 	base := func(protocols ...TemplateProtocolInput) TemplateInput {
 		return TemplateInput{
@@ -70,7 +79,6 @@ func TestTemplateInputValidatesProtocolCombinations(t *testing.T) {
 	kasm := TemplateProtocolInput{Name: "kasmvnc", Port: 6901}
 	vnc := TemplateProtocolInput{Name: "vnc", Port: 5901}
 	rdp := TemplateProtocolInput{Name: "rdp", Port: 3389}
-	ssh := TemplateProtocolInput{Name: "ssh", Port: 22}
 
 	cases := []struct {
 		name    string
@@ -78,11 +86,14 @@ func TestTemplateInputValidatesProtocolCombinations(t *testing.T) {
 		wantErr string
 	}{
 		{"kasmvnc alone", base(kasm), ""},
-		{"vnc+rdp+ssh without kasmvnc", base(vnc, rdp, ssh), ""},
+		{"vnc alone", base(vnc), ""},
+		{"rdp on windows", onWindows(base(rdp)), ""},
+		{"vnc+rdp on windows", onWindows(base(vnc, rdp)), ""},
+		{"rdp on linux", base(rdp), "only available on windows"},
+		{"kasmvnc on windows", onWindows(base(kasm)), "not available on windows"},
+		{"vnc+rdp on linux", base(vnc, rdp), "only available on windows"},
 		{"kasmvnc with vnc", base(kasm, vnc), "cannot be combined"},
-		{"kasmvnc with rdp", base(kasm, rdp), "cannot be combined"},
-		{"kasmvnc with ssh", base(kasm, ssh), "cannot be combined"},
-		{"kasmvnc with vnc+rdp+ssh", base(kasm, vnc, rdp, ssh), "cannot be combined"},
+		{"vnc with kasmvnc", base(vnc, kasm), "cannot be combined"},
 		{"protocol declared twice", base(vnc, vnc), "declared twice"},
 	}
 	for _, tc := range cases {

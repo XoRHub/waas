@@ -46,9 +46,10 @@ of what goes in it, by design (below). Read literally:
 
 - `volumes` accepts any `corev1.VolumeSource`. A `secret:` entry mounts
   **any Secret co-located in the workspace namespace** — at minimum the
-  registry pull secret and the per-workspace SSH key. `projected:` can
-  additionally re-introduce a `serviceAccountToken` the platform
-  deliberately turns off (`AutomountServiceAccountToken: false`).
+  registry pull secret and the pod copy of the generated desktop
+  password. `projected:` can additionally re-introduce a
+  `serviceAccountToken` the platform deliberately turns off
+  (`AutomountServiceAccountToken: false`).
   `csi`, `cephfs`, `rbd`, `iscsi` and friends carry their own
   `secretRef`, so they are the same primitive by another route.
 - `securityContext` covers the whole struct, `privileged: true`

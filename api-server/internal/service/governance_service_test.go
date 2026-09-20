@@ -161,7 +161,7 @@ func TestCatalogListsTemplatesOfEveryProtocol(t *testing.T) {
 	}{
 		{"img-vnc", "reg/xfce:1", []waasv1alpha1.Protocol{waasv1alpha1.ProtocolVNC, waasv1alpha1.ProtocolRDP}},
 		{"img-rdp", "reg/win:1", []waasv1alpha1.Protocol{waasv1alpha1.ProtocolRDP}},
-		{"img-ssh", "reg/dev-ssh:1", []waasv1alpha1.Protocol{waasv1alpha1.ProtocolSSH}},
+		{"img-kasm", "reg/kasm-terminal:1", []waasv1alpha1.Protocol{waasv1alpha1.ProtocolKasmVNC}},
 	}
 	for _, s := range seed {
 		img := &waasv1alpha1.WorkspaceImage{
@@ -182,13 +182,17 @@ func TestCatalogListsTemplatesOfEveryProtocol(t *testing.T) {
 	}{
 		{"tpl-vnc", "reg/xfce:1", "vnc", 5901},
 		{"tpl-rdp", "reg/win:1", "rdp", 3389},
-		{"tpl-ssh", "reg/dev-ssh:1", "ssh", 2222},
+		{"tpl-kasm", "reg/kasm-terminal:1", "kasmvnc", 6901},
 	}
 	for _, tc := range templates {
+		os := waasv1alpha1.OSLinux
+		if tc.protocol == "rdp" {
+			os = waasv1alpha1.OSWindows
+		}
 		tpl := &waasv1alpha1.WorkspaceTemplate{
 			ObjectMeta: metav1.ObjectMeta{Name: tc.name, Namespace: testNS},
 			Spec: waasv1alpha1.WorkspaceTemplateSpec{
-				DisplayName: tc.name, OS: waasv1alpha1.OSLinux, Image: tc.image,
+				DisplayName: tc.name, OS: os, Image: tc.image,
 				Protocols: []waasv1alpha1.WorkspaceProtocol{{Name: tc.protocol, Port: tc.port, Default: true}},
 			},
 		}
@@ -214,7 +218,7 @@ func TestCatalogListsTemplatesOfEveryProtocol(t *testing.T) {
 	}
 
 	// The inverse mechanism (how the bug happened): a policy whose images
-	// list omits the ssh image hides its template from the projection.
+	// list omits the kasm image hides its template from the projection.
 	restrictive := &waasv1alpha1.WorkspacePolicy{}
 	if err := svc.kube.Get(ctx, client.ObjectKey{Namespace: testNS, Name: "default"}, restrictive); err != nil {
 		t.Fatal(err)
@@ -228,8 +232,8 @@ func TestCatalogListsTemplatesOfEveryProtocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, img := range catalog {
-		if img.Name == "img-ssh" {
-			t.Fatalf("policy restriction must exclude img-ssh, got %+v", catalog)
+		if img.Name == "img-kasm" {
+			t.Fatalf("policy restriction must exclude img-kasm, got %+v", catalog)
 		}
 	}
 }
@@ -451,6 +455,37 @@ func TestUpsertImageCatalogValidation(t *testing.T) {
 	}
 }
 
+// TestUpsertImageRejectsNonClusterProtocols pins the api-server's early
+// 400 for the protocols the WorkspaceImage CRD enum does not accept.
+// ssh is a KNOWN protocol (remote workspaces speak it) and the message
+// must say so rather than call it unknown; an unknown name never
+// reaches the CR either.
+func TestUpsertImageRejectsNonClusterProtocols(t *testing.T) {
+	svc := newGovernanceFixture(t, nil, nil)
+	ctx := context.Background()
+	for proto, want := range map[string]string{
+		"ssh":    `protocol "ssh" only serves remote workspaces`,
+		"telnet": `unknown protocol "telnet"`,
+	} {
+		in := registryImageInput(nil)
+		in.Protocols = []string{"vnc", proto}
+		m, err := svc.AdminUpsertImage(ctx, Actor{ID: "admin"}, "img-"+proto, in)
+		if m != nil || err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: expected a BadRequest containing %q, got (%+v, %v)", proto, want, m, err)
+		}
+		if !strings.Contains(err.Error(), "[vnc rdp kasmvnc]") {
+			t.Fatalf("%s: the message must list the in-cluster protocols, got %v", proto, err)
+		}
+	}
+	for _, proto := range []string{"vnc", "rdp", "kasmvnc"} {
+		in := registryImageInput(nil)
+		in.Protocols = []string{proto}
+		if _, err := svc.AdminUpsertImage(ctx, Actor{ID: "admin"}, "img-ok-"+proto, in); err != nil {
+			t.Fatalf("%s: in-cluster protocol must be accepted: %v", proto, err)
+		}
+	}
+}
+
 // TestUpsertImageCatalogRoundTrips pins the editor contract in both
 // directions: the created spec.catalog is echoed back as catalogSource,
 // and an update whose payload carries catalog (as the editor's rename
@@ -601,12 +636,13 @@ func TestDeriveProtocols(t *testing.T) {
 		{"hint-less recommendation derives empty", rec(), nil},
 		{"unscoped-only hints derive empty", rec(nil), nil},
 		{"vnc-only hints (hermes-agent shape)", rec([]string{"vnc"}), []string{"vnc"}},
-		{"vnc + ssh across two hints", rec([]string{"vnc"}, []string{"ssh"}), []string{"vnc", "ssh"}},
-		{"vnc + ssh on one multi-tagged hint", rec([]string{"vnc", "ssh"}), []string{"vnc", "ssh"}},
-		{"all three across hints (full-desktop shape)", rec([]string{"ssh"}, []string{"vnc"}, []string{"rdp"}), []string{"vnc", "rdp", "ssh"}},
-		{"duplicate tags dedupe, order canonical", rec([]string{"ssh", "vnc"}, []string{"rdp", "vnc"}), []string{"vnc", "rdp", "ssh"}},
+		{"vnc + rdp across two hints", rec([]string{"vnc"}, []string{"rdp"}), []string{"vnc", "rdp"}},
+		{"vnc + rdp on one multi-tagged hint", rec([]string{"vnc", "rdp"}), []string{"vnc", "rdp"}},
+		{"duplicate tags dedupe, order canonical", rec([]string{"rdp", "vnc"}, []string{"rdp", "vnc"}), []string{"vnc", "rdp"}},
 		{"kasmvnc tags never derive", rec([]string{"kasmvnc"}), nil},
 		{"kasmvnc dropped from a mixed hint", rec([]string{"vnc", "kasmvnc"}), []string{"vnc"}},
+		{"ssh tags never derive (remote-only protocol)", rec([]string{"ssh"}), nil},
+		{"ssh dropped from a mixed hint (sshd baked into a desktop image)", rec([]string{"vnc", "ssh"}), []string{"vnc"}},
 		{"unknown tags kept deterministically last", rec([]string{"zz", "vnc", "aa"}), []string{"vnc", "aa", "zz"}},
 	}
 	for _, tc := range cases {

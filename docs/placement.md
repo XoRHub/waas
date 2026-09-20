@@ -255,8 +255,8 @@ changes is that the target namespace is no longer **known in advance**:
 a Secret cannot simply be pre-provisioned once. Either provision the
 Secret into the target namespaces (External Secrets/Vault), or pin the
 template to a shared namespace known in advance where the Secret is
-pre-provisioned — what the dev `dev-ssh` template does with
-`placement.namespace: waas-workspaces`. Otherwise the pod breaks at
+pre-provisioned (`placement.namespace: waas-workspaces`, an explicit
+literal instead of the `waas-{user}` default). Otherwise the pod breaks at
 startup (`CreateContainerConfigError`). Protocol `credentialsSecretRef`s
 are NOT affected: they are resolved on the api-server side in the
 platform namespace.

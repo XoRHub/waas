@@ -250,7 +250,7 @@ export const DesktopPane = forwardRef<
 
       // CSS rescale on every event; the SERVER-side resize (exec of
       // waas-resize in the pod) is debounced and self-gated to
-      // in-cluster vnc/rdp — kasmvnc/ssh/remote never call the endpoint.
+      // in-cluster vnc/rdp — kasmvnc/remote never call the endpoint.
       sessionResize.attach(container, {
         workspaceId,
         kind,

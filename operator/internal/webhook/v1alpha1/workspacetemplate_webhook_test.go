@@ -20,6 +20,14 @@ func tplWith(protocols ...waasv1alpha1.WorkspaceProtocol) *waasv1alpha1.Workspac
 	}
 }
 
+// windowsTplWith is tplWith for a KubeVirt VM template — the only OS
+// where rdp is admitted.
+func windowsTplWith(protocols ...waasv1alpha1.WorkspaceProtocol) *waasv1alpha1.WorkspaceTemplate {
+	tpl := tplWith(protocols...)
+	tpl.Spec.OS = waasv1alpha1.OSWindows
+	return tpl
+}
+
 func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 	v := &WorkspaceTemplateValidator{}
 	ctx := context.Background()
@@ -46,7 +54,7 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 		},
 		{
 			"platform param in template",
-			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "ssh", Port: 22, Params: map[string]string{"private-key": "-----BEGIN"}}),
+			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901, Params: map[string]string{"password": "hunter2"}}),
 			"platform-owned",
 		},
 		{
@@ -82,9 +90,9 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 		},
 		{
 			"two defaults",
-			tplWith(
+			windowsTplWith(
+				waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 3389, Default: true},
 				waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901, Default: true},
-				waasv1alpha1.WorkspaceProtocol{Name: "ssh", Port: 22, Default: true},
 			),
 			"at most one",
 		},
@@ -94,13 +102,32 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 			"",
 		},
 		{
-			// The guacd protocols combine freely between themselves.
-			"vnc + rdp + ssh without kasmvnc",
+			// The guacd protocols combine freely between themselves —
+			// where both are admitted, i.e. on a windows VM.
+			"vnc + rdp on windows",
+			windowsTplWith(
+				waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 3389, Default: true},
+				waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901},
+			),
+			"",
+		},
+		{
+			// In-cluster RDP only exists for KubeVirt Windows VMs.
+			"rdp on linux",
+			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 3389}),
+			"only available on windows",
+		},
+		{
+			"rdp next to vnc on linux",
 			tplWith(
 				waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901, Default: true},
 				waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 3389},
-				waasv1alpha1.WorkspaceProtocol{Name: "ssh", Port: 22},
 			),
+			"only available on windows",
+		},
+		{
+			"rdp on windows",
+			windowsTplWith(waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 3389, Default: true}),
 			"",
 		},
 		{
@@ -115,28 +142,11 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 			"kasmvnc cannot be combined",
 		},
 		{
-			"kasmvnc combined with rdp",
+			// Entry order must not matter to the exclusivity rule.
+			"vnc combined with kasmvnc",
 			tplWith(
-				waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901},
-				waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 3389},
-			),
-			"kasmvnc cannot be combined",
-		},
-		{
-			"kasmvnc combined with ssh",
-			tplWith(
-				waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901},
-				waasv1alpha1.WorkspaceProtocol{Name: "ssh", Port: 22},
-			),
-			"kasmvnc cannot be combined",
-		},
-		{
-			"kasmvnc combined with all three guacd protocols",
-			tplWith(
-				waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901},
 				waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901},
-				waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 3389},
-				waasv1alpha1.WorkspaceProtocol{Name: "ssh", Port: 22},
+				waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901},
 			),
 			"kasmvnc cannot be combined",
 		},
@@ -224,14 +234,14 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 		},
 		{
 			// The PulseAudio port only serves guacd's VNC audio path.
-			"audio port on ssh",
-			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "ssh", Port: 22, ExposeAudioPort: true}),
+			"audio port on kasmvnc",
+			tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901, ExposeAudioPort: true}),
 			"only the vnc protocol",
 		},
 		{
 			// A protocol squatting 4713 would duplicate the pod/Service port.
 			"audio port colliding with a protocol port",
-			tplWith(
+			windowsTplWith(
 				waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901, ExposeAudioPort: true},
 				waasv1alpha1.WorkspaceProtocol{Name: "rdp", Port: 4713},
 			),

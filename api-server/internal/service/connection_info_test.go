@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/xorhub/waas/api-server/internal/apierror"
 	"github.com/xorhub/waas/api-server/internal/database"
 	"github.com/xorhub/waas/api-server/internal/k8s"
 	"github.com/xorhub/waas/api-server/internal/model"
@@ -42,8 +44,10 @@ func newConnectionFixture(t *testing.T) (*WorkspaceService, client.WithWatch, re
 	return &WorkspaceService{kube: kube, namespace: testNS, sessions: sessions}, kube, sessions
 }
 
-// seedDesktopWorkspace creates a running vnc+rdp workspace bound to the
-// given template and an open session on the requested protocol.
+// seedDesktopWorkspace creates a running workspace bound to the given
+// template — status mirrors the template's protocols the way the
+// operator publishes them — and an open session on the requested
+// protocol.
 func seedDesktopWorkspace(t *testing.T, kube client.WithWatch, sessions repository.SessionRepository,
 	tpl *waasv1alpha1.WorkspaceTemplate, protocol string) *waasv1alpha1.Workspace {
 	t.Helper()
@@ -58,15 +62,15 @@ func seedDesktopWorkspace(t *testing.T, kube client.WithWatch, sessions reposito
 	if err := kube.Create(ctx, ws); err != nil {
 		t.Fatalf("seeding workspace: %v", err)
 	}
+	protocols := tpl.Spec.EffectiveProtocols()
 	ws.Status = waasv1alpha1.WorkspaceStatus{
 		Phase:    waasv1alpha1.PhaseRunning,
 		Address:  "10.0.0.10",
-		Protocol: "vnc",
-		Port:     5901,
-		Protocols: []waasv1alpha1.WorkspaceProtocolStatus{
-			{Name: "vnc", Port: 5901, Default: true},
-			{Name: "rdp", Port: 3389},
-		},
+		Protocol: protocols[0].Name,
+		Port:     protocols[0].Port,
+	}
+	for i, p := range protocols {
+		ws.Status.Protocols = append(ws.Status.Protocols, waasv1alpha1.WorkspaceProtocolStatus{Name: p.Name, Port: p.Port, Default: i == 0})
 	}
 	if err := kube.Status().Update(ctx, ws); err != nil {
 		t.Fatalf("setting workspace status: %v", err)
@@ -81,6 +85,8 @@ func seedDesktopWorkspace(t *testing.T, kube client.WithWatch, sessions reposito
 	return ws
 }
 
+// desktopServiceTemplate is a linux waas-images desktop: vnc, the only
+// guacd protocol a linux template may declare.
 func desktopServiceTemplate() *waasv1alpha1.WorkspaceTemplate {
 	return &waasv1alpha1.WorkspaceTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "xfce", Namespace: testNS},
@@ -90,42 +96,107 @@ func desktopServiceTemplate() *waasv1alpha1.WorkspaceTemplate {
 			Image:       "reg/xfce:1",
 			Protocols: []waasv1alpha1.WorkspaceProtocol{
 				{Name: "vnc", Port: 5901, Default: true},
-				{Name: "rdp", Port: 3389},
 			},
 		},
 	}
 }
 
-// The generated-password fallback: with no explicit source, both vnc and
-// rdp resolve the operator's waas-desktop-<name> Secret and default the
-// username to the waas-images system account.
-func TestConnectionInfoGeneratedDesktopPassword(t *testing.T) {
-	for _, protocol := range []string{"vnc", "rdp"} {
-		t.Run(protocol, func(t *testing.T) {
-			svc, kube, sessions := newConnectionFixture(t)
-			ctx := context.Background()
-			ws := seedDesktopWorkspace(t, kube, sessions, desktopServiceTemplate(), protocol)
-			if err := kube.Create(ctx, &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: "waas-desktop-" + ws.Name, Namespace: testNS},
-				Data:       map[string][]byte{"password": []byte("generated-pw")},
-			}); err != nil {
-				t.Fatal(err)
-			}
+// windowsServiceTemplate is a KubeVirt VM reached over rdp — the only
+// in-cluster rdp there is.
+func windowsServiceTemplate() *waasv1alpha1.WorkspaceTemplate {
+	return &waasv1alpha1.WorkspaceTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "win", Namespace: testNS},
+		Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			DisplayName: "Windows",
+			OS:          waasv1alpha1.OSWindows,
+			Image:       "reg/win:1",
+			Protocols: []waasv1alpha1.WorkspaceProtocol{
+				{Name: "rdp", Port: 3389, Default: true},
+			},
+		},
+	}
+}
 
-			info, err := svc.ConnectionInfo(ctx, "s-"+protocol)
-			if err != nil {
-				t.Fatalf("resolving connection info: %v", err)
-			}
-			if info.Protocol != protocol {
-				t.Fatalf("expected protocol %s, got %s", protocol, info.Protocol)
-			}
-			if info.Password != "generated-pw" {
-				t.Fatalf("password must come from the generated secret, got %q", info.Password)
-			}
-			if info.Username != "waas_user" {
-				t.Fatalf("username must default to waas_user, got %q", info.Username)
-			}
-		})
+// The generated-password fallback: with no explicit source, vnc resolves
+// the operator's waas-desktop-<name> Secret and defaults the username to
+// the waas-images system account.
+func TestConnectionInfoGeneratedDesktopPassword(t *testing.T) {
+	svc, kube, sessions := newConnectionFixture(t)
+	ctx := context.Background()
+	ws := seedDesktopWorkspace(t, kube, sessions, desktopServiceTemplate(), "vnc")
+	if err := kube.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "waas-desktop-" + ws.Name, Namespace: testNS},
+		Data:       map[string][]byte{"password": []byte("generated-pw")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := svc.ConnectionInfo(ctx, "s-vnc")
+	if err != nil {
+		t.Fatalf("resolving connection info: %v", err)
+	}
+	if info.Protocol != "vnc" {
+		t.Fatalf("expected protocol vnc, got %s", info.Protocol)
+	}
+	if info.Password != "generated-pw" {
+		t.Fatalf("password must come from the generated secret, got %q", info.Password)
+	}
+	if info.Username != "waas_user" {
+		t.Fatalf("username must default to waas_user, got %q", info.Username)
+	}
+}
+
+// When the operator generated a password, its Secret missing at connect
+// time is a hard error — connecting with a password the pod does not
+// run with would be worse than refusing.
+func TestConnectionInfoMissingGeneratedSecretFails(t *testing.T) {
+	svc, kube, sessions := newConnectionFixture(t)
+	seedDesktopWorkspace(t, kube, sessions, desktopServiceTemplate(), "vnc")
+
+	if info, err := svc.ConnectionInfo(context.Background(), "s-vnc"); err == nil {
+		t.Fatalf("expected a hard error on the missing generated Secret, got %+v", info)
+	}
+}
+
+// A windows VM gets no generated password (the operator injects nothing
+// into it), so an rdp entry without credentialsSecretRef must fail with
+// an error that names the fix — not a bare NotFound on a Secret that was
+// never going to exist.
+func TestConnectionInfoWindowsRDPRequiresCredentialsSecret(t *testing.T) {
+	svc, kube, sessions := newConnectionFixture(t)
+	seedDesktopWorkspace(t, kube, sessions, windowsServiceTemplate(), "rdp")
+
+	info, err := svc.ConnectionInfo(context.Background(), "s-rdp")
+	if err == nil {
+		t.Fatalf("expected an error on a windows rdp template without credentialsSecretRef, got %+v", info)
+	}
+	if !apierror.IsConflict(err) || !strings.Contains(err.Error(), "credentialsSecretRef") {
+		t.Fatalf("the error must tell the admin to name a credentialsSecretRef, got %v", err)
+	}
+}
+
+// waas_user is the waas-images system account: a windows VM has no such
+// user, so rdp never defaults the username — the credentials Secret is
+// the only source, and an absent username stays absent.
+func TestConnectionInfoWindowsRDPNeverDefaultsUsername(t *testing.T) {
+	svc, kube, sessions := newConnectionFixture(t)
+	ctx := context.Background()
+	tpl := windowsServiceTemplate()
+	tpl.Spec.Protocols[0].CredentialsSecretRef = "vm-creds"
+	seedDesktopWorkspace(t, kube, sessions, tpl, "rdp")
+	if err := kube.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "vm-creds", Namespace: testNS},
+		Data:       map[string][]byte{"password": []byte("vm-pw")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := svc.ConnectionInfo(ctx, "s-rdp")
+	if err != nil {
+		t.Fatalf("resolving connection info: %v", err)
+	}
+	if info.Password != "vm-pw" || info.Username != "" {
+		t.Fatalf("windows rdp must take the Secret as-is with no waas_user default, got %q/%q", info.Username, info.Password)
 	}
 }
 
@@ -173,116 +244,5 @@ func TestConnectionInfoIgnoresLiteralTemplateEnv(t *testing.T) {
 	info, err := svc.ConnectionInfo(context.Background(), "s-vnc")
 	if err == nil {
 		t.Fatalf("literal template env must not resolve a connection, got %+v", info)
-	}
-}
-
-// --- Generated ssh keypair fallback (shared predicate with the operator) ---
-
-func sshServiceTemplate() *waasv1alpha1.WorkspaceTemplate {
-	tpl := desktopServiceTemplate()
-	tpl.Spec.Protocols = []waasv1alpha1.WorkspaceProtocol{
-		{Name: "ssh", Port: 2222, Default: true},
-		{Name: "vnc", Port: 5901},
-	}
-	return tpl
-}
-
-// seedSSHWorkspace is seedDesktopWorkspace with ssh in the status list.
-func seedSSHWorkspace(t *testing.T, kube client.WithWatch, sessions repository.SessionRepository,
-	tpl *waasv1alpha1.WorkspaceTemplate) *waasv1alpha1.Workspace {
-	t.Helper()
-	ws := seedDesktopWorkspace(t, kube, sessions, tpl, "ssh")
-	ws.Status.Protocols = append(ws.Status.Protocols, waasv1alpha1.WorkspaceProtocolStatus{Name: "ssh", Port: 2222})
-	if err := kube.Status().Update(context.Background(), ws); err != nil {
-		t.Fatalf("adding ssh to status: %v", err)
-	}
-	return ws
-}
-
-// With no explicit source, ssh resolves the operator's waas-ssh-<name>
-// Secret: the private key lands in guacd params and the username
-// defaults to the waas-images system account.
-func TestConnectionInfoGeneratedSSHKey(t *testing.T) {
-	svc, kube, sessions := newConnectionFixture(t)
-	ctx := context.Background()
-	ws := seedSSHWorkspace(t, kube, sessions, sshServiceTemplate())
-	if err := kube.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "waas-ssh-" + ws.Name, Namespace: testNS},
-		Data: map[string][]byte{
-			"private-key": []byte("PEM-PRIVATE"),
-			"public-key":  []byte("ssh-ed25519 AAAA generated"),
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	info, err := svc.ConnectionInfo(ctx, "s-ssh")
-	if err != nil {
-		t.Fatalf("ConnectionInfo: %v", err)
-	}
-	if info.Protocol != "ssh" || info.Port != 2222 {
-		t.Fatalf("expected the ssh endpoint, got %s:%d", info.Protocol, info.Port)
-	}
-	if info.Params["private-key"] != "PEM-PRIVATE" {
-		t.Fatalf("expected the generated private key in guacd params, got %q", info.Params["private-key"])
-	}
-	if info.Username != "waas_user" {
-		t.Fatalf("ssh must default to the waas-images system account, got %q", info.Username)
-	}
-}
-
-// An explicit credentialsSecretRef still wins: the generated fallback
-// must not overwrite it (nor even be consulted — private-key is set).
-func TestConnectionInfoSSHCredentialsSecretWins(t *testing.T) {
-	svc, kube, sessions := newConnectionFixture(t)
-	ctx := context.Background()
-	tpl := sshServiceTemplate()
-	tpl.Spec.Protocols[0].CredentialsSecretRef = "ssh-creds"
-	ws := seedSSHWorkspace(t, kube, sessions, tpl)
-	for name, key := range map[string]string{"ssh-creds": "EXPLICIT", "waas-ssh-" + ws.Name: "GENERATED"} {
-		if err := kube.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS},
-			Data:       map[string][]byte{"private-key": []byte(key), "username": []byte("admin")},
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	info, err := svc.ConnectionInfo(ctx, "s-ssh")
-	if err != nil {
-		t.Fatalf("ConnectionInfo: %v", err)
-	}
-	if info.Params["private-key"] != "EXPLICIT" || info.Username != "admin" {
-		t.Fatalf("credentialsSecretRef must win, got key=%q user=%q", info.Params["private-key"], info.Username)
-	}
-}
-
-// A template with an explicit WAAS_SSH_AUTHORIZED_KEYS env flips the
-// shared predicate: the fallback never touches the (absent) Secret and
-// the connection proceeds without a private key instead of hard-failing.
-func TestConnectionInfoSSHExplicitEnvSkipsFallback(t *testing.T) {
-	svc, kube, sessions := newConnectionFixture(t)
-	tpl := sshServiceTemplate()
-	tpl.Spec.Env = []corev1.EnvVar{{Name: "WAAS_SSH_AUTHORIZED_KEYS", Value: "ssh-ed25519 AAAA admin"}}
-	seedSSHWorkspace(t, kube, sessions, tpl)
-
-	info, err := svc.ConnectionInfo(context.Background(), "s-ssh")
-	if err != nil {
-		t.Fatalf("a false predicate must not hard-fail on the absent Secret: %v", err)
-	}
-	if got := info.Params["private-key"]; got != "" {
-		t.Fatalf("no key may be resolved, got %q", got)
-	}
-}
-
-// When the predicate says a keypair was generated, a missing Secret is a
-// hard error — connecting keyless when the pod authorizes a generated
-// key would be worse.
-func TestConnectionInfoSSHMissingSecretFails(t *testing.T) {
-	svc, kube, sessions := newConnectionFixture(t)
-	seedSSHWorkspace(t, kube, sessions, sshServiceTemplate())
-
-	if info, err := svc.ConnectionInfo(context.Background(), "s-ssh"); err == nil {
-		t.Fatalf("expected a hard error on the missing generated Secret, got %+v", info)
 	}
 }

@@ -116,13 +116,14 @@ type RecommendedVolume struct {
 type EnvHint struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// Protocols this hint applies to; empty means all protocols.
-	Protocols []string `json:"protocols,omitempty" jsonschema:"enum=vnc,enum=rdp,enum=ssh,enum=kasmvnc"`
+	// Protocols this hint applies to; empty means all protocols. The
+	// enum is the WorkspaceImage one: in-cluster desktops only, ssh is
+	// a remote-workspace protocol and has no image to describe.
+	Protocols []string `json:"protocols,omitempty" jsonschema:"enum=vnc,enum=rdp,enum=kasmvnc"`
 	// Requires names other Env[].Name entries of the SAME recommendation
-	// that make no sense without this one (e.g. WAAS_SSH_ENABLED
-	// requires WAAS_SSH_AUTHORIZED_KEYS_FILE). Purely descriptive: lets
-	// the prefill UI group/warn together, never validated, never
-	// enforced.
+	// that make no sense without this one (e.g. a WAAS_*_ENABLED switch
+	// requiring its WAAS_*_FILE path). Purely descriptive: lets the
+	// prefill UI group/warn together, never validated, never enforced.
 	Requires []string `json:"requires,omitempty"`
 	Default  string   `json:"default,omitempty"`
 }

@@ -1,18 +1,13 @@
-# Dynamic VNC/RDP session resize — a WaaS mechanism, not guacd
+# Dynamic VNC session resize — a WaaS mechanism, not guacd
 
-Resizing an in-cluster desktop mid-session **does not** go through
-Guacamole's native resize. Don't look for `sendSize()` in the guac
-tunnel or for any effect from the RDP `resize-method` parameter: both
-are dead ends in this architecture.
+Resizing an in-cluster Linux desktop mid-session **does not** go
+through Guacamole's native resize. Don't look for `sendSize()` in the
+guac tunnel: it is a dead end in this architecture.
 
 ## Why the native path is dead
 
 - **VNC**: guacd's VNC client never emits a resize mid-session (no
   client→server `size` on this protocol).
-- **RDP**: `resize-method=display-update` would talk to the RDP
-  server — but our RDP server is the xrdp-libvnc bridge, which cannot
-  propagate a resize down to the underlying Xvnc
-  (`waas-images/.../waas-resize`, header comment).
 - **TigerVNC**, on the other hand, supports RandR `SetDesktopSize`:
   resolution CAN be changed live, but only *from inside the pod* —
   which is exactly what the `waas-resize WIDTHxHEIGHT` script does (xrandr).
@@ -28,10 +23,12 @@ browser (ResizeObserver, debounced ~500ms)
 ```
 
 - Frontend: `frontend/src/lib/sessionResize.ts` (debounce + gating) —
-  only **in-cluster vnc/rdp** sessions call the endpoint.
-  kasmvnc resizes natively in its own client
-  (`resize=remote`), ssh has no desktop, remote workspaces have
-  no pod (explicit 400 server-side).
+  only **in-cluster vnc** sessions call the endpoint. kasmvnc resizes
+  natively in its own client (`resize=remote`); in-cluster rdp is a
+  windows KubeVirt VM with no pod to exec `waas-resize` in, so the
+  frontend never calls for it (guacd-native `resize-method` is the only
+  candidate there, unverified — see below); remote workspaces have no
+  pod either (explicit 400 server-side).
 - api-server: `internal/service/workspace_resize.go`. Authorization =
   `fetchByID` (owner or admin), workspace `Running` required (409
   otherwise), 100–7680 bounds validated before any resolution, pod
@@ -49,24 +46,24 @@ browser (ResizeObserver, debounced ~500ms)
 PR #469 (guacd 1.6) adds native guacd↔VNC server negotiation of a
 server-initiated resize. Our guacd is already on 1.6
 (`helm/waas/values.yaml`), but this path is **neither used nor
-needed**: WaaS resize goes through pod-exec (diagram above),
-which works identically for VNC and RDP since both run
-on the same Xvnc in the WaaS images (RDP = xrdp bridge to that Xvnc).
-So there's nothing to "enable" on the guacd side to bring VNC up to
-RDP's level — it's already symmetric, regardless of the guacd version.
-Implementing native #469 *in addition* (lower latency than an exec, or
-scenarios where exec isn't possible) would be a separate, not-yet-started
-undertaking.
+needed**: WaaS resize goes through pod-exec (diagram above), RandR on
+the image's own Xvnc. So there's nothing to "enable" on the guacd side,
+regardless of the guacd version. Implementing native #469 *in
+addition* (lower latency than an exec, or scenarios where exec isn't
+possible) would be a separate, not-yet-started undertaking.
 
 ## Fate of `resize-method` (2026-07-10 decision: kept)
 
-`resize-method` (RDP registry, tier ui) stays inert for
-in-cluster desktops: the pod-exec mechanism bypasses it entirely. It is
-**kept** because for *remote workspaces* RDP, guacd talks to
-a real external RDP server and this parameter then drives guacd's
-native negotiation. Its description in the registry
-(`operator/pkg/params/params.go`) now explicitly states this
-boundary.
+`resize-method` (RDP registry, tier ui) was inert for the linux
+desktops' RDP (the xrdp-libvnc bridge could not propagate
+`display-update` down to Xvnc — the pod-exec mechanism bypassed it
+entirely) and was **kept** because for *remote workspaces* RDP, guacd
+talks to a real external RDP server and this parameter then drives
+guacd's native negotiation. In-cluster `rdp` is now windows-only, i.e.
+also a real RDP server, where the same native path applies in
+principle — unverified, and outside the pod-exec mechanism. Its
+description in the registry (`operator/pkg/params/params.go`)
+explicitly states this boundary.
 
 ## guacd / guacamole-common-js versions
 

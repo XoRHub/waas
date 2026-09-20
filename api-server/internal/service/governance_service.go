@@ -429,12 +429,19 @@ func (s *GovernanceService) AdminUpsertImage(ctx context.Context, actor Actor, n
 		ImagePullSecretRef: in.ImagePullSecretRef,
 		Architectures:      in.Architectures,
 	}
+	// params.Protocols() is the single source of protocol names — a
+	// hand-written switch here was the 4th copy of the list and nearly
+	// missed the kasmvnc addition. ssh is carved out the same way the
+	// remote-workspace side carves out kasmvnc: it only exists for
+	// off-cluster machines, and the WorkspaceImage CRD enum would reject
+	// it with a wrapped admission error instead of this 400.
+	allowed := slices.DeleteFunc(slices.Clone(params.Protocols()), func(p string) bool { return p == "ssh" })
 	for _, p := range in.Protocols {
-		// params.Protocols() is the single source of protocol names — a
-		// hand-written switch here was the 4th copy of the list and
-		// nearly missed the kasmvnc addition.
-		if !slices.Contains(params.Protocols(), p) {
-			return nil, apierror.BadRequest(fmt.Sprintf("unknown protocol %q (must be one of %v)", p, params.Protocols()))
+		if p == "ssh" {
+			return nil, apierror.BadRequest(fmt.Sprintf("protocol %q only serves remote workspaces; in-cluster images support one of %v", p, allowed))
+		}
+		if !slices.Contains(allowed, p) {
+			return nil, apierror.BadRequest(fmt.Sprintf("unknown protocol %q (must be one of %v)", p, allowed))
 		}
 		spec.Protocols = append(spec.Protocols, waasv1alpha1.Protocol(p))
 	}
@@ -957,6 +964,9 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 // never derives from hints — it is an exception by nature (webhook-
 // enforced exclusivity) — so a kasmvnc image derives empty and reaches
 // the template only through its catalog's [kasmvnc] spec.Protocols.
+// ssh never derives either: it is a remote-workspace protocol the
+// WorkspaceImage CRD enum does not accept, so a catalog still tagging
+// it (sshd baked into an image) must not poison the prefill.
 // Prefill data only, never enforcement — the parent CR's spec.Protocols
 // stays the approval boundary.
 func deriveProtocols(rec *model.DeploymentRecommendation) []string {
@@ -966,7 +976,7 @@ func deriveProtocols(rec *model.DeploymentRecommendation) []string {
 	union := map[string]bool{}
 	for _, hint := range rec.Env {
 		for _, p := range hint.Protocols {
-			if p == string(waasv1alpha1.ProtocolKasmVNC) {
+			if p == string(waasv1alpha1.ProtocolKasmVNC) || p == "ssh" {
 				continue
 			}
 			union[p] = true

@@ -28,8 +28,21 @@ import { validateWorkload } from './validate';
 export const DEFAULT_PORTS: Record<string, number> = {
   vnc: 5901,
   rdp: 3389,
-  ssh: 2222,
   kasmvnc: 6901,
+};
+
+/**
+ * The OS-bound protocol rule of in-cluster templates, as the admission
+ * webhook enforces it: a linux template serves vnc or kasmvnc, a
+ * windows (KubeVirt VM) template rdp. ssh is not an in-cluster protocol
+ * at all — the registry (/meta/protocols) still lists ssh and rdp for
+ * REMOTE workspaces, which is why the editor cannot offer the registry
+ * as-is. The editor only MIRRORS the rule so the admin is not offered
+ * an entry admission would reject; the webhook stays the gate.
+ */
+const OS_PROTOCOLS: Record<string, string[]> = {
+  linux: ['vnc', 'kasmvnc'],
+  windows: ['rdp'],
 };
 
 /**
@@ -119,8 +132,10 @@ export function TemplateDialog({
   // unconditionally; env is merged by name so an already-configured
   // var is never clobbered (see EnvFieldset/mergeEnv doctrine).
   // Protocol-aware: on a template with no protocols yet, the image's
-  // supported protocols are added first; env hints are then filtered
-  // to the protocols the template actually uses.
+  // supported protocols are added first (cut down to the OS-bound rule,
+  // like the "+" menu — an image approved for rdp still gets vnc only
+  // on a linux template); env hints are then filtered to the protocols
+  // the template actually uses.
   const applyRecommendation = (recommended: DeploymentRecommendation, imageProtocols: string[]) => {
     const { value } = parseYaml(workloadText);
     const base = (
@@ -144,11 +159,12 @@ export function TemplateDialog({
     markTouched('workload');
 
     let nextProtocols = protocols;
-    if (protocols.length === 0 && imageProtocols.length > 0) {
+    const usable = imageProtocols.filter((p) => osProtocols.includes(p));
+    if (protocols.length === 0 && usable.length > 0) {
       // kasmvnc exclusivity (webhook-enforced): a mixed supported list
       // keeps only the guacd protocols; kasmvnc-only adds kasmvnc.
-      const guacd = imageProtocols.filter((p) => p !== 'kasmvnc');
-      const names = [...new Set(guacd.length > 0 ? guacd : imageProtocols)];
+      const guacd = usable.filter((p) => p !== 'kasmvnc');
+      const names = [...new Set(guacd.length > 0 ? guacd : usable)];
       nextProtocols = names.map((name, i) => ({
         name,
         port: DEFAULT_PORTS[name] ?? 0,
@@ -258,15 +274,27 @@ export function TemplateDialog({
   const patchActive = (patch: Partial<TemplateProtocolInput>) => {
     set({ protocols: protocols.map((p) => (p.name === activeProto ? { ...p, ...patch } : p)) });
   };
+  // OS-bound protocol rule (OS_PROTOCOLS): an unknown OS offers nothing,
+  // fail-closed like the webhook.
+  const osProtocols = OS_PROTOCOLS[input.os] ?? [];
+  // Configured protocols the OS rule rejects — reached by flipping the
+  // OS of a template with protocols in place, or by editing a template
+  // saved before the rule existed. Kept in place and NAMED in the
+  // fieldset: a silent drop would lose the admin's params/userParams,
+  // a silent keep would only surface as a save error.
+  const osRejected = protocols.filter((p) => !osProtocols.includes(p.name)).map((p) => p.name);
 
   const availableProtocols = (meta.data?.data ?? []).map((m) => m.name);
   // A template declares each protocol at most once (webhook-enforced):
   // the shared "+" menu offers only the registry protocols not
-  // configured yet — the admin picks explicitly which one to add.
+  // configured yet — the admin picks explicitly which one to add. The
+  // registry serves remote workspaces too, so the menu is further cut
+  // down to the OS-bound protocol rule (osProtocols above).
   // kasmvnc is exclusive (it bypasses guacd; the webhook rejects any
-  // combination with vnc/rdp/ssh): once present nothing else is
-  // addable, and it is only offered while the protocol list is empty.
+  // combination with vnc): once present nothing else is addable, and
+  // it is only offered while the protocol list is empty.
   const unusedProtocols = availableProtocols.filter((p) => {
+    if (!osProtocols.includes(p)) return false;
     if (protocols.some((x) => x.name === p)) return false;
     if (protocols.some((x) => x.name === 'kasmvnc')) return false;
     if (p === 'kasmvnc' && protocols.length > 0) return false;
@@ -368,6 +396,8 @@ export function TemplateDialog({
                   meta={meta.data?.data}
                   active={activeProto}
                   onSelect={setActiveProto}
+                  os={input.os}
+                  osRejected={osRejected}
                   addable={unusedProtocols}
                   onAdd={addProtocol}
                   onRemove={removeProtocol}

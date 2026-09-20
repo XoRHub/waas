@@ -1,6 +1,7 @@
 package smoke
 
-// Zero-orphan gate: for every desktop protocol the platform serves, create
+// Zero-orphan gate: for every protocol under test (WAAS_SMOKE_PROTOCOLS,
+// same default as the connection gate), create
 // a real workspace through the public API, delete it (home volume
 // included), and assert that NOTHING it owned survives — neither in the
 // cluster (every managed type, derived from the operator's single
@@ -45,7 +46,7 @@ func TestZeroOrphansAfterDeletion(t *testing.T) {
 	c.login(env("WAAS_SMOKE_USER", "admin"), env("WAAS_SMOKE_PASSWORD", "admin123"))
 
 	byProtocol := c.templatesByProtocol()
-	protocols := strings.Split(env("WAAS_SMOKE_PROTOCOLS", "vnc,rdp,ssh,kasmvnc"), ",")
+	protocols := strings.Split(env("WAAS_SMOKE_PROTOCOLS", "vnc,kasmvnc"), ",")
 	for _, protocol := range protocols {
 		protocol = strings.TrimSpace(protocol)
 		t.Run(protocol, func(t *testing.T) {

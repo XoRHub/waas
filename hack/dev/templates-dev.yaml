@@ -53,9 +53,7 @@ spec:
     timezone: Europe/Paris
     uptime: ["0 8 * * 1-5"]
     downtime: ["0 20 * * *"]
-  # Both protocols the image serves; users may pick either and tune the
-  # allow-listed guacd parameters from the portal (tabs per protocol,
-  # quick-switch on the card and in-session).
+  # Users tune the allow-listed guacd parameters from the portal.
   protocols:
     - name: vnc
       port: 5901
@@ -71,103 +69,12 @@ spec:
       # autoretry are advanced-tier, they render behind their section's
       # disclosure).
       userParams: [cat:audio, color-depth, cursor, swap-red-blue, encodings, autoretry]
-    - name: rdp
-      port: 3389
-      params:
-        security: any
-        ignore-cert: "true"
-      userParams: [color-depth, resize-method]
   # What workspace creators may deviate from this template (admins and
   # the template owner may override anything): schedule = own crons at
   # creation, placement = another OWNED namespace, metadata = extra
   # labels/annotations (denylist enforced server-side).
   overrides:
     allowedFields: [env, resources, protocol, protocolParams, schedule, placement, metadata]
----
-apiVersion: waas.xorhub.io/v1alpha1
-kind: WorkspaceTemplate
-metadata:
-  name: dev-ssh
-spec:
-  displayName: "Dev env — SSH"
-  description: "Terminal dev env (git, tmux, build tools) over SSH; VNC fallback."
-  os: linux
-  # Same underlying image as ubuntu-xfce above — SSH is a capability of the
-  # OS-only desktop image (INSTALL_SSH=1 at build time), off by default even
-  # then: WAAS_SSH_ENABLED=1 below is what actually turns it on. There is no
-  # more standalone "dev-ssh" image (waas-images split, 2026-07-10 catalog).
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.1.1
-  homeSize: 10Gi
-  resources:
-    requests: { cpu: 500m, memory: 1Gi }
-    limits: { cpu: "2", memory: 4Gi }
-  env:
-    - name: WAAS_SSH_ENABLED
-      value: "1"
-    # Keys come from the dev-ssh-credentials Secret, seeded by
-    # hack/dev/seed-ssh-secret.sh (make dev-load-images runs it).
-    - name: WAAS_SSH_AUTHORIZED_KEYS
-      valueFrom:
-        secretKeyRef: { name: dev-ssh-credentials, key: authorized-keys }
-    - name: WAAS_DESKTOP_PASSWORD
-      valueFrom:
-        secretKeyRef: { name: dev-ssh-credentials, key: password }
-  # EXPLICIT shared namespace — the canonical opt-in example. The env
-  # above references the dev-ssh-credentials Secret and pods resolve
-  # secretKeyRef in THEIR OWN namespace, so this template needs a
-  # namespace known IN ADVANCE where the Secret is pre-provisioned
-  # (hack/dev/seed-ssh-secret.sh clones it there). The built-in
-  # "waas-{user}" default would scatter pods across per-user namespaces
-  # holding no Secret (CreateContainerConfigError at startup).
-  placement:
-    namespace: waas-workspaces
-  protocols:
-    - name: ssh
-      port: 2222
-      default: true
-      credentialsSecretRef: dev-ssh-credentials
-      params:
-        color-scheme: green-black
-      # Plain names only (the default shape): scrollback and
-      # server-alive-interval are advanced-tier, the registry drives
-      # their placement.
-      userParams: [font-size, color-scheme, read-only, scrollback, server-alive-interval]
-    - name: vnc
-      port: 5901
-      credentialsSecretRef: dev-ssh-credentials
-      userParams: [color-depth, read-only]
-  overrides:
-    allowedFields: [protocol, protocolParams, resources, schedule]
----
-# The generated-credentials twin of dev-ssh: NO env, NO Secret, NO seed
-# script — declaring the ssh protocol is enough. The operator generates
-# the keypair (waas-ssh-<ws> + public-key-only pod copy), turns sshd on
-# and guacd receives the private key at connect. Keep BOTH templates:
-# dev-ssh exercises the explicit credentialsSecretRef path, this one the
-# implicit level-2 path (docs/templates-and-protocols.md § Credentials).
-apiVersion: waas.xorhub.io/v1alpha1
-kind: WorkspaceTemplate
-metadata:
-  name: dev-ssh-generated
-spec:
-  displayName: "Dev env — SSH (generated keys)"
-  description: "Same terminal dev env, platform-generated ssh keypair — zero credential config."
-  os: linux
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.1.1
-  homeSize: 10Gi
-  resources:
-    requests: { cpu: 500m, memory: 1Gi }
-    limits: { cpu: "2", memory: 4Gi }
-  protocols:
-    - name: ssh
-      port: 2222
-      default: true
-      userParams: [font-size, color-scheme, read-only, scrollback, server-alive-interval]
-    - name: vnc
-      port: 5901
-      userParams: [color-depth, read-only]
-  overrides:
-    allowedFields: [protocol, protocolParams, resources, schedule]
 ---
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceTemplate

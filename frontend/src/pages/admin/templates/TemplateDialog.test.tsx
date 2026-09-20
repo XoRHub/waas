@@ -22,9 +22,9 @@ const catalogs: CatalogImage[] = [
     displayName: 'Browsers',
     registry: 'ghcr.io/acme/',
     enabled: true,
-    // kasmvnc alongside guacd protocols: the prefill must drop it
-    // (kasmvnc exclusivity) and rdp is deliberately NOT supported.
-    protocols: ['vnc', 'ssh', 'kasmvnc'],
+    // rdp alongside vnc: the OS-bound rule must drop it on a linux
+    // template; kasmvnc is dropped by exclusivity.
+    protocols: ['vnc', 'rdp', 'kasmvnc'],
     discovered: [
       {
         image: 'ghcr.io/acme/firefox:128',
@@ -40,11 +40,11 @@ const catalogs: CatalogImage[] = [
           securityContext: { readOnlyRootFilesystem: true },
           volumes: [{ name: 'tmp', mountPath: '/tmp' }],
           env: [
-            { name: 'WAAS_SSH_ENABLED', default: '0', protocols: ['ssh'] },
+            { name: 'WAAS_VNC_RESOLUTION', default: '1920x1080', protocols: ['vnc'] },
             {
-              name: 'WAAS_SSH_AUTHORIZED_KEYS_FILE',
-              protocols: ['ssh'],
-              description: 'Path to the authorized keys file',
+              name: 'WAAS_DESKTOP_PASSWORD',
+              protocols: ['vnc'],
+              description: 'Desktop password (generated when absent)',
             },
             // requires pulls VNC_USER in even though its own protocols
             // (kasmvnc) never match the applied set.
@@ -113,18 +113,16 @@ describe('TemplateDialog — apply catalog recommendation', () => {
     expect(workloadYaml).toContain('readOnlyRootFilesystem: true');
     expect(workloadYaml).toContain('mountPath: /tmp');
     // env goes to EnvFieldset's input.env, not the workload YAML.
-    expect(workloadYaml).not.toContain('WAAS_SSH_ENABLED');
+    expect(workloadYaml).not.toContain('WAAS_VNC_RESOLUTION');
     await openWorkspaceTab(en.admin.templatesPage.env);
-    expect(screen.getByDisplayValue('WAAS_SSH_ENABLED')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('WAAS_VNC_RESOLUTION')).toBeInTheDocument();
     // A hint without a default never becomes a real row — it shows up
     // as a greyed suggestion instead (adoption tested separately).
-    expect(screen.queryByDisplayValue('WAAS_SSH_AUTHORIZED_KEYS_FILE')).toBeNull();
-    expect(
-      screen.getByRole('button', { name: /WAAS_SSH_AUTHORIZED_KEYS_FILE/ }),
-    ).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('WAAS_DESKTOP_PASSWORD')).toBeNull();
+    expect(screen.getByRole('button', { name: /WAAS_DESKTOP_PASSWORD/ })).toBeInTheDocument();
   });
 
-  it('adds the image-supported protocols on a protocol-less template, dropping kasmvnc from a mixed list', async () => {
+  it('adds the OS-allowed image protocols on a protocol-less template, dropping rdp (OS rule) and kasmvnc (exclusivity)', async () => {
     renderWithProviders(<TemplateDialog isNew initial={initial} onClose={() => {}} />);
 
     await userEvent.click(
@@ -136,15 +134,15 @@ describe('TemplateDialog — apply catalog recommendation', () => {
       screen.getByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
     );
 
-    // vnc + ssh tabs appear (kasmvnc dropped by exclusivity), vnc is
-    // active with its registry default port.
+    // Only the vnc tab appears (rdp dropped by the OS rule, kasmvnc by
+    // exclusivity), active with its registry default port.
     await openProtocolsTab();
     expect(screen.getByRole('button', { name: /vnc/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ssh/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /rdp/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /kasmvnc/ })).toBeNull();
     expect(screen.getByDisplayValue('5901')).toBeInTheDocument();
 
-    // rdp is not supported by the image: its hint never lands anywhere.
+    // rdp never made it onto the template: its hint never lands anywhere.
     await openWorkspaceTab(en.admin.templatesPage.env);
     expect(screen.queryByDisplayValue('RDP_DOMAIN')).toBeNull();
     expect(screen.queryByRole('button', { name: /RDP_DOMAIN/ })).toBeNull();
@@ -171,14 +169,15 @@ describe('TemplateDialog — apply catalog recommendation', () => {
       screen.getByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
     );
 
-    // The protocol list is not touched: no ssh tab was added.
+    // The protocol list is not touched: no kasmvnc/rdp tab was added.
     await openProtocolsTab();
-    expect(screen.queryByRole('button', { name: /ssh/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /kasmvnc/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /rdp/ })).toBeNull();
 
-    // ssh-only hints are filtered out entirely (row or suggestion).
+    // rdp-only hints are filtered out entirely (row or suggestion).
     await openWorkspaceTab(en.admin.templatesPage.env);
-    expect(screen.queryByDisplayValue('WAAS_SSH_ENABLED')).toBeNull();
-    expect(screen.queryByRole('button', { name: /WAAS_SSH_AUTHORIZED_KEYS_FILE/ })).toBeNull();
+    expect(screen.queryByDisplayValue('RDP_DOMAIN')).toBeNull();
+    expect(screen.queryByRole('button', { name: /RDP_DOMAIN/ })).toBeNull();
 
     // vnc hints still apply.
     expect(screen.getByRole('button', { name: /VNC_PW/ })).toBeInTheDocument();
@@ -197,25 +196,25 @@ describe('TemplateDialog — apply catalog recommendation', () => {
     );
 
     await openWorkspaceTab(en.admin.templatesPage.env);
-    await userEvent.click(screen.getByRole('button', { name: /WAAS_SSH_AUTHORIZED_KEYS_FILE/ }));
+    await userEvent.click(screen.getByRole('button', { name: /WAAS_DESKTOP_PASSWORD/ }));
 
     // Suggestion became a real (empty) row and left the suggestion list.
-    const nameInput = screen.getByDisplayValue('WAAS_SSH_AUTHORIZED_KEYS_FILE');
+    const nameInput = screen.getByDisplayValue('WAAS_DESKTOP_PASSWORD');
     expect(nameInput).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /WAAS_SSH_AUTHORIZED_KEYS_FILE/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /WAAS_DESKTOP_PASSWORD/ })).toBeNull();
     const row = nameInput.closest('div.flex') as HTMLElement;
     const valueInput = within(row).getByLabelText('value');
     expect(valueInput).toHaveValue('');
-    expect(valueInput).toHaveAttribute('placeholder', 'Path to the authorized keys file');
+    expect(valueInput).toHaveAttribute('placeholder', 'Desktop password (generated when absent)');
   });
 
   it('never overwrites an already-present env entry, while still adding non-colliding hints', async () => {
-    // Pre-existing entry collides with the fixture's WAAS_SSH_ENABLED hint
-    // (default '0') but carries a different value — the documented
+    // Pre-existing entry collides with the fixture's WAAS_VNC_RESOLUTION hint
+    // (default '1920x1080') but carries a different value — the documented
     // "merge by name without overwriting" guarantee must keep it as-is.
     const initialWithEnv: TemplateInput = {
       ...initial,
-      env: [{ name: 'WAAS_SSH_ENABLED', value: '1' }],
+      env: [{ name: 'WAAS_VNC_RESOLUTION', value: '1280x720' }],
     };
     renderWithProviders(<TemplateDialog isNew initial={initialWithEnv} onClose={() => {}} />);
 
@@ -230,18 +229,16 @@ describe('TemplateDialog — apply catalog recommendation', () => {
 
     // No duplicate row was appended for the colliding name.
     await openWorkspaceTab(en.admin.templatesPage.env);
-    expect(screen.getAllByDisplayValue('WAAS_SSH_ENABLED')).toHaveLength(1);
+    expect(screen.getAllByDisplayValue('WAAS_VNC_RESOLUTION')).toHaveLength(1);
 
     // The pre-existing value survives untouched (not clobbered to the
-    // hint's default '0').
-    const nameInput = screen.getByDisplayValue('WAAS_SSH_ENABLED');
+    // hint's default '1920x1080').
+    const nameInput = screen.getByDisplayValue('WAAS_VNC_RESOLUTION');
     const row = nameInput.closest('div.flex') as HTMLElement;
-    expect(within(row).getByLabelText('value')).toHaveValue('1');
+    expect(within(row).getByLabelText('value')).toHaveValue('1280x720');
 
     // The non-colliding no-default hint is still offered, as a suggestion.
-    expect(
-      screen.getByRole('button', { name: /WAAS_SSH_AUTHORIZED_KEYS_FILE/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /WAAS_DESKTOP_PASSWORD/ })).toBeInTheDocument();
   });
 });
 

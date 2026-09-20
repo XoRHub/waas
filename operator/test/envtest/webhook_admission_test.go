@@ -64,14 +64,17 @@ func TestTemplateWebhookThroughAPIServer(t *testing.T) {
 	ns := newNS(t, "wh-tpl")
 	ctx := context.Background()
 
+	// A windows VM is the one template kind that may declare two guacd
+	// protocols (rdp is windows-only), so it carries the multi-protocol
+	// cases.
 	twoDefaults := &waasv1alpha1.WorkspaceTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "two-defaults", Namespace: ns},
 		Spec: waasv1alpha1.WorkspaceTemplateSpec{
-			DisplayName: "Broken", OS: waasv1alpha1.OSLinux,
-			Image: "ghcr.io/xorhub/waas/desktop-xfce:1.0.0",
+			DisplayName: "Broken", OS: waasv1alpha1.OSWindows,
+			Image: "ghcr.io/xorhub/waas/windows-11:1.0.0",
 			Protocols: []waasv1alpha1.WorkspaceProtocol{
+				{Name: "rdp", Port: 3389, Default: true},
 				{Name: "vnc", Port: 5901, Default: true},
-				{Name: "ssh", Port: 22, Default: true},
 			},
 		},
 	}
@@ -79,10 +82,21 @@ func TestTemplateWebhookThroughAPIServer(t *testing.T) {
 		t.Fatalf("two default protocols must be denied by the webhook, got %v", err)
 	}
 
-	mixedKasm := twoDefaults.DeepCopy()
+	rdpLinux := twoDefaults.DeepCopy()
+	rdpLinux.Name, rdpLinux.ResourceVersion = "rdp-linux", ""
+	rdpLinux.Spec.OS = waasv1alpha1.OSLinux
+	rdpLinux.Spec.Image = "ghcr.io/xorhub/waas/desktop-xfce:1.0.0"
+	rdpLinux.Spec.Protocols = []waasv1alpha1.WorkspaceProtocol{{Name: "rdp", Port: 3389, Default: true}}
+	if err := adminCli.Create(ctx, rdpLinux); err == nil || !strings.Contains(err.Error(), "rdp is only available on windows") {
+		t.Fatalf("rdp on a linux template must be denied by the webhook, got %v", err)
+	}
+
+	mixedKasm := rdpLinux.DeepCopy()
 	mixedKasm.Name, mixedKasm.ResourceVersion = "mixed-kasm", ""
-	mixedKasm.Spec.Protocols[0] = waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901, Default: true}
-	mixedKasm.Spec.Protocols[1].Default = false
+	mixedKasm.Spec.Protocols = []waasv1alpha1.WorkspaceProtocol{
+		{Name: "kasmvnc", Port: 6901, Default: true},
+		{Name: "vnc", Port: 5901},
+	}
 	if err := adminCli.Create(ctx, mixedKasm); err == nil || !strings.Contains(err.Error(), "kasmvnc cannot be combined") {
 		t.Fatalf("kasmvnc combined with a guacd protocol must be denied by the webhook, got %v", err)
 	}

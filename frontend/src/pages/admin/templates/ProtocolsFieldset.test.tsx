@@ -48,6 +48,8 @@ function renderFieldset(over: Partial<Parameters<typeof ProtocolsFieldset>[0]> =
       meta={meta}
       active="vnc"
       onSelect={() => {}}
+      os="linux"
+      osRejected={[]}
       addable={[]}
       onAdd={() => {}}
       onRemove={() => {}}

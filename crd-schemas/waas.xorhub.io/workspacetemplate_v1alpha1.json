@@ -309,7 +309,7 @@
             "description": "WorkspaceProtocol declares one way to reach the desktop, described in\nguacd terms: a protocol name, the port the workspace serves it on, and\nthe guacd connection parameters to use.",
             "properties": {
               "credentialsSecretRef": {
-                "description": "CredentialsSecretRef names a Secret (in the workspace namespace)\nholding the desktop credentials for this protocol, under the keys\nusername, password, private-key and passphrase (all optional).\nResolved server-side at connect time and handed to guacd by the\nproxy: credentials never appear in a CR and never reach the\nbrowser. Ship the Secret via External Secrets/Vault.",
+                "description": "CredentialsSecretRef names a Secret (in the workspace namespace)\nholding the desktop credentials for this protocol, under the keys\nusername and password (both optional).\nResolved server-side at connect time and handed to guacd by the\nproxy: credentials never appear in a CR and never reach the\nbrowser. Ship the Secret via External Secrets/Vault.",
                 "type": "string"
               },
               "default": {
@@ -321,11 +321,10 @@
                 "type": "boolean"
               },
               "name": {
-                "description": "Name is the protocol identifier: a guacamole protocol (vnc, rdp,\nssh) brokered by guacd, or kasmvnc \u2014 the web-native KasmVNC\nendpoint of kasmweb/* images, reverse-proxied by wwt (guacd is not\ninvolved; Params/UserParams are rejected for it, the registry has\nno kasmvnc entries). kasmvnc is exclusive: a template declaring it\nmay declare no other protocol (admission-enforced); vnc/rdp/ssh\nremain freely combinable with each other.",
+                "description": "Name is the protocol identifier: a guacamole protocol (vnc, rdp)\nbrokered by guacd, or kasmvnc \u2014 the web-native KasmVNC endpoint\nof kasmweb/* images, reverse-proxied by wwt (guacd is not\ninvolved; Params/UserParams are rejected for it, the registry has\nno kasmvnc entries). Which protocols a template may declare follows\nits OS (admission-enforced): a linux template serves vnc or\nkasmvnc \u2014 kasmvnc is exclusive, a template declaring it may\ndeclare no other protocol \u2014 while rdp exists only for windows\ntemplates (KubeVirt VMs). ssh is not an in-cluster protocol: it\nbelongs to remote workspaces (off-cluster machines).",
                 "enum": [
                   "vnc",
                   "rdp",
-                  "ssh",
                   "kasmvnc"
                 ],
                 "type": "string"

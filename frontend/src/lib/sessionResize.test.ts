@@ -34,25 +34,16 @@ describe('createSessionResizer', () => {
     });
   });
 
-  it('never fires for kasmvnc, ssh or remote targets', () => {
+  it('never fires for kasmvnc, in-cluster rdp (windows VM) or remote targets', () => {
     for (const r of [
       resizer({ protocol: 'kasmvnc' }),
-      resizer({ protocol: 'ssh' }),
+      resizer({ protocol: 'rdp' }),
       resizer({ kind: 'remote', protocol: 'vnc' }),
     ]) {
       r.report(1920, 1080);
     }
     vi.advanceTimersByTime(2000);
     expect(apiMock.api.post).not.toHaveBeenCalled();
-  });
-
-  it('rdp sessions fire like vnc ones', () => {
-    resizer({ protocol: 'rdp' }).report(1024, 768);
-    vi.advanceTimersByTime(600);
-    expect(apiMock.api.post).toHaveBeenCalledWith('/api/v1/workspaces/w1/resize', {
-      width: 1024,
-      height: 768,
-    });
   });
 
   it('does not repeat an already-sent size, but follows a new one', () => {

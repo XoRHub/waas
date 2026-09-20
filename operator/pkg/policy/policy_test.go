@@ -285,7 +285,7 @@ func TestCheckProtocol(t *testing.T) {
 			OS: waasv1alpha1.OSLinux,
 			Protocols: []waasv1alpha1.WorkspaceProtocol{
 				{Name: "vnc", Port: 5901},
-				{Name: "ssh", Port: 2222},
+				{Name: "rdp", Port: 3389},
 			},
 		},
 	}

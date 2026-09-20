@@ -7,9 +7,9 @@ metadata:
   name: ubuntu-xfce
 spec:
   displayName: "Ubuntu 24.04 — XFCE"
-  description: "Bureau XFCE complet (VNC recommandé, RDP/SSH disponibles)."
+  description: "Bureau XFCE complet (VNC)."
   image: docker.io/xorhub/ubuntu-desktop-noble:2.1.1
-  protocols: [vnc, rdp, ssh]
+  protocols: [vnc]
   architectures: [amd64, arm64]
   enabled: true
   # allowedGroups vide : visible de tout utilisateur authentifié
@@ -33,25 +33,6 @@ spec:
   resources:
     default: { cpu: 500m, memory: 1536Mi }
     max:     { cpu: "2",  memory: 3Gi }
----
-apiVersion: waas.xorhub.io/v1alpha1
-kind: WorkspaceImage
-metadata:
-  name: dev-ssh
-spec:
-  displayName: "Dev env — SSH"
-  description: "Environnement de dev terminal (git, tmux, build tools) via SSH, VNC en secours."
-  # Same underlying image as ubuntu-xfce above — SSH is a capability of
-  # ubuntu-desktop-noble (INSTALL_SSH=1 at build, WAAS_SSH_ENABLED=1 at
-  # runtime), not a standalone image since the waas-images 2026-07-10 split.
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.1.1
-  protocols: [ssh, vnc]
-  architectures: [amd64, arm64]
-  enabled: true
-  resources:
-    default: { cpu: 500m, memory: 1Gi }
-    min:     { cpu: 250m, memory: 512Mi }
-    max:     { cpu: "2",  memory: 4Gi }
 ---
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceImage

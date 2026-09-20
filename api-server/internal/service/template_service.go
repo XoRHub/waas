@@ -270,6 +270,15 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 		if v := params.ValidateUserParamNames(p.Name, p.UserParams); v != nil {
 			return nil, apierror.BadRequest(fmt.Sprintf("protocols[%s].userParams: %v", p.Name, v))
 		}
+		// Same gates as the admission webhook, same wording: a KubeVirt
+		// VM runs no kasmweb image, and in-cluster RDP only exists for
+		// those VMs.
+		if p.Name == string(waasv1alpha1.ProtocolKasmVNC) && os == waasv1alpha1.OSWindows {
+			return nil, apierror.BadRequest("protocol kasmvnc is not available on windows templates")
+		}
+		if p.Name == string(waasv1alpha1.ProtocolRDP) && os != waasv1alpha1.OSWindows {
+			return nil, apierror.BadRequest("protocol rdp is only available on windows templates: in-cluster RDP is served by KubeVirt Windows VMs, linux templates use vnc or kasmvnc")
+		}
 		// Same gate as the admission webhook: the PulseAudio port only
 		// serves guacd's VNC audio path.
 		if p.ExposeAudioPort && p.Name != string(waasv1alpha1.ProtocolVNC) {
@@ -292,7 +301,7 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 	// mechanism clashes with the vnc/rdp one (same pod-copy Secret name).
 	// Same message as the webhook so the admin sees one vocabulary.
 	if seen[string(waasv1alpha1.ProtocolKasmVNC)] && len(seen) > 1 {
-		return nil, apierror.BadRequest("protocol kasmvnc cannot be combined with vnc/rdp/ssh: it bypasses guacd and must be the template's only protocol")
+		return nil, apierror.BadRequest("protocol kasmvnc cannot be combined with vnc/rdp: it bypasses guacd and must be the template's only protocol")
 	}
 	if spec.AudioPortExposed() {
 		for _, p := range spec.Protocols {

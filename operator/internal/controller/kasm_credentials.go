@@ -21,7 +21,7 @@ import (
 // waas-desktop-); the tenant-isolation rationale below — no two
 // workspaces share a password, no secret in a CR — applies to both.
 // The two mechanisms never generate together: the template webhook
-// rejects kasmvnc combined with vnc/rdp/ssh at admission, and for
+// rejects kasmvnc combined with vnc/rdp at admission, and for
 // templates grandfathered from before that rule the desktop mechanism
 // yields to this one (see desktopPasswordGenerated).
 //
@@ -40,7 +40,7 @@ import (
 //     the CR.
 //   - <workloadName> in the pod namespace: what the pod's VNC_PW
 //     secretKeyRef reads (env can only reference Secrets in the pod's
-//     own namespace — the dev-ssh constraint in docs/placement.md).
+//     own namespace — the same-namespace constraint in docs/placement.md).
 //     Named like every other content object so the teardown finalizer's
 //     name-based sweep deletes it, and labeled so the namespace janitor
 //     counts it as content.

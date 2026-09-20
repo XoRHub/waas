@@ -1,9 +1,10 @@
 # Per-protocol connection test (delivery gate)
 
-`test/smoke` establishes a **real** guacd session for each protocol
-(vnc, rdp, ssh) through the full stack — public API, operator,
-placement in a dedicated namespace, wwt, guacd, desktop image. It
-exists because "the workspace is Ready" proves nothing about the
+`test/smoke` establishes a **real** session for each in-cluster Linux
+protocol (vnc through guacd, kasmvnc through wwt's kasm reverse proxy)
+through the full stack — public API, operator, placement in a
+dedicated namespace, wwt, guacd, desktop image. It exists because
+"the workspace is Ready" proves nothing about the
 session path: a NetworkPolicy that rejects guacd, a fake
 `Status.Address` or broken credentials all pass readiness and only
 die at connect time — exactly the "connection closed" regression
@@ -24,7 +25,8 @@ from July 2026 (see `docs/diagnostics/placed-namespace-netpol.md`).
    and pushed a frame); failure on an `error`/`disconnect`
    instruction, or the stream closing. An open socket isn't enough:
    guacd only opens the connection to the desktop after its handshake
-   with wwt;
+   with wwt. kasmvnc bypasses guacd, so its proof is the KasmVNC RFB
+   banner read through wwt's `/kasm/` WebSocket instead;
 6. delete the workspace (always, even on failure).
 
 ## Running it
@@ -42,7 +44,8 @@ go test -count=1 -v ./test/smoke/
 Variables: `WAAS_SMOKE_URL` (without it the test **skips** — `go test
 ./...` stays usable offline), `WAAS_SMOKE_USER`/`WAAS_SMOKE_PASSWORD`
 (default dev admin/admin123), `WAAS_SMOKE_PROTOCOLS` (default
-`vnc,rdp,ssh`), `WAAS_SMOKE_READY_TIMEOUT` (default 5m),
+`vnc,kasmvnc` — `rdp` is windows-only in-cluster and the dev k3d has no
+KubeVirt), `WAAS_SMOKE_READY_TIMEOUT` (default 5m),
 `WAAS_SMOKE_PLATFORM_NAMESPACE` (default `waas` — see below).
 
 ## `vnc-audio` subtest: the PulseAudio port (4713)

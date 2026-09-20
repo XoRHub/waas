@@ -420,7 +420,7 @@ var registry = []Param{
 	},
 	{
 		Name: "disable-auth", Protocols: []string{"rdp"}, Kind: KindBool, Tier: TierPlatform, Category: CategorySecurity,
-		Description: "Disables RDP authentication entirely — banned: authentication is platform policy (see WAAS_RDP_AUTH_ENABLED image contract).",
+		Description: "Disables RDP authentication entirely — banned: authentication is platform policy, never a per-connection parameter.",
 	},
 	{
 		Name: "static-channels", Protocols: []string{"rdp"}, Kind: KindString, Tier: TierPlatform, Category: CategorySession,
@@ -485,10 +485,12 @@ func ForProtocol(protocol string) []Param {
 
 // Protocols is the SINGLE SOURCE of protocol names, platform-wide.
 // Every other list derives from or is guarded against it: the two CRD
-// kubebuilder enums (kept in lockstep by TestCRDProtocolEnumsMatchTheRegistry),
-// the remote-workspace validation, the api-server catalog validation
-// and GET /meta/protocols. Add a protocol HERE; the guard test then
-// walks you to the two enum markers.
+// kubebuilder enums (the in-cluster subset — everything but ssh, which
+// only remote workspaces speak — kept in lockstep by
+// TestCRDProtocolEnumsMatchTheRegistry), the remote-workspace
+// validation, the api-server catalog validation and GET /meta/protocols.
+// Add a protocol HERE; the guard test then walks you to the two enum
+// markers.
 //
 // The first three are guacd protocols with tunable parameters; kasmvnc
 // is the web-native KasmVNC path (kasmweb/* images), reverse-proxied by

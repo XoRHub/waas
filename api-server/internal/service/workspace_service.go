@@ -749,8 +749,8 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 		} else if len(session.Params) > 0 {
 			info.Params = session.Params
 		}
-		// Credentials Secret (username/password/private-key/passphrase):
-		// the platform-blessed source. Resolution failure is a hard error —
+		// Credentials Secret (username/password): the platform-blessed
+		// source. Resolution failure is a hard error —
 		// silently connecting with stale credentials would be worse.
 		if entry != nil && entry.CredentialsSecretRef != "" {
 			if err := s.applyCredentialsSecret(ctx, entry.CredentialsSecretRef, info); err != nil {
@@ -769,19 +769,16 @@ func (s *WorkspaceService) ConnectionInfo(ctx context.Context, sessionID string)
 		}
 	}
 	// Generated desktop credentials (vnc/rdp): the sibling mechanism, own
-	// Secret prefix shared with the operator like the ssh one.
+	// Secret prefix shared with the operator.
 	if (info.Protocol == string(waasv1alpha1.ProtocolVNC) || info.Protocol == string(waasv1alpha1.ProtocolRDP)) && info.Password == "" {
-		if err := s.applyCredentialsSecret(ctx, waasv1alpha1.DesktopSecretName(ws.Name), info); err != nil {
-			return nil, err
+		// The operator never generates for a windows VM (it injects
+		// nothing into it — desktopPasswordGenerated is false there), so
+		// the Secret lookup below could only fail with a bare NotFound:
+		// name the actual fix instead.
+		if tpl.Spec.OS == waasv1alpha1.OSWindows {
+			return nil, apierror.Conflict(fmt.Sprintf("template %q declares %s on a windows VM without a credentialsSecretRef: the operator injects no credentials into a KubeVirt VM, so the protocol entry must name the Secret holding the VM's own account", tpl.Name, info.Protocol))
 		}
-	}
-	// Generated ssh keypair: the third sibling — but its predicate and
-	// Secret name are SHARED with the operator (v1alpha1.SSHKeyGenerated)
-	// instead of comment-aligned, so this only fires when generation
-	// actually happened; a missing Secret is then a hard error like the
-	// others. Its private-key maps into guacd's vocabulary verbatim.
-	if info.Protocol == string(waasv1alpha1.ProtocolSSH) && info.Params["private-key"] == "" && sshKeyGeneratedFor(ws, tpl) {
-		if err := s.applyCredentialsSecret(ctx, waasv1alpha1.SSHSecretName(ws.Name), info); err != nil {
+		if err := s.applyCredentialsSecret(ctx, waasv1alpha1.DesktopSecretName(ws.Name), info); err != nil {
 			return nil, err
 		}
 	}
@@ -800,29 +797,18 @@ func kasmDefaults(info *model.ConnectionInfo) {
 	}
 }
 
-// desktopDefaults is kasmDefaults' vnc/rdp/ssh sibling: waas-images run
-// the fixed system account "waas_user" (xrdp.ini presents the same
-// identity to guacd, sshd's AllowUsers pins it too) — only the
-// credential is per-workspace. A credentials Secret with an explicit
-// username still wins. Cluster workspaces only — never applied to
+// desktopDefaults is kasmDefaults' vnc sibling: waas-images run the
+// fixed system account "waas_user" — only the credential is
+// per-workspace. A credentials Secret with an explicit username still
+// wins. vnc only: in-cluster rdp is a windows VM with no such account,
+// so its username comes from the credentials Secret or stays empty
+// (guacd then prompts). Cluster workspaces only — never applied to
 // remoteConnectionInfo, whose machines are outside the waas-images
 // contract.
 func desktopDefaults(info *model.ConnectionInfo) {
-	if (info.Protocol == string(waasv1alpha1.ProtocolVNC) || info.Protocol == string(waasv1alpha1.ProtocolRDP) ||
-		info.Protocol == string(waasv1alpha1.ProtocolSSH)) && info.Username == "" {
+	if info.Protocol == string(waasv1alpha1.ProtocolVNC) && info.Username == "" {
 		info.Username = "waas_user"
 	}
-}
-
-// sshKeyGeneratedFor adapts the shared predicate to the api-server's
-// view: only env NAMES matter to it, so template env and override env
-// are passed concatenated rather than merged.
-func sshKeyGeneratedFor(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) bool {
-	env := tpl.Spec.Env
-	if ws.Spec.Overrides != nil && len(ws.Spec.Overrides.Env) > 0 {
-		env = append(append([]corev1.EnvVar{}, env...), ws.Spec.Overrides.Env...)
-	}
-	return waasv1alpha1.SSHKeyGenerated(tpl, env)
 }
 
 // remoteConnectionInfo resolves a remote-workspace session: target from
@@ -863,7 +849,10 @@ func (s *WorkspaceService) remoteConnectionInfo(ctx context.Context, session *mo
 
 // applyCredentialsSecret loads a protocol's credentials Secret into the
 // connection info. Key names follow the guacd vocabulary: username,
-// password, private-key, passphrase.
+// password, private-key, passphrase. One resolver serves cluster and
+// remote workspaces alike, which is why the ssh keys are still read
+// here: no in-cluster protocol consumes them (vnc and windows rdp are
+// username/password only), remote ssh sessions do.
 func (s *WorkspaceService) applyCredentialsSecret(ctx context.Context, name string, info *model.ConnectionInfo) error {
 	secret := &corev1.Secret{}
 	if err := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: name}, secret); err != nil {

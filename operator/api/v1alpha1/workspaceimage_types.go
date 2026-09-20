@@ -5,14 +5,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Protocol is a desktop protocol a workspace image can serve.
-// +kubebuilder:validation:Enum=vnc;rdp;ssh;kasmvnc
+// Protocol is a desktop protocol a workspace image can serve. In-cluster
+// workspaces are desktops only: vnc/kasmvnc for linux images, rdp for
+// windows (KubeVirt) VMs. ssh is a remote-workspace protocol (guacd
+// registry, operator/pkg/params) and never an in-cluster one.
+// +kubebuilder:validation:Enum=vnc;rdp;kasmvnc
 type Protocol string
 
 const (
 	ProtocolVNC Protocol = "vnc"
+	// ProtocolRDP is reserved for windows templates (KubeVirt VMs);
+	// the template webhook denies it on linux.
 	ProtocolRDP Protocol = "rdp"
-	ProtocolSSH Protocol = "ssh"
 	// ProtocolKasmVNC is the web-native KasmVNC endpoint of kasmweb/*
 	// images: browser-only, reverse-proxied by wwt instead of guacd.
 	ProtocolKasmVNC Protocol = "kasmvnc"

@@ -67,7 +67,7 @@ var hints = map[string]hint{
 	// required by validation, so they carry valid example values.
 	"UpsertImageInput.displayName":   {value: str("Example desktop")},
 	"UpsertImageInput.image":         {value: str("registry.example.com/desktop:1.0.0")},
-	"UpsertImageInput.protocols":     {value: seq(str("vnc")), comment: "vnc | rdp | ssh"},
+	"UpsertImageInput.protocols":     {value: seq(str("vnc")), comment: "vnc | rdp | kasmvnc"},
 	"UpsertImageInput.architectures": {comment: "e.g. [amd64, arm64]; [] = no scheduling constraint"},
 	"UpsertImageInput.enabled":       {value: boolean(true)},
 	"UpsertImageInput.allowedGroups": {comment: "IdP (OIDC) groups; [] = everyone"},

@@ -2,7 +2,7 @@
 
 This document covers the template-driven deployment model introduced after
 the governance layer: how a `WorkspaceTemplate` shapes the workload, how
-multiple connection protocols are declared and tuned, and which parts a
+connection protocols are declared and tuned, and which parts a
 workspace creator may override.
 
 ## Workload
@@ -47,24 +47,29 @@ image (the pre-existing deduction, unchanged), else the OS icon.
 
 ## Protocols
 
-A template may declare several protocols in guacd terms:
+A template declares its protocols in guacd terms:
 
 ```yaml
 spec:
   protocols:
-    - name: vnc          # vnc | rdp | ssh
+    - name: vnc          # vnc | kasmvnc (linux) · rdp (windows)
       port: 5901
       default: true      # first entry wins if none is marked
       params:            # locked guacd connection parameters
         color-depth: "24"
       userParams: [color-depth, cursor]   # user-tunable at connect time
-      credentialsSecretRef: my-creds      # username/password/private-key/passphrase
+      credentialsSecretRef: my-creds      # username/password
 ```
 
-`vnc`, `rdp` and `ssh` are freely combinable on one template. `kasmvnc`
-is exclusive: it bypasses guacd entirely, so a template declaring it may
-declare no other protocol — the admission webhook rejects any
-combination with `vnc`/`rdp`/`ssh`.
+Which protocols a template may declare follows its `os`: a **linux**
+template (a waas-images or kasmweb/* pod) declares `vnc` or `kasmvnc`;
+a **windows** template (a KubeVirt VM) is reached over `rdp`. The
+admission webhook denies `rdp` on a linux template and `kasmvnc` on a
+windows one. `kasmvnc` is additionally exclusive: it bypasses guacd
+entirely, so a template declaring it may declare no other protocol.
+`ssh` is not an in-cluster protocol at all — it stays available to
+[remote workspaces](remote-workspaces.md), whose off-cluster machines
+speak every guacd protocol.
 
 When `protocols` is empty, one protocol is synthesized from `os`/`port`
 (linux → vnc:5901, windows → rdp:3389) so older templates keep working.
@@ -77,95 +82,12 @@ every caller, kubectl included. The full mapping with exposure tiers
 lives in [guacd-parameters.md](guacd-parameters.md) (generated —
 `make docs-params`).
 
-### Credentials
-
-Desktop credentials never live in a CR. Three levels, in precedence
-order:
-
-1. **`credentialsSecretRef`** — explicit, always wins. Each protocol
-   entry may name a Secret (workspace namespace) with the keys
-   `username`, `password`, `private-key`, `passphrase` (all optional).
-   The api-server resolves it server-side when a session starts and
-   hands the values to guacd via the proxy — the browser never sees
-   them. Ship the Secret with External Secrets/Vault. The same Secret
-   typically also feeds the pod via env `valueFrom` (e.g.
-   `WAAS_DESKTOP_PASSWORD`, `WAAS_SSH_AUTHORIZED_KEYS`) so both sides
-   of the connection agree;
-   see `waas-images/examples/workspacetemplate-ssh.yaml` for the
-   complete pattern.
-2. **Generated per-workspace credentials** — the default for `vnc`,
-   `rdp`, `kasmvnc` **and `ssh`** when nothing explicit is provided:
-   the operator generates a random credential per workspace (never
-   shared between tenants), stores it in a Secret next to the CR,
-   wires it into the pod, and the api-server resolves the same Secret
-   at connect time. Zero template configuration.
-   - *Passwords* (`vnc`/`rdp`: `waas-desktop-<name>`; `kasmvnc`:
-     `waas-kasm-<name>`): injected via `secretKeyRef` — as
-     `WAAS_DESKTOP_PASSWORD` for waas-images, as `VNC_PW` for kasmvnc
-     (the kasmweb images' own vocabulary). vnc and rdp on one
-     workspace share one password (the container has a single session
-     secret); at most one password Secret is generated per workspace.
-   - *SSH keypair* (`waas-ssh-<name>`): generated when an `ssh`
-     protocol entry has no `credentialsSecretRef` and the merged env
-     carries no `WAAS_SSH_AUTHORIZED_KEYS(_FILE)` — providing either
-     is the opt-out. The resolver copy holds `private-key` (OpenSSH
-     PEM, handed to guacd at connect) and `public-key`; a
-     **public-key-only** pod copy (`<workload>-ssh`) is mounted
-     read-only and pointed at via `WAAS_SSH_AUTHORIZED_KEYS_FILE`,
-     with `WAAS_SSH_ENABLED=1` injected unless the template takes an
-     explicit position. The private key never exists in the pod's
-     namespace — and it serves the **portal path only**: pod-to-pod
-     ssh still needs an admin-shipped Secret, since the per-workspace
-     resolver copy is not referenceable from template-level volumes.
-   - *Rotation* (both kinds): create-only — delete the resolver copy
-     and roll the workload; the operator never rotates on its own.
-3. **Literal `WAAS_DESKTOP_PASSWORD` with `docker run`** — the
-   standalone path for running a waas-images build outside the
-   platform, unrelated to the CRs. Literal env passwords in a
-   `WorkspaceTemplate` are **not** read by the platform.
-
-Usernames are defaulted per protocol family when no credentials Secret
-sets one: `waas_user` for `vnc`/`rdp`/`ssh` (the fixed system account
-of waas-images builds — presented to guacd by their `xrdp.ini`, pinned
-by sshd's `AllowUsers`) and `kasm_user` for `kasmvnc` (the fixed HTTP
-Basic identity of kasmweb/* images).
-
-**Image env contract (for third-party image builders)**: every
-variable the platform injects or a waas-images entrypoint interprets
-is `WAAS_`-prefixed; ecosystem-inherited names survive only on foreign
-boundaries (today: `VNC_PW`, confined to kasmweb images). What the
-operator injects, and when: `WAAS_DESKTOP_PASSWORD` via `secretKeyRef`
-when a vnc/rdp password is generated (level 2 above); `VNC_PW` the
-same way for kasmvnc; `WAAS_SSH_AUTHORIZED_KEYS_FILE` +
-`WAAS_SSH_ENABLED=1` when an ssh keypair is generated. Images run as
-uid 1000 (`waas_user`); a conforming image must fail closed when a
-required credential is missing. The image-side half of the contract
-(ports, tombstones for legacy names, cosmetic aliases) lives in the
-[waas-images README](https://github.com/XoRHub/waas-images).
-
-### SSH
-
-`ssh` is a first-class protocol: guacd renders the terminal, so the
-portal needs nothing special. SSH is a capability of any OS-only
-waas-images desktop built with `INSTALL_SSH=1` (`ubuntu-desktop-noble`,
-`debian-desktop-13`, `fedora-desktop-43` — never `apps/*` images, which
-are VNC-only). It ships a fully non-root sshd on port 2222, public-key
-only (an unprivileged sshd cannot read /etc/shadow, so password auth is
-impossible by construction). Declaring the `ssh` protocol on a template
-is enough: with no explicit credential source the operator generates
-the keypair and turns sshd on (precedence level 2 above — public key to
-the pod, private key to guacd at connect). With a
-`credentialsSecretRef`, authorized keys and the guacd private key come
-from that one Secret instead, and `WAAS_SSH_ENABLED=1` must be set
-explicitly. Terminal look (`font-size`, `color-scheme`) is user-tunable
-via `userParams`.
-
 - The workspace **Service exposes every declared port**; status carries
   the full list (`status.protocols`) plus the effective default.
 - The catalog gate checks **every** declared protocol against the
-  `WorkspaceImage.protocols` list (`ssh` is now a valid image protocol).
+  `WorkspaceImage.protocols` list.
 - `POST /api/v1/workspaces/{id}/connect` accepts an optional body
-  `{"protocol": "rdp", "params": {"color-depth": "16"}}`. The api-server
+  `{"protocol": "vnc", "params": {"color-depth": "16"}}`. The api-server
   rejects protocols the template does not declare and, for non-admins,
   any param name outside `userParams`. Accepted params are stored on the
   session and merged over the template params in the internal
@@ -175,6 +97,59 @@ via `userParams`.
   their profile preferences (`workspaceSettings`) — the server still
   re-validates at connect time, so the preference is a convenience, not a
   grant.
+
+### Credentials
+
+Desktop credentials never live in a CR. Three levels, in precedence
+order:
+
+1. **`credentialsSecretRef`** — explicit, always wins. Each protocol
+   entry may name a Secret (workspace namespace) with the keys
+   `username` and `password` (both optional). The api-server resolves
+   it server-side when a session starts and hands the values to guacd
+   via the proxy — the browser never sees them. Ship the Secret with
+   External Secrets/Vault. On a linux template the same Secret
+   typically also feeds the pod via env `valueFrom`
+   (`WAAS_DESKTOP_PASSWORD`) so both sides of the connection agree; a
+   windows template has no other option — the operator injects nothing
+   into a KubeVirt VM, so its `rdp` entry names the Secret holding the
+   VM's own account.
+2. **Generated per-workspace password** — the default for `vnc` and
+   `kasmvnc` (linux only) when nothing explicit is provided: the
+   operator generates a random password per workspace (never shared
+   between tenants), stores it in a Secret next to the CR
+   (`waas-desktop-<name>` for vnc, `waas-kasm-<name>` for kasmvnc),
+   wires it into the pod via `secretKeyRef` — as `WAAS_DESKTOP_PASSWORD`
+   for waas-images, as `VNC_PW` for kasmvnc (the kasmweb images' own
+   vocabulary) — and the api-server resolves the same Secret at connect
+   time. Zero template configuration; at most one password Secret is
+   generated per workspace. Rotation is create-only — delete the
+   resolver copy and roll the workload; the operator never rotates on
+   its own.
+3. **Literal `WAAS_DESKTOP_PASSWORD` with `docker run`** — the
+   standalone path for running a waas-images build outside the
+   platform, unrelated to the CRs. Literal env passwords in a
+   `WorkspaceTemplate` are **not** read by the platform.
+
+Usernames are defaulted per protocol family when no credentials Secret
+sets one: `waas_user` for `vnc` (the fixed system account of
+waas-images builds) and `kasm_user` for `kasmvnc` (the fixed HTTP
+Basic identity of kasmweb/* images). `rdp` never defaults: a Windows
+VM has no such account, so its username is whatever the `rdp` entry's
+Secret says — and a windows template whose `rdp` entry names no Secret
+is refused at connect time with an error saying so.
+
+**Image env contract (for third-party image builders)**: every
+variable the platform injects or a waas-images entrypoint interprets
+is `WAAS_`-prefixed; ecosystem-inherited names survive only on foreign
+boundaries (today: `VNC_PW`, confined to kasmweb images). What the
+operator injects, and when: `WAAS_DESKTOP_PASSWORD` via `secretKeyRef`
+when a vnc password is generated (level 2 above); `VNC_PW` the same
+way for kasmvnc. Images run as uid 1000 (`waas_user`); a conforming
+image must fail closed when a required credential is missing. The
+image-side half of the contract
+(ports, tombstones for legacy names, cosmetic aliases) lives in the
+[waas-images README](https://github.com/XoRHub/waas-images).
 
 ### Audio port (`protocols[].exposeAudioPort`)
 
@@ -341,34 +316,37 @@ nor the user sets it, the browser sends its locale as a client display
 characteristic (`?layout=` on the WebSocket, like DPI/resolution) and wwt
 uses it as the `server-layout` default — so a French browser gets an
 AZERTY layout with no configuration. An explicit `server-layout` in the
-template or overlay always wins. VNC/SSH have no equivalent guacd layout
-parameter (VNC forwards keysyms directly). Non-admin users
+template or overlay always wins. VNC has no equivalent guacd layout
+parameter (it forwards keysyms directly). Non-admin users
 additionally stay inside the template's `userParams` allow-list whatever
 the tier; the browser-managed resolution (width/height/dpi) is sent at
 handshake time and is not a form parameter.
 
 ## Protocol × feature matrix
 
-Cross-cutting capabilities of the four connection paths (VNC/RDP/SSH
-brokered by guacd; KasmVNC reverse-proxied by `wwt/internal/kasm`, see
-`docs/kasmvnc.md`). Legend: ✅ supported · ⚙️ CR/YAML or advanced tier
-only · 🚫 platform-blocked (reason in the registry) · ❌ absent ·
-N/A not applicable.
+Cross-cutting capabilities of the three connection paths (VNC to a
+linux pod and RDP to a windows VM, both brokered by guacd; KasmVNC
+reverse-proxied by `wwt/internal/kasm`, see `docs/kasmvnc.md`).
+Legend: ✅ supported · ⚙️ CR/YAML or advanced tier only · 🚫
+platform-blocked (reason in the registry) · ❌ absent · N/A not
+applicable. The RDP column is guacd against the VM's own RDP server;
+the smoke suite covers vnc and kasmvnc only, so nothing in that column
+is exercised by CI.
 
-| Feature | VNC | RDP | SSH | KasmVNC |
-|---|---|---|---|---|
-| Audio playback | ✅ `enable-audio` + `exposeAudioPort` (PulseAudio in waas-images) | ⚙️ `disable-audio` param exists; internal images ship no RDP audio chain | N/A | ❌ Kasm-platform-only upstream |
-| Microphone | ❌ | ⚙️ `enable-audio-input` exists but the web client has no capture wiring — inert | N/A | ❌ |
-| Governed clipboard | ✅ live | ✅ live, text only (xrdp-libvnc bridge) | ✅ live | ✅ container-side DLP (owner policy, reconcile-time) |
-| Persistent home | ✅ | ✅ | ✅ | ✅ (`/home/kasm-user`) |
-| Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ | ❌ |
-| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked | 🚫 | 🚫 | 🚫 `/api/downloads` blocked at the proxy |
-| Session recording | 🚫 `recording-*` platform-blocked | 🚫 | 🚫 (`typescript-path` too) | ❌ |
-| Keyboard layout | N/A (direct keysyms) | ✅ `server-layout` + browser auto-detect | N/A | N/A |
-| Dynamic resize | ✅ pod-exec mechanism | ✅ same (`resize-method` stays inert in-cluster) | ❌ (handshake size, CSS-scaled) | ✅ native client-side (`resize=remote`) |
-| Multi-monitor | ❌ | ❌ | N/A | not integrated (upstream client capability, unverified through the iframe) |
-| Live (no-reconnect) params | `disable-copy`/`disable-paste` only | same | same | none (no guac tunnel) |
-| Post-creation overrides | ✅ protocol-independent (`PATCH /overrides` + reload) | ✅ | ✅ | ✅ |
+| Feature | VNC (linux pod) | RDP (windows VM) | KasmVNC |
+|---|---|---|---|
+| Audio playback | ✅ `enable-audio` + `exposeAudioPort` (PulseAudio in waas-images) | ⚙️ guacd's RDP audio channel (`disable-audio` in the registry); no `exposeAudioPort`, PulseAudio is a waas-images thing | ❌ Kasm-platform-only upstream |
+| Microphone | ❌ | ⚙️ `enable-audio-input` exists but the web client has no capture wiring — inert | ❌ |
+| Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time) |
+| Persistent home | ✅ | ✅ | ✅ (`/home/kasm-user`) |
+| Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ |
+| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked | 🚫 | 🚫 `/api/downloads` blocked at the proxy |
+| Session recording | 🚫 `recording-*` platform-blocked | 🚫 | ❌ |
+| Keyboard layout | N/A (direct keysyms) | ✅ `server-layout` + browser auto-detect | N/A |
+| Dynamic resize | ✅ pod-exec mechanism | ❌ the frontend never calls the endpoint for rdp: no pod to exec `waas-resize` in; guacd-native `resize-method` is the only candidate, unverified | ✅ native client-side (`resize=remote`) |
+| Multi-monitor | ❌ | ❌ | not integrated (upstream client capability, unverified through the iframe) |
+| Live (no-reconnect) params | `disable-copy`/`disable-paste` only | same | none (no guac tunnel) |
+| Post-creation overrides | ✅ protocol-independent (`PATCH /overrides` + reload) | ✅ | ✅ |
 
 Detail lives in the dedicated docs: `docs/clipboard.md` (precedence and
 browser matrix), `docs/session-resize.md` (why resize is pod-exec, not
@@ -377,9 +355,9 @@ guacd), `docs/volumes.md`, `docs/kasmvnc.md`, and
 File transfer and recording are deliberately blocked **for everyone,
 admins included**, "until the file-transfer feature ships with its own
 policy gate" (`operator/pkg/params/params.go`) — the kasmvnc downloads
-block mirrors the same doctrine. Remote workspaces run the same guacd
-protocols with the same clipboard filter (and a real RDP server does
-mount cliprdr, unlike the internal images); kasmvnc is refused there
+block mirrors the same doctrine. Remote workspaces run every guacd
+protocol — vnc, rdp and ssh, the last one no longer an in-cluster
+option — with the same clipboard filter; kasmvnc is refused there
 (`docs/remote-workspaces.md`).
 
 ## Portal UX shipped alongside

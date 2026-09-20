@@ -100,11 +100,11 @@ images:
           mountPath: /run
           readOnly: true
       env:
-        - name: WAAS_SSH_ENABLED
-          description: "Enable sshd"
-          protocols: [ssh]
+        - name: WAAS_AUDIO_ENABLED
+          description: "Enable the PulseAudio sidecar"
+          protocols: [vnc]
           default: "0"
-          requires: [WAAS_SSH_AUTHORIZED_KEYS_FILE]
+          requires: [WAAS_AUDIO_SINK]
 `))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -134,7 +134,7 @@ images:
 		t.Fatalf("env = %d entries, want 1", len(e.Recommended.Env))
 	}
 	env := e.Recommended.Env[0]
-	if env.Name != "WAAS_SSH_ENABLED" || len(env.Protocols) != 1 || env.Protocols[0] != "ssh" || len(env.Requires) != 1 || env.Requires[0] != "WAAS_SSH_AUTHORIZED_KEYS_FILE" {
+	if env.Name != "WAAS_AUDIO_ENABLED" || len(env.Protocols) != 1 || env.Protocols[0] != "vnc" || len(env.Requires) != 1 || env.Requires[0] != "WAAS_AUDIO_SINK" {
 		t.Errorf("env hint mismatch: %+v", env)
 	}
 }

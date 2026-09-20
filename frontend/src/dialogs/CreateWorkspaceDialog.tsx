@@ -107,7 +107,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
 
   // Every template is listed whatever its protocol; the ones the policy
   // excludes are visible but disabled with the reason (never silently
-  // dropped — that is how SSH templates used to "disappear").
+  // dropped — that is how a whole family of templates used to "disappear").
   const availability = templateAvailability(
     templates.isSuccess ? templates.data.data : [],
     catalog.isSuccess ? catalog.data.data : undefined,
