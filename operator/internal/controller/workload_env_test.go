@@ -13,8 +13,9 @@ import (
 // audit finding #3 (defense in depth behind the webhook): an override
 // env entry sourced from a valueFrom reference never reaches the pod
 // template — dropped entirely, so it cannot mask the template's own
-// entry — while the TEMPLATE's valueFrom entries (the dev-ssh pattern)
-// and literal overrides render exactly as before. Covers legacy CRs
+// entry — while the TEMPLATE's valueFrom entries (the admin's
+// Secret-sourced pattern) and literal overrides render exactly as
+// before. Covers legacy CRs
 // stored before the webhook rule existed.
 func TestDesktopEnvDropsOverrideValueFrom(t *testing.T) {
 	secretRef := func(name, key string) *corev1.EnvVarSource {
@@ -29,7 +30,7 @@ func TestDesktopEnvDropsOverrideValueFrom(t *testing.T) {
 			OS: waasv1alpha1.OSLinux,
 			Env: []corev1.EnvVar{
 				// The admin channel: template valueFrom stays rendered.
-				{Name: "WAAS_SSH_AUTHORIZED_KEYS", ValueFrom: secretRef("dev-ssh-credentials", "authorized-keys")},
+				{Name: "WAAS_DESKTOP_PASSWORD", ValueFrom: secretRef("desktop-credentials", "password")},
 				{Name: "BASE_VAR", Value: "from-template"},
 			},
 		},
@@ -57,8 +58,8 @@ func TestDesktopEnvDropsOverrideValueFrom(t *testing.T) {
 	if got := byName["HTTP_PROXY"]; got.Value != "http://proxy:3128" {
 		t.Fatalf("literal override must render as before, got %+v", got)
 	}
-	ssh := byName["WAAS_SSH_AUTHORIZED_KEYS"]
-	if ssh.ValueFrom == nil || ssh.ValueFrom.SecretKeyRef == nil || ssh.ValueFrom.SecretKeyRef.Name != "dev-ssh-credentials" {
-		t.Fatalf("template valueFrom (dev-ssh pattern) must keep rendering, got %+v", ssh)
+	pw := byName["WAAS_DESKTOP_PASSWORD"]
+	if pw.ValueFrom == nil || pw.ValueFrom.SecretKeyRef == nil || pw.ValueFrom.SecretKeyRef.Name != "desktop-credentials" {
+		t.Fatalf("template valueFrom (Secret-sourced pattern) must keep rendering, got %+v", pw)
 	}
 }

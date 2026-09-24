@@ -238,29 +238,19 @@ images:
       volumes:
         - name: tmp
           mountPath: /tmp
-        - name: run
-          mountPath: /run
-          readOnly: true
       env:
-        - name: WAAS_SSH_ENABLED
-          description: "Enable sshd (publickey only) — boolean '0'/'1'"
-          protocols: [ssh]
-          default: "0"
-          requires: [WAAS_SSH_AUTHORIZED_KEYS_FILE]
-        - name: WAAS_SSH_AUTHORIZED_KEYS_FILE
-          description: "Path to the authorized public key — mount from a
-            Secret (valueFrom.secretKeyRef), never a literal value.
-            Required as soon as WAAS_SSH_ENABLED=1: the image's
-            entrypoint refuses to start otherwise (fail-closed by
-            design, not a bug — see
-            waas-images/base/*/rootfs/etc/waas/entrypoint.d/50-sshd.sh)."
-          protocols: [ssh]
+        - name: WAAS_AUDIO_ENABLED
+          description: "Enable the unprivileged PulseAudio daemon (native
+            protocol on TCP 4713, consumed by guacd's VNC client) —
+            boolean '0'/'1'"
+          protocols: [vnc]
+          default: "1"
 ```
 
 `recommended.volumes` is deliberately **not** a `corev1.Volume` +
 `corev1.VolumeMount` pair: the only case `HARDENING.md` documents is a
-plain `emptyDir` mounted at a fixed path (the `/tmp`+`/run` pair needed
-alongside `readOnlyRootFilesystem`), so one `name`/`mountPath`/`readOnly`
+plain `emptyDir` mounted at a fixed path (`/tmp`, needed alongside
+`readOnlyRootFilesystem`), so one `name`/`mountPath`/`readOnly`
 entry says that without repeating the volume/mount boilerplate twice
 per entry. It never covers configMap/secret-backed mounts (e.g. an
 init.d script volume) — those stay the admin's call via the free-form
@@ -286,10 +276,11 @@ the guacd ones — kasmvnc exclusivity); a template that already has
 protocols keeps them untouched. The protocol list here is **per
 discovered image**, derived server-side as the union of the image's
 `env[].protocols` tags (a single-app image only ships hints for the
-protocols it serves, so the union is its protocol surface — e.g. a
-vnc-only agent image derives to `[vnc]` even under a `[vnc, rdp, ssh]`
-catalog). An image with no tagged hints derives to empty = unknown, and
-the form falls back to the catalog entry's `spec.protocols` — same
+protocols it serves, so the union is its protocol surface — e.g. an
+image whose only tagged hint is `WAAS_AUDIO_ENABLED` derives to `[vnc]`
+whatever its catalog entry declares). An image with no tagged hints
+derives to empty = unknown, and the form falls back to the catalog
+entry's `spec.protocols` — same
 convention as the `architectures` prefill. That fallback is deliberate
 and load-bearing for `kasmvnc`: `kasmvnc` never derives from hints (an
 exception by nature — webhook-enforced exclusivity), so a `kasmvnc`
@@ -384,8 +375,8 @@ from the catalog recommendation (the admin can edit the prefilled
 no longer has.
 
 **Explored and explicitly rejected**: letting the catalog trigger an
-operator-side secret generation (e.g. an SSH keypair), addressed by env
-var name or by an enumerated generator id. `env`/`recommended` stays
+operator-side secret generation (e.g. a desktop password), addressed by
+env var name or by an enumerated generator id. `env`/`recommended` stays
 strictly informational; a generation mechanism, if it is ever built,
 belongs on `WorkspaceTemplateSpec` itself (near
 `WorkspaceProtocol.CredentialsSecretRef`) with its own webhook
@@ -393,8 +384,8 @@ validation and operator logic — never as an extension of the catalog
 recommendation.
 
 *Resolution (2026-07)*: the mechanism landed as an **implicit
-level-2 default** on the protocol signal itself (ssh declared + no
-explicit source ⇒ generated keypair — see
+level-2 default** on the protocol signal itself (vnc or kasmvnc
+declared + no explicit source ⇒ generated per-workspace password — see
 [templates-and-protocols.md](templates-and-protocols.md) §
 Credentials), so the catalog needed no change at all: there is
 nothing to suggest when generation is the default.

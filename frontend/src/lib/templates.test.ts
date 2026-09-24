@@ -22,28 +22,28 @@ const img = (name: string, templates: string[]): CatalogImage => ({
 });
 
 describe('templateAvailability', () => {
-  // Non-regression for "SSH templates invisible at creation": templates
-  // of EVERY protocol must be listed, never silently dropped.
-  it('lists ssh, vnc and rdp templates when their images are allowed', () => {
-    const templates = [tpl('t-ssh', 'ssh'), tpl('t-vnc', 'vnc'), tpl('t-rdp', 'rdp')];
-    const catalog = [img('t-ssh', ['t-ssh']), img('t-vnc', ['t-vnc']), img('t-rdp', ['t-rdp'])];
+  // Non-regression for "templates invisible at creation": templates of
+  // EVERY protocol must be listed, never silently dropped.
+  it('lists kasmvnc, vnc and rdp templates when their images are allowed', () => {
+    const templates = [tpl('t-kasm', 'kasmvnc'), tpl('t-vnc', 'vnc'), tpl('t-rdp', 'rdp')];
+    const catalog = [img('t-kasm', ['t-kasm']), img('t-vnc', ['t-vnc']), img('t-rdp', ['t-rdp'])];
     const out = templateAvailability(templates, catalog);
     expect(out).toHaveLength(3);
     expect(out.every((a) => a.available)).toBe(true);
   });
 
   it('keeps policy-excluded templates visible but flags them unavailable', () => {
-    const templates = [tpl('t-ssh', 'ssh'), tpl('t-vnc', 'vnc')];
-    // Catalog without the ssh image (policy restriction).
+    const templates = [tpl('t-kasm', 'kasmvnc'), tpl('t-vnc', 'vnc')];
+    // Catalog without the kasmvnc image (policy restriction).
     const catalog = [img('t-vnc', ['t-vnc'])];
     const out = templateAvailability(templates, catalog);
     expect(out).toHaveLength(2);
-    expect(out.find((a) => a.template.name === 't-ssh')?.available).toBe(false);
+    expect(out.find((a) => a.template.name === 't-kasm')?.available).toBe(false);
     expect(out.find((a) => a.template.name === 't-vnc')?.available).toBe(true);
   });
 
   it('treats a missing catalog (loading/error) as all-available', () => {
-    const out = templateAvailability([tpl('t-ssh', 'ssh')], undefined);
+    const out = templateAvailability([tpl('t-kasm', 'kasmvnc')], undefined);
     expect(out[0].available).toBe(true);
   });
 });

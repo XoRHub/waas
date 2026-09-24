@@ -17,8 +17,12 @@ import (
 // kasmvnc required FOUR manual edits and nearly missed one; with this
 // guard (and the api-server switch replaced by a lookup) a divergence
 // is a red build, not a runtime surprise.
+//
+// The one deliberate difference: ssh serves remote workspaces only
+// (off-cluster machines), so the CRDs — in-cluster desktops — carry the
+// registry minus ssh. Anything else diverging is still a red build.
 func TestCRDProtocolEnumsMatchTheRegistry(t *testing.T) {
-	want := append([]string(nil), Protocols()...)
+	want := slices.DeleteFunc(append([]string(nil), Protocols()...), func(p string) bool { return p == "ssh" })
 	slices.Sort(want)
 
 	for _, file := range []string{

@@ -3,13 +3,14 @@ import { api } from '@/lib/api';
 /**
  * Server-side session resize, debounced.
  *
- * WaaS-specific mechanism, NOT guacd's native resize: the xrdp-libvnc
- * bridge cannot resize the underlying Xvnc and Guacamole's VNC client
- * never pushes a resize — the api-server instead execs the image's
- * waas-resize helper (RandR) inside the pod (docs/session-resize.md).
+ * WaaS-specific mechanism, NOT guacd's native resize: Guacamole's VNC
+ * client never pushes a resize mid-session — the api-server instead
+ * execs the image's waas-resize helper (RandR) inside the pod
+ * (docs/session-resize.md).
  *
- * Only in-cluster vnc/rdp sessions qualify: kasmvnc resizes natively in
- * its own client, ssh has no desktop, remote machines have no pod.
+ * Only in-cluster vnc sessions qualify: kasmvnc resizes natively in its
+ * own client, an in-cluster rdp desktop is a windows VM with no pod to
+ * exec into, remote machines have no pod either.
  * Browser resizes fire dozens of ResizeObserver events per second, so
  * the POST goes out `delayMs` after the LAST change only.
  */
@@ -24,7 +25,7 @@ export function createSessionResizer({
   protocol: string;
   delayMs?: number;
 }) {
-  const active = kind === 'workspace' && (protocol === 'vnc' || protocol === 'rdp');
+  const active = kind === 'workspace' && protocol === 'vnc';
   let timer: ReturnType<typeof setTimeout> | undefined;
   let lastSent = '';
   return {

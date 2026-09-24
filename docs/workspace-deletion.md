@@ -110,6 +110,35 @@ This abandons the remaining cleanup **knowingly**: run
 `hack/audit-orphans.sh --clean` right after to reap what the finalizer
 could not.
 
+## Upgrade note — leftovers of the retired in-cluster ssh
+
+Until `ssh` stopped being an in-cluster protocol, the operator generated
+a per-workspace keypair and mounted its public half as a `<workload>-ssh`
+Secret in the compute namespace; `teardownPlacement` deleted that Secret
+explicitly, since its suffix escapes the name-based sweep. That deletion
+went away with the mechanism, and nothing replaces it:
+
+- On a **placed** workspace (compute namespace ≠ CR namespace) the Secret
+  carries no ownerReference. Created before the upgrade, it survives the
+  workspace's deletion, still labeled `app.kubernetes.io/managed-by:
+  waas-operator`, and counts as content for the janitor — a
+  `DeleteWhenEmpty` namespace holding one is never reclaimed.
+  `hack/audit-orphans.sh` lists it; this sweeps them all:
+
+  ```sh
+  kubectl get secrets -A -l app.kubernetes.io/managed-by=waas-operator --no-headers \
+    -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name \
+    | awk '$2 ~ /-ssh$/ { print "kubectl delete secret -n " $1 " " $2 }' | sh
+  ```
+
+  (Same-namespace copies are owner-referenced and go with the CR.)
+- A grandfathered linux template still declaring `ssh` is only rejected
+  on its next write. Until then it keeps advertising port 2222
+  (`EffectiveProtocols()`, `status.protocols`, the Service) and a
+  connection on it fails at guacd instead of being refused up front.
+  Drop the entry from the template; admission rejects any other edit
+  while it is there.
+
 ## Auditing orphans
 
 ```sh

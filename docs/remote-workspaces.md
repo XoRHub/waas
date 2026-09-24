@@ -5,11 +5,13 @@ registers machines **external to the cluster** (host, port, protocol
 ssh/vnc/rdp, credentials) and connects to them through the same
 frontend → wwt → guacd chain as provisioned workspaces.
 
-Only guacd protocols (ssh/vnc/rdp) are accepted: **kasmvnc is
-explicitly refused** (400 both at registration and at connect). wwt's
-kasm reverse proxy targets a KasmVNC server co-located in the
-cluster; the "external machine" semantics has no kasm equivalent
-and has never been verified in a real session.
+Only guacd protocols (ssh/vnc/rdp) are accepted — ssh exists nowhere
+else: in-cluster templates no longer declare it
+([templates-and-protocols.md](templates-and-protocols.md) § Protocols).
+**kasmvnc is explicitly refused** (400 both at registration and at
+connect). wwt's kasm reverse proxy targets a KasmVNC server co-located
+in the cluster; the "external machine" semantics has no kasm
+equivalent and has never been verified in a real session.
 
 ## Data model (deliberately separate)
 

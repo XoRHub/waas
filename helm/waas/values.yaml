@@ -225,8 +225,10 @@ catalogs:
     # here — same discipline the policy engine already defaults registry
     # entries to when unset.
     tagPolicy: tag
-    # -- Protocols this catalog's images support.
-    protocols: [vnc, rdp, ssh]
+    # -- Protocols this catalog's images support. waas-images ships linux
+    # desktops only, i.e. vnc: in-cluster rdp is the windows (KubeVirt) path
+    # and ssh only exists for remote workspaces (docs/templates-and-protocols.md).
+    protocols: [vnc]
     # -- URL of the published catalog.yaml for this registry.
     catalogURL: https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml
   # docker.io/kasmweb — official Kasm images, native KasmVNC data plane

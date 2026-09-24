@@ -9,12 +9,12 @@ export interface TemplateAvailability {
 /**
  * Joins the template list with the user's catalog for the create dialog.
  *
- * EVERY template is returned, whatever its protocol (ssh/vnc/rdp) — the
- * ones whose image is missing from the caller's catalog are flagged
- * unavailable instead of being dropped. Silently dropping them is how
- * SSH templates "disappeared" from the portal when the default policy
- * seed forgot the dev-ssh image: the admission webhook stays the real
- * gate, the UI's job is to show WHY a template cannot be used.
+ * EVERY template is returned, whatever its protocol — the ones whose
+ * image is missing from the caller's catalog are flagged unavailable
+ * instead of being dropped. Silently dropping them is how a whole
+ * family of templates once "disappeared" from the portal when the
+ * default policy seed forgot their image: the admission webhook stays
+ * the real gate, the UI's job is to show WHY a template cannot be used.
  *
  * `catalog` undefined (still loading or failed) degrades to "everything
  * available" — the server re-validates at creation anyway.

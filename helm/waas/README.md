@@ -91,7 +91,7 @@ table is a quick *what*.
 | catalogs.waasImages.displayName | string | `"XorHub images"` | Display name shown in the portal picker. |
 | catalogs.waasImages.registry | string | `"docker.io/xorhub"` | Registry prefix this catalog approves images from. |
 | catalogs.waasImages.tagPolicy | string | `"tag"` | Tag discipline enforced for this registry (`tag` | `digest` | `any`). `tag` matches the published catalog: waas-images releases fixed tags (2.0.1) and catalog-waas-images.yaml references them by tag. Explicit here — same discipline the policy engine already defaults registry entries to when unset. |
-| catalogs.waasImages.protocols | list | `["vnc","rdp","ssh"]` | Protocols this catalog's images support. |
+| catalogs.waasImages.protocols | list | `["vnc"]` | Protocols this catalog's images support. waas-images ships linux desktops only, i.e. vnc: in-cluster rdp is the windows (KubeVirt) path and ssh only exists for remote workspaces (docs/templates-and-protocols.md). |
 | catalogs.waasImages.catalogURL | string | `"https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml"` | URL of the published catalog.yaml for this registry. |
 | catalogs.kasm.enabled | bool | `false` | Bootstrap the official Kasm images catalog on install. |
 | catalogs.kasm.name | string | `"kasm"` | Name of the bootstrap WorkspaceImage for this catalog. |

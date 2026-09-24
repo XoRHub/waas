@@ -230,34 +230,23 @@ func TestReconcileLegacyPodWorkloadKind(t *testing.T) {
 	}
 }
 
-func TestReconcileMultiProtocolServiceAndStatus(t *testing.T) {
+// The template shapes the Deployment (security context, node selector,
+// env) and the workspace's override env wins by name.
+func TestReconcileTemplateWorkloadAndOverrideEnv(t *testing.T) {
 	tpl := linuxTemplate()
 	tpl.Spec.Workload = &waasv1alpha1.WorkspaceWorkload{
 		SecurityContext: &corev1.SecurityContext{RunAsUser: ptrInt64(1000)},
 		NodeSelector:    map[string]string{"zone": "a"},
 	}
 	tpl.Spec.Env = []corev1.EnvVar{{Name: "WAAS_DESKTOP_PASSWORD", Value: "tpl"}, {Name: "KEEP", Value: "yes"}}
-	tpl.Spec.Protocols = []waasv1alpha1.WorkspaceProtocol{
-		{Name: "vnc", Port: 5901},
-		{Name: "ssh", Port: 2222, Default: true},
-	}
 	ws := workspace()
 	ws.Spec.Overrides = &waasv1alpha1.WorkspaceOverrides{
-		Env:      []corev1.EnvVar{{Name: "WAAS_DESKTOP_PASSWORD", Value: "override"}},
-		Protocol: "vnc",
+		Env: []corev1.EnvVar{{Name: "WAAS_DESKTOP_PASSWORD", Value: "override"}},
 	}
 	r, c := newFixture(t, tpl, ws)
 	ctx := context.Background()
 
 	reconcile(t, r, ws)
-
-	svc := &corev1.Service{}
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, svc); err != nil {
-		t.Fatal(err)
-	}
-	if len(svc.Spec.Ports) != 2 {
-		t.Fatalf("expected one service port per protocol, got %+v", svc.Spec.Ports)
-	}
 
 	dep := &appsv1.Deployment{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
@@ -277,12 +266,41 @@ func TestReconcileMultiProtocolServiceAndStatus(t *testing.T) {
 	if env["WAAS_DESKTOP_PASSWORD"] != "override" || env["KEEP"] != "yes" {
 		t.Fatalf("override env must win by name and keep the rest, got %v", env)
 	}
+}
+
+// Multi-protocol plumbing (one Service port per entry, the full list in
+// status, the override picking the non-default entry) is
+// protocol-agnostic in the reconciler: the per-OS rules live in the
+// admission webhook. The only shape admission lets two guacd protocols
+// coexist on is a windows VM, so that is the fixture.
+func TestReconcileMultiProtocolServiceAndStatus(t *testing.T) {
+	tpl := linuxTemplate()
+	tpl.Spec.OS = waasv1alpha1.OSWindows
+	tpl.Spec.Protocols = []waasv1alpha1.WorkspaceProtocol{
+		{Name: "vnc", Port: 5901},
+		{Name: "rdp", Port: 3389, Default: true},
+	}
+	ws := workspace()
+	ws.Spec.Overrides = &waasv1alpha1.WorkspaceOverrides{Protocol: "vnc"}
+	r, c := newFixture(t, tpl, ws)
+	r.KubeVirtAvailable = true
+	ctx := context.Background()
+
+	reconcile(t, r, ws)
+
+	svc := &corev1.Service{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "ws-marc"}, svc); err != nil {
+		t.Fatal(err)
+	}
+	if len(svc.Spec.Ports) != 2 {
+		t.Fatalf("expected one service port per protocol, got %+v", svc.Spec.Ports)
+	}
 
 	got := &waasv1alpha1.Workspace{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "marc"}, got); err != nil {
 		t.Fatal(err)
 	}
-	// The workspace picked vnc over the template's ssh default.
+	// The workspace picked vnc over the template's rdp default.
 	if got.Status.Protocol != "vnc" || got.Status.Port != 5901 {
 		t.Fatalf("expected vnc/5901 default, got %s/%d", got.Status.Protocol, got.Status.Port)
 	}

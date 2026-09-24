@@ -353,18 +353,19 @@ func TestOverrideEnvLiteralStillAllowed(t *testing.T) {
 }
 
 // TestTemplateEnvValueFromStillAllowed pins the admin channel: a
-// TEMPLATE env entry sourced from a Secret (the dev-ssh pattern) is
-// untouched by the override guard — workspaces stamped from it admit.
+// TEMPLATE env entry sourced from a Secret (a password the admin ships
+// out-of-band) is untouched by the override guard — workspaces stamped
+// from it admit.
 func TestTemplateEnvValueFromStillAllowed(t *testing.T) {
-	sshTpl := tpl()
-	sshTpl.Spec.Env = []corev1.EnvVar{{
-		Name: "WAAS_SSH_AUTHORIZED_KEYS",
+	secretTpl := tpl()
+	secretTpl.Spec.Env = []corev1.EnvVar{{
+		Name: "WAAS_DESKTOP_PASSWORD",
 		ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: "dev-ssh-credentials"},
-			Key:                  "authorized-keys",
+			LocalObjectReference: corev1.LocalObjectReference{Name: "desktop-credentials"},
+			Key:                  "password",
 		}},
 	}}
-	v := newValidator(t, sshTpl, catalogImage(), defaultPolicy())
+	v := newValidator(t, secretTpl, catalogImage(), defaultPolicy())
 	if _, err := v.ValidateCreate(asCaller(apiSA), workspace("w1")); err != nil {
 		t.Fatalf("template env valueFrom must stay allowed, got: %v", err)
 	}

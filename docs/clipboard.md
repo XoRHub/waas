@@ -6,17 +6,17 @@ The clipboard is not governed by ONE resolution path but by TWO, with
 no shared code beyond `WorkspacePolicy.spec.clipboard` and
 `policy.ClipboardOf()`:
 
-- **guacd (`vnc`/`rdp`/`ssh`)**: 4 layers (policy, template `params`,
+- **guacd (`vnc`/`rdp`)**: 4 layers (policy, template `params`,
   template `userParams`, connection override), resolved on EVERY
   connection, enforced by the wwt proxy via the connection token.
 - **`kasmvnc`**: a single layer (policy), resolved at RECONCILE time
   (not at connection time), baked into `~/.vnc/kasmvnc.yaml` by the
   operator (see `docs/kasmvnc.md`). Template `params`/`userParams` have
   no effect at all: `disable-copy`/`disable-paste` are only registered
-  for `vnc`/`rdp`/`ssh` (`operator/pkg/params/params.go`), and the
+  for the guacd protocols (`operator/pkg/params/params.go`), and the
   template webhook rejects a `userParams` citing these names on a
   `kasmvnc` entry — which is anyway impossible to combine with
-  `vnc`/`rdp`/`ssh` on the same template (kasmvnc is exclusive). The
+  `vnc`/`rdp` on the same template (kasmvnc is exclusive). The
   inconsistent configuration is prevented at admission, not silently
   ignored.
 
@@ -31,16 +31,16 @@ independent decision points.
 | Field | Who edits it | Protocol scope | When evaluated | Real role |
 |---|---|---|---|---|
 | `WorkspacePolicy.spec.clipboard` (`copyFromWorkspace`/`pasteToWorkspace`) | admin, CR | all | every connection (guacd) / every reconcile (kasmvnc) | **security ceiling, sole authority for kasmvnc** |
-| `WorkspaceTemplate.spec.protocols[].params["disable-copy"/"disable-paste"]` | admin, template CR | `vnc`/`rdp`/`ssh` only | every connection, template refetched | default value applied if the user doesn't submit an override |
-| `WorkspaceTemplate.spec.protocols[].userParams` | admin, template CR | `vnc`/`rdp`/`ssh` only | every connection | **delegation of NAMES**, not values: which parameters the user may submit as an override |
-| `ConnectInput.Params` (connection-settings dialog) | connecting user (or template owner / admin) | `vnc`/`rdp`/`ssh` only, delegated names only | every connection, ephemeral — never persisted on a CR | effective value requested for THIS session |
+| `WorkspaceTemplate.spec.protocols[].params["disable-copy"/"disable-paste"]` | admin, template CR | `vnc`/`rdp` only | every connection, template refetched | default value applied if the user doesn't submit an override |
+| `WorkspaceTemplate.spec.protocols[].userParams` | admin, template CR | `vnc`/`rdp` only | every connection | **delegation of NAMES**, not values: which parameters the user may submit as an override |
+| `ConnectInput.Params` (connection-settings dialog) | connecting user (or template owner / admin) | `vnc`/`rdp` only, delegated names only | every connection, ephemeral — never persisted on a CR | effective value requested for THIS session |
 | Session menu (`SessionOverlay.tsx`) | read-only | all | display only | mirrors the already-clamped result + names WHO blocked it (`ClipboardLockPolicy` vs `ClipboardLockParams`) |
 
 The session menu is never a decision point — it mirrors the result
 already computed server-side (`clipboardCapabilities`,
 `api-server/internal/service/workspace_service.go`).
 
-### Resolution chain — guacd (`vnc`/`rdp`/`ssh`)
+### Resolution chain — guacd (`vnc`/`rdp`)
 
 Code: `WorkspaceService.Connect` and
 `clampClipboardGrant`/`mergeParams`/`clipboardCapabilities`
@@ -112,7 +112,7 @@ WorkspacePolicy.spec.clipboard ──► connection token (grant, signed)
 (the overlay DISPLAYS, never        drops "clipboard" streams +
  enforces)                          live toggles clamped to the grant)
                                             │
-        browser ◄── guac stream ──► guacd ◄──► desktop (VNC/RDP/SSH)
+        browser ◄── guac stream ──► guacd ◄──► desktop (VNC/RDP)
             │
    DesktopPane (client integration):
    onclipboard → local clipboard ; paste/focus → createClipboardStream
@@ -162,7 +162,8 @@ verification path independent of browser permissions.
 ## Expected matrix {protocol × direction × policy}
 
 Enforcement (wwt) is protocol-independent: the policy table holds
-for VNC, RDP and SSH alike.
+for VNC and RDP alike — and for the ssh sessions of remote workspaces,
+which cross the same filter.
 
 | Direction | Policy ✔ | Policy ✘ |
 |---|---|---|
@@ -170,18 +171,19 @@ for VNC, RDP and SSH alike.
 | Paste to the workspace | focus-sync pushes the text, the desktop app pastes it | stream refused (ack 771); toggle greyed out 🔒 |
 | Overlay toggle OFF then ON | turns off then restores live (≤ grant) | stays OFF: the wwt response reflects the effective state |
 
-Reality per protocol (desktop side, `waas-images` images):
+Reality per protocol (desktop side):
 
-- **VNC**: recommended path — Xvnc handles the cut-buffer natively,
-  both directions work.
-- **RDP**: works, **text only** — the xrdp-libvnc backend embeds
-  its own cliprdr ↔ cut-text RFB bridge (`vnc/vnc_clip.c`), without
-  chansrv. Verified in a real session against guacd 1.5.5 in both
-  directions (2026-07). Non-text formats (files, images) don't go
-  through; the wwt filter applies identically.
-- **SSH**: the terminal is rendered by guacd, which has its own
-  terminal clipboard — both directions go through the same guac
-  streams, same rules.
+- **VNC** (linux pods, `waas-images`): recommended path — Xvnc handles
+  the cut-buffer natively, both directions work.
+- **RDP** (windows KubeVirt VMs): guacd's cliprdr channel against the
+  VM's own RDP server, **text only** (guacd relays text formats, never
+  files or images); the wwt filter applies identically. Not verified in
+  a live WaaS session — the 2026-07 verification was against the
+  xrdp-libvnc bridge of the linux images, which is no longer an
+  in-cluster protocol.
+- **SSH** (remote workspaces only): the terminal is rendered by guacd,
+  which has its own terminal clipboard — both directions go through
+  the same guac streams, same rules.
 
 ## Tests
 

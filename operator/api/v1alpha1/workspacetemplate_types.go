@@ -222,14 +222,17 @@ const PulseAudioPort int32 = 4713
 // guacd terms: a protocol name, the port the workspace serves it on, and
 // the guacd connection parameters to use.
 type WorkspaceProtocol struct {
-	// Name is the protocol identifier: a guacamole protocol (vnc, rdp,
-	// ssh) brokered by guacd, or kasmvnc — the web-native KasmVNC
-	// endpoint of kasmweb/* images, reverse-proxied by wwt (guacd is not
+	// Name is the protocol identifier: a guacamole protocol (vnc, rdp)
+	// brokered by guacd, or kasmvnc — the web-native KasmVNC endpoint
+	// of kasmweb/* images, reverse-proxied by wwt (guacd is not
 	// involved; Params/UserParams are rejected for it, the registry has
-	// no kasmvnc entries). kasmvnc is exclusive: a template declaring it
-	// may declare no other protocol (admission-enforced); vnc/rdp/ssh
-	// remain freely combinable with each other.
-	// +kubebuilder:validation:Enum=vnc;rdp;ssh;kasmvnc
+	// no kasmvnc entries). Which protocols a template may declare follows
+	// its OS (admission-enforced): a linux template serves vnc or
+	// kasmvnc — kasmvnc is exclusive, a template declaring it may
+	// declare no other protocol — while rdp exists only for windows
+	// templates (KubeVirt VMs). ssh is not an in-cluster protocol: it
+	// belongs to remote workspaces (off-cluster machines).
+	// +kubebuilder:validation:Enum=vnc;rdp;kasmvnc
 	Name string `json:"name"`
 
 	// Port the workspace serves this protocol on.
@@ -274,7 +277,7 @@ type WorkspaceProtocol struct {
 
 	// CredentialsSecretRef names a Secret (in the workspace namespace)
 	// holding the desktop credentials for this protocol, under the keys
-	// username, password, private-key and passphrase (all optional).
+	// username and password (both optional).
 	// Resolved server-side at connect time and handed to guacd by the
 	// proxy: credentials never appear in a CR and never reach the
 	// browser. Ship the Secret via External Secrets/Vault.

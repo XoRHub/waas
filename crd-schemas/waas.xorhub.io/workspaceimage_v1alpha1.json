@@ -149,11 +149,10 @@
         "protocols": {
           "description": "Protocols the image can serve. A template using this image must\npick a port whose protocol is listed here.",
           "items": {
-            "description": "Protocol is a desktop protocol a workspace image can serve.",
+            "description": "Protocol is a desktop protocol a workspace image can serve. In-cluster\nworkspaces are desktops only: vnc/kasmvnc for linux images, rdp for\nwindows (KubeVirt) VMs. ssh is a remote-workspace protocol (guacd\nregistry, operator/pkg/params) and never an in-cluster one.",
             "enum": [
               "vnc",
               "rdp",
-              "ssh",
               "kasmvnc"
             ],
             "type": "string"

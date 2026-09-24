@@ -42,9 +42,11 @@ const (
 // Resize changes the RUNNING desktop's resolution by executing the
 // image's waas-resize helper (RandR against Xvnc) inside the workspace
 // pod. This is a WaaS-specific mechanism, NOT guacd's native resize:
-// the xrdp-libvnc bridge cannot propagate an RDP resize to the
-// underlying Xvnc and Guacamole's VNC client never sends one — RandR
-// inside the pod is the only path that works (docs/session-resize.md).
+// Guacamole's VNC client never sends one mid-session, so RandR inside
+// the pod is the only path that reaches Xvnc (docs/session-resize.md).
+// Linux pods only by construction — a windows workspace is a KubeVirt
+// VM with no pod to exec into, and the frontend never calls this for
+// it.
 //
 // Deliberately narrow: a fixed argv (never a shell), two integers
 // validated before anything is built, and the same authorization as

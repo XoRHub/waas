@@ -17,6 +17,8 @@ export function ProtocolsFieldset({
   meta,
   active,
   onSelect,
+  os,
+  osRejected,
   addable,
   onAdd,
   onRemove,
@@ -27,7 +29,13 @@ export function ProtocolsFieldset({
   meta: ProtocolMeta[] | undefined;
   active: string;
   onSelect: (name: string) => void;
-  /** Registry protocols not configured yet (exclusivity already applied). */
+  /** The template's OS, named in the OS-rule warning below. */
+  os: string;
+  /** Configured protocols the OS-bound rule rejects (TemplateDialog
+   * decides; this only tells the admin which tabs to remove). */
+  osRejected: string[];
+  /** Registry protocols not configured yet (OS rule and exclusivity
+   * already applied). */
   addable: string[];
   onAdd: (name: string) => void;
   onRemove: (name: string) => void;
@@ -69,6 +77,14 @@ export function ProtocolsFieldset({
       {protocols.length === 0 && (
         <p className="text-xs text-slate-400 dark:text-slate-500">
           {t('admin.templatesPage.noProtocolsYet')}
+        </p>
+      )}
+      {osRejected.length > 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          {t('admin.templatesPage.protocolsOsMismatch', {
+            protocols: osRejected.join(', '),
+            os,
+          })}
         </p>
       )}
       {currentProto ? (

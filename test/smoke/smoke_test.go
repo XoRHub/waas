@@ -1,9 +1,11 @@
-// Package smoke is the per-protocol connection gate: for every desktop
-// protocol the platform serves (vnc, rdp, ssh) it creates a real
-// workspace through the public API, waits for readiness and establishes a
-// REAL session through wwt/guacd — the test is green only when guacd's
-// protocol client actually reached the desktop (first "sync" instruction
-// received). It exists because "the workspace is Ready" proves nothing
+// Package smoke is the per-protocol connection gate: for every protocol
+// under test (WAAS_SMOKE_PROTOCOLS — by default vnc and kasmvnc, the set
+// the k3d dev env can serve; rdp needs an os: windows KubeVirt template
+// and is opted in where one exists) it creates a real workspace through
+// the public API, waits for readiness and establishes a REAL session
+// through wwt/guacd — the test is green only when guacd's protocol client
+// actually reached the desktop (first "sync" instruction received, or the
+// KasmVNC RFB banner). It exists because "the workspace is Ready" proves nothing
 // about the session path: a NetworkPolicy locking guacd out, a wrong
 // Status.Address or broken credentials all pass readiness and only die at
 // connection time.
@@ -58,7 +60,7 @@ func TestProtocolConnections(t *testing.T) {
 	c.login(env("WAAS_SMOKE_USER", "admin"), env("WAAS_SMOKE_PASSWORD", "admin123"))
 
 	byProtocol := c.templatesByProtocol()
-	protocols := strings.Split(env("WAAS_SMOKE_PROTOCOLS", "vnc,rdp,ssh,kasmvnc"), ",")
+	protocols := strings.Split(env("WAAS_SMOKE_PROTOCOLS", "vnc,kasmvnc"), ",")
 	for _, protocol := range protocols {
 		protocol = strings.TrimSpace(protocol)
 		// Sequential on purpose: parallel workspaces would race the
@@ -66,7 +68,7 @@ func TestProtocolConnections(t *testing.T) {
 		t.Run(protocol, func(t *testing.T) {
 			tpl, ok := byProtocol[protocol]
 			if !ok {
-				t.Fatalf("no template serves protocol %q — the validation catalog must cover every protocol", protocol)
+				t.Fatalf("no template serves protocol %q — the validation catalog must cover every protocol under test", protocol)
 			}
 			// Each subtest gets a client bound to ITS t: a failure must
 			// abort the protocol under test, not the parent.

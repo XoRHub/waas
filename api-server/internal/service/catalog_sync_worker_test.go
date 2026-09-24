@@ -357,9 +357,9 @@ images:
       securityContext:
         readOnlyRootFilesystem: true
       env:
-        - name: WAAS_SSH_ENABLED
-          protocols: [ssh]
-          requires: [WAAS_SSH_AUTHORIZED_KEYS_FILE]
+        - name: WAAS_AUDIO_ENABLED
+          protocols: [vnc]
+          requires: [WAAS_AUDIO_SINK]
 `
 
 func TestCatalogSyncWorkerCopiesRecommendation(t *testing.T) {
@@ -407,7 +407,7 @@ func TestCatalogSyncWorkerCopiesRecommendation(t *testing.T) {
 	if got.PodSecurityContext.RunAsUser != 1000 || !got.SecurityContext.ReadOnlyRootFilesystem {
 		t.Errorf("recommended mismatch: %+v", got)
 	}
-	if len(got.Env) != 1 || got.Env[0].Name != "WAAS_SSH_ENABLED" || len(got.Env[0].Requires) != 1 || got.Env[0].Requires[0] != "WAAS_SSH_AUTHORIZED_KEYS_FILE" {
+	if len(got.Env) != 1 || got.Env[0].Name != "WAAS_AUDIO_ENABLED" || len(got.Env[0].Requires) != 1 || got.Env[0].Requires[0] != "WAAS_AUDIO_SINK" {
 		t.Errorf("env hint mismatch: %+v", got.Env)
 	}
 }

@@ -73,6 +73,11 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 		if entry.Name == string(waasv1alpha1.ProtocolKasmVNC) && tpl.Spec.OS == waasv1alpha1.OSWindows {
 			return nil, v.deny(tpl, "protocol kasmvnc is not available on windows templates")
 		}
+		// The mirror rule: in-cluster RDP only exists for the KubeVirt
+		// Windows VMs; linux images serve vnc or kasmvnc.
+		if entry.Name == string(waasv1alpha1.ProtocolRDP) && tpl.Spec.OS != waasv1alpha1.OSWindows {
+			return nil, v.deny(tpl, "protocol rdp is only available on windows templates: in-cluster RDP is served by KubeVirt Windows VMs, linux templates use vnc or kasmvnc")
+		}
 		// The PulseAudio sidecar port only exists for guacd's VNC audio
 		// path (enable-audio); accepting it elsewhere would silently open
 		// a port nothing uses.
@@ -95,7 +100,7 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 	// (though not the env name: kasmweb's VNC_PW vs the waas-images
 	// WAAS_DESKTOP_PASSWORD) — only one connection stack per template.
 	if seen[string(waasv1alpha1.ProtocolKasmVNC)] && len(seen) > 1 {
-		return nil, v.deny(tpl, "protocol kasmvnc cannot be combined with vnc/rdp/ssh: it bypasses guacd and must be the template's only protocol")
+		return nil, v.deny(tpl, "protocol kasmvnc cannot be combined with vnc/rdp: it bypasses guacd and must be the template's only protocol")
 	}
 	// kasmvncConfig only means something to a KasmVNC endpoint: an
 	// honest refusal beats a silently ignored field.

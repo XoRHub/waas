@@ -13,7 +13,7 @@ const firefoxRecommendation: DeploymentRecommendation = {
   podSecurityContext: { runAsUser: 1000 },
   securityContext: { readOnlyRootFilesystem: true },
   volumes: [{ name: 'tmp', mountPath: '/tmp' }],
-  env: [{ name: 'WAAS_SSH_ENABLED', protocols: ['ssh'] }],
+  env: [{ name: 'RDP_DOMAIN', protocols: ['rdp'] }],
 };
 
 // A vendored-style entry: carries a recommendation but no per-image
@@ -44,7 +44,7 @@ const catalogs: CatalogImage[] = [
     registry: 'ghcr.io/acme/',
     enabled: true,
     architectures: ['amd64', 'arm64'],
-    protocols: ['ssh'],
+    protocols: ['rdp'],
     discovered: [
       {
         image: 'ghcr.io/acme/firefox:128',
@@ -320,7 +320,7 @@ describe('CatalogImageField', () => {
     await userEvent.click(
       screen.getByRole('button', { name: en.admin.templatesPage.applyRecommendation }),
     );
-    expect(onApplyRecommendation).toHaveBeenLastCalledWith(edgeRecommendation, ['ssh']);
+    expect(onApplyRecommendation).toHaveBeenLastCalledWith(edgeRecommendation, ['rdp']);
   });
 
   it('a kasmvnc image prefills [kasmvnc] via the entry-level fallback', async () => {

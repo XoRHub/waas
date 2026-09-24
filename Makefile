@@ -235,8 +235,8 @@ docker-build:
 
 # The whole flow above in one shot, from a blank machine. Safe to re-run on
 # a partially built env: every step is idempotent (dev-up checks for the
-# cluster, dev-deploy is `helm upgrade --install`, the ssh-secret seed
-# re-applies). smoke stays a separate manual step — it takes several
+# cluster, dev-deploy is `helm upgrade --install`, the seeds re-apply).
+# smoke stays a separate manual step — it takes several
 # minutes and needs the pods to be Ready, which helm here does not wait for.
 dev-bootstrap: dev-up dev-build dev-load dev-deploy dev-load-images
 	@echo "==> dev environment ready. Validate real sessions with: make smoke"
@@ -273,10 +273,6 @@ dev-deploy:
 	helm upgrade --install waas helm/waas \
 		--namespace $(DEV_NAMESPACE) --create-namespace \
 		-f hack/dev/values-dev.yaml
-	# Idempotent: the dev-ssh Secret must exist in BOTH the platform ns
-	# and the default workloads ns (pods resolve secretKeyRef in their
-	# own namespace) — re-run here so redeploys never leave them apart.
-	sh hack/dev/seed-ssh-secret.sh $(DEV_NAMESPACE)
 	# Governance seeds live here, not in dev-load-images: the chart's
 	# bootstrap default policy is disabled in dev (values-dev.yaml) so
 	# kubectl stays the SINGLE field manager of the policies — helm and
@@ -340,7 +336,6 @@ endif
 # the matching WorkspaceTemplate's `image:` at the tag yourself to run it:
 #   make dev-load-images LOCAL_IMAGES="firefox devtools"
 dev-load-images: dev-build-images
-	sh hack/dev/seed-ssh-secret.sh $(DEV_NAMESPACE)
 	kubectl -n $(DEV_NAMESPACE) apply \
 		-f hack/dev/images-dev.yaml \
 		-f hack/dev/templates-dev.yaml
@@ -362,8 +357,10 @@ dev-url:
 	@echo "==> http://waas.127.0.0.1.nip.io:8080   (same login) — smoke tests; no seamless clipboard (not a secure context)"
 
 # Per-protocol connection gate (delivery criterion): creates a workspace
-# for each protocol, waits readiness and establishes a REAL guacd session
-# through wwt. Run against the k3d dev env after every iteration — a
+# for each protocol the dev env serves (WAAS_SMOKE_PROTOCOLS, default
+# vnc,kasmvnc — rdp needs a windows VM template), waits readiness and
+# establishes a REAL session through wwt/guacd. Run against the k3d dev
+# env after every iteration — a
 # change that breaks session establishment must fail here, not at the
 # user's desk. See docs/smoke-connections.md.
 smoke:

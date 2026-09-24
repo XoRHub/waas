@@ -84,10 +84,12 @@ describe('TemplateDialog kasmvncConfig field', () => {
   });
 });
 
-describe('TemplateDialog protocol picker kasmvnc exclusivity', () => {
+describe('TemplateDialog protocol picker (OS-bound rule + kasmvnc exclusivity)', () => {
   // These tests need a populated registry; the route is restored to the
   // file-wide empty default afterwards so the other describes keep
-  // their behavior.
+  // their behavior. The registry deliberately lists all four protocols:
+  // ssh/rdp stay registered for remote workspaces, the editor is what
+  // must keep them off a linux template.
   beforeEach(() => {
     apiMock.route('/api/v1/meta/protocols', [
       { name: 'vnc', params: [] },
@@ -113,11 +115,40 @@ describe('TemplateDialog protocol picker kasmvnc exclusivity', () => {
     })),
   });
 
-  it('offers rdp/ssh but not kasmvnc once vnc is configured', async () => {
+  it('offers nothing else once vnc is configured on a linux template', async () => {
+    // kasmvnc is exclusive against a non-empty list; rdp/ssh are not
+    // linux in-cluster protocols — so no "+" at all, even once the
+    // registry query settles.
     await renderDialog(withProtocols('vnc'));
+    await expect(
+      screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }, { timeout: 250 }),
+    ).rejects.toThrow();
+  });
+
+  it('offers rdp only on a windows template', async () => {
+    await renderDialog({ ...withProtocols(), os: 'windows' });
     await userEvent.click(await screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }));
     expect(screen.getByRole('button', { name: 'rdp' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'ssh' })).toBeInTheDocument();
+    for (const p of ['vnc', 'ssh', 'kasmvnc']) {
+      expect(screen.queryByRole('button', { name: p })).toBeNull();
+    }
+  });
+
+  it('names a configured protocol the OS flip makes invalid instead of dropping it', async () => {
+    await renderDialog(withProtocols('vnc'));
+    await userEvent.click(screen.getByRole('button', { name: en.admin.templatesPage.tabGeneral }));
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: en.admin.templatesPage.os }),
+      'windows',
+    );
+    await userEvent.click(screen.getByRole('button', { name: en.admin.templatesPage.protocols }));
+    // The vnc tab survives with its params — the admin removes it
+    // knowingly, guided by the warning that names it.
+    expect(screen.getByRole('button', { name: /vnc/ })).toBeInTheDocument();
+    expect(screen.getByText(/vnc: not available on a windows template/)).toBeInTheDocument();
+    // The "+" menu already follows the new OS.
+    await userEvent.click(await screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }));
+    expect(screen.getByRole('button', { name: 'rdp' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'kasmvnc' })).toBeNull();
   });
 
@@ -143,11 +174,15 @@ describe('TemplateDialog protocol picker kasmvnc exclusivity', () => {
     expect(confirm).toHaveBeenCalled();
     expect(screen.getByText(en.admin.templatesPage.noProtocolsYet)).toBeInTheDocument();
 
-    // The empty template is fully editable again: every registry
-    // protocol is addable, kasmvnc included.
+    // The empty template is fully editable again: every protocol the
+    // OS rule allows on linux is addable, kasmvnc included — rdp/ssh
+    // stay remote-only.
     await userEvent.click(await screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }));
-    for (const p of ['vnc', 'rdp', 'ssh', 'kasmvnc']) {
+    for (const p of ['vnc', 'kasmvnc']) {
       expect(screen.getByRole('button', { name: p })).toBeInTheDocument();
+    }
+    for (const p of ['rdp', 'ssh']) {
+      expect(screen.queryByRole('button', { name: p })).toBeNull();
     }
     await userEvent.keyboard('{Escape}');
 

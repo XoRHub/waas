@@ -252,12 +252,14 @@ spec:
                   Protocols the image can serve. A template using this image must
                   pick a port whose protocol is listed here.
                 items:
-                  description: Protocol is a desktop protocol a workspace image can
-                    serve.
+                  description: |-
+                    Protocol is a desktop protocol a workspace image can serve. In-cluster
+                    workspaces are desktops only: vnc/kasmvnc for linux images, rdp for
+                    windows (KubeVirt) VMs. ssh is a remote-workspace protocol (guacd
+                    registry, operator/pkg/params) and never an in-cluster one.
                   enum:
                   - vnc
                   - rdp
-                  - ssh
                   - kasmvnc
                   type: string
                 minItems: 1

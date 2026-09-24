@@ -11,23 +11,19 @@ metadata:
   name: ubuntu-xfce
 spec:
   displayName: "Ubuntu 24.04 — XFCE"
-  description: "Bureau XFCE complet (VNC recommandé, RDP/SSH disponibles)."
+  description: "Bureau XFCE complet (VNC)."
   image: docker.io/xorhub/ubuntu-desktop-noble:2.1.1
-  protocols: [vnc, rdp, ssh]
+  protocols: [vnc]
   architectures: [amd64, arm64]
   enabled: true
   resources:
     default: { cpu: 500m, memory: 1Gi }
     min:     { cpu: 250m, memory: 512Mi }
     max:     { cpu: "2",  memory: 4Gi }
-# SSH is a capability of ubuntu-desktop-noble, not a standalone image
-# (waas-images 2026-07-10 catalog split), so the "dev-ssh" WorkspaceTemplate
-# is approved by the entry above and needs no entry of its own. Giving it
-# one would approve the SAME ref twice: FindImage returns the first exact
-# match, so the narrower [ssh, vnc] envelope would win by name order and
-# silently shadow the rdp approval declared here — `make smoke` fails on
-# rdp with a ProtocolMismatch naming an image the template never picked.
-# One ref, one entry.
+# One ref, one entry: FindImage returns the first exact match, so a second
+# WorkspaceImage approving the SAME ref would silently shadow this one's
+# protocol envelope (ProtocolMismatch naming an image the template never
+# picked).
 ---
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceImage
