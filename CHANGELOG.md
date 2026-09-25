@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0](https://github.com/XoRHub/waas/compare/v0.3.0...v0.4.0) (2026-09-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* restrict in-cluster workspace protocols to vnc and kasmvnc
+
+### Features
+
+* restrict in-cluster workspace protocols to vnc and kasmvnc ([ac9f5de](https://github.com/XoRHub/waas/commit/ac9f5deab2c58048c758ca516dafae164a74f0f6)), closes [#117](https://github.com/XoRHub/waas/issues/117)
+
+
+### Bug Fixes
+
+* **deps:** bump golang.org/x/crypto to v0.57.0 (CVE-2026-56854) ([68dd984](https://github.com/XoRHub/waas/commit/68dd9846ebce4fbf0a126a84c0268ea0c1c5185c))
+* **deps:** update go-non-major ([d72e60b](https://github.com/XoRHub/waas/commit/d72e60b5d29006c9a0f86c27e41a983dc581de77))
+* **deps:** update go-non-major ([475745f](https://github.com/XoRHub/waas/commit/475745f6d91646a7fe002150abb4061b9a42a8ce))
+* **deps:** update go-non-major ([#131](https://github.com/XoRHub/waas/issues/131)) ([23eda62](https://github.com/XoRHub/waas/commit/23eda62b3713e54cae608564e31b1e215f79ebae))
+* **deps:** update go-non-major ([#146](https://github.com/XoRHub/waas/issues/146)) ([574bda3](https://github.com/XoRHub/waas/commit/574bda3355bca9fb1b6a2dec70b744c2cb0aa4aa))
+
 ## [0.3.0](https://github.com/XoRHub/waas/compare/v0.2.0...v0.3.0) (2026-07-27)
 
 
