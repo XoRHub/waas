@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.4.0](https://github.com/XoRHub/waas/compare/chart-0.3.0...chart-0.4.0) (2026-09-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* restrict in-cluster workspace protocols to vnc and kasmvnc
+
+### Features
+
+* restrict in-cluster workspace protocols to vnc and kasmvnc ([ac9f5de](https://github.com/XoRHub/waas/commit/ac9f5deab2c58048c758ca516dafae164a74f0f6)), closes [#117](https://github.com/XoRHub/waas/issues/117)
+
+
+### Bug Fixes
+
+* **deps:** update go-non-major ([d72e60b](https://github.com/XoRHub/waas/commit/d72e60b5d29006c9a0f86c27e41a983dc581de77))
+
+
+### Chores
+
+* **deps:** regenerate CRDs and schemas after go-non-major bump ([9fea029](https://github.com/XoRHub/waas/commit/9fea029e22f5995f425b9d3b88ae14b283b26724))
+* **deps:** update bitnami/kubectl:latest docker digest to 1a86ba5 ([4cec13c](https://github.com/XoRHub/waas/commit/4cec13c5534fc2c90a8700adc28203b072371eed))
+* **deps:** update bitnami/kubectl:latest docker digest to 1a86ba5 ([5c8d4ee](https://github.com/XoRHub/waas/commit/5c8d4ee3726e0185b0b49d537062c64fe90fa334))
+* **deps:** update bitnami/kubectl:latest docker digest to 65447dc ([e40bc29](https://github.com/XoRHub/waas/commit/e40bc290db80727c429e883ff3a870f10573f64f))
+* **deps:** update bitnami/kubectl:latest docker digest to 65447dc ([0ac5324](https://github.com/XoRHub/waas/commit/0ac532450fae7a327311bd74a557f7cd3d4a9ffb))
+* **deps:** update bitnami/kubectl:latest docker digest to c12989b ([60d8f55](https://github.com/XoRHub/waas/commit/60d8f55bd030472fa36456cc2a27ebcaad6c80bf))
+* **deps:** update bitnami/kubectl:latest docker digest to c12989b ([65b4300](https://github.com/XoRHub/waas/commit/65b43007f51ba5257096aa59f2b1094298bebb14))
+* **deps:** update postgres docker tag to v18 ([c015de3](https://github.com/XoRHub/waas/commit/c015de3bfd469f55eb20d41f863d635e406deba0))
+* **deps:** update postgres docker tag to v18 ([f77e0d5](https://github.com/XoRHub/waas/commit/f77e0d5248c22079f4498fde17b11767576ccfce))
+* **main:** release 0.4.0 ([f68c0b8](https://github.com/XoRHub/waas/commit/f68c0b82ba9fbcb29c472cd3264248ced234ae89))
+* **main:** release 0.4.0 ([154af08](https://github.com/XoRHub/waas/commit/154af0809a796ae6674a6fc170950a7ecbb16bd1))
+
 ## [0.3.0](https://github.com/XoRHub/waas/compare/chart-0.2.0...chart-0.3.0) (2026-07-27)
 
 
