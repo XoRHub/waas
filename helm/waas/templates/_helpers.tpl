@@ -62,6 +62,15 @@ nothing applies.
 {{ .Values.image.tag | default .Chart.AppVersion }}
 {{- end }}
 
+{{/* MAJOR.MINOR of the app version — the key of the per-minor catalog
+layout (catalogs/<X.Y>/), so a release only ever reads catalogs
+generated for its own schema. Deliberately the chart's appVersion, not
+image.tag: a dev override like `edge` is not a version. */}}
+{{- define "waas.appMinor" -}}
+{{- $v := semver .Chart.AppVersion -}}
+{{ printf "%d.%d" $v.Major $v.Minor }}
+{{- end }}
+
 {{/* CR namespace: defaults to the release namespace (same place the
 platform pods run) unless workspaces.namespace is set explicitly. */}}
 {{- define "waas.workspacesNamespace" -}}

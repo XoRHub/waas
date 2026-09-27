@@ -23,7 +23,7 @@ spec:
   enabled: true
   catalog:
     from:
-      url: {{ .Values.catalogs.waasImages.catalogURL }}
+      url: {{ .Values.catalogs.waasImages.catalogURL | default (printf "https://raw.githubusercontent.com/XoRHub/waas-workspace-images/main/catalogs/%s/catalog.yaml" (include "waas.appMinor" .)) }}
 {{- end }}
 ---
 {{- if .Values.catalogs.kasm.enabled }}
@@ -45,5 +45,5 @@ spec:
   enabled: true
   catalog:
     from:
-      url: {{ .Values.catalogs.kasm.catalogURL }}
+      url: {{ .Values.catalogs.kasm.catalogURL | default (printf "https://raw.githubusercontent.com/XoRHub/waas-workspace-images/main/catalogs/%s/catalog-kasmweb.yaml" (include "waas.appMinor" .)) }}
 {{- end }}

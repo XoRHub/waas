@@ -38,6 +38,34 @@ tests:
           path: spec.tagPolicy
           value: tag
 
+  # The derived URLs pin the chart's appVersion at the test level, never
+  # Chart.yaml's — the rule from docs/ci-github.md still holds.
+  - it: derives the waasImages catalog URL from the app minor when unset
+    chart:
+      appVersion: 1.2.3
+    set:
+      catalogs.waasImages.enabled: true
+      catalogs.waasImages.catalogURL: ""
+      catalogs.kasm.enabled: false
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.catalog.from.url
+          value: https://raw.githubusercontent.com/XoRHub/waas-workspace-images/main/catalogs/1.2/catalog.yaml
+
+  - it: derives the kasm catalog URL from the app minor when unset
+    chart:
+      appVersion: 1.2.3
+    set:
+      catalogs.waasImages.enabled: false
+      catalogs.kasm.enabled: true
+      catalogs.kasm.catalogURL: ""
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.catalog.from.url
+          value: https://raw.githubusercontent.com/XoRHub/waas-workspace-images/main/catalogs/1.2/catalog-kasmweb.yaml
+
   - it: renders the kasm WorkspaceImage with tagPolicy when set
     set:
       catalogs.waasImages.enabled: false
