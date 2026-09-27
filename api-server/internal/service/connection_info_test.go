@@ -85,7 +85,7 @@ func seedDesktopWorkspace(t *testing.T, kube client.WithWatch, sessions reposito
 	return ws
 }
 
-// desktopServiceTemplate is a linux waas-images desktop: vnc, the only
+// desktopServiceTemplate is a linux waas-workspace-images desktop: vnc, the only
 // guacd protocol a linux template may declare.
 func desktopServiceTemplate() *waasv1alpha1.WorkspaceTemplate {
 	return &waasv1alpha1.WorkspaceTemplate{
@@ -119,7 +119,7 @@ func windowsServiceTemplate() *waasv1alpha1.WorkspaceTemplate {
 
 // The generated-password fallback: with no explicit source, vnc resolves
 // the operator's waas-desktop-<name> Secret and defaults the username to
-// the waas-images system account.
+// the waas-core-images system account.
 func TestConnectionInfoGeneratedDesktopPassword(t *testing.T) {
 	svc, kube, sessions := newConnectionFixture(t)
 	ctx := context.Background()
@@ -175,7 +175,7 @@ func TestConnectionInfoWindowsRDPRequiresCredentialsSecret(t *testing.T) {
 	}
 }
 
-// waas_user is the waas-images system account: a windows VM has no such
+// waas_user is the waas-core-images system account: a windows VM has no such
 // user, so rdp never defaults the username — the credentials Secret is
 // the only source, and an absent username stays absent.
 func TestConnectionInfoWindowsRDPNeverDefaultsUsername(t *testing.T) {

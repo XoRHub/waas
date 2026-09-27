@@ -1,5 +1,5 @@
 // Package catalog is the wire-format of the published image-catalog
-// manifest (catalog.yaml) shared with the waas-images repo. It is
+// manifest (catalog.yaml) shared with the waas-workspace-images repo. It is
 // deliberately DISTINCT from api/v1alpha1.DiscoveredImage: the two
 // types have different compatibility cadences — this one follows an
 // inter-repo file contract, the CRD type follows the v1alpha1/ADR 0002

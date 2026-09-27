@@ -797,13 +797,13 @@ func kasmDefaults(info *model.ConnectionInfo) {
 	}
 }
 
-// desktopDefaults is kasmDefaults' vnc sibling: waas-images run the
+// desktopDefaults is kasmDefaults' vnc sibling: waas-core-images run the
 // fixed system account "waas_user" — only the credential is
 // per-workspace. A credentials Secret with an explicit username still
 // wins. vnc only: in-cluster rdp is a windows VM with no such account,
 // so its username comes from the credentials Secret or stays empty
 // (guacd then prompts). Cluster workspaces only — never applied to
-// remoteConnectionInfo, whose machines are outside the waas-images
+// remoteConnectionInfo, whose machines are outside the waas-core-images
 // contract.
 func desktopDefaults(info *model.ConnectionInfo) {
 	if info.Protocol == string(waasv1alpha1.ProtocolVNC) && info.Username == "" {

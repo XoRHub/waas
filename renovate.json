@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "Monorepo config: Dockerfiles, CI job images across .github/workflows/, tool pins in scripts and Makefiles. The waas-images repo (split out 2026-07-10) carries its own config again.",
+    "Monorepo config: Dockerfiles, CI job images across .github/workflows/, tool pins in scripts and Makefiles. The desktop images live in the waas-core-images / waas-workspace-images repos, each with its own config.",
     "prConcurrentLimit is raised from the config:recommended default of 10: at that ceiling a single red gate deadlocks the repo. CVE-2026-56854 in x/crypto failed the Trivy gate on every branch, so no automerge fired, the queue filled with PRs that could not go green, and the weekly go-non-major PR carrying the very bump that fixes it stayed rate-limited from 2026-08-10 to 2026-09-19 — six missed windows, unstuck only by bumping the dep by hand. The budget also has to absorb the major-version PRs that sit open under manual review indefinitely (eslint, typescript, react-router), which the automerged groups cannot drain."
   ],
   "extends": [
@@ -102,18 +102,10 @@
       "platformAutomerge": true
     },
     {
-      "description": "Our own desktop images (docker.io/xorhub/*, built in the waas-images repo) release in lockstep with one shared version: every bump lands as one grouped PR instead of one per image.",
+      "description": "Our own workspace images (ghcr.io/xorhub/waas-workspace-images/*) release in lockstep with one shared X.Y.n version: every bump lands as one grouped PR instead of one per image. Patch bumps automerge through the docker rule above; a minor is a new waas minor (image X.Y = waas X.Y) and stays a reviewed PR, landing with the release that bumps the chart's appVersion.",
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["docker.io/xorhub/**"],
+      "matchPackageNames": ["ghcr.io/xorhub/waas-workspace-images/**"],
       "groupName": "xorhub-images"
-    },
-    {
-      "description": "xorhub images automerge through minor (not just patch/digest like third-party images): we cut those releases ourselves in waas-images, so a minor is already reviewed there.",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["docker.io/xorhub/**"],
-      "matchUpdateTypes": ["patch", "minor", "digest", "pinDigest"],
-      "automerge": true,
-      "platformAutomerge": true
     }
   ],
   "customManagers": [
@@ -131,13 +123,13 @@
     },
     {
       "customType": "regex",
-      "description": "Workspace catalog and template images — official kasmweb ones and our own docker.io/xorhub desktop images (fixed release tags, optional @digest bumped together — the catalog matches templates verbatim).",
+      "description": "Workspace catalog and template images — official kasmweb ones and our own ghcr.io/xorhub/waas-workspace-images desktops (fixed release tags, optional @digest bumped together — the catalog matches templates verbatim).",
       "managerFilePatterns": [
         "/^gitops/governance/images\\.ya?ml$/",
         "/^hack/dev/(images|templates)-dev\\.ya?ml$/"
       ],
       "matchStrings": [
-        "(?<depName>docker\\.io/(?:kasmweb|xorhub)/[a-z0-9-]+):(?<currentValue>[0-9][a-zA-Z0-9.-]*)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?"
+        "(?<depName>(?:docker\\.io/kasmweb|ghcr\\.io/xorhub/waas-workspace-images)/[a-z0-9-]+):(?<currentValue>[0-9][a-zA-Z0-9.-]*)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?"
       ],
       "datasourceTemplate": "docker"
     },

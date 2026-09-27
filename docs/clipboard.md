@@ -173,8 +173,8 @@ which cross the same filter.
 
 Reality per protocol (desktop side):
 
-- **VNC** (linux pods, `waas-images`): recommended path — Xvnc handles
-  the cut-buffer natively, both directions work.
+- **VNC** (linux pods, `waas-workspace-images`): recommended path —
+  Xvnc handles the cut-buffer natively, both directions work.
 - **RDP** (windows KubeVirt VMs): guacd's cliprdr channel against the
   VM's own RDP server, **text only** (guacd relays text formats, never
   files or images); the wwt filter applies identically. Not verified in

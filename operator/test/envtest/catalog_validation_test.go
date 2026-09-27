@@ -25,7 +25,7 @@ func TestWorkspaceImageCatalogCEL(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 			Spec: waasv1alpha1.WorkspaceImageSpec{
 				DisplayName: "Test",
-				Registry:    "ghcr.io/xorhub/waas-images",
+				Registry:    "ghcr.io/xorhub/waas-workspace-images",
 				Protocols:   []waasv1alpha1.Protocol{waasv1alpha1.ProtocolKasmVNC},
 				Catalog:     cat,
 			},
@@ -86,7 +86,7 @@ func TestWorkspaceImageStatusSubresource(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "with-status", Namespace: ns},
 		Spec: waasv1alpha1.WorkspaceImageSpec{
 			DisplayName: "Test",
-			Registry:    "ghcr.io/xorhub/waas-images",
+			Registry:    "ghcr.io/xorhub/waas-workspace-images",
 			Protocols:   []waasv1alpha1.Protocol{waasv1alpha1.ProtocolKasmVNC},
 		},
 	}

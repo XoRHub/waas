@@ -59,7 +59,7 @@ func syncRegistryImage(name, url string) *waasv1alpha1.WorkspaceImage {
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: waasv1alpha1.WorkspaceImageSpec{
 			DisplayName: "XorHub images",
-			Registry:    "docker.io/xorhub",
+			Registry:    "ghcr.io/xorhub/waas-workspace-images",
 			Protocols:   []waasv1alpha1.Protocol{waasv1alpha1.ProtocolKasmVNC},
 			Enabled:     true,
 			Catalog:     workerURLSource(url),
@@ -221,7 +221,7 @@ func TestAdminUpsertImageSyncsWhenItBecomesEligible(t *testing.T) {
 
 	exact := urlCatalogInput(srv.URL)
 	exact.Registry = ""
-	exact.Image = "docker.io/xorhub/firefox:1.0.0"
+	exact.Image = "ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0"
 	if _, err := svc.AdminUpsertImage(ctx, admin, "becomes-eligible", exact); err != nil {
 		t.Fatalf("creating the exact-image entry: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestAdminUpsertImageWithoutCatalogNoFetch(t *testing.T) {
 
 	exact := UpsertImageInput{
 		DisplayName: "Exact entry",
-		Image:       "docker.io/xorhub/firefox:1.0.0@sha256:def",
+		Image:       "ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def",
 		Protocols:   []string{"vnc"},
 	}
 	if _, err := svc.AdminUpsertImage(ctx, admin, "exact", exact); err != nil {
@@ -387,7 +387,7 @@ func TestAdminSyncImageWithoutCatalogSource(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "exact"},
 		Spec: waasv1alpha1.WorkspaceImageSpec{
 			DisplayName: "Exact entry",
-			Image:       "docker.io/xorhub/firefox:1.0.0@sha256:def",
+			Image:       "ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def",
 			Protocols:   []waasv1alpha1.Protocol{waasv1alpha1.ProtocolKasmVNC},
 			Enabled:     true,
 		},

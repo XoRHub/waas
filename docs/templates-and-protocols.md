@@ -62,11 +62,12 @@ spec:
 ```
 
 Which protocols a template may declare follows its `os`: a **linux**
-template (a waas-images or kasmweb/* pod) declares `vnc` or `kasmvnc`;
-a **windows** template (a KubeVirt VM) is reached over `rdp`. The
-admission webhook denies `rdp` on a linux template and `kasmvnc` on a
-windows one. `kasmvnc` is additionally exclusive: it bypasses guacd
-entirely, so a template declaring it may declare no other protocol.
+template (a waas-workspace-images or kasmweb/* pod) declares `vnc` or
+`kasmvnc`; a **windows** template (a KubeVirt VM) is reached over
+`rdp`. The admission webhook denies `rdp` on a linux template and
+`kasmvnc` on a windows one. `kasmvnc` is additionally exclusive: it
+bypasses guacd entirely, so a template declaring it may declare no other
+protocol.
 `ssh` is not an in-cluster protocol at all — it stays available to
 [remote workspaces](remote-workspaces.md), whose off-cluster machines
 speak every guacd protocol.
@@ -120,27 +121,27 @@ order:
    between tenants), stores it in a Secret next to the CR
    (`waas-desktop-<name>` for vnc, `waas-kasm-<name>` for kasmvnc),
    wires it into the pod via `secretKeyRef` — as `WAAS_DESKTOP_PASSWORD`
-   for waas-images, as `VNC_PW` for kasmvnc (the kasmweb images' own
+   for waas-core-images, as `VNC_PW` for kasmvnc (the kasmweb images' own
    vocabulary) — and the api-server resolves the same Secret at connect
    time. Zero template configuration; at most one password Secret is
    generated per workspace. Rotation is create-only — delete the
    resolver copy and roll the workload; the operator never rotates on
    its own.
 3. **Literal `WAAS_DESKTOP_PASSWORD` with `docker run`** — the
-   standalone path for running a waas-images build outside the
+   standalone path for running a waas-core-images build outside the
    platform, unrelated to the CRs. Literal env passwords in a
    `WorkspaceTemplate` are **not** read by the platform.
 
 Usernames are defaulted per protocol family when no credentials Secret
 sets one: `waas_user` for `vnc` (the fixed system account of
-waas-images builds) and `kasm_user` for `kasmvnc` (the fixed HTTP
+waas-core-images builds) and `kasm_user` for `kasmvnc` (the fixed HTTP
 Basic identity of kasmweb/* images). `rdp` never defaults: a Windows
 VM has no such account, so its username is whatever the `rdp` entry's
 Secret says — and a windows template whose `rdp` entry names no Secret
 is refused at connect time with an error saying so.
 
 **Image env contract (for third-party image builders)**: every
-variable the platform injects or a waas-images entrypoint interprets
+variable the platform injects or a waas-core-images entrypoint interprets
 is `WAAS_`-prefixed; ecosystem-inherited names survive only on foreign
 boundaries (today: `VNC_PW`, confined to kasmweb images). What the
 operator injects, and when: `WAAS_DESKTOP_PASSWORD` via `secretKeyRef`
@@ -149,14 +150,14 @@ way for kasmvnc. Images run as uid 1000 (`waas_user`); a conforming
 image must fail closed when a required credential is missing. The
 image-side half of the contract
 (ports, tombstones for legacy names, cosmetic aliases) lives in the
-[waas-images README](https://github.com/XoRHub/waas-images).
+[waas-core-images CONTRACT.md](https://github.com/XoRHub/waas-core-images/blob/main/CONTRACT.md).
 
 ### Audio port (`protocols[].exposeAudioPort`)
 
 Server-side audio needs two things that are configured separately: the
 guacd parameter `enable-audio` (per session) and a reachable PulseAudio
 port. `exposeAudioPort: true` on a `vnc` protocol entry (VNC only,
-webhook-enforced) opens port **4713** — fixed by the waas-images build
+webhook-enforced) opens port **4713** — fixed by the waas-core-images build
 (`module-native-protocol-tcp`, gated by `WAAS_AUDIO_ENABLED` in the
 image) — on both the desktop container and the workspace Service, which
 mirrors container ports 1:1. Without it, `enable-audio` dials a port
@@ -335,7 +336,7 @@ is exercised by CI.
 
 | Feature | VNC (linux pod) | RDP (windows VM) | KasmVNC |
 |---|---|---|---|
-| Audio playback | ✅ `enable-audio` + `exposeAudioPort` (PulseAudio in waas-images) | ⚙️ guacd's RDP audio channel (`disable-audio` in the registry); no `exposeAudioPort`, PulseAudio is a waas-images thing | ❌ Kasm-platform-only upstream |
+| Audio playback | ✅ `enable-audio` + `exposeAudioPort` (PulseAudio in waas-core-images) | ⚙️ guacd's RDP audio channel (`disable-audio` in the registry); no `exposeAudioPort`, PulseAudio is a waas-core-images thing | ❌ Kasm-platform-only upstream |
 | Microphone | ❌ | ⚙️ `enable-audio-input` exists but the web client has no capture wiring — inert | ❌ |
 | Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time) |
 | Persistent home | ✅ | ✅ | ✅ (`/home/kasm-user`) |

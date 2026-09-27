@@ -55,8 +55,8 @@ type WorkspaceImageSpec struct {
 	Description string `json:"description,omitempty"`
 
 	// Image is the exact reference approved by the admin. Templates must
-	// match it verbatim; pin the digest for immutability (the waas-images
-	// pipeline publishes immutable tags precisely for this). Exactly one
+	// match it verbatim; pin the digest for immutability (the waas-workspace-images
+	// pipeline publishes immutable X.Y.n tags precisely for this). Exactly one
 	// of image/registry must be set.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
@@ -167,7 +167,7 @@ type ImageCatalogSpec struct {
 	// new sibling field on ImageCatalogAuth — never a rename or a
 	// reinterpretation of what an existing field means. Absent =
 	// unauthenticated GET, the only mode the two known public catalogs
-	// (docker.io/xorhub, docker.io/kasmweb) need.
+	// (ghcr.io/xorhub/waas-workspace-images, docker.io/kasmweb) need.
 	// +optional
 	Auth *ImageCatalogAuth `json:"auth,omitempty"`
 }

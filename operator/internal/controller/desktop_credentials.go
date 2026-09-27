@@ -20,7 +20,7 @@ import (
 // when a template serves vnc or rdp WITHOUT an explicit password source
 // (template/override env, credentialsSecretRef), the operator generates
 // a random per-workspace password so that no two workspaces share one
-// and nothing secret lands in a CR. waas-images containers authenticate
+// and nothing secret lands in a CR. waas-core-images containers authenticate
 // both protocols against ONE VncAuth file (xrdp's libvnc bridge forwards
 // the RDP password to Xvnc), so a workspace gets AT MOST ONE generated
 // password whether it exposes vnc, rdp, or both. It materializes as TWO
@@ -174,7 +174,7 @@ func (r *WorkspaceReconciler) ensureDesktopCredentials(ctx context.Context, ws *
 // generated-password vnc/rdp workspaces. Same wiring as kasmEnv — the
 // pod copy shares the workload name — but NOT the same env name: kasm
 // speaks the kasmweb images' vocabulary (VNC_PW), this speaks the
-// waas-images WAAS_ contract. Kept as its own function so each
+// waas-core-images WAAS_ contract. Kept as its own function so each
 // mechanism reads standalone.
 func desktopCredentialsEnv(ws *waasv1alpha1.Workspace) corev1.EnvVar {
 	return corev1.EnvVar{

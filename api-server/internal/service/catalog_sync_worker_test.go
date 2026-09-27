@@ -34,14 +34,14 @@ import (
 
 const workerCatalogManifest = `apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: docker.io/xorhub/firefox:1.0.0@sha256:def
+  - image: ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def
     os: linux
     app: firefox
     version: "1.0.0"
     icon: firefox
     displayName: Firefox
     description: "  Managed, policy-hardened Firefox in a kiosk session.  "
-  - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc
+  - image: ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.1.0@sha256:abc
     os: weirdos
     app: ubuntu-xfce
 `
@@ -71,7 +71,7 @@ func workerRegistryImage(name string, cat *waasv1alpha1.ImageCatalogSpec) *waasv
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Spec: waasv1alpha1.WorkspaceImageSpec{
 			DisplayName: "XorHub images",
-			Registry:    "docker.io/xorhub",
+			Registry:    "ghcr.io/xorhub/waas-workspace-images",
 			Protocols:   []waasv1alpha1.Protocol{waasv1alpha1.ProtocolKasmVNC},
 			Enabled:     true,
 			Catalog:     cat,
@@ -329,12 +329,12 @@ func TestCatalogSyncWorkerSuccessPopulatesTable(t *testing.T) {
 	}
 	// Unknown os values degrade to empty (enum-safe), not fail the sync.
 	for _, e := range entries {
-		if e.Image == "docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc" && e.OS != "" {
+		if e.Image == "ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.1.0@sha256:abc" && e.OS != "" {
 			t.Errorf("unknown os should normalize to empty, got %q", e.OS)
 		}
 		// The description survives full-length (no 80-char shortening),
 		// only trimmed.
-		if e.Image == "docker.io/xorhub/firefox:1.0.0@sha256:def" && e.Description != "Managed, policy-hardened Firefox in a kiosk session." {
+		if e.Image == "ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def" && e.Description != "Managed, policy-hardened Firefox in a kiosk session." {
 			t.Errorf("description should round-trip trimmed, got %q", e.Description)
 		}
 	}
@@ -347,7 +347,7 @@ func TestCatalogSyncWorkerSuccessPopulatesTable(t *testing.T) {
 
 const workerRecommendationManifest = `apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc
+  - image: ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.1.0@sha256:abc
     os: linux
     app: ubuntu-xfce
     profile: hardened
@@ -414,19 +414,19 @@ func TestCatalogSyncWorkerCopiesRecommendation(t *testing.T) {
 
 const workerProfileManifest = `apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: docker.io/xorhub/firefox:1.0.0@sha256:def
+  - image: ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def
     os: linux
     app: firefox
     profile: hardened
-  - image: docker.io/xorhub/chrome:1.0.0@sha256:ghi
+  - image: ghcr.io/xorhub/waas-workspace-images/chrome:1.0.0@sha256:ghi
     os: linux
     app: chrome
     profile: normal
-  - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc
+  - image: ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.1.0@sha256:abc
     os: linux
     app: ubuntu-xfce
     profile: banana
-  - image: docker.io/xorhub/ubuntu-mate:1.1.0@sha256:jkl
+  - image: ghcr.io/xorhub/waas-workspace-images/ubuntu-mate:1.1.0@sha256:jkl
     os: linux
     app: ubuntu-mate
     profile: Hardened
@@ -452,10 +452,10 @@ func TestCatalogSyncWorkerNormalizesUnknownProfile(t *testing.T) {
 		t.Fatalf("catalog_entries = %+v, want 4 rows", entries)
 	}
 	want := map[string]string{
-		"docker.io/xorhub/firefox:1.0.0@sha256:def":     "hardened",
-		"docker.io/xorhub/chrome:1.0.0@sha256:ghi":      "normal",
-		"docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc": "", // unknown value
-		"docker.io/xorhub/ubuntu-mate:1.1.0@sha256:jkl": "", // wrong case
+		"ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def":     "hardened",
+		"ghcr.io/xorhub/waas-workspace-images/chrome:1.0.0@sha256:ghi":      "normal",
+		"ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.1.0@sha256:abc": "", // unknown value
+		"ghcr.io/xorhub/waas-workspace-images/ubuntu-mate:1.1.0@sha256:jkl": "", // wrong case
 	}
 	for _, e := range entries {
 		got, ok := want[e.Image]
@@ -471,11 +471,11 @@ func TestCatalogSyncWorkerNormalizesUnknownProfile(t *testing.T) {
 
 const workerArchManifest = `apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: docker.io/xorhub/firefox:1.0.0@sha256:def
+  - image: ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def
     architectures: [amd64]
-  - image: docker.io/xorhub/chrome:1.0.0@sha256:ghi
+  - image: ghcr.io/xorhub/waas-workspace-images/chrome:1.0.0@sha256:ghi
     architectures: [amd64, arm64, riscv64, amd64]
-  - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc
+  - image: ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.1.0@sha256:abc
 `
 
 func TestCatalogSyncWorkerNormalizesArchitectures(t *testing.T) {
@@ -498,9 +498,9 @@ func TestCatalogSyncWorkerNormalizesArchitectures(t *testing.T) {
 		t.Fatalf("catalog_entries = %+v, want 3 rows", entries)
 	}
 	want := map[string][]string{
-		"docker.io/xorhub/firefox:1.0.0@sha256:def":     {"amd64"},
-		"docker.io/xorhub/chrome:1.0.0@sha256:ghi":      {"amd64", "arm64"}, // unknown + duplicate dropped
-		"docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:abc": nil,                // absent = unknown
+		"ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def":     {"amd64"},
+		"ghcr.io/xorhub/waas-workspace-images/chrome:1.0.0@sha256:ghi":      {"amd64", "arm64"}, // unknown + duplicate dropped
+		"ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.1.0@sha256:abc": nil,                // absent = unknown
 	}
 	for _, e := range entries {
 		got, ok := want[e.Image]
@@ -774,7 +774,7 @@ func TestCatalogSyncWorkerSkipsNonCatalogEntries(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "exact", Namespace: "default"},
 		Spec: waasv1alpha1.WorkspaceImageSpec{
 			DisplayName: "Exact entry",
-			Image:       "docker.io/xorhub/firefox:1.0.0@sha256:def",
+			Image:       "ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def",
 			Protocols:   []waasv1alpha1.Protocol{waasv1alpha1.ProtocolKasmVNC},
 			Enabled:     true,
 		},

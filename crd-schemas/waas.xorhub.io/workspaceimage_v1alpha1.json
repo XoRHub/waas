@@ -37,7 +37,7 @@
           "description": "Catalog configures the periodic fetch of a published catalog\nmanifest (format below) listing the images currently under this\nentry's registry, with display metadata (os/app/version/icon) for\nthe portal catalog picker. Only meaningful when spec.registry is\nset (ignored on exact spec.image entries \u2014 ENFORCEMENT never reads\nthis field, it is purely cosmetic). Grouped under one struct\n(rather than flat fields) so a future split into its own CRD, if a\nreal need for K8s-RBAC-level separation ever appears, is a\nmechanical lift instead of a field-by-field migration \u2014 no such\nsplit is planned today, application-level authorization (the same\nmodel WorkspacePolicy already uses) covers any future need for a\nnarrower \"catalog editor\" role. Absent = no automatic catalog; the\nregistry approval itself still works.",
           "properties": {
             "auth": {
-              "description": "Auth configures how the live fetch authenticates \u2014 only\nmeaningful when From.URL is set (ignored, and rejected at\nadmission if From points at ConfigMapKeyRef/SecretKeyRef instead,\nsee the XValidation on ImageCatalogSpec above). Nested by method\n(one field per auth kind) instead of a flat credential reference,\nso a future method (basic auth, mTLS...) is a pure ADDITION \u2014 a\nnew sibling field on ImageCatalogAuth \u2014 never a rename or a\nreinterpretation of what an existing field means. Absent =\nunauthenticated GET, the only mode the two known public catalogs\n(docker.io/xorhub, docker.io/kasmweb) need.",
+              "description": "Auth configures how the live fetch authenticates \u2014 only\nmeaningful when From.URL is set (ignored, and rejected at\nadmission if From points at ConfigMapKeyRef/SecretKeyRef instead,\nsee the XValidation on ImageCatalogSpec above). Nested by method\n(one field per auth kind) instead of a flat credential reference,\nso a future method (basic auth, mTLS...) is a pure ADDITION \u2014 a\nnew sibling field on ImageCatalogAuth \u2014 never a rename or a\nreinterpretation of what an existing field means. Absent =\nunauthenticated GET, the only mode the two known public catalogs\n(ghcr.io/xorhub/waas-workspace-images, docker.io/kasmweb) need.",
               "properties": {
                 "bearerToken": {
                   "description": "BearerToken sends \"Authorization: Bearer <token>\" on the fetch.",
@@ -138,7 +138,7 @@
           "type": "boolean"
         },
         "image": {
-          "description": "Image is the exact reference approved by the admin. Templates must\nmatch it verbatim; pin the digest for immutability (the waas-images\npipeline publishes immutable tags precisely for this). Exactly one\nof image/registry must be set.",
+          "description": "Image is the exact reference approved by the admin. Templates must\nmatch it verbatim; pin the digest for immutability (the waas-workspace-images\npipeline publishes immutable X.Y.n tags precisely for this). Exactly one\nof image/registry must be set.",
           "minLength": 1,
           "type": "string"
         },

@@ -386,7 +386,7 @@ func TestUpsertPolicyRoundTripsMaxRunning(t *testing.T) {
 func registryImageInput(catalog *model.CatalogSourceModel) UpsertImageInput {
 	return UpsertImageInput{
 		DisplayName: "XorHub images",
-		Registry:    "docker.io/xorhub",
+		Registry:    "ghcr.io/xorhub/waas-workspace-images",
 		Protocols:   []string{"vnc"},
 		Catalog:     catalog,
 	}
@@ -563,7 +563,7 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 	visible := &waasv1alpha1.WorkspaceImage{
 		ObjectMeta: metav1.ObjectMeta{Name: "waas-images", Namespace: testNS},
 		Spec: waasv1alpha1.WorkspaceImageSpec{
-			DisplayName: "XorHub images", Registry: "ghcr.io/xorhub/waas-images",
+			DisplayName: "XorHub images", Registry: "ghcr.io/xorhub/waas-workspace-images",
 			Protocols: []waasv1alpha1.Protocol{waasv1alpha1.ProtocolKasmVNC}, Enabled: true,
 		},
 		Status: waasv1alpha1.WorkspaceImageStatus{
@@ -580,7 +580,7 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 			t.Fatalf("seeding image %s: %v", img.Name, err)
 		}
 		entry := []repository.CatalogEntry{{
-			Image: "ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:def",
+			Image: "ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def",
 			OS:    "linux", App: "firefox", Icon: "firefox", SyncedAt: time.Now(),
 			Profile:     "hardened",
 			Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000},"env":[{"name":"WAAS_AUDIO_ENABLED","protocols":["vnc"]}]}`),

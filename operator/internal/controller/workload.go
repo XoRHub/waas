@@ -422,7 +422,7 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 
 // desktopEnv is the container environment: template env with the
 // workspace's admitted overrides on top, plus the generated password
-// (WAAS_DESKTOP_PASSWORD for waas-images, kasmweb's VNC_PW for kasm,
+// (WAAS_DESKTOP_PASSWORD for waas-core-images, kasmweb's VNC_PW for kasm,
 // both from the pod-namespace Secret) when no explicit source
 // provides one — the kasmvnc and vnc/rdp mechanisms are mutually
 // exclusive, so at most one injection fires.

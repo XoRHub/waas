@@ -82,11 +82,13 @@ Same doctrine, for the catalog side: the chart can render the two
 official registry-wide `WorkspaceImage` entries (`catalogs.*` in
 `values.yaml`) so a first install already has a non-empty picker
 instead of waiting on GitOps. `catalogs.waasImages` (registry
-`docker.io/xorhub`) defaults **on**; `catalogs.kasm`
+`ghcr.io/xorhub/waas-workspace-images`) defaults **on**; `catalogs.kasm`
 (registry `docker.io/kasmweb`, `kasmvnc`-only) defaults **off** since
 it's an extra data plane an admin opts into. Both sync their picker
-metadata live from the `catalog-*.yaml` manifests published by the
-`waas-images` repo (see `docs/image-catalog.md`). Canonical channel:
+metadata live from a per-waas-minor catalog, both published by the
+`waas-workspace-images` repo: `catalogs/<X.Y>/catalog.yaml` for its own
+images and `catalogs/<X.Y>/catalog-kasmweb.yaml` for the upstream
+kasmweb ones (see `docs/image-catalog.md`). Canonical channel:
 `gitops/governance/images.yaml`; disable the matching `catalogs.*` flag
 once that takes over, same never-both-at-once rule as `adminPolicy`.
 
@@ -463,9 +465,9 @@ data), compute freed, home kept.
 
 ## Procedures
 
-**Add an image to the catalog**: build/push via the `waas-images` repo
-(separate from this one since 2026-07-10) → add a
-`WorkspaceImage` in `gitops/governance/images.yaml` (or admin console)
+**Add an image to the catalog**: build/push via the
+`waas-workspace-images` repo → add a `WorkspaceImage` in
+`gitops/governance/images.yaml` (or admin console)
 with the exact ref → create a `WorkspaceTemplate` using that ref →
 reference it from policies (or leave `images: []`). Adding the template
 without the catalog entry yields `ImageNotInCatalog` at workspace
