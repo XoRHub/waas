@@ -1,6 +1,6 @@
 # Multi-arch, CGO-free, distroless. No shell in the final image: health
 # checks are HTTP probes on :8081, never `exec`.
-FROM --platform=$BUILDPLATFORM golang:1.27.1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.1@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190 AS builder
 ARG TARGETOS TARGETARCH
 WORKDIR /workspace
 COPY go.mod go.sum ./
