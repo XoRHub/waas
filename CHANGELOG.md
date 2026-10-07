@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/XoRHub/waas/compare/v0.4.0...v0.4.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* **deps:** update go-non-major ([#224](https://github.com/XoRHub/waas/issues/224)) ([a87962f](https://github.com/XoRHub/waas/commit/a87962fdbb2bcecc2ca1404b98587498cffaefd6))
+
 ## [0.4.0](https://github.com/XoRHub/waas/compare/v0.3.0...v0.4.0) (2026-09-25)
 
 
