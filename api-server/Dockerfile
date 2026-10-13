@@ -2,7 +2,7 @@
 # ../operator):  docker build -f api-server/Dockerfile .
 # Multi-arch, CGO-free (pure-Go SQLite driver), distroless: no shell, health
 # checks are HTTP probes on /healthz.
-FROM --platform=$BUILDPLATFORM golang:1.27.2@sha256:5bc7f572bbaa98885a3a1fd9c0aa76b59e3e14e8628bfc316bbfd0c701e4818c AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.2@sha256:007a316059246276cb214df93950be77837545dc78007a73e0291a4963d5d3bf AS builder
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY shared/ shared/
