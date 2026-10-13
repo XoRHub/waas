@@ -50,10 +50,10 @@ table is a quick *what*.
 | image.tag | string | `""` | Image tag for every component; empty defaults to Chart.yaml's appVersion (bumped on every app release). |
 | image.pullPolicy | string | `"IfNotPresent"` | imagePullPolicy for every component's pods. |
 | secretsJob.enabled | bool | `true` | Generate/manage the release Secrets in-cluster; disable once every `*SecretRef` below is set. |
-| secretsJob.image | string | `"bitnami/kubectl:latest@sha256:65447dcbb2813878e22265949a4ba4cca02f8d008ff3fe66a25354b511f28015"` | Image used by the secrets-generation hook Job. |
+| secretsJob.image | string | digest-pinned `bitnami/kubectl:latest`, see values.yaml | Image used by the secrets-generation hook Job. |
 | internalTokenSecretRef.name | string | `""` | Secret name to read the internal-token from instead of the chart-generated one. |
 | internalTokenSecretRef.key | string | `""` | Secret key. Defaults to `"internal-token"`. |
-| jwtJob.image | string | `"bitnami/kubectl:latest@sha256:65447dcbb2813878e22265949a4ba4cca02f8d008ff3fe66a25354b511f28015"` | Image used by the JWT signing-key hook Job (kubectl + openssl, same as secretsJob's). |
+| jwtJob.image | string | digest-pinned `bitnami/kubectl:latest`, see values.yaml | Image used by the JWT signing-key hook Job (kubectl + openssl, same as secretsJob's). |
 | workspaces.namespace | string | `""` | Namespace for Workspace/WorkspaceTemplate CRs; empty defaults to the release namespace. |
 | workspaces.create | bool | `true` | Create the namespace above when it differs from the release namespace. |
 | workspaces.defaultNamespacePattern | string | `""` | Operator-wide namespace placement pattern; empty uses the built-in default. |
@@ -204,7 +204,7 @@ table is a quick *what*.
 | grafana.dashboards.resyncPeriod | string | `"24h"` | How often grafana-operator re-applies the dashboard JSON; only used in mode `"operator"`. |
 | grafana.dashboards.folder | string | `"WaaS"` | Grafana folder the dashboards are filed under. |
 | postgres.enabled | bool | `true` | Deploy the chart's own PostgreSQL 17 StatefulSet; false brings your own instance. |
-| postgres.image | string | `"postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2"` | postgres image reference; only used when postgres.enabled is true. |
+| postgres.image | string | digest-pinned `postgres:18.6-alpine`, see values.yaml | postgres image reference; only used when postgres.enabled is true. |
 | postgres.database | string | `"waas"` | Database name. |
 | postgres.username | string | `"waas"` | Database user. |
 | postgres.password | string | `""` | Postgres password; empty generates one and keeps it across upgrades. Only used when postgres.enabled is true. |
