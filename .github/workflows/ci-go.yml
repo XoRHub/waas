@@ -33,9 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Toolchain from .mise.toml — single source of truth with local dev.
-      # Deliberately NOT per-module `go-version-file`: every go.mod's
-      # directive is a plain `go 1.26`, so the one 1.26.4 pin satisfies
-      # them all (comment on the pin in .mise.toml keeps it that way).
+      # Deliberately NOT per-module `go-version-file`: the single pin in
+      # .mise.toml satisfies every module's `go` directive (the comment
+      # on that pin keeps it that way).
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
           install_args: go golangci-lint
