@@ -27,6 +27,12 @@
       "enabled": false
     },
     {
+      "description": "Same wedge, different trigger: k8s.io/kube-openapi is a pseudo-version module whose version is dictated by the k8s.io/api* set it ships with, and a solo digest bump is not a `major` update, so the rule above does not catch it. #204 took kube-openapi to one that had moved to structured-merge-diff/v7 while k8s.io/apimachinery v0.37.1 was still on v6: both module paths coexisted and apimachinery's own typeconverter.go stopped compiling, wedging the PR from 2026-09-25 to 2026-10-14. It still gets updated, in lockstep with its parents when they bump.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["k8s.io/kube-openapi"],
+      "enabled": false
+    },
+    {
       "description": "One PR for all GitHub Actions patch/minor/digest bumps, automerged once required checks pass.",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["patch", "minor", "digest", "pinDigest"],
