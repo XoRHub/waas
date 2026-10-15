@@ -1,7 +1,8 @@
 # Dev WorkspaceTemplates consuming the images seeded in images-dev.yaml.
 # `image` must match the corresponding WorkspaceImage verbatim (see its
-# comment) — registry refs (docker.io/xorhub/*) by default, same as prod.
-# For local iteration on a waas-images change, `make dev-load-images
+# comment) — registry refs (ghcr.io/xorhub/waas-workspace-images/*) by
+# default, same as prod. For local iteration on a waas-workspace-images
+# change, `make dev-load-images
 # LOCAL_IMAGES="firefox"` builds + imports waas-local/firefox:dev into k3d;
 # point this template's `image:` at that tag yourself to actually run it.
 apiVersion: waas.xorhub.io/v1alpha1
@@ -12,7 +13,7 @@ spec:
   displayName: "Ubuntu 24.04 — XFCE"
   description: "Full XFCE desktop over VNC (recommended protocol for Linux)."
   os: linux
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.1.1
+  image: ghcr.io/xorhub/waas-workspace-images/ubuntu-desktop-noble:0.4.2
   homeSize: 10Gi
   resources:
     requests: { cpu: 500m, memory: 1Gi }
@@ -84,7 +85,7 @@ spec:
   displayName: "Firefox (navigation isolée)"
   description: "Firefox durci, session jetable — avec audio (PulseAudio streamé par guacd)."
   os: linux
-  image: docker.io/xorhub/firefox:2.0.2
+  image: ghcr.io/xorhub/waas-workspace-images/firefox:0.4.2
   homeSize: 5Gi
   resources:
     requests: { cpu: 500m, memory: 1536Mi }

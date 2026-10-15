@@ -11,13 +11,13 @@ func TestParseFull(t *testing.T) {
 	f, err := Parse([]byte(`
 apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: ghcr.io/xorhub/waas-images/ubuntu-xfce:1.1.0@sha256:abc
+  - image: ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.1.0@sha256:abc
     os: linux
     app: ubuntu-xfce
     version: "1.1.0"
     icon: linux
     displayName: "Ubuntu 24.04 — XFCE"
-  - image: ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:def
+  - image: ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def
     os: linux
     app: firefox
     version: "1.0.0"
@@ -63,9 +63,9 @@ func TestParseArchitectures(t *testing.T) {
 	f, err := Parse([]byte(`
 apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: ghcr.io/xorhub/waas-images/firefox:1.0.0@sha256:def
+  - image: ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def
     architectures: [amd64]
-  - image: ghcr.io/xorhub/waas-images/terminal:1.2.0@sha256:abc
+  - image: ghcr.io/xorhub/waas-workspace-images/terminal:1.2.0@sha256:abc
     architectures: [amd64, arm64]
 `))
 	if err != nil {
@@ -83,7 +83,7 @@ func TestParseRecommendation(t *testing.T) {
 	f, err := Parse([]byte(`
 apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: ghcr.io/xorhub/waas-images/ubuntu-xfce:1.1.0@sha256:abc
+  - image: ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.1.0@sha256:abc
     profile: hardened
     recommended:
       podSecurityContext:

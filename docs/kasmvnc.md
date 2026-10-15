@@ -161,7 +161,9 @@ admin's. Full precedence map across both data planes:
 - Catalog entries for `docker.io/kasmweb/*` are approved by **fixed
   release tag** (`tagPolicy: tag`, the bootstrap default in
   `helm/waas/values.yaml`): upstream publishes versioned tags
-  (`1.19.0`) and `catalog-kasmweb.yaml` references them by tag. A
+  (`1.19.0`) and `catalogs/<X.Y>/catalog-kasmweb.yaml` (published by
+  `waas-workspace-images` — `docs/image-catalog.md` § Kasm catalog)
+  references them by tag. A
   digest requirement was tried first and dropped — it denied every
   entry of the synced catalog (which carries tags, not digests) for no
   real gain; admins who want immutability can still pin `@sha256:…`

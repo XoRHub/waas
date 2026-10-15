@@ -14,7 +14,7 @@ with the code they describe.
 
 | Change in progress | Doc(s) to check/patch |
 |---|---|
-| Makefile targets, `.mise.toml`, quickstart or dev-env commands, external dependency URL (e.g. waas-images) | `README.md` (Quickstart) + `CONTRIBUTING.md` (pre-PR commands) |
+| Makefile targets, `.mise.toml`, quickstart or dev-env commands, external dependency URL (e.g. waas-workspace-images) | `README.md` (Quickstart) + `CONTRIBUTING.md` (pre-PR commands) |
 | `.github/workflows/ci.yml` (jobs, gates, release flow) | `docs/ci-github.md` + the one-paragraph CI summary in `README.md` |
 | New component, or a change to a hard boundary (operator↔DB, api-server↔pods, frontend↔K8s API, guacd exposure) | `README.md` (Architecture + hard boundaries) + `AGENTS.md` |
 | Test strategy: new tier, new harness, envtest/smoke changes | `docs/testing.md` |

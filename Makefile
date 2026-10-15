@@ -12,18 +12,22 @@ IMAGE_TAG        := dev
 DEV_IMAGES       := operator api-server wwt frontend
 
 # Workspace desktop images. hack/dev/images-dev.yaml + templates-dev.yaml
-# point at the published registry (docker.io/xorhub/*, catalog-waas-images.yaml)
-# by default — no local build/import needed. For local iteration on a
-# waas-images change, pass LOCAL_IMAGES (space-separated IMAGE= variants from
-# that repo's own Makefile, e.g. "firefox devtools ubuntu-desktop-noble") to
-# dev-load-images / dev-build-images. Its `build` target does not chain
-# parents (FROM waas-local/<parent>:dev must already exist locally) — list
-# the full chain in build order, e.g. LOCAL_IMAGES="core-ubuntu-noble
-# core-ubuntu-noble-xfce firefox". The checkout is resolved via
-# WAAS_IMAGES_DIR (default: sibling of this repo, since the 2026-07-10 split
-# — git@github.com:XoRHub/waas-images.git).
-WAAS_IMAGES_DIR ?= ../waas-images
+# point at the published registry (ghcr.io/xorhub/waas-workspace-images/*,
+# catalogs/<X.Y>/catalog.yaml of that repo) by default — no local
+# build/import needed. For local iteration on a waas-workspace-images
+# change, pass LOCAL_IMAGES (space-separated IMAGE= variants from that
+# repo's own Makefile, e.g. "firefox devtools ubuntu-desktop-noble") to
+# dev-load-images / dev-build-images. Its `build` target pulls the pinned
+# core image from ghcr.io/xorhub/waas-core-images and expects a sibling
+# ../waas-core-images checkout; pass CORE_REF=<local core image> (built
+# there with `make build IMAGE=core-ubuntu-noble`) to build an app on a
+# locally modified core instead. Internal parents are not chained either
+# (devtools FROM ubuntu-desktop-noble) — list them first, in build order.
+# The checkout is resolved via WAAS_WORKSPACE_IMAGES_DIR (default: sibling
+# of this repo — git@github.com:XoRHub/waas-workspace-images.git).
+WAAS_WORKSPACE_IMAGES_DIR ?= ../waas-workspace-images
 LOCAL_IMAGES    ?=
+CORE_REF        ?=
 
 .PHONY: all build check test test-go test-go-pg test-envtest test-frontend lint lint-go lint-frontend format vulncheck-go \
 	helm-check coverage coverage-go coverage-frontend crd-schemas \
@@ -230,7 +234,7 @@ docker-build:
 #   make dev-build dev-load dev-deploy
 #   make dev-load-images        # workspace desktop images (after dev-deploy: needs the ns)
 #   make dev-reload             # after service/frontend code changes: rebuild, reimport, restart
-#   make dev-reload-all         # same, plus the desktop images (waas-images repo)
+#   make dev-reload-all         # same, plus the desktop images (waas-workspace-images repo)
 #   make dev-down               # tear down
 
 # The whole flow above in one shot, from a blank machine. Safe to re-run on
@@ -300,30 +304,30 @@ dev-reload: dev-build dev-load dev-deploy
 	kubectl -n $(DEV_NAMESPACE) rollout restart \
 		deploy/waas-operator deploy/waas-api-server deploy/waas-wwt deploy/waas-frontend
 
-# dev-reload, plus a rebuild/reimport of the desktop images (waas-images
-# repo) and a re-apply of the dev catalog. Use after touching the images
-# repo; noticeably slower (full docker builds of the desktop stacks), so
-# plain dev-reload stays the inner loop for service/frontend code. Pure
-# composition — the restart lives in dev-reload only, and running it before
-# the image import is fine: workspace images never run in the four service
-# deployments.
+# dev-reload, plus a rebuild/reimport of the desktop images
+# (waas-workspace-images repo) and a re-apply of the dev catalog. Use
+# after touching the images repo; noticeably slower (full docker builds of
+# the desktop stacks), so plain dev-reload stays the inner loop for
+# service/frontend code. Pure composition — the restart lives in
+# dev-reload only, and running it before the image import is fine:
+# workspace images never run in the four service deployments.
 dev-reload-all: dev-reload dev-load-images
 
-# Build LOCAL_IMAGES locally (docker build via the waas-images repo's own
-# Makefile). No-op when LOCAL_IMAGES is empty — the default flow needs no
-# local checkout at all. The existence check is a make-time conditional so
-# `make -n` graph checks still resolve without the clone.
+# Build LOCAL_IMAGES locally (docker build via the waas-workspace-images
+# repo's own Makefile). No-op when LOCAL_IMAGES is empty — the default flow
+# needs no local checkout at all. The existence check is a make-time
+# conditional so `make -n` graph checks still resolve without the clone.
 dev-build-images:
 ifneq ($(strip $(LOCAL_IMAGES)),)
-ifeq ($(wildcard $(WAAS_IMAGES_DIR)/Makefile),)
-	@echo "error: waas-images repo not found at '$(WAAS_IMAGES_DIR)' (split out of this monorepo 2026-07-10)." >&2
-	@echo "  clone it first:  git clone git@github.com:XoRHub/waas-images.git $(WAAS_IMAGES_DIR)" >&2
-	@echo "  or point WAAS_IMAGES_DIR at an existing checkout:  make dev-build-images WAAS_IMAGES_DIR=/path/to/waas-images" >&2
+ifeq ($(wildcard $(WAAS_WORKSPACE_IMAGES_DIR)/Makefile),)
+	@echo "error: waas-workspace-images repo not found at '$(WAAS_WORKSPACE_IMAGES_DIR)'." >&2
+	@echo "  clone it first:  git clone git@github.com:XoRHub/waas-workspace-images.git $(WAAS_WORKSPACE_IMAGES_DIR)" >&2
+	@echo "  or point WAAS_WORKSPACE_IMAGES_DIR at an existing checkout:  make dev-build-images WAAS_WORKSPACE_IMAGES_DIR=/path/to/waas-workspace-images" >&2
 	@exit 1
 else
 	@for img in $(LOCAL_IMAGES); do \
 		echo "==> build $$img"; \
-		$(MAKE) -C $(WAAS_IMAGES_DIR) build IMAGE=$$img || exit 1; \
+		$(MAKE) -C $(WAAS_WORKSPACE_IMAGES_DIR) build IMAGE=$$img $(if $(CORE_REF),CORE_REF=$(CORE_REF)) || exit 1; \
 	done
 endif
 endif

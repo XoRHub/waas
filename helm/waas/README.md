@@ -86,20 +86,20 @@ table is a quick *what*.
 | adminPolicy.clipboard | object | `{}` | Clipboard bridge directions; empty = both allowed. |
 | adminPolicy.overrides | object | `{"allowedFields":["env","securityContext","podSecurityContext","volumes","nodeSelector","tolerations","resources","protocol","protocolParams","schedule","placement","metadata"]}` | Template-override fields admins may set at instantiation time (intersected with the template's own allow-list). |
 | adminPolicy.remoteWorkspaces | bool | `true` | Opt admins into the Remote Workspaces feature (out-of-cluster machines via guacd). |
-| catalogs.waasImages.enabled | bool | `true` | Bootstrap the XorHub desktop-images catalog on install. |
+| catalogs.waasImages.enabled | bool | `true` | Bootstrap the XorHub workspace-images catalog on install. |
 | catalogs.waasImages.name | string | `"waas-images"` | Name of the bootstrap WorkspaceImage for this catalog. |
 | catalogs.waasImages.displayName | string | `"XorHub images"` | Display name shown in the portal picker. |
-| catalogs.waasImages.registry | string | `"docker.io/xorhub"` | Registry prefix this catalog approves images from. |
-| catalogs.waasImages.tagPolicy | string | `"tag"` | Tag discipline enforced for this registry (`tag` | `digest` | `any`). `tag` matches the published catalog: waas-images releases fixed tags (2.0.1) and catalog-waas-images.yaml references them by tag. Explicit here — same discipline the policy engine already defaults registry entries to when unset. |
-| catalogs.waasImages.protocols | list | `["vnc"]` | Protocols this catalog's images support. waas-images ships linux desktops only, i.e. vnc: in-cluster rdp is the windows (KubeVirt) path and ssh only exists for remote workspaces (docs/templates-and-protocols.md). |
-| catalogs.waasImages.catalogURL | string | `"https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml"` | URL of the published catalog.yaml for this registry. |
+| catalogs.waasImages.registry | string | `"ghcr.io/xorhub/waas-workspace-images"` | Registry prefix this catalog approves images from. |
+| catalogs.waasImages.tagPolicy | string | `"tag"` | Tag discipline enforced for this registry (`tag` | `digest` | `any`). `tag` matches the published catalog: waas-workspace-images releases immutable X.Y.n tags and its catalog references them by tag, never by digest. Explicit here — same discipline the policy engine already defaults registry entries to when unset. |
+| catalogs.waasImages.protocols | list | `["vnc"]` | Protocols this catalog's images support. waas-workspace-images ships linux desktops only, i.e. vnc: in-cluster rdp is the windows (KubeVirt) path and ssh only exists for remote workspaces (docs/templates-and-protocols.md). |
+| catalogs.waasImages.catalogURL | string | derived from `.Chart.AppVersion` | URL of the published catalog.yaml for this registry. Empty derives it from the chart's appVersion: waas-workspace-images publishes one catalog per waas minor, so a chart at appVersion X.Y.Z reads `https://raw.githubusercontent.com/XoRHub/waas-workspace-images/main/catalogs/X.Y/catalog.yaml` and never a catalog generated for a newer schema. Set it to pin another minor or a mirror. |
 | catalogs.kasm.enabled | bool | `false` | Bootstrap the official Kasm images catalog on install. |
 | catalogs.kasm.name | string | `"kasm"` | Name of the bootstrap WorkspaceImage for this catalog. |
 | catalogs.kasm.displayName | string | `"Kasm official images"` | Display name shown in the portal picker. |
 | catalogs.kasm.registry | string | `"docker.io/kasmweb"` | Registry prefix this catalog approves images from. |
 | catalogs.kasm.tagPolicy | string | `"tag"` | Tag discipline enforced for this registry (`tag` | `digest` | `any`). `tag` matches upstream: kasmweb publishes fixed release tags (1.19.0) and the synced catalog references them by tag, not digest. |
 | catalogs.kasm.protocols | list | `["kasmvnc"]` | Protocols this catalog's images support. |
-| catalogs.kasm.catalogURL | string | `"https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-kasmweb.yaml"` | URL of the published catalog.yaml for this registry. |
+| catalogs.kasm.catalogURL | string | derived from `.Chart.AppVersion` | URL of the published catalog.yaml for this registry. Empty derives it from the chart's appVersion, same per-minor layout and same producer as waasImages — waas-workspace-images publishes this one too, refreshed daily against Docker Hub rather than per release (docs/image-catalog.md § Kasm catalog): `https://raw.githubusercontent.com/XoRHub/waas-workspace-images/main/catalogs/X.Y/catalog-kasmweb.yaml`. |
 | ingress.enabled | bool | `true` | Deploy an Ingress in front of the frontend/api-server/wwt. |
 | ingress.className | string | `""` | ingressClassName; empty uses the cluster default. |
 | ingress.host | string | `"waas.example.com"` | Public hostname routed to the platform. |

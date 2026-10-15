@@ -71,13 +71,15 @@ cd api-server && WAAS_DEV=true go run ./cmd/api-server
 ```
 
 Local cluster (k3d): `make dev-bootstrap` — creates the `waas-dev` cluster with
-cert-manager, builds and imports every image (services + the desktops from the
-[waas-images repo](https://github.com/XoRHub/waas-images), expected as a
-sibling checkout — `WAAS_IMAGES_DIR` overrides the path),
-deploys the chart and seeds the dev catalog; the URL and credentials are printed
-at the end. After code changes: `make dev-reload` (services/frontend) or
-`make dev-reload-all` (also rebuilds the desktop images). `make dev-down` tears
-it down, `make smoke` validates real per-protocol sessions.
+cert-manager, builds and imports the service images, deploys the chart and
+seeds the dev catalog; the URL and credentials are printed at the end. The
+desktops are pulled from the published registry, so no checkout of
+[waas-workspace-images](https://github.com/XoRHub/waas-workspace-images) is
+needed — only `LOCAL_IMAGES="<variant>…"` iteration needs one as a sibling
+(`WAAS_WORKSPACE_IMAGES_DIR` overrides the path). After code changes:
+`make dev-reload` (services/frontend) or `make dev-reload-all` (also rebuilds
+`LOCAL_IMAGES`). `make dev-down` tears it down, `make smoke` validates real
+per-protocol sessions.
 
 ## CI/CD
 

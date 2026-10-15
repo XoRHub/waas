@@ -176,8 +176,16 @@ consumers.
     Component name `chart`: git tag `chart-X.Y.Z`, GitHub Release titled
     `chart: vX.Y.Z` (release-please's default `<component>: v<version>`
     titling).
-  - Desktop images are out of scope (separate `waas-images` repo since
-    2026-07-10, versioned per image).
+  - Desktop images are out of scope (separate `waas-core-images` /
+    `waas-workspace-images` repos; workspace images are versioned
+    `X.Y.n` against the waas minor they target).
+- **A MINOR app release needs a matching workspace-images release.**
+  Both default bootstrap catalogs derive their URL from `appVersion`'s
+  minor, and both are published by `waas-workspace-images`
+  (`catalogs/X.Y/catalog.yaml` and `catalog-kasmweb.yaml`), so a bump to
+  `X.Y` makes the chart read files that only exist once that repo's
+  `images.yaml` `release:` is bumped to `X.Y`. A patch release changes
+  nothing. Automating this trigger from here is pending.
 - Each package gets its own release PR (`separate-pull-requests: true`).
   The app's release PR bumps `CHANGELOG.md` and `helm/waas/Chart.yaml`'s
   `appVersion` (`x-release-please-start-version`/`end` marker scoped to
@@ -286,9 +294,6 @@ datasource).
 
 ## Accepted gaps / not ported (yet)
 
-- **waas-images**: GitLab only, no GitHub equivalent. Since the
-  2026-07-10 split, the topic belongs to the `waas-images` repo (see
-  its `docs/RECIPE-STUDY.md`, § GitHub Actions CI).
 - **smoke-connections** (k3d + real guacd sessions): too heavy for a
   hosted 7 GB runner; to be ported to a self-hosted runner or kept on
   GitLab.

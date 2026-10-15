@@ -212,7 +212,7 @@ type WorkspaceHomeVolume struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-// PulseAudioPort is the fixed TCP port the waas-images PulseAudio daemon
+// PulseAudioPort is the fixed TCP port the waas-core-images PulseAudio daemon
 // serves the native protocol on (module-native-protocol-tcp in
 // default.pa.tpl — baked into the image, not configurable). guacd dials
 // it when the enable-audio parameter is set.
@@ -352,7 +352,7 @@ type WorkspaceTemplateSpec struct {
 	HomeSize *resource.Quantity `json:"homeSize,omitempty"`
 
 	// HomeMountPath is where the home volume is mounted in the pod.
-	// Defaults to /home/waas_user (the waas-images convention); kasmweb/*
+	// Defaults to /home/waas_user (the waas-core-images convention); kasmweb/*
 	// images expect /home/kasm-user. Changing it on a template only
 	// affects pods rolled out afterwards — the volume itself is
 	// path-agnostic.
@@ -436,7 +436,7 @@ type WorkspaceTemplateSpec struct {
 
 // PlacementNamespacePattern returns the placement pattern, or "".
 // DefaultHomeMountPath is where the home volume lands when the template
-// does not say otherwise (the waas-images convention).
+// does not say otherwise (the waas-core-images convention).
 const DefaultHomeMountPath = "/home/waas_user"
 
 // EffectiveHomeMountPath returns the template's home mount path, or the

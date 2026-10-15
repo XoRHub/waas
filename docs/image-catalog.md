@@ -166,10 +166,10 @@ same parser with no cross-module dependency between the two.
 # (no vX.Y.Z release tag exists yet; pin one for shared files once it does — a branch is fine while iterating locally)
 apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: docker.io/xorhub/firefox:1.0.0@sha256:...
+  - image: ghcr.io/xorhub/waas-workspace-images/firefox:0.4.2
     os: linux        # empty = linux
     app: firefox
-    version: "1.0.0"
+    version: "0.4.2"
     icon: firefox    # dashboard-icons slug — also accepts an absolute
                      # https URL or file:<path> (see the picker section)
     displayName: Firefox     # human-readable label (a name, NOT a
@@ -206,7 +206,7 @@ for shared files, since branch content can change without notice.
 A catalog entry can optionally carry a `profile` badge
 (`hardened`/`normal`) and a `recommended` block —
 `podSecurityContext`/`securityContext`/`volumes`/`env` hints copied from
-`waas-images/HARDENING.md`'s *"To apply on the platform side"* section,
+`waas-core-images/HARDENING.md`'s *"To apply on the platform side"* section,
 so the admin template form doesn't start from a blank page on identity
 and hardening. **These fields follow the exact same regime as every
 other discovered field above: purely cosmetic, never read by
@@ -222,10 +222,10 @@ empty by the sync worker rather than propagated to the picker.
 ```yaml
 apiVersion: waas.xorhub.io/catalog/v1
 images:
-  - image: docker.io/xorhub/ubuntu-xfce:1.1.0@sha256:...
+  - image: ghcr.io/xorhub/waas-workspace-images/ubuntu-desktop-noble:0.4.2
     os: linux
-    app: ubuntu-xfce
-    version: "1.1.0"
+    app: ubuntu-desktop-noble
+    version: "0.4.2"
     profile: hardened
     recommended:
       podSecurityContext:
@@ -326,7 +326,7 @@ fallback when the manifest doesn't carry the field.
 
 `displayName` is a real human-readable **label** (`Firefox`,
 `Ubuntu Desktop Noble`, `Hermes-Agent (hardened)`), no longer the
-producer's description shortened to 80 chars: `waas-images` emits the
+producer's description shortened to 80 chars: `waas-workspace-images` emits the
 manifest's optional `displayName` when set, else a humanized form of
 the variant id (dashes/underscores → spaces, title case). `description`
 is the **full, untruncated** manifest description. Both follow the same
@@ -444,25 +444,66 @@ nothing to suggest when generation is the default.
   end: any reference can be typed or pasted regardless of catalog
   selection, which is pure frontend UI state.
 
-## Relationship to the `waas-images` repo
+## Relationship to the image repos
 
-The desktop-image build tree left this monorepo on 2026-07-10 (history
-preserved via `git filter-repo`; the published registry coordinates in
-`gitops/governance/images.yaml` were deliberately untouched — they
-address published artifacts, independent of where sources live). What
-remains in this repo:
+The desktop images are built outside this monorepo, in two repos:
+`waas-core-images` (the `core-*` base images and the runtime contract a
+desktop pod relies on — `CONTRACT.md`, `HARDENING.md`; never catalogued)
+and `waas-workspace-images` (the desktops and apps the picker shows).
+Workspace images are published on GHCR only, as
+`ghcr.io/xorhub/waas-workspace-images/<image>:X.Y.n` where **`X.Y` is the
+waas MAJOR.MINOR** the image targets and `n` the image's own patch. What
+this repo keeps:
 
-- the dev loop resolves the sibling clone through the Makefile variable
-  `WAAS_IMAGES_DIR` (documented at its use site) and fails with an
-  actionable message when absent;
-- the catalog **format contract** above: waas-images (the producer)
-  publishes `catalog.yaml` files for `docker.io/xorhub` (migrated from
-  `ghcr.io/xorhub/waas-images` — Docker Hub has no nested path, so each
-  image is its own top-level `xorhub/<image>` repo); waas (the
-  reader) owns the schema. `docker.io/kasmweb` gets the same treatment
-  (see `docs/kasmvnc.md` for that registry's specifics).
-  An example ConfigMap-source manifest lives under
+- the dev loop resolves the sibling `waas-workspace-images` clone through
+  the Makefile variable `WAAS_WORKSPACE_IMAGES_DIR` (documented at its
+  use site) and fails with an actionable message when absent;
+- the catalog **format contract** above: waas (the reader) owns the
+  schema; waas-workspace-images (the producer) publishes one catalog per
+  waas minor at `catalogs/<X.Y>/catalog.yaml` on its `main`, referencing
+  images by `X.Y.n` tag only (no digest — the tags are immutable by CI
+  construction). The chart's `catalogs.waasImages.catalogURL` derives
+  that path from `.Chart.AppVersion`, so a release only ever reads a
+  catalog generated for its own schema; set the value to pin another
+  minor or a mirror. An example ConfigMap-source manifest lives under
   `gitops/governance/examples/`.
+
+### Kasm catalog
+
+`docker.io/kasmweb/*` gets the same per-minor treatment (see
+`docs/kasmvnc.md` for that registry's specifics), published as
+`catalogs/<X.Y>/catalog-kasmweb.yaml` next to the workspace catalog —
+**also in `waas-workspace-images`**, even though these are the only
+catalogued images that repo does not build. The split follows the
+reader/producer line above rather than who owns the images: this repo
+owns the schema and reads catalogs, that one produces them, and putting
+the generator there means one validator, one Contents-API commit path
+and one per-minor layout key instead of a second copy of each.
+
+Its refresh is deliberately outside that repo's `release.yml`: the
+catalog tracks upstream Kasm releases, not ours, so
+`catalog-kasmweb.yml` regenerates it daily (and on a push touching
+`images.yaml` or the mapping, so a new minor's file exists as soon as a
+chart derives its URL). Which images it publishes is hand-curated
+there; architectures and `profile`/`recommended` are derived live, the
+latter by actually running the image under the core's hardened flags
+since kasmweb images carry no hardening doctrine to read statically.
+Everything is best-effort by design — this catalog must never block a
+release.
+
+### Migration from `docker.io/xorhub` (waas ≤ 0.3)
+
+Existing workspaces keep running their `docker.io/xorhub/<name>:2.x`
+images — nothing pulls or re-approves them. What changes on upgrade is
+the bootstrap approval: `catalogs.waasImages.registry` moves to
+`ghcr.io/xorhub/waas-workspace-images`, so **new** approvals, templates
+and catalog entries point at GHCR, while a template still referencing a
+`docker.io/xorhub` image is no longer covered by that registry entry.
+Either move such templates to the matching GHCR `X.Y.n` ref, or keep an
+explicit exact-image `WorkspaceImage` for the old ref for as long as it
+is needed. `raw.githubusercontent.com/XoRHub/waas-images/...` stays
+online (archived, frozen), so a chart ≤ 0.3 keeps syncing its old
+catalogs.
 
 ## Planned follow-up: direct deploy (NOT implemented)
 

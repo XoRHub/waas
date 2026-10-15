@@ -207,32 +207,38 @@ adminPolicy:
 # a catalog here once its GitOps-managed equivalent takes over, never both at
 # once for the same WorkspaceImage name.
 catalogs:
-  # docker.io/xorhub — WaaS' own desktop images (built by the sibling
-  # waas-images repo, pushed as docker.io/xorhub/<image>:<tag> — Docker
-  # Hub has no nested path, unlike the former ghcr.io/xorhub/waas-images
-  # layout). On by default: this is what makes a fresh install
+  # ghcr.io/xorhub/waas-workspace-images — WaaS' own desktop and app
+  # images, built by the sibling waas-workspace-images repo and released
+  # per waas MAJOR.MINOR as immutable X.Y.n tags (X.Y = the waas minor
+  # they target). On by default: this is what makes a fresh install
   # immediately usable.
   waasImages:
-    # -- Bootstrap the XorHub desktop-images catalog on install.
+    # -- Bootstrap the XorHub workspace-images catalog on install.
     enabled: true
     # -- Name of the bootstrap WorkspaceImage for this catalog.
     name: waas-images
     # -- Display name shown in the portal picker.
     displayName: "XorHub images"
     # -- Registry prefix this catalog approves images from.
-    registry: docker.io/xorhub
+    registry: ghcr.io/xorhub/waas-workspace-images
     # -- Tag discipline enforced for this registry (`tag` | `digest` | `any`).
-    # `tag` matches the published catalog: waas-images releases fixed tags
-    # (2.0.1) and catalog-waas-images.yaml references them by tag. Explicit
-    # here — same discipline the policy engine already defaults registry
-    # entries to when unset.
+    # `tag` matches the published catalog: waas-workspace-images releases
+    # immutable X.Y.n tags and its catalog references them by tag, never by
+    # digest. Explicit here — same discipline the policy engine already
+    # defaults registry entries to when unset.
     tagPolicy: tag
-    # -- Protocols this catalog's images support. waas-images ships linux
-    # desktops only, i.e. vnc: in-cluster rdp is the windows (KubeVirt) path
-    # and ssh only exists for remote workspaces (docs/templates-and-protocols.md).
+    # -- Protocols this catalog's images support. waas-workspace-images ships
+    # linux desktops only, i.e. vnc: in-cluster rdp is the windows (KubeVirt)
+    # path and ssh only exists for remote workspaces (docs/templates-and-protocols.md).
     protocols: [vnc]
-    # -- URL of the published catalog.yaml for this registry.
-    catalogURL: https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-waas-images.yaml
+    # -- URL of the published catalog.yaml for this registry. Empty derives
+    # it from the chart's appVersion: waas-workspace-images publishes one
+    # catalog per waas minor, so a chart at appVersion X.Y.Z reads
+    # `https://raw.githubusercontent.com/XoRHub/waas-workspace-images/main/catalogs/X.Y/catalog.yaml`
+    # and never a catalog generated for a newer schema. Set it to pin
+    # another minor or a mirror.
+    # @default -- derived from `.Chart.AppVersion`
+    catalogURL: ""
   # docker.io/kasmweb — official Kasm images, native KasmVNC data plane
   # (see docs/kasmvnc.md). Off by default: it's an extra, heavier data
   # plane an admin opts into, not a requirement for a usable first deploy.
@@ -251,8 +257,14 @@ catalogs:
     tagPolicy: tag
     # -- Protocols this catalog's images support.
     protocols: [kasmvnc]
-    # -- URL of the published catalog.yaml for this registry.
-    catalogURL: https://raw.githubusercontent.com/XoRHub/waas-images/main/catalog-kasmweb.yaml
+    # -- URL of the published catalog.yaml for this registry. Empty derives
+    # it from the chart's appVersion, same per-minor layout and same
+    # producer as waasImages — waas-workspace-images publishes this one
+    # too, refreshed daily against Docker Hub rather than per release
+    # (docs/image-catalog.md § Kasm catalog):
+    # `https://raw.githubusercontent.com/XoRHub/waas-workspace-images/main/catalogs/X.Y/catalog-kasmweb.yaml`.
+    # @default -- derived from `.Chart.AppVersion`
+    catalogURL: ""
 
 ingress:
   # -- Deploy an Ingress in front of the frontend/api-server/wwt.

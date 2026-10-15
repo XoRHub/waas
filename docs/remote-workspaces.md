@@ -109,7 +109,7 @@ so the operation is idempotent. Audit: `remote_workspace.woke`.
 ## Network & RBAC (to plan for on the platform side)
 
 - guacd must be able to **egress** to target machines: adapt
-  NetworkPolicies (the `waas-images/examples/networkpolicy-workspaces.yaml`
+  NetworkPolicies (the `waas-workspace-images/examples/networkpolicy-workspaces.yaml`
   example only covers in-cluster traffic).
 - The api-server refuses hostnames that point a "remote machine" at the
   cluster itself: loopback, link-local (including the cloud IMDS at

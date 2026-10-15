@@ -40,12 +40,12 @@ const apiMock = createApiMock({
     {
       name: 'xorhub-registry',
       displayName: 'XorHub images',
-      registry: 'docker.io/xorhub',
+      registry: 'ghcr.io/xorhub/waas-workspace-images',
       protocols: ['vnc'],
       enabled: true,
       catalog: { source: 'Fetched', lastSyncTime: '2026-07-01T10:00:00Z' },
       catalogSource: { from: { url: 'https://example.com/catalog.yaml' } },
-      discovered: [{ image: 'docker.io/xorhub/firefox:1@sha256:def' }],
+      discovered: [{ image: 'ghcr.io/xorhub/waas-workspace-images/firefox:1@sha256:def' }],
     },
     {
       name: 'broken-registry',

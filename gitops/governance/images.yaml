@@ -1,6 +1,6 @@
 # Catalog: the only images a Workspace may run. The `image` field must
 # match the WorkspaceTemplate's image VERBATIM — pin digests (published
-# as immutable tags by the waas-images pipeline).
+# as immutable X.Y.n tags by the waas-workspace-images pipeline).
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspaceImage
 metadata:
@@ -8,7 +8,7 @@ metadata:
 spec:
   displayName: "Ubuntu 24.04 — XFCE"
   description: "Bureau XFCE complet (VNC)."
-  image: docker.io/xorhub/ubuntu-desktop-noble:2.1.1
+  image: ghcr.io/xorhub/waas-workspace-images/ubuntu-desktop-noble:0.4.2
   protocols: [vnc]
   architectures: [amd64, arm64]
   enabled: true
@@ -26,7 +26,7 @@ metadata:
 spec:
   displayName: "Firefox (navigation isolée)"
   description: "Firefox durci par policies.json, session jetable idéale."
-  image: docker.io/xorhub/firefox:2.0.2
+  image: ghcr.io/xorhub/waas-workspace-images/firefox:0.4.2
   protocols: [vnc]
   architectures: [amd64]   # packages.mozilla.org: arm64 non validé
   enabled: true
@@ -41,7 +41,7 @@ metadata:
 spec:
   displayName: "Dev Tools (VS Code, toolchains)"
   description: "Poste de dev — réservé au groupe IdP nymphe:dev."
-  image: docker.io/xorhub/devtools:2.1.0
+  image: ghcr.io/xorhub/waas-workspace-images/devtools:0.4.2
   protocols: [vnc]
   architectures: [amd64]
   enabled: true
@@ -55,7 +55,7 @@ spec:
 ---
 # Images Kasm officielles (docker.io/kasmweb) — accès KasmVNC natif,
 # proxifié par wwt. Référencées par tag de release fixe (1.19.0),
-# comme les autres entrées et comme catalog-kasmweb.yaml : le tag
+# comme les autres entrées et comme catalogs/<X.Y>/catalog-kasmweb.yaml : le tag
 # suffit, l'obligation de digest a été abandonnée (elle refusait tout
 # le catalogue synchronisé, publié en tags). Renovate bump le tag ; le
 # template DOIT porter la même chaîne (match verbatim). Un digest

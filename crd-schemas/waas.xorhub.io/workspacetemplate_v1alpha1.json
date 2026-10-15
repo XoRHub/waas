@@ -176,7 +176,7 @@
           "type": "array"
         },
         "homeMountPath": {
-          "description": "HomeMountPath is where the home volume is mounted in the pod.\nDefaults to /home/waas_user (the waas-images convention); kasmweb/*\nimages expect /home/kasm-user. Changing it on a template only\naffects pods rolled out afterwards \u2014 the volume itself is\npath-agnostic.",
+          "description": "HomeMountPath is where the home volume is mounted in the pod.\nDefaults to /home/waas_user (the waas-core-images convention); kasmweb/*\nimages expect /home/kasm-user. Changing it on a template only\naffects pods rolled out afterwards \u2014 the volume itself is\npath-agnostic.",
           "pattern": "^/[^\\0]+[^/\\0]$",
           "type": "string"
         },

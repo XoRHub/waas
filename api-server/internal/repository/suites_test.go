@@ -466,15 +466,15 @@ func TestCatalogRepositorySuite(t *testing.T) {
 		}
 
 		first := []CatalogEntry{
-			{Image: "docker.io/xorhub/ubuntu-xfce:1.0.0", OS: "linux", App: "ubuntu-xfce", Version: "1.0.0", Icon: "linux", DisplayName: "Ubuntu XFCE", Description: "Full XFCE desktop, VNC.", Profile: "hardened", Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000}}`), Architectures: []string{"amd64"}, SyncedAt: synced},
-			{Image: "docker.io/xorhub/firefox:1.0.0", App: "firefox", SyncedAt: synced},
+			{Image: "ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.0.0", OS: "linux", App: "ubuntu-xfce", Version: "1.0.0", Icon: "linux", DisplayName: "Ubuntu XFCE", Description: "Full XFCE desktop, VNC.", Profile: "hardened", Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000}}`), Architectures: []string{"amd64"}, SyncedAt: synced},
+			{Image: "ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0", App: "firefox", SyncedAt: synced},
 		}
 		if err := repo.ReplaceEntries(ctx, "ubuntu-xfce", first); err != nil {
 			t.Fatal(err)
 		}
 		// A second, unrelated WorkspaceImage's rows must not leak across.
 		if err := repo.ReplaceEntries(ctx, "windows-server", []CatalogEntry{
-			{Image: "docker.io/xorhub/windows:2022", SyncedAt: synced},
+			{Image: "ghcr.io/xorhub/waas-workspace-images/windows:2022", SyncedAt: synced},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -487,7 +487,7 @@ func TestCatalogRepositorySuite(t *testing.T) {
 			t.Fatalf("expected 2 entries, got %+v", got)
 		}
 		// image ordering (ORDER BY image): firefox before ubuntu-xfce.
-		if got[0].Image != "docker.io/xorhub/firefox:1.0.0" || got[0].App != "firefox" {
+		if got[0].Image != "ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0" || got[0].App != "firefox" {
 			t.Fatalf("unexpected first entry: %+v", got[0])
 		}
 		if got[1].DisplayName != "Ubuntu XFCE" || got[1].Icon != "linux" || got[1].Description != "Full XFCE desktop, VNC." {
@@ -535,7 +535,7 @@ func TestCatalogRepositorySuite(t *testing.T) {
 		// A second sync fully replaces the first: dropped images
 		// disappear, survivors keep their fresh values.
 		second := []CatalogEntry{
-			{Image: "docker.io/xorhub/firefox:1.1.0", App: "firefox", Version: "1.1.0", SyncedAt: synced.Add(time.Hour)},
+			{Image: "ghcr.io/xorhub/waas-workspace-images/firefox:1.1.0", App: "firefox", Version: "1.1.0", SyncedAt: synced.Add(time.Hour)},
 		}
 		if err := repo.ReplaceEntries(ctx, "ubuntu-xfce", second); err != nil {
 			t.Fatal(err)
