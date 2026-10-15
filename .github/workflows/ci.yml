@@ -426,6 +426,27 @@ jobs:
           gh release view "$TAG" --json body -q .body > notes.md
           cat release-images.md >> notes.md
           gh release edit "$TAG" --notes-file notes.md
+      # Advisory only, and deliberately so: a waas release must never
+      # depend on the state of another repo. The chart derives both
+      # catalogs.* URLs from this release's appVersion minor, and
+      # waas-workspace-images publishes them when its own
+      # release-sync.yml bump PR is merged there. Until that lands the
+      # URLs 404 — the registry approvals still hold, so the cost is a
+      # picker without metadata. This step only makes that visible on
+      # release day instead of letting it surface as an empty portal.
+      - name: Warn if this minor's bootstrap catalogs are not published yet
+        run: |
+          set -uo pipefail
+          VERSION="${TAG#v}"
+          MINOR="${VERSION%.*}"
+          BASE="https://raw.githubusercontent.com/XoRHub/waas-workspace-images/main/catalogs/${MINOR}"
+          for f in catalog.yaml catalog-kasmweb.yaml; do
+            if curl -fsSL -o /dev/null "${BASE}/${f}"; then
+              echo "catalogs/${MINOR}/${f}: published"
+            else
+              echo "::warning title=Bootstrap catalog missing::catalogs/${MINOR}/${f} is not published in waas-workspace-images yet, so catalogs.* will 404 for this release until its release-sync.yml bump PR is merged there."
+            fi
+          done
 
   # Independent OCI publish of the chart, gated on the "helm/waas"
   # package's OWN release (its SemVer, not the app's). No repackage-

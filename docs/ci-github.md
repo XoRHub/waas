@@ -179,13 +179,19 @@ consumers.
   - Desktop images are out of scope (separate `waas-core-images` /
     `waas-workspace-images` repos; workspace images are versioned
     `X.Y.n` against the waas minor they target).
-- **A MINOR app release needs a matching workspace-images release.**
-  Both default bootstrap catalogs derive their URL from `appVersion`'s
-  minor, and both are published by `waas-workspace-images`
-  (`catalogs/X.Y/catalog.yaml` and `catalog-kasmweb.yaml`), so a bump to
-  `X.Y` makes the chart read files that only exist once that repo's
-  `images.yaml` `release:` is bumped to `X.Y`. A patch release changes
-  nothing. Automating this trigger from here is pending.
+- **A MINOR app release needs a matching workspace-images release**,
+  and that repo follows on its own. Both default bootstrap catalogs
+  derive their URL from `appVersion`'s minor and both are published by
+  `waas-workspace-images` (`catalogs/X.Y/catalog.yaml` and
+  `catalog-kasmweb.yaml`), so a bump to `X.Y` makes the chart read files
+  that only exist once that repo's `images.yaml` `release:` moves to
+  `X.Y`. Its `release-sync.yml` watches this repo's `appVersion` daily
+  and opens the bump PR itself — merging that PR is the only manual
+  step, and it is in the other repo, not here. Nothing on this side
+  waits for it: the `promote` job only emits a warning when the minor's
+  catalogs are not up yet (the registry approvals hold regardless, so
+  the gap costs picker metadata, not a working install). A patch release
+  changes nothing.
 - Each package gets its own release PR (`separate-pull-requests: true`).
   The app's release PR bumps `CHANGELOG.md` and `helm/waas/Chart.yaml`'s
   `appVersion` (`x-release-please-start-version`/`end` marker scoped to
