@@ -147,6 +147,23 @@ func TestClipboardPasteBlockedAcksAndDrops(t *testing.T) {
 	}
 }
 
+// guacd never learns a refused paste stream, so any ack it sends for that
+// index belongs to a later allowed stream and must reach the browser.
+func TestClipboardServerAckForRefusedPasteIndexIsForwarded(t *testing.T) {
+	f := NewClipboardFilter(true, false)
+	if _, _, err := f.FilterToGuacd(wire(Instruction{Opcode: "clipboard", Args: []string{"7", "text/plain"}})); err != nil {
+		t.Fatal(err)
+	}
+	ack := wire(Instruction{Opcode: "ack", Args: []string{"7", "OK", "0"}})
+	out, err := f.FilterToBrowser(ack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != string(ack) {
+		t.Fatalf("ack must be forwarded, got %q", out)
+	}
+}
+
 func TestClipboardLiveToggleClampedToGrant(t *testing.T) {
 	// Grant allows copy; the user toggles it off then on again.
 	f := NewClipboardFilter(true, false)

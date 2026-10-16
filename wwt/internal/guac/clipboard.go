@@ -160,12 +160,6 @@ func (f *ClipboardFilter) rewriteWithReplies(frame []byte, side string) (kept []
 				delete(blocked, inst.Args[0])
 				continue
 			}
-		case "ack":
-			// guacd acks a client stream we already refused ourselves:
-			// swallow it (the browser saw our error ack).
-			if side == "server" && len(inst.Args) > 0 && f.blockedClient[inst.Args[0]] {
-				continue
-			}
 		}
 		out.WriteString(inst.Encode())
 	}
