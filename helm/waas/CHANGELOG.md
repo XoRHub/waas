@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.5.0](https://github.com/XoRHub/waas/compare/chart-0.4.0...chart-0.5.0) (2026-10-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* adopt the waas-core-images / waas-workspace-images split ([#243](https://github.com/XoRHub/waas/issues/243))
+
+### refactor
+
+* adopt the waas-core-images / waas-workspace-images split ([#243](https://github.com/XoRHub/waas/issues/243)) ([5d79a1e](https://github.com/XoRHub/waas/commit/5d79a1e4ae67e048fed8887f54a5d90b0d184450))
+
+
+### Bug Fixes
+
+* **helm:** keep image digests out of the generated values table ([dd56fd7](https://github.com/XoRHub/waas/commit/dd56fd7331dcf45ffd0e5c2d304b7bd9f8724c94))
+
+
+### Chores
+
+* **deps:** update bitnami/kubectl:latest docker digest to 9962c17 ([#242](https://github.com/XoRHub/waas/issues/242)) ([270e7cd](https://github.com/XoRHub/waas/commit/270e7cd209ba0d094032cdb3c42ae75743e68c7c))
+* **deps:** update bitnami/kubectl:latest docker digest to dbe04f4 ([#181](https://github.com/XoRHub/waas/issues/181)) ([632192b](https://github.com/XoRHub/waas/commit/632192bb7de916c64daa2af0322a7e78f885ad29))
+* **deps:** update postgres:18.6-alpine docker digest to 77f5851 ([#190](https://github.com/XoRHub/waas/issues/190)) ([bb668a6](https://github.com/XoRHub/waas/commit/bb668a6c00c49dbb5e4a3d54b20cc8eb334a4370))
+* **deps:** update sigs.k8s.io/controller-tools to v0.22.0 ([4e419be](https://github.com/XoRHub/waas/commit/4e419be48bf9114813937a4bd6fdbf269a4f6517))
+* **main:** release 0.5.0 ([#226](https://github.com/XoRHub/waas/issues/226)) ([a33686a](https://github.com/XoRHub/waas/commit/a33686a51bcbad68a6891824f080cc7f8a8810fc))
+
 ## [0.4.0](https://github.com/XoRHub/waas/compare/chart-0.3.0...chart-0.4.0) (2026-09-25)
 
 
