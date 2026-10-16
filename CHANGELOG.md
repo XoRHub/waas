@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0](https://github.com/XoRHub/waas/compare/v0.4.0...v0.5.0) (2026-10-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* adopt the waas-core-images / waas-workspace-images split ([#243](https://github.com/XoRHub/waas/issues/243))
+
+### Bug Fixes
+
+* **deps:** update go-non-major ([#224](https://github.com/XoRHub/waas/issues/224)) ([a87962f](https://github.com/XoRHub/waas/commit/a87962fdbb2bcecc2ca1404b98587498cffaefd6))
+* **deps:** update go-non-major ([#232](https://github.com/XoRHub/waas/issues/232)) ([c0d10f0](https://github.com/XoRHub/waas/commit/c0d10f00285836807e5872baccedc1fe9583269e))
+* **deps:** update golang.org/x/net to v0.61.0 ([ce7261b](https://github.com/XoRHub/waas/commit/ce7261bb88cae88ed9124678bec42ea965572e7a))
+
+
+### Code Refactoring
+
+* adopt the waas-core-images / waas-workspace-images split ([#243](https://github.com/XoRHub/waas/issues/243)) ([5d79a1e](https://github.com/XoRHub/waas/commit/5d79a1e4ae67e048fed8887f54a5d90b0d184450))
+
 ## [0.4.0](https://github.com/XoRHub/waas/compare/v0.3.0...v0.4.0) (2026-09-25)
 
 
