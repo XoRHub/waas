@@ -108,9 +108,11 @@ so the operation is idempotent. Audit: `remote_workspace.woke`.
 
 ## Network & RBAC (to plan for on the platform side)
 
-- guacd must be able to **egress** to target machines: adapt
-  NetworkPolicies (the `waas-workspace-images/examples/networkpolicy-workspaces.yaml`
-  example only covers in-cluster traffic).
+- guacd must be able to **egress** to target machines. The chart's
+  guacd NetworkPolicy (`guacd.networkPolicy.enabled`, on by default)
+  allows any destination except link-local and
+  `apiServer.remoteBlockedCIDRs`; adapt any extra policy of your own
+  accordingly.
 - The api-server refuses hostnames that point a "remote machine" at the
   cluster itself: loopback, link-local (including the cloud IMDS at
   `169.254.169.254`), the kube-apiserver ClusterIP, single-label names
@@ -125,8 +127,11 @@ so the operation is idempotent. Audit: `remote_workspace.woke`.
   or behind DNS the api-server cannot see, must keep working). This is
   a guardrail, not a security boundary: guacd re-resolves the name when
   it dials, so DNS rebinding bypasses the check — the structural answer
-  is an egress NetworkPolicy on the platform pods (guacd/wwt), which
-  does not exist yet.
+  is the guacd egress NetworkPolicy above, which enforces the same
+  CIDR list at dial time (only if your CNI enforces egress policies).
+  In-cluster desktops stay reachable through a separate pod-selector
+  rule (`app.kubernetes.io/managed-by=waas-operator`), so listing the
+  pod CIDR does not cut them off.
 - The api-server's Role gained `create/update/delete` on Secrets
   in the workspaces namespace (still without `list`/`watch`) — see
   `helm/waas/templates/api-server/roles.yaml`.

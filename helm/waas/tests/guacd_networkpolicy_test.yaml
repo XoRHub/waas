@@ -1,0 +1,27 @@
+suite: guacd NetworkPolicy
+templates:
+  - guacd/networkpolicy.yaml
+tests:
+  - it: renders nothing when disabled
+    set:
+      guacd.networkPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: only lets wwt in
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/name"]
+          value: waas-wwt
+
+  - it: splits remoteBlockedCIDRs by address family
+    set:
+      apiServer.remoteBlockedCIDRs: [10.42.0.0/16, "fd00::/8"]
+    asserts:
+      - equal:
+          path: spec.egress[2].to[0].ipBlock.except
+          value: [169.254.0.0/16, 10.42.0.0/16]
+      - equal:
+          path: spec.egress[2].to[1].ipBlock.except
+          value: ["fe80::/10", "fd00::/8"]

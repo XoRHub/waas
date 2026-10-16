@@ -408,8 +408,8 @@ apiServer:
   # default to the RFC1918 ranges: legitimate remote machines commonly
   # live on private LANs (VPN/peering). This guard closes the naive
   # case only — guacd re-resolves at dial time, so DNS rebinding
-  # bypasses it; real containment needs an egress NetworkPolicy on the
-  # platform pods.
+  # bypasses it; the guacd egress NetworkPolicy (guacd.networkPolicy)
+  # enforces this same list at dial time.
   # -- CIDRs refused as remote-workspace targets (add your cluster's pod/service CIDRs).
   remoteBlockedCIDRs: []
   # Bootstrap admin password. Empty = generated and printed once in the
@@ -569,6 +569,12 @@ guacd:
   podLabels: {}
   # -- Extra annotations on the Pod template.
   podAnnotations: {}
+  networkPolicy:
+    # -- Pin guacd's traffic: ingress from wwt only; egress to DNS,
+    # operator-managed desktop pods, and remote machines outside
+    # link-local and `apiServer.remoteBlockedCIDRs`. Needs a CNI that
+    # enforces NetworkPolicy egress; false is the escape hatch.
+    enabled: true
 
 # Prometheus metrics. Everything is opt-in: /metrics endpoints are only
 # SERVED when enabled=true (not merely hidden from the manifests), and
