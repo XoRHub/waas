@@ -44,6 +44,61 @@ func TestClipboardCopyBlockedDropsServerStreams(t *testing.T) {
 	}
 }
 
+func TestClipboardCopyBlockedDisplayFramePassesUntouched(t *testing.T) {
+	f := NewClipboardFilter(false, true)
+	frame := wire(
+		Instruction{Opcode: "img", Args: []string{"1", "14", "0", "image/png", "0", "0"}},
+		Instruction{Opcode: "blob", Args: []string{"1", "iVBORw0KGgoAAAANSUhEUgAA"}},
+		Instruction{Opcode: "end", Args: []string{"1"}},
+	)
+	out, err := f.FilterToBrowser(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if &out[0] != &frame[0] || len(out) != len(frame) {
+		t.Fatalf("display-only frame must pass as the same slice, got %q", out)
+	}
+}
+
+func TestClipboardCopyBlockedDropsStreamSplitAcrossFrames(t *testing.T) {
+	f := NewClipboardFilter(false, true)
+	frames := [][]byte{
+		wire(
+			Instruction{Opcode: "png", Args: []string{"0", "0", "0", "0", "aW1nMQ"}},
+			Instruction{Opcode: "clipboard", Args: []string{"3", "text/plain"}},
+		),
+		wire(
+			Instruction{Opcode: "blob", Args: []string{"3", "c2VjcmV0"}},
+			Instruction{Opcode: "png", Args: []string{"0", "0", "0", "0", "aW1nMg"}},
+		),
+		wire(Instruction{Opcode: "sync", Args: []string{"1"}}),
+		wire(
+			Instruction{Opcode: "end", Args: []string{"3"}},
+			Instruction{Opcode: "png", Args: []string{"0", "0", "0", "0", "aW1nMw"}},
+		),
+	}
+	var got strings.Builder
+	for _, frame := range frames {
+		out, err := f.FilterToBrowser(frame)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got.Write(out)
+	}
+	want := string(wire(
+		Instruction{Opcode: "png", Args: []string{"0", "0", "0", "0", "aW1nMQ"}},
+		Instruction{Opcode: "png", Args: []string{"0", "0", "0", "0", "aW1nMg"}},
+		Instruction{Opcode: "sync", Args: []string{"1"}},
+		Instruction{Opcode: "png", Args: []string{"0", "0", "0", "0", "aW1nMw"}},
+	))
+	if got.String() != want {
+		t.Fatalf("got %q, want %q", got.String(), want)
+	}
+	if len(f.blockedServer) != 0 {
+		t.Fatal("the stream's end must release its index")
+	}
+}
+
 func TestClipboardCopyAllowedPassesThrough(t *testing.T) {
 	f := NewClipboardFilter(true, true)
 	frame := wire(
