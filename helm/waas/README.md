@@ -189,6 +189,7 @@ table is a quick *what*.
 | guacd.deploymentAnnotations | object | `{}` | Extra annotations on the Deployment object itself. |
 | guacd.podLabels | object | `{}` | Extra labels on the Pod template. |
 | guacd.podAnnotations | object | `{}` | Extra annotations on the Pod template. |
+| guacd.networkPolicy.enabled | bool | `true` | Pin guacd's traffic: ingress from wwt only; egress to DNS, operator-managed desktop pods, and remote machines outside link-local and `apiServer.remoteBlockedCIDRs`. Needs a CNI that enforces NetworkPolicy egress; false is the escape hatch. |
 | metrics.enabled | bool | `false` | Serve /metrics on every component (cluster-internal only, never routed by ingress/httpRoute). |
 | metrics.scrapeAnnotations | bool | `false` | Stamp `prometheus.io/scrape|port|path` annotations on pods (needs `metrics.enabled`). |
 | metrics.podMonitor.enabled | bool | `false` | Create a PodMonitor for the operator (requires prometheus-operator CRDs and `metrics.enabled`). |
