@@ -66,13 +66,21 @@ func (f *ClipboardFilter) SetPaste(enabled bool) bool {
 func (f *ClipboardFilter) copyBlocked() bool  { return !f.wantCopy }
 func (f *ClipboardFilter) pasteBlocked() bool { return !f.wantPaste }
 
+// clipboardOpcode is the opcode element every "clipboard" instruction
+// starts with. Base64 blobs never contain '.' or ',', so image data cannot
+// match it; a match inside some text argument only costs the slow path.
+// guacd writes element lengths without leading zeros (libguac formats them
+// with %i), so this is the only encoding it can emit.
+var clipboardOpcode = []byte("9.clipboard,")
+
 // FilterToBrowser rewrites one complete frame (guacd → browser), dropping
-// blocked clipboard streams. Fast path: when copy is allowed and no
-// stream is mid-drop, the frame passes through untouched.
+// blocked clipboard streams. Fast path: when no stream is mid-drop and
+// either copy is allowed or the frame opens no clipboard stream, the frame
+// passes through untouched.
 func (f *ClipboardFilter) FilterToBrowser(frame []byte) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.copyBlocked() && len(f.blockedServer) == 0 {
+	if len(f.blockedServer) == 0 && (!f.copyBlocked() || !bytes.Contains(frame, clipboardOpcode)) {
 		return frame, nil
 	}
 	return f.rewrite(frame, "server")
@@ -150,12 +158,6 @@ func (f *ClipboardFilter) rewriteWithReplies(frame []byte, side string) (kept []
 		case "end":
 			if len(inst.Args) > 0 && blocked[inst.Args[0]] {
 				delete(blocked, inst.Args[0])
-				continue
-			}
-		case "ack":
-			// guacd acks a client stream we already refused ourselves:
-			// swallow it (the browser saw our error ack).
-			if side == "server" && len(inst.Args) > 0 && f.blockedClient[inst.Args[0]] {
 				continue
 			}
 		}
