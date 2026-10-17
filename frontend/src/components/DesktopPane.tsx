@@ -30,7 +30,8 @@ export interface DesktopPaneHandle {
  * One embedded remote desktop. Keyboard input is scoped to the pane (the
  * container grabs focus on click), so several panes can coexist in a split
  * view without fighting over keystrokes. The desktop image is scaled to
- * fit the pane and re-scaled when the pane is resized.
+ * fit the pane and re-scaled when the pane is resized or the remote
+ * desktop size changes.
  */
 export const DesktopPane = forwardRef<
   DesktopPaneHandle,
@@ -195,6 +196,13 @@ export const DesktopPane = forwardRef<
       client = new Guacamole.Client(tunnel);
       tunnelRef.current = tunnel;
       clientRef.current = client;
+
+      // The remote size can change without a pane resize — guacd's first
+      // `size` instruction (width/height are still 0 at STATE_CONNECTED,
+      // see rescale() above) or a server-side RandR resize — so the
+      // display's own resize hook must rescale too, not only the
+      // ResizeObserver wired further down.
+      client.getDisplay().onresize = rescale;
 
       client.onstatechange = (clientState) => {
         if (clientState === STATE_CONNECTED) {
