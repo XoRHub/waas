@@ -8,7 +8,7 @@ metadata:
 spec:
   displayName: "Ubuntu 24.04 — XFCE"
   description: "Bureau XFCE complet (VNC)."
-  image: ghcr.io/xorhub/waas-workspace-images/ubuntu-desktop-noble:0.5.0
+  image: ghcr.io/xorhub/waas-workspace-images/ubuntu-desktop-noble:0.5.1
   protocols: [vnc]
   architectures: [amd64, arm64]
   enabled: true
@@ -26,7 +26,7 @@ metadata:
 spec:
   displayName: "Firefox (navigation isolée)"
   description: "Firefox durci par policies.json, session jetable idéale."
-  image: ghcr.io/xorhub/waas-workspace-images/firefox:0.5.0
+  image: ghcr.io/xorhub/waas-workspace-images/firefox:0.5.1
   protocols: [vnc]
   architectures: [amd64]   # packages.mozilla.org: arm64 non validé
   enabled: true
@@ -41,7 +41,7 @@ metadata:
 spec:
   displayName: "Dev Tools (VS Code, toolchains)"
   description: "Poste de dev — réservé au groupe IdP nymphe:dev."
-  image: ghcr.io/xorhub/waas-workspace-images/devtools:0.5.0
+  image: ghcr.io/xorhub/waas-workspace-images/devtools:0.5.1
   protocols: [vnc]
   architectures: [amd64]
   enabled: true
