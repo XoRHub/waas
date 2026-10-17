@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/XoRHub/waas/compare/chart-0.5.0...chart-0.5.1) (2026-10-17)
+
+
+### Chores
+
+* **deps:** update bitnami/kubectl:latest docker digest to 2683786 ([#248](https://github.com/XoRHub/waas/issues/248)) ([c9ec65f](https://github.com/XoRHub/waas/commit/c9ec65f4cbbc4ab79c58bd314bdf2c6b63f11320))
+
 ## [0.5.0](https://github.com/XoRHub/waas/compare/chart-0.4.0...chart-0.5.0) (2026-10-16)
 
 
