@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/XoRHub/waas/compare/v0.5.0...v0.5.1) (2026-10-17)
+
+
+### Bug Fixes
+
+* **frontend:** rescale the desktop when the remote size changes ([#254](https://github.com/XoRHub/waas/issues/254)) ([3106448](https://github.com/XoRHub/waas/commit/310644861d6c7c9c35a4cb0a680c8e30f4e7f1a7))
+* skip clipboard rewrite on frames without clipboard instructions ([#251](https://github.com/XoRHub/waas/issues/251)) ([e42b9a8](https://github.com/XoRHub/waas/commit/e42b9a83f62bb9536fec40129f974d3f38f345dc))
+
 ## [0.5.0](https://github.com/XoRHub/waas/compare/v0.4.0...v0.5.0) (2026-10-15)
 
 
