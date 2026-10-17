@@ -19,6 +19,7 @@ declare module 'guacamole-common-js' {
       getScale(): number;
       getWidth(): number;
       getHeight(): number;
+      onresize: ((width: number, height: number) => void) | null;
     }
 
     class InputStream {
