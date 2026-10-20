@@ -1,0 +1,62 @@
+{{- if .Values.guacd.networkPolicy.enabled }}
+# guacd authenticates nothing and dials whatever host a connection names,
+# so both directions are pinned: only wwt (which validated the JWT) gets
+# in, and guacd only gets out to operator-managed desktop pods and to
+# remote machines outside apiServer.remoteBlockedCIDRs — the structural
+# answer to the DNS rebinding the api-server's hostname guard cannot stop.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-guacd
+  labels:
+    {{- include "waas.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: waas-guacd
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: waas-wwt
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: guacd
+  egress:
+    # Any resolver: pinning it would assume a DNS topology the chart does
+    # not control (same choice as the desktop egress policy).
+    - ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    # In-cluster desktops, wherever placement put them. Separate rule so a
+    # pod CIDR listed in remoteBlockedCIDRs does not cut them off.
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: waas-operator
+    # Remote workspaces: RFC1918 stays reachable on purpose (VPN/peered
+    # LANs); link-local covers the cloud IMDS. Each family gets its own
+    # block: an except entry must sit inside its cidr.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16
+              {{- range .Values.apiServer.remoteBlockedCIDRs }}
+              {{- if not (contains ":" .) }}
+              - {{ . }}
+              {{- end }}
+              {{- end }}
+        - ipBlock:
+            cidr: "::/0"
+            except:
+              - fe80::/10
+              {{- range .Values.apiServer.remoteBlockedCIDRs }}
+              {{- if contains ":" . }}
+              - {{ . | quote }}
+              {{- end }}
+              {{- end }}
+{{- end }}
