@@ -9,17 +9,24 @@
 #          (+ moving `edge` tag) — a release PROMOTES the images of the
 #          released SHA, so every main commit must carry the full set
 #   release: release-please (manifest mode) runs at the END of the main
-#          pipeline; when its release PR merges it tags vX.Y.Z and the
-#          promote job re-tags the already-built-and-scanned <short-sha>
-#          manifest lists as the bare X.Y.Z image tag (the "v" stays on
-#          the git tag only) — never a rebuild — then cosign-signs the
-#          digests (keyless OIDC), adds a moving `latest` tag (the newest
-#          official release only — never confused with the `edge` dev
-#          pointer above) and appends the digest table to the GitHub
-#          Release. Chaining promotion in the SAME workflow run (gated on
-#          the release_created output) sidesteps the GITHUB_TOKEN
-#          anti-recursion rule — no PAT/App needed — and guarantees the
-#          <short-sha> images exist before promotion.
+#          pipeline — only on the run whose commit is still main's tip
+#          (it decides from main's CURRENT head via the API, not from
+#          GITHUB_SHA, so a stale run would tag a commit it never built).
+#          When its release PR merges it tags vX.Y.Z and the promote job
+#          checks out THAT tag and re-tags the already-built-and-scanned
+#          <short-sha> manifest lists of the tag's commit as the bare
+#          X.Y.Z image tag (the "v" stays on the git tag only) — never a
+#          rebuild — then cosign-signs the digests (keyless OIDC), adds a
+#          moving `latest` tag (the newest official release only — never
+#          confused with the `edge` dev pointer above) and appends the
+#          digest table to the GitHub Release. Chaining promotion in the
+#          SAME workflow run (gated on the release_created output)
+#          sidesteps the GITHUB_TOKEN anti-recursion rule — no PAT/App
+#          needed.
+#   replay: workflow_dispatch with `tag` and/or `chart_tag` re-runs ONLY
+#          the matching promotion job(s) for an existing release (e.g. a
+#          promotion that failed after the tag was cut):
+#            gh workflow run ci.yml -f tag=v0.6.0 -f chart_tag=chart-0.6.0
 #
 # This file is the orchestrator: path filtering (`changes`) plus the
 # jobs that must stay HERE — chart-oci (must not gate release-please;
@@ -46,13 +53,30 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Manual promotion replay — see the `replay:` header note. Both inputs
+  # optional; every non-promotion job skips on this event.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "App release tag to promote (vX.Y.Z); its Release must exist"
+        type: string
+        required: false
+      chart_tag:
+        description: "Chart release tag to promote (chart-X.Y.Z); its Release must exist"
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  # Cancel superseded PR runs; never cancel main (promotion source).
+  group: ${{ github.event_name == 'workflow_dispatch' && 'ci-replay' || format('ci-{0}', github.ref) }}
+  # Cancel superseded PR runs only. A RUNNING main run is never
+  # cancelled, but GitHub keeps a single PENDING run per group: a newer
+  # main push replaces a run still waiting, and that run's images are
+  # then never built (see the release-please comment for the recovery).
+  # A replay gets its own group so it neither evicts nor is evicted by a
+  # queued main run.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -65,6 +89,9 @@ jobs:
   # complete image set at any taggable SHA).
   # ------------------------------------------------------------------
   changes:
+    # A dispatched replay only promotes: skipping `changes` skips every
+    # job that needs it (go/frontend/helm/images), hence no build/push.
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -245,6 +272,7 @@ jobs:
   # Unconditional on every PR and main push: a gate that can be skipped
   # by touching the "right" files is not a gate.
   security:
+    if: github.event_name != 'workflow_dispatch'
     uses: ./.github/workflows/ci-security.yml
 
   images:
@@ -319,9 +347,28 @@ jobs:
   #               used for the OCI chart artifact pushed for external
   #               `helm install --version` consumers — free to diverge
   #               from the app version between chart releases.
-  # Merging either PR creates that package's tag + GitHub Release on
-  # THAT main run. needs: gates release-please on the full green
-  # pipeline, so a tag can only ever point at a releasable SHA.
+  # Merging either PR creates that package's tag + GitHub Release.
+  # needs: gates release-please on the full green pipeline, so a tag
+  # can only ever point at a releasable SHA.
+  #
+  # Only the run for main's CURRENT tip may run it: release-please reads
+  # main's head via the API, not GITHUB_SHA, so a run that main has
+  # already moved past would cut the release for a commit it never
+  # checked out (that is how v0.6.0 got tagged by the run of an older
+  # commit, whose promote then failed on appVersion, while the release
+  # commit's own run saw "release exists" and promoted nothing). Main
+  # runs are serialized (concurrency group) and never cancelled while
+  # running, but a run still PENDING is replaced by a newer main push:
+  # the tip run may then tag a commit whose <short-sha> images were
+  # never built. promote's "source missing" check turns that into a
+  # loud failure instead of a wrong promotion; a replay alone would
+  # fail forever. Recovery: re-run that commit's cancelled CI run
+  # (`gh run rerun <id>` — it rebuilds/pushes <short-sha>, and its
+  # release-please self-skips as non-tip), then dispatch the replay.
+  # The gate is not a lock either: a release PR merging in the seconds
+  # between this check and release-please's own API call still tags a
+  # commit whose run is only queued — same failure; once that queued
+  # run is green the replay alone suffices.
   # ------------------------------------------------------------------
   release-please:
     needs: [go, frontend, helm, security, images]
@@ -336,8 +383,22 @@ jobs:
       chart_release_created: ${{ steps.rp.outputs['helm/waas--release_created'] }}
       chart_tag_name: ${{ steps.rp.outputs['helm/waas--tag_name'] }}
     steps:
+      - name: Skip unless this run's commit is still main's tip
+        id: tip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          HEAD=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}" --jq .sha)
+          if [ "$HEAD" = "$GITHUB_SHA" ]; then
+            echo "tip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=release-please skipped::main moved to ${HEAD::7} since ${GITHUB_SHA::7}; the tip's run cuts the release once it is green (a red tip delays it to the next green tip)"
+            echo "tip=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: rp
+        if: steps.tip.outputs.tip == 'true'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
@@ -350,9 +411,19 @@ jobs:
   #     --certificate-identity-regexp 'https://github.com/<owner>/<repo>/\.github/workflows/ci\.yml@.*' \
   #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   #     <image>@<digest>
+  #
+  # Both promotion jobs work from the release TAG's commit, never from
+  # this run's GITHUB_SHA: release-please may tag an older commit than
+  # the one this run checked out (see the release-please comment), and
+  # a workflow_dispatch replay runs on main's tip. `!cancelled()` is
+  # required for the replay path (release-please is skipped there, which
+  # would otherwise skip its dependents too); on push the job still only
+  # runs when release-please succeeded AND created that package's release.
+  # The replay branch is pinned to main: `gh workflow run --ref <branch>`
+  # must not run a modified promote with packages/id-token write.
   promote:
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    if: ${{ !cancelled() && ((github.event_name == 'push' && needs.release-please.result == 'success' && needs.release-please.outputs.release_created == 'true') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.tag != '')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write  # edit the Release notes
@@ -360,9 +431,22 @@ jobs:
       id-token: write  # keyless cosign (Fulcio/Rekor)
     env:
       COMPONENTS: operator api-server wwt frontend
-      TAG: ${{ needs.release-please.outputs.tag_name }}
+      TAG: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
     steps:
+      # Trivially true on push; on a replay it rejects a typo'd or
+      # unreleased tag before anything is pushed (the notes get edited).
+      - name: Verify the GitHub Release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}  # qualified: a same-named branch cannot shadow the tag
+      - name: Resolve the promotion source (the tag's commit, not this run's)
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse HEAD)
+          { echo "SRC_SHA=$SHA"; echo "SHORT=${SHA::7}"; } >> "$GITHUB_ENV"
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
@@ -372,7 +456,6 @@ jobs:
       - name: Verify promotion preconditions
         run: |
           set -euo pipefail
-          SHORT="${GITHUB_SHA::7}"
           # Only the git tag carries the "v" (ArgoCD contract); the image
           # tags and Chart.yaml's appVersion (the default image tag) are
           # bare SemVer, hence VERSION=${TAG#v} alongside $TAG.
@@ -387,20 +470,23 @@ jobs:
           for c in $COMPONENTS; do
             IMAGE="$REGISTRY/${GITHUB_REPOSITORY,,}/$c"
             docker buildx imagetools inspect "$IMAGE:$SHORT" >/dev/null \
-              || { echo "FATAL $IMAGE:$SHORT not found — promotion source missing"; exit 1; }
+              || { echo "::error title=promotion source missing::$IMAGE:$SHORT not found. If the CI run of ${SRC_SHA::7} was cancelled while pending (replaced by a newer main push), re-run it first (gh run rerun <run-id> — it rebuilds/pushes $SHORT, its release-please self-skips as non-tip), then replay with gh workflow run ci.yml -f tag=$TAG"; exit 1; }
             # Release tags are immutable; tolerate an identical re-run
-            # (idempotent retry after a partial failure).
-            if docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+            # (idempotent retry after a partial failure). Only a "not
+            # found" probe means the tag is free: any other failure (ghcr
+            # outage, auth) must not be read as free and overwritten.
+            if OUT=$(docker buildx imagetools inspect --raw "$IMAGE:$VERSION" 2>&1); then
               SRC=$(docker buildx imagetools inspect "$IMAGE:$SHORT" --format '{{.Manifest.Digest}}')
               DST=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')
               [ "$SRC" = "$DST" ] \
                 || { echo "FATAL $IMAGE:$VERSION already exists with a DIFFERENT digest — release tags are immutable"; exit 1; }
+            else
+              grep -q 'not found' <<<"$OUT" || { echo "FATAL cannot probe $IMAGE:$VERSION: $OUT"; exit 1; }
             fi
           done
       - name: Promote and sign
         run: |
           set -euo pipefail
-          SHORT="${GITHUB_SHA::7}"
           # Image tags are the bare SemVer; only the git tag (and the
           # cosign version= annotation below) keeps the "v".
           VERSION="${TAG#v}"
@@ -410,7 +496,7 @@ jobs:
             docker buildx imagetools create -t "$IMAGE:$VERSION" "$IMAGE:$SHORT"
             DIGEST=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')
             cosign sign --yes \
-              -a version="$TAG" -a revision="$GITHUB_SHA" \
+              -a version="$TAG" -a revision="$SRC_SHA" \
               "$IMAGE@$DIGEST"
             # `latest` always points at the newest OFFICIAL release only —
             # never the `edge` dev pointer (ci-images.yml). Same digest as
@@ -424,6 +510,10 @@ jobs:
         run: |
           set -euo pipefail
           gh release view "$TAG" --json body -q .body > notes.md
+          # A replay of an already-promoted release must not append twice.
+          if grep -q '^## Images' notes.md; then
+            echo "Release notes already carry the digest table — unchanged"; exit 0
+          fi
           cat release-images.md >> notes.md
           gh release edit "$TAG" --notes-file notes.md
       # Advisory only, and deliberately so: a waas release must never
@@ -457,14 +547,21 @@ jobs:
   # from git and never reads this artifact.
   promote-chart:
     needs: release-please
-    if: needs.release-please.outputs.chart_release_created == 'true'
+    if: ${{ !cancelled() && ((github.event_name == 'push' && needs.release-please.result == 'success' && needs.release-please.outputs.chart_release_created == 'true') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.chart_tag != '')) }}
     runs-on: ubuntu-latest
     permissions:
+      contents: read   # gh release view
       packages: write  # push the chart OCI artifact
     env:
-      CHART_TAG: ${{ needs.release-please.outputs.chart_tag_name }}
+      CHART_TAG: ${{ inputs.chart_tag || needs.release-please.outputs.chart_tag_name }}
     steps:
+      - name: Verify the GitHub Release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view "$CHART_TAG" -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.CHART_TAG }}  # qualified: a same-named branch cannot shadow the tag
       - uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
         with:
           install_args: helm # version pinned in .mise.toml
@@ -478,11 +575,29 @@ jobs:
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
           CHART_VERSION="$(helm show chart helm/waas | awk '/^version:/{print $2}')"
+          # The tag names the version being published; packaging a
+          # checkout whose Chart.yaml says otherwise would push (and
+          # overwrite) ANOTHER version — that is how a 0.6.0 release once
+          # clobbered the published 0.5.0 artifact.
+          [ "$CHART_VERSION" = "${CHART_TAG#chart-}" ] \
+            || { echo "FATAL Chart.yaml 'version' is ${CHART_VERSION}, tag ${CHART_TAG} expects ${CHART_TAG#chart-}"; exit 1; }
+          CHART_REF="$REGISTRY/${GITHUB_REPOSITORY,,}/charts/waas:$CHART_VERSION"
+          # Chart release tags are immutable, like the image tags in
+          # `promote`. No identical-re-run tolerance here: `helm package`
+          # is not byte-reproducible, so an existing tag always differs.
+          # To replay a version that was pushed wrong, delete that ghcr
+          # tag by hand first — a deliberate manual step. Only a "not
+          # found" probe means the tag is free: any other failure (ghcr
+          # outage, auth) must not be read as free and overwritten.
+          if OUT=$(docker buildx imagetools inspect --raw "$CHART_REF" 2>&1); then
+            echo "FATAL $CHART_REF already exists — chart release tags are immutable"; exit 1
+          fi
+          grep -q 'not found' <<<"$OUT" || { echo "FATAL cannot probe $CHART_REF: $OUT"; exit 1; }
           helm package helm/waas -d dist
           helm push dist/waas-*.tgz "oci://$REGISTRY/${GITHUB_REPOSITORY,,}/charts"
           # `latest` always points at the newest OFFICIAL chart release —
           # distinct from the `edge` dev pointer (chart-oci job).
           docker buildx imagetools create \
             -t "$REGISTRY/${GITHUB_REPOSITORY,,}/charts/waas:latest" \
-            "$REGISTRY/${GITHUB_REPOSITORY,,}/charts/waas:$CHART_VERSION"
+            "$CHART_REF"
           echo "Pushed chart $CHART_VERSION for $CHART_TAG"

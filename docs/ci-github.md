@@ -61,14 +61,21 @@ push main — EVERYTHING is built (invariant: every main SHA carries the
 ├─ chart-oci (in ci.yml)     OCI push of the chart, version `X.Y.Z-main.<short-sha>`
 │                            (SemVer prerelease, never collides with a released X.Y.Z)
 │                            + mobile `0.0.0-edge` tag on the chart OCI artifact
-└─ release-please (in ci.yml)  AT THE END of the pipeline (needs on the 5 call jobs)
-   ├─ promote        (if "." release_created)          ZERO rebuild:
+└─ release-please (in ci.yml)  AT THE END of the pipeline (needs on the 5 call jobs),
+   │                           ONLY if this run's commit is still main's tip
+   ├─ promote        (if "." release_created)          ZERO rebuild, from the
+   │     TAG's commit (checkout vX.Y.Z, never this run's SHA):
    │     verify (Chart.yaml appVersion = ${TAG#v}, sources present, tags free)
    │     → retag <short-sha> ⇒ X.Y.Z → cosign keyless → mobile `latest`
    │       tag → digest table added to the Release notes
-   └─ promote-chart   (if "helm/waas" release_created)  independent of promote:
-         helm package (Chart.yaml of the tagged SHA, no override) + OCI push
-         + mobile `latest` tag, using the chart's OWN SemVer
+   └─ promote-chart   (if "helm/waas" release_created)  independent of promote,
+         from the TAG's commit (checkout chart-X.Y.Z):
+         verify (Chart.yaml version = X.Y.Z of the tag, OCI tag free)
+         → helm package (no override) + OCI push + mobile `latest` tag
+
+workflow_dispatch (`tag` / `chart_tag` inputs) — promotion REPLAY only:
+└─ promote and/or promote-chart for an EXISTING release; every other job
+   is skipped (no build, no `edge`, no chart-oci, no release-please)
 ```
 
 `edge` vs `latest`, on both images and the chart OCI artifact: `edge` is
@@ -202,16 +209,59 @@ consumers.
 - **Procedure: merge either release PR, that's it.** The subsequent main
   run rebuilds/scans the merged SHA, creates that package's tag + Release,
   then runs the matching promotion job.
+- **Only the run for main's tip runs release-please.** release-please
+  decides from main's *current* head (API), not from the run's
+  `GITHUB_SHA`; main runs are long and never cancelled while running,
+  so a run that main has moved past would otherwise cut the release for
+  a commit it never checked out (that happened: v0.6.0 was tagged by an
+  older commit's run, its `promote` failed on `appVersion`, and the
+  release commit's own run saw "release exists" and promoted nothing;
+  the same race made a `promote-chart` package a stale `Chart.yaml` and
+  overwrite the published 0.5.0 chart). A stale run now skips
+  release-please with a notice; the tip's run cuts the release once it
+  is green — a red tip only delays the release to the next green tip,
+  it never loses it.
+- **Promotion works from the release tag's commit, never from the
+  run's checkout**: both `promote` and `promote-chart` check out the
+  tag release-please just created (or the dispatch input, below),
+  derive the `<short-sha>` source and the cosign `revision=` from that
+  commit, and assert `Chart.yaml` (`appVersion` / `version`) against
+  the tag. Main runs are serialized by the concurrency group and never
+  cancelled while running, but GitHub keeps a single *pending* run per
+  group: a newer main push replaces a run still waiting, and that
+  commit's `<short-sha>` images are then never built. If the tip's run
+  later tags such a commit, `promote` fails loudly on "source missing"
+  instead of promoting the wrong thing — and a replay alone would fail
+  forever. Recovery: re-run the cancelled CI run of the tagged commit
+  (`gh run rerun <run-id>` — it rebuilds/pushes `<short-sha>`, and its
+  release-please self-skips as non-tip), then dispatch the replay
+  below. The tip gate is not a lock either: a release PR merging in the
+  seconds between the gate and release-please's own API call still tags
+  a commit whose run is only queued — same failure; once that queued
+  run is green, the replay alone suffices. The replay dispatched from
+  another branch is a no-op: both promotion jobs only run on `main`, so
+  a modified `promote` cannot be dispatched with write permissions.
 - **No PAT / GitHub App**: tags created with `GITHUB_TOKEN` trigger no
   workflow (GitHub anti-loop) — this is intentional. Promotion is
   chained in the SAME run via the `release_created` /
-  `chart_release_created` outputs, which also guarantees that the
-  promoted `<short-sha>` images were just pushed by this run (a separate
-  `release.yml` on push main would race with the builds). A PAT would
-  only be needed to re-trigger a separate `on: push: tags` workflow.
-- Idempotent retry: `promote` tolerates a release tag that already
-  exists **if the digest is identical** (re-run after a partial failure)
-  and refuses otherwise (immutability).
+  `chart_release_created` outputs. A PAT would only be needed to
+  re-trigger a separate `on: push: tags` workflow.
+- **Replaying a promotion** (failed after the tag was cut, or never ran):
+  `gh workflow run ci.yml -f tag=v0.6.0 -f chart_tag=chart-0.6.0` —
+  either input alone works; the replay must target `main` (the
+  default `--ref`). Only the matching promotion job(s) run; the tag's
+  GitHub Release must exist. `promote` is idempotent: it tolerates a
+  release image tag that already exists **if the digest is identical**,
+  refuses otherwise (immutability), and leaves the Release notes alone
+  when they already carry the `## Images` digest table. Either job
+  treats only a registry "not found" as a free tag — any other probe
+  failure (ghcr outage, auth) aborts rather than overwrite.
+  `promote-chart` refuses whenever `charts/waas:X.Y.Z` already exists
+  (`helm package` is not byte-reproducible, so "identical" cannot be
+  checked): to replay a version that was pushed wrong, delete that ghcr
+  tag by hand first. Replaying an old release also moves `latest` back
+  to it; a replay has its own concurrency group, so it may run alongside
+  a main run.
 
 ## Multi-arch: QEMU vs native runners
 
