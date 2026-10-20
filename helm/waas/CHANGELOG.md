@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/XoRHub/waas/compare/chart-0.5.0...chart-0.6.0) (2026-10-20)
+
+
+### Features
+
+* **helm:** add a NetworkPolicy pinning guacd ingress and egress ([#245](https://github.com/XoRHub/waas/issues/245)) ([dc4f333](https://github.com/XoRHub/waas/commit/dc4f33376026ea262f1dd8816b9edea599301b41))
+
+
+### Chores
+
+* **deps:** update bitnami/kubectl:latest docker digest to 2683786 ([#248](https://github.com/XoRHub/waas/issues/248)) ([c9ec65f](https://github.com/XoRHub/waas/commit/c9ec65f4cbbc4ab79c58bd314bdf2c6b63f11320))
+* **deps:** update bitnami/kubectl:latest docker digest to 599e67d ([#261](https://github.com/XoRHub/waas/issues/261)) ([85ba32f](https://github.com/XoRHub/waas/commit/85ba32f433ed5616deafa0b2086b15f96270defc))
+* **deps:** update bitnami/kubectl:latest docker digest to 9b58231 ([#265](https://github.com/XoRHub/waas/issues/265)) ([e7d4802](https://github.com/XoRHub/waas/commit/e7d4802882ab6eae77450e90fe630aed1b97532d))
+* **main:** release 0.6.0 ([#252](https://github.com/XoRHub/waas/issues/252)) ([ce2d715](https://github.com/XoRHub/waas/commit/ce2d7159d7a147eeab5b64c7986e481487836b5f))
+
 ## [0.5.0](https://github.com/XoRHub/waas/compare/chart-0.4.0...chart-0.5.0) (2026-10-16)
 
 
