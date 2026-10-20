@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/XoRHub/waas/compare/v0.5.0...v0.6.0) (2026-10-20)
+
+
+### Features
+
+* **helm:** add a NetworkPolicy pinning guacd ingress and egress ([#245](https://github.com/XoRHub/waas/issues/245)) ([dc4f333](https://github.com/XoRHub/waas/commit/dc4f33376026ea262f1dd8816b9edea599301b41))
+
+
+### Bug Fixes
+
+* **deps:** update go-non-major ([#260](https://github.com/XoRHub/waas/issues/260)) ([261b08a](https://github.com/XoRHub/waas/commit/261b08aaae869cd0ba61f5f315d12dce28110300))
+* **frontend:** keep local build artifacts out of the image context ([f564fa0](https://github.com/XoRHub/waas/commit/f564fa0aaf715f573e3e5483a06e0d0b79432695))
+* **frontend:** rescale the desktop when the remote size changes ([#254](https://github.com/XoRHub/waas/issues/254)) ([3106448](https://github.com/XoRHub/waas/commit/310644861d6c7c9c35a4cb0a680c8e30f4e7f1a7))
+* skip clipboard rewrite on frames without clipboard instructions ([#251](https://github.com/XoRHub/waas/issues/251)) ([e42b9a8](https://github.com/XoRHub/waas/commit/e42b9a83f62bb9536fec40129f974d3f38f345dc))
+
 ## [0.5.0](https://github.com/XoRHub/waas/compare/v0.4.0...v0.5.0) (2026-10-15)
 
 
