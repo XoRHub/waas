@@ -13,7 +13,7 @@ spec:
   displayName: "Ubuntu 24.04 — XFCE"
   description: "Full XFCE desktop over VNC (recommended protocol for Linux)."
   os: linux
-  image: ghcr.io/xorhub/waas-workspace-images/ubuntu-desktop-noble:0.5.2
+  image: ghcr.io/xorhub/waas-workspace-images/ubuntu-desktop-noble:0.6.0
   homeSize: 10Gi
   resources:
     requests: { cpu: 500m, memory: 1Gi }
@@ -85,7 +85,7 @@ spec:
   displayName: "Firefox (navigation isolée)"
   description: "Firefox durci, session jetable — avec audio (PulseAudio streamé par guacd)."
   os: linux
-  image: ghcr.io/xorhub/waas-workspace-images/firefox:0.5.2
+  image: ghcr.io/xorhub/waas-workspace-images/firefox:0.6.0
   homeSize: 5Gi
   resources:
     requests: { cpu: 500m, memory: 1536Mi }
