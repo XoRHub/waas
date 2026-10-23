@@ -70,6 +70,96 @@ verification (`InsecureSkipVerify`, `kasm.go`). The hop is pod-to-pod
 inside the cluster and netpol-guarded. Replacing the self-signed cert
 with a cert-manager-issued one is a known pending hardening item
 (originally "phase 4" of the kasm feasibility plan) — not implemented.
+The kasm-agent hop (below) is plain HTTP on the same posture: same
+pod-to-pod path, same netpol, and it would move to TLS together with
+this item.
+
+## Files: the kasm-agent sidecar (policy-gated file transfer)
+
+Standalone KasmVNC has no upload and its download surfaces bypass every
+policy, and the images' own upload service is a closed platform binary
+(see **Capabilities vs the Kasm platform**). File transfer on kasmvnc
+is therefore a WaaS component: **`kasm-agent/`**, a small stdlib-only
+HTTP server the operator injects as a **sidecar** of every kasmvnc
+workload (`operator/internal/controller/kasm_agent.go`; the decision and
+its trade-offs are ADR 0003, `docs/adr/0003-kasm-agent-sidecar.md`).
+The contract the three modules share — port `4800`, env and route names
+— lives in `shared/kasmagent`.
+
+- **Routes** (relative to the sidecar; the browser reaches them as
+  `/kasm/{sid}/waas/files…`): `GET /files?path=<rel>` lists a directory
+  (`[{name, dir, size, mtime}]`, directories first), `GET
+  /files/download?path=<rel>` streams a file as an attachment (a
+  directory is 400), `POST /files/upload?dir=<rel>` takes a
+  `multipart/form-data` body, streams each part into `dir` (default
+  `Uploads`, created if missing) and answers `{"stored": [names]}`.
+  Nothing else: no delete, rename or move.
+- **Gate in wwt** (`fileRouteStatus`, `kasm.go`): after the connection
+  JWT is validated like any kasm request, each route is checked against
+  the token's `fileTransfer` claims — list needs upload *or* download,
+  download its own grant, upload its own — and each route has exactly
+  one method (a POST cannot ride a download grant into the upload
+  route). 403 otherwise; an unknown path under `/waas` is 404 whatever
+  the grant. Only an allowed request is relayed, to
+  `http://<workspace service>:4800` with the same injected Basic pair as
+  KasmVNC; the sidecar is never addressed by the browser directly. An
+  unreachable sidecar answers **503** (the desktop's own failure is 502):
+  the sidecar is optional.
+- **Auth**: the sidecar accepts the Basic pair wwt already injects
+  (`kasm_user:$VNC_PW`, constant-time compare on the password), read
+  from the same env entry as the desktop container — the operator
+  copies the desktop's `VNC_PW` entry verbatim, whether it is the
+  generated Secret's `secretKeyRef` or a template-set value. No new
+  secret, nothing to rotate twice; the occupant knowing `VNC_PW` only
+  grants them their own home. No `WWW-Authenticate` challenge on 401,
+  which through wwt would pop the browser's own login dialog.
+- **Confinement**: `os.Root` over `$HOME` — `..`, absolute paths and
+  symlinks pointing outside the home are refused by the path resolution
+  itself, not by string matching (unit-tested with escaping file and
+  directory symlinks). Uploads never overwrite (`report (1).pdf`,
+  `report (2).pdf`…), file names are reduced to their base, and a request
+  body above the cap is **413** with no truncated file left behind. The
+  cap is `operator.kasmAgent.maxUploadSize` (1 GiB default), handed to
+  the sidecar as `KASM_AGENT_MAX_UPLOAD_BYTES`.
+- **Pod shape**: the sidecar mounts the **same home volume at the same
+  path**, read-write, and runs as the desktop's uid/gid — the container
+  `securityContext` wins over the pod's, else the kasmweb `1000/1000` —
+  so uploads land owned by the session user. Hardened: non-root (unless
+  the desktop itself runs as root), read-only rootfs, drop ALL, no
+  privilege escalation, RuntimeDefault seccomp; 10m/16Mi requests, 64Mi
+  memory limit (uploads stream straight to disk, nothing is spooled);
+  TCP readiness probe on 4800. The workspace Service gains a `files`
+  port (converges on every reconcile, ADR 0001's exception). Sidecar
+  image: `<registry>/kasm-agent:<tag>`, same tag as the other
+  components; `operator.kasmAgent.enabled: false` renders an empty
+  image, which is the operator's off switch (no sidecar, no port, 503
+  from wwt). A kasm template whose desktop has no `VNC_PW` env (an
+  explicit credentials Secret feeding the image some other way) gets no
+  sidecar either: one that cannot authenticate would only keep the pod
+  from turning Ready.
+- **Upgrade note**: the sidecar is a pod-template change, so a kasmvnc
+  workspace running when it is enabled shows drift and gets it at the
+  next scale-up boundary (ADR 0001); until then the Files section says
+  file transfer is not available yet and to restart.
+- **Portal**: the session menu shows a **Files** section on kasmvnc
+  sessions when the capabilities grant at least one direction (hidden
+  entirely otherwise — `frontend/src/components/SessionFiles.tsx`): the
+  home listing with a breadcrumb, files as plain `<a download>` links on
+  the download route when download is granted (locked otherwise), an
+  **Upload files…** picker when upload is granted (multiple files, into
+  `Uploads`, which the listing then shows). The requests ride the
+  session cookie wwt set on the iframe's first request (same origin,
+  `Path=/kasm/{sid}`); they use a plain `fetch`, not the api client,
+  because a 401 there must not sign the user out of the portal and the
+  body is the agent's own JSON. 403 reads "Denied by your policy", 413
+  names the cap, 503 the missing sidecar.
+
+This is the **governed path for normal use**: a separate container the
+occupant cannot modify enforces the grant for *this* route, and KasmVNC's
+own `/api/downloads` and `/Downloads` stay blocked whatever the grant
+(one auditable route, no symlinked directory listings). It is not a hard
+guarantee against the occupant — the in-container channels below (print
+over RFB, their own Xvnc, the screen) are unchanged.
 
 ## Portal integration
 
@@ -147,12 +237,11 @@ proxy.
   guacd path gates behind `TierPlatform` for
   `enable-sftp`/`enable-drive` ("until the file-transfer feature ships
   with its own policy gate", `operator/pkg/params/params.go`). The
-  policy gate now exists (`WorkspacePolicy.fileTransfer`, carried in
-  the connection token — see **File transfer, printing, watermark**
-  below) but no wwt route reads it yet, so the endpoint stays blocked
-  outright until the file-transfer routes land. This closes the HTTP
-  route only — casual or accidental egress — not every channel (see
-  **File egress is a soft control** below). The path is
+  governed route is the kasm-agent sidecar (**Files** above), gated on
+  `WorkspacePolicy.fileTransfer`; this endpoint stays blocked outright
+  whatever the grant, so there is one auditable file route. This closes
+  the HTTP route only — casual or accidental egress — not every channel
+  (see **File egress is a soft control** below). The path is
   normalized and lowercased before matching so case, trailing-slash,
   dot and double-slash variants can't slip past.
 - **`/Downloads/…` is blocked too**, for the same reason: the kasmweb
@@ -183,6 +272,9 @@ Verified against upstream docs and maintainer-settled issues
   ([kasmtech/KasmVNC#31](https://github.com/kasmtech/KasmVNC/issues/31)).
 - **Upload (browser → session)**: absent at every scale and not planned
   upstream ([kasmtech/KasmVNC#209](https://github.com/kasmtech/KasmVNC/issues/209)).
+  WaaS provides both directions itself, outside KasmVNC, through the
+  kasm-agent sidecar (**Files** above) — never through the images'
+  closed `kasm_upload_server`.
 
 ### Image side services: forced off
 
@@ -399,8 +491,9 @@ inside the RFB WebSocket (UnixRelay messages 182/183,
 `common/rfb/msgTypes.h`), not over `/Downloads`; they can restart Xvnc
 with their own `-httpd` directory and serve their own client JS; and
 the screen itself is an egress channel. The governed path for normal
-users will be the policy-gated file-transfer sidecar (planned),
-not a hard guarantee against the occupant.
+users is the policy-gated kasm-agent sidecar (**Files** above) — a
+separate container the occupant cannot modify — not a hard guarantee
+against the occupant.
 
 ### File transfer, printing, watermark (policy gates)
 
@@ -420,11 +513,11 @@ resolution), so the change lands on the running pods right away.
   false). The api-server resolves the **connecting** user's policy at
   `/connect` and stamps the grant into the connection token
   (`ConnectionClaims.FileTransfer`) and the session capabilities
-  (`fileUpload`/`fileDownload`), next to the clipboard. Nothing
-  enforces the grant yet: `/api/downloads` and `/Downloads` stay
-  blocked at the proxy, the guacd sftp/drive params stay
-  platform-blocked. The grant is in place for the file-transfer routes
-  to read.
+  (`fileUpload`/`fileDownload`), next to the clipboard. wwt enforces it
+  on the kasm-agent routes (**Files** above); `/api/downloads` and
+  `/Downloads` stay blocked at the proxy regardless, and the guacd
+  sftp/drive params stay platform-blocked (no guacd route reads the
+  grant).
 - **Printing** — `KASM_SVC_PRINTER` is `"1"` when the **owner's** policy
   allows `download` (print-to-PDF then a browser download: the same
   egress class), `"0"` otherwise, inside the `SideServiceEnv` stamp.
