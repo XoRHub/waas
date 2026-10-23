@@ -18,7 +18,7 @@ func TestManagedEnvNames(t *testing.T) {
 	}
 }
 
-func TestPolicyManagedClipboardKeys(t *testing.T) {
+func TestPolicyManagedKeys(t *testing.T) {
 	cases := []struct {
 		name    string
 		raw     string
@@ -55,10 +55,22 @@ func TestPolicyManagedClipboardKeys(t *testing.T) {
 			},
 			false,
 		},
+		{
+			"watermark text and image",
+			"data_loss_prevention:\n  watermark:\n    image: /etc/kasmvnc/logo.png\n    text:\n      template: hello\n",
+			[]string{"data_loss_prevention.watermark.text.template", "data_loss_prevention.watermark.image"},
+			false,
+		},
+		{
+			"unmanaged watermark sub-key only",
+			"data_loss_prevention:\n  watermark:\n    text:\n      font_size: 24\n",
+			nil,
+			false,
+		},
 		{"invalid yaml", "data_loss_prevention: [unterminated\n", nil, true},
 	}
 	for _, tc := range cases {
-		got, err := PolicyManagedClipboardKeys(tc.raw)
+		got, err := PolicyManagedKeys(tc.raw)
 		if tc.wantErr {
 			if err == nil {
 				t.Errorf("%s: expected error, got nil", tc.name)
@@ -71,6 +83,27 @@ func TestPolicyManagedClipboardKeys(t *testing.T) {
 		}
 		if !slices.Equal(got, tc.want) {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The username is the one watermark input an admin does not type: it is
+// reduced to a shell-, env- and strftime-inert charset before landing in
+// a value vncserver single-quotes without escaping.
+func TestWatermarkText(t *testing.T) {
+	cases := []struct{ template, username, want string }{
+		{"", "alice", ""},
+		{"WaaS %H:%M", "alice", "WaaS %H:%M"},
+		{"{user} %H:%M", "alice.smith@example.com", "alice.smith@example.com %H:%M"},
+		{"{user}/{user}", "bob-1", "bob-1/bob-1"},
+		{"{user}", "o'reilly", "o_reilly"},
+		{"{user}", "${VNC_PW}", "__VNC_PW_"},
+		{"{user}", "a %Y b", "a__Y_b"},
+		{"{user}", "", ""},
+	}
+	for _, tc := range cases {
+		if got := WatermarkText(tc.template, tc.username); got != tc.want {
+			t.Errorf("WatermarkText(%q, %q) = %q, want %q", tc.template, tc.username, got, tc.want)
 		}
 	}
 }
