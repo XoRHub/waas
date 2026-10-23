@@ -199,13 +199,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// whole lifetime is the desktop stream. Asset requests don't count.
 		metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolKasm).Inc()
 		h.streamOpened(sid)
+		// ServeHTTP can panic without unwinding past this point (e.g.
+		// http.ErrAbortHandler, which net/http recovers silently): defer
+		// the close accounting so the stream count never leaks.
+		defer func() {
+			metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolKasm).Dec()
+			h.streamClosed(sid, claims.WorkspaceID)
+		}()
 	}
 	h.proxyTo(info, sid, rest).ServeHTTP(w, r)
-
-	if isDesktopStream {
-		metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolKasm).Dec()
-		h.streamClosed(sid, claims.WorkspaceID)
-	}
 }
 
 // streamOpened counts a new desktop stream and cancels a pending end
