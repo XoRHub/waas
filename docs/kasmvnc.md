@@ -141,7 +141,7 @@ The contract the three modules share — port `4800`, env and route names
   the desktop itself runs as root), read-only rootfs, drop ALL, no
   privilege escalation, RuntimeDefault seccomp; 10m/16Mi requests, 64Mi
   memory limit (uploads stream straight to disk, nothing is spooled);
-  TCP readiness probe on 4800. The workspace Service gains a `files`
+  TCP readiness probe on 4800. The workspace Service gains a `waas-files`
   port (converges on every reconcile, ADR 0001's exception). Sidecar
   image: `<registry>/kasm-agent:<tag>`, same tag as the other
   components; `operator.kasmAgent.enabled: false` renders an empty
