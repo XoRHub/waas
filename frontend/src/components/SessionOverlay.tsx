@@ -252,16 +252,20 @@ export function SessionOverlay({
             </button>
             {/* The whole page, not the pane: the overlay must stay
                 reachable in full screen. */}
-            <button
-              onClick={() =>
-                void (document.fullscreenElement
-                  ? document.exitFullscreen()
-                  : document.documentElement.requestFullscreen())
-              }
-              className="w-full rounded-md bg-slate-700/70 px-3 py-1.5 text-left hover:bg-slate-600"
-            >
-              {t('overlay.fullscreen')}
-            </button>
+            {document.fullscreenEnabled && (
+              <button
+                onClick={() =>
+                  void (
+                    document.fullscreenElement
+                      ? document.exitFullscreen()
+                      : document.documentElement.requestFullscreen()
+                  ).catch(() => {})
+                }
+                className="w-full rounded-md bg-slate-700/70 px-3 py-1.5 text-left hover:bg-slate-600"
+              >
+                {t('overlay.fullscreen')}
+              </button>
+            )}
           </section>
 
           {/* -------- kasmvnc: image quality (client preset, live) -------- */}
