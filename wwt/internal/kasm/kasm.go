@@ -12,6 +12,8 @@
 // session-scoped cookie so the page's subresource and WebSocket requests
 // are authenticated too. The cookie value IS the JWT: stateless, same
 // expiry, and it never goes upstream (the Cookie header is stripped).
+// A desktop outlives that expiry, so the portal re-sets the cookie from a
+// fresh token on a timer (/kasm/{sid}/waas/session?token=…).
 //
 // Upstream TLS: KasmVNC images ship `require_ssl: true` with a
 // self-signed certificate, so the transport skips verification. The
@@ -44,10 +46,17 @@ import (
 const (
 	routePrefix = "/kasm/"
 	cookieName  = "waas_kasm"
-	// agentPrefix is the subtree of /kasm/{sid}/ served by the kasm-agent
-	// sidecar instead of KasmVNC (/kasm/{sid}/waas/files…): the policy-gated
-	// file transfer, routed to the same host on the agent's port.
+	// agentPrefix is the subtree of /kasm/{sid}/ that is WaaS's own, not
+	// KasmVNC's: the kasm-agent sidecar's policy-gated file transfer
+	// (/kasm/{sid}/waas/files…, routed to the same host on the agent's
+	// port) and the cookie refresh below.
 	agentPrefix = "/waas"
+	// sessionPath (/kasm/{sid}/waas/session?token=…) only re-sets the
+	// session cookie from a fresh token and answers 204: the cookie IS the
+	// connection JWT, and a desktop outlives its TTL — the portal refreshes
+	// it on a timer so KasmVNC's own reconnect and the Files routes keep
+	// authenticating. Nothing upstream is touched.
+	sessionPath = "/session"
 	// infoTTL bounds how long a resolved ConnectionInfo is reused. Asset
 	// bursts (one page load ≈ dozens of requests) must not hammer the
 	// internal API, but a paused/deleted workspace must stop resolving
@@ -168,11 +177,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if fromQuery {
+		// Scope the cookie to THIS session's subtree so concurrent
+		// sessions (split view) don't clobber each other's token.
+		http.SetCookie(w, &http.Cookie{
+			Name:     cookieName,
+			Value:    token,
+			Path:     routePrefix + sid,
+			Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+			HttpOnly: true,
+			SameSite: http.SameSiteStrictMode,
+		})
+	}
+
 	// File transfer goes through the kasm-agent sidecar, gated on the
 	// token's policy grant — the governed path. Same host (the workspace
 	// Service), the agent's port, the same injected Basic pair.
 	if agentPath, ok := strings.CutPrefix(rest, agentPrefix); ok && (agentPath == "" || agentPath[0] == '/') {
 		agentPath = path.Clean("/" + agentPath)
+		if agentPath == sessionPath {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if status, msg := fileRouteStatus(claims.FileTransfer, r.Method, agentPath); status != 0 {
 			http.Error(w, msg, status)
 			return
@@ -201,19 +227,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isDownloadsPath(rest) {
 		http.Error(w, "file transfer is not enabled for this session", http.StatusForbidden)
 		return
-	}
-
-	if fromQuery {
-		// Scope the cookie to THIS session's subtree so concurrent
-		// sessions (split view) don't clobber each other's token.
-		http.SetCookie(w, &http.Cookie{
-			Name:     cookieName,
-			Value:    token,
-			Path:     routePrefix + sid,
-			Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
-			HttpOnly: true,
-			SameSite: http.SameSiteStrictMode,
-		})
 	}
 
 	// 3. Proxy. httputil.ReverseProxy relays WebSocket upgrades natively
