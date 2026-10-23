@@ -245,6 +245,31 @@ func TestKasmSideServicesForcedOff(t *testing.T) {
 	}
 }
 
+// A legacy template stored before the webhook/api-server guard existed
+// could list a managed name twice; mergeEnv only replaces the first
+// entry of a name, so without dropping every existing entry first the
+// stamp would be shadowed by the duplicate's later "1".
+func TestKasmSideServicesForcedOffDropsDuplicateTemplateEntries(t *testing.T) {
+	tpl := kasmTemplate()
+	tpl.Spec.Env = []corev1.EnvVar{
+		{Name: "KASM_SVC_AUDIO", Value: "1"},
+		{Name: "KASM_SVC_AUDIO", Value: "1"},
+	}
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+
+	env := map[string]string{}
+	for _, e := range kasmDeployment(t, tpl, ws).Spec.Template.Spec.Containers[0].Env {
+		if _, dup := env[e.Name]; dup {
+			t.Fatalf("env %q set twice", e.Name)
+		}
+		env[e.Name] = e.Value
+	}
+	if env["KASM_SVC_AUDIO"] != "0" {
+		t.Errorf("duplicated template entry must not survive the stamp, got %q", env["KASM_SVC_AUDIO"])
+	}
+}
+
 // kasmvnc pods get a Memory /dev/shm unless the admin already mounts one.
 func TestKasmShmMount(t *testing.T) {
 	ws := workspace()

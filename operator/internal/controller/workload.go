@@ -455,7 +455,15 @@ func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate,
 		for _, name := range kasmcfg.DisabledSideServiceEnv {
 			off = append(off, corev1.EnvVar{Name: name, Value: "0"})
 		}
-		env = mergeEnv(env, off)
+		// mergeEnv only replaces the FIRST entry of a given name, so a
+		// stored template that lists one of these names twice (legacy
+		// data predating the webhook/api-server guard) would keep its
+		// second entry instead of the stamp. Drop every existing entry
+		// of these names outright before appending the stamps.
+		env = slices.DeleteFunc(env, func(e corev1.EnvVar) bool {
+			return slices.Contains(kasmcfg.DisabledSideServiceEnv, e.Name)
+		})
+		env = append(env, off...)
 	}
 	if kasmPasswordGenerated(ws, tpl) {
 		env = append(env, kasmEnv(ws))
