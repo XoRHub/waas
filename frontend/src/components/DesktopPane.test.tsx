@@ -275,11 +275,12 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
   });
 
   it('reconnect after a final disconnect opens a fresh session', async () => {
-    const { pane, container, fromClient } = await renderKasm();
+    const { pane, onStateChange, container, fromClient } = await renderKasm();
     fromClient({ action: 'connection_state', value: 'disconnected' });
     expect(container.querySelector('iframe')).toBeNull();
 
     act(() => pane.current!.reconnect());
+    expect(onStateChange).toHaveBeenLastCalledWith('connecting');
 
     await waitFor(() => expect(apiMock.api.post).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
