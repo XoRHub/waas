@@ -188,6 +188,7 @@ export const DesktopPane = forwardRef<
         endKasm('disconnected');
       } else if (next) {
         setBoth(next);
+        if (next === 'connected' && autoFocus) iframeRef.current?.focus();
       } else if (
         action === 'clipboardrx' &&
         typeof value === 'string' &&
@@ -385,22 +386,24 @@ export const DesktopPane = forwardRef<
       ref={containerRef}
       // A remote-desktop surface: focusable on purpose (keyboard input
       // is forwarded to the desktop) — role application tells assistive
-      // tech that keys are consumed here, not by the page.
+      // tech that keys are consumed here, not by the page. isolate: the
+      // status overlay's z-index stays inside the pane, under the page's
+      // own controls (Retry).
       role="application"
       tabIndex={0}
-      className="relative h-full w-full overflow-hidden bg-black outline-none focus:ring-1 focus:ring-blue-500/60"
+      className="relative isolate h-full w-full overflow-hidden bg-black outline-none focus:ring-1 focus:ring-blue-500/60"
     >
       <div ref={displayRef} className={state === 'connected' ? 'h-full w-full' : 'hidden'} />
       {kasmUrl && (
-        // Invisible, not display:none, until the client reports
-        // 'connected': it connects (and sizes the remote desktop, with
-        // resize=remote) from the pane's real dimensions, while the
-        // "connecting" text below shows through.
+        // Never hidden: the client sizes the remote desktop (resize=remote)
+        // from the pane's real dimensions and focuses itself on connect,
+        // which fails on a visibility:hidden document. The status text
+        // below covers it until 'connected'.
         <iframe
           ref={iframeRef}
           src={kasmUrl}
           title={t('connect.desktopFrame', 'Remote desktop')}
-          className={`absolute inset-0 h-full w-full border-0 ${state === 'connected' ? '' : 'invisible'}`}
+          className="absolute inset-0 h-full w-full border-0"
           onLoad={(e) => {
             const frame = e.currentTarget;
             // The client reports its own state (connection_state). A
@@ -417,7 +420,7 @@ export const DesktopPane = forwardRef<
         />
       )}
       {state !== 'connected' && (
-        <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-white">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black text-sm text-white">
           <p>
             {state === 'connecting' && t('connect.connecting')}
             {state === 'disconnected' && t('connect.disconnected')}
