@@ -783,3 +783,10 @@ the portal's "update pending" badge.
   proprietary — **never install a Kasm agent** (what provides
   audio/upload): that is what would fall under their license. The
   standalone server has no platform dependency or phone-home.
+- **The sidecar image redistributes Debian PulseAudio binaries**
+  (`pulseaudio`, `parec`, three modules plus the `libprotocol-native`
+  helper library, and their shared libraries, copied unmodified from
+  Debian packages). It therefore ships each owning package's copyright
+  file, a manifest of `package=version (source: <source package>
+  <source version>)` lines (`packages.txt`) and a `NOTICE` pointing at
+  the matching source (snapshot.debian.org) under `/usr/share/doc/`.
