@@ -123,6 +123,15 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 				strings.Join(bad, ", ")))
 		}
 	}
+	// Same trap for the kasmweb side-service toggles the operator forces
+	// off on kasmvnc containers (controller.desktopEnv).
+	if seen[string(waasv1alpha1.ProtocolKasmVNC)] {
+		if bad := kasmcfg.ManagedEnvNames(tpl.Spec.Env); len(bad) > 0 {
+			return nil, v.deny(tpl, fmt.Sprintf(
+				"env must not set %s: the kasmweb side services WaaS does not proxy are forced off by the operator",
+				strings.Join(bad, ", ")))
+		}
+	}
 	if s := tpl.Spec.Schedule; s != nil {
 		if err := (schedule.Spec{Timezone: s.Timezone, Uptime: s.Uptime, Downtime: s.Downtime}).Validate(); err != nil {
 			return nil, v.deny(tpl, fmt.Sprintf("schedule: %v", err))

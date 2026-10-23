@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/metakeys"
 	"github.com/xorhub/waas/operator/pkg/policy"
 )
@@ -425,9 +426,18 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 // (WAAS_DESKTOP_PASSWORD for waas-core-images, kasmweb's VNC_PW for kasm,
 // both from the pod-namespace Secret) when no explicit source
 // provides one — the kasmvnc and vnc/rdp mechanisms are mutually
-// exclusive, so at most one injection fires.
+// exclusive, so at most one injection fires. kasmvnc containers also get
+// the kasmweb side services forced off, laid last so no template or
+// override value survives (kasmcfg.DisabledSideServiceEnv).
 func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides) []corev1.EnvVar {
 	env := mergeEnv(tpl.Spec.Env, sanitizeOverrideEnv(ov.Env))
+	if templateHasKasmVNC(tpl) {
+		off := make([]corev1.EnvVar, 0, len(kasmcfg.DisabledSideServiceEnv))
+		for _, name := range kasmcfg.DisabledSideServiceEnv {
+			off = append(off, corev1.EnvVar{Name: name, Value: "0"})
+		}
+		env = mergeEnv(env, off)
+	}
 	if kasmPasswordGenerated(ws, tpl) {
 		env = append(env, kasmEnv(ws))
 	}

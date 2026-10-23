@@ -1,12 +1,15 @@
-// Package kasmcfg centralizes the kasmvnc.yaml keys WaaS owns, so the
-// controller (which stamps them), the admission webhook and the api-server
-// (which both reject an admin from setting them) can never drift apart.
+// Package kasmcfg centralizes the kasmvnc.yaml keys and the container env
+// WaaS owns, so the controller (which stamps them), the admission webhook
+// and the api-server (which both reject an admin from setting them) can
+// never drift apart.
 package kasmcfg
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 )
 
@@ -60,4 +63,33 @@ func hasNestedKey(root map[string]any, keys ...string) bool {
 		}
 	}
 	return false
+}
+
+// DisabledSideServiceEnv are the kasmweb startup toggles of the image's
+// closed-source side services (audio out/in, uploads, gamepad, webcam,
+// printer, smartcard — vnc_startup.sh starts each unless set to 0).
+// WaaS proxies none of them, yet each would listen in the pod (or relay
+// through Xvnc), so the controller stamps every one to "0" on kasmvnc
+// containers. Like the clipboard keys, a template value would be
+// silently overwritten, so the webhook and the api-server refuse them.
+var DisabledSideServiceEnv = []string{
+	"KASM_SVC_AUDIO",
+	"KASM_SVC_AUDIO_INPUT",
+	"KASM_SVC_UPLOADS",
+	"KASM_SVC_GAMEPAD",
+	"KASM_SVC_WEBCAM",
+	"KASM_SVC_PRINTER",
+	"KASM_SVC_SMARTCARD",
+}
+
+// ManagedEnvNames returns the names in env that WaaS owns on kasmvnc
+// containers (DisabledSideServiceEnv).
+func ManagedEnvNames(env []corev1.EnvVar) []string {
+	var found []string
+	for _, e := range env {
+		if slices.Contains(DisabledSideServiceEnv, e.Name) {
+			found = append(found, e.Name)
+		}
+	}
+	return found
 }

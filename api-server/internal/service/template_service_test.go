@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
 
@@ -123,6 +125,10 @@ func TestTemplateInputValidatesKasmVNCConfig(t *testing.T) {
 	}
 	kasm := TemplateProtocolInput{Name: "kasmvnc", Port: 6901, Default: true}
 	vnc := TemplateProtocolInput{Name: "vnc", Port: 5901, Default: true}
+	withEnv := func(in TemplateInput, name string) TemplateInput {
+		in.Env = []corev1.EnvVar{{Name: name, Value: "1"}}
+		return in
+	}
 
 	cases := []struct {
 		name    string
@@ -144,6 +150,8 @@ func TestTemplateInputValidatesKasmVNCConfig(t *testing.T) {
 		},
 		{"config with an unmanaged clipboard sub-key", base("data_loss_prevention:\n  clipboard:\n    server_to_client:\n      size: unlimited\n", kasm), ""},
 		{"invalid YAML", base("data_loss_prevention: [unterminated\n", kasm), "not valid YAML"},
+		{"env setting an operator-owned side-service toggle", withEnv(base("", kasm), "KASM_SVC_AUDIO"), "must not set KASM_SVC_AUDIO"},
+		{"kasmweb toggle on a vnc template", withEnv(base("", vnc), "KASM_SVC_AUDIO"), ""},
 	}
 	for _, tc := range cases {
 		_, err := specFromInput(tc.in)

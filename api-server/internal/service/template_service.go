@@ -315,14 +315,8 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 	// 400 and the reason — an admission denial would otherwise reach the
 	// admin as a wrapped 500. The clipboard DLP keys are policy-owned; the
 	// managed-key list is shared with the webhook (operator/pkg/kasmcfg).
+	hasKasm := seen[string(waasv1alpha1.ProtocolKasmVNC)]
 	if in.KasmVNCConfig != "" {
-		hasKasm := false
-		for _, p := range spec.Protocols {
-			if p.Name == string(waasv1alpha1.ProtocolKasmVNC) {
-				hasKasm = true
-				break
-			}
-		}
 		if !hasKasm {
 			return nil, apierror.BadRequest("kasmvncConfig requires a kasmvnc protocol entry")
 		}
@@ -331,6 +325,13 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 		} else if len(bad) > 0 {
 			return nil, apierror.BadRequest(fmt.Sprintf(
 				"kasmvncConfig must not set %s: clipboard enforcement is derived from WorkspacePolicy.Clipboard, not the template",
+				strings.Join(bad, ", ")))
+		}
+	}
+	if hasKasm {
+		if bad := kasmcfg.ManagedEnvNames(in.Env); len(bad) > 0 {
+			return nil, apierror.BadRequest(fmt.Sprintf(
+				"env must not set %s: the kasmweb side services WaaS does not proxy are forced off by the operator",
 				strings.Join(bad, ", ")))
 		}
 	}
