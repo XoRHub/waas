@@ -15,6 +15,7 @@ import {
   type KasmOption,
   type Tree,
 } from '@/lib/kasmvnc';
+import { findDiscovered } from '@/lib/templates';
 import type { ParamMeta } from '@/types';
 import { fieldSm } from './fields';
 import { validateKasmVNCConfig } from './validate';
@@ -126,9 +127,7 @@ export function KasmVNCConfigFieldset({
   const { t } = useTranslation();
   const images = useAdminImages();
   const managedKeys = useKasmVNCManagedKeys().data?.data ?? [];
-  const info = (images.data?.data ?? [])
-    .flatMap((c) => c.discovered ?? [])
-    .find((d) => d.image === image)?.kasmvnc;
+  const info = findDiscovered(images.data?.data, image)?.kasmvnc;
   const options = useMemo(() => parseDefaults(info?.defaults ?? ''), [info?.defaults]);
   const known = options.length > 0;
   const byKey = new Map(options.map((o) => [o.key, o]));

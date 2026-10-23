@@ -30,26 +30,30 @@ export function templateAvailability(
 }
 
 /**
+ * The discovered catalog entry whose exact reference is `image`,
+ * searched across the WHOLE catalog, not just the CatalogImage listing
+ * a template: a template is attributed to the single-image entry
+ * approving it, while the sync data (icon, KasmVNC defaults…) lives on
+ * the registry-mode entry's discovered list — scoping the lookup to the
+ * approving entry is how catalog-based templates rendered the OS
+ * fallback.
+ */
+export function findDiscovered(catalog: CatalogImage[] | undefined, image: string) {
+  return catalog?.flatMap((img) => img.discovered ?? []).find((d) => d.image === image);
+}
+
+/**
  * Icon reference of a template: its explicit spec.logo, else the
- * catalog-sync icon of the discovered entry whose exact reference
- * matches the template's image. Discovered entries are searched across
- * the WHOLE catalog, not just the CatalogImage listing the template:
- * a template is attributed to the single-image entry approving it,
- * while the icons live on the registry-mode entry's discovered list —
- * scoping the lookup to the approving entry is how catalog-based
- * templates rendered the OS fallback. Both absent (or the template
- * gone) = undefined, and the caller's AppIcon falls back to the OS
- * icon. Shared by the create picker and the workspace cards so both
- * resolve the same logo.
+ * catalog-sync icon of the discovered entry matching the template's
+ * image (findDiscovered). Both absent (or the template gone) =
+ * undefined, and the caller's AppIcon falls back to the OS icon. Shared
+ * by the create picker and the workspace cards so both resolve the same
+ * logo.
  */
 export function templateIcon(
   tpl: WorkspaceTemplate | undefined,
   catalog: CatalogImage[] | undefined,
 ): string | undefined {
   if (!tpl) return undefined;
-  return (
-    tpl.logo ||
-    catalog?.flatMap((img) => img.discovered ?? []).find((d) => d.image === tpl.image && d.icon)
-      ?.icon
-  );
+  return tpl.logo || findDiscovered(catalog, tpl.image)?.icon || undefined;
 }
