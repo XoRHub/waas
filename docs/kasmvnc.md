@@ -45,6 +45,11 @@ session — the whole client app flows through this handler.
   (`kasm.go`, `proxyTo`) — it never reaches the browser. The proxy also
   sets an `Origin` header when absent: KasmVNC's WebSocket handshake
   parser requires one (browsers always send it, health probes don't).
+  A WebSocket upgrade whose `Origin` is present but not the request's own
+  host is refused with 403 before anything upstream (`sameOrigin`,
+  `kasm.go`) — cross-site WebSocket hijacking defence in depth beyond the
+  `SameSite=Strict` cookie, covering the desktop stream and the agent
+  sockets alike.
 - **Session end**: `httputil.ReverseProxy` only returns once the
   upgraded WebSocket closes — that return is the session-end signal
   (`EndSession`). The proxy counts live `/websockify` streams per
@@ -238,10 +243,14 @@ desktop apps have nowhere to play. The sidecar fills both roles (ADR
   stamped with the side-service toggles and refused in templates like
   them (`kasmcfg.ManagedEnv`). Same uid on both sides, so
   `auth-anonymous=1` and no cookie: the pod is the only path to the
-  socket. Verified on `kasmweb/terminal:1.19.0`: `pactl info` inside
-  the desktop reports the sidecar's server with `waas_out`/`waas_mic` as
-  defaults, `pacat` plays into it, `parec --device=@DEFAULT_SOURCE@`
-  records what the portal sends.
+  socket. The modules are on the daemon's command line (no script in
+  the shared, desktop-writable emptyDir) and `--disallow-module-loading
+  --disallow-exit` lock it: from the desktop, `pactl load-module` and
+  `pactl exit` are refused — the occupant can only re-route or mute
+  their own streams. Verified on `kasmweb/terminal:1.19.0`: `pactl info`
+  inside the desktop reports the sidecar's server with
+  `waas_out`/`waas_mic` as defaults, `pacat` plays into it,
+  `parec --device=@DEFAULT_SOURCE@` records what the portal sends.
 - **Routes** (the browser reaches them as `/kasm/{sid}/waas/audio` and
   `/waas/mic`, WebSocket upgrades behind the same Basic pair as the file
   routes): `GET /audio` streams `waas_out.monitor` — one `parec` per
@@ -251,15 +260,22 @@ desktop apps have nowhere to play. The sidecar fills both roles (ADR
   the FIFO (≈0.77 Mbit/s at 20 ms frames; a frame the daemon is not
   draining in time is dropped rather than the socket stalled). **One
   microphone writer at a time**: a second `/mic` connection is refused
-  with 409 while one is open. 503 when the daemon is down (no `parec`,
-  no FIFO reader). Raw PCM is a deliberate ceiling — Opus is the
+  with 409 while one is open; a `/mic` frame over 4096 bytes closes the
+  socket, an odd-length one is skipped. At most 4 `/audio` connections
+  per sidecar (429 past that); a playback client that stops reading is
+  dropped after 5 s. 503 when the daemon is down (`/audio` dials its
+  socket before upgrading, `/mic` finds no FIFO reader) — the portal
+  shows "not available". Raw PCM is a deliberate ceiling — Opus is the
   upgrade path when the bandwidth matters.
 - **Gate in wwt** (`agentRouteStatus`, `kasm.go`, the same table as the
   file routes): `/waas/audio` needs the token's `audio.playback`,
   `/waas/mic` its `audio.microphone`, GET only, 403 otherwise; the
   upgrade is relayed through the same `proxyTo` as everything else. The
   audio sockets are **not** desktop streams: they neither keep a
-  session alive past its reconnect grace nor end it.
+  session alive past its reconnect grace nor end it. The grant is
+  checked at the handshake only: an open socket outlives a policy change
+  until it closes, like the desktop stream; the portal turns a toggle off
+  when a reconnect's capabilities no longer grant it.
 - **Policy**: `WorkspacePolicy.audio {playback, microphone}`, default
   deny, resolved for the **connecting** user at `/connect` like
   `fileTransfer` and stamped into the connection token (`audio`) and the

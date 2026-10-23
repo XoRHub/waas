@@ -29,7 +29,15 @@ small Memory emptyDir the operator mounts in **both** containers
 (`/run/waas-pulse`, `kasmagent.PulseDir`), `module-null-sink` (`waas_out`,
 s16le 48 kHz stereo — the default sink) and `module-pipe-source`
 (`waas_mic`, a FIFO in the same emptyDir, s16le 48 kHz mono — the default
-source). The desktop's audio clients reach it through `PULSE_SERVER=unix:…`,
+source). The three modules are passed on the daemon's command line
+(`-n -L …`), not in a script: the emptyDir is writable from the desktop,
+and a script there would be the occupant's to rewrite before the next
+restart. `--disallow-module-loading --disallow-exit` lock the running
+daemon too, since every client of the anonymous socket could otherwise
+`load-module` or `exit` it. The defaults need no `set-default-*`: the only
+sink and the only non-monitor source are what PulseAudio picks (verified
+with `pactl info` from the desktop). The desktop's audio clients reach it
+through `PULSE_SERVER=unix:…`,
 an operator-owned env stamped with the side-service toggles and refused
 in templates like them (`kasmcfg.ManagedEnv`). Both containers run as the
 desktop's uid, so the socket and FIFO need no permission dance;
@@ -42,7 +50,13 @@ stereo in 20 ms binary frames; `GET /mic` writes the browser's raw PCM
 s16le 48 kHz mono frames into the pipe source's FIFO. One mic writer at
 a time: a second `/mic` connection is refused with 409 while one is
 open — the simplest rule that keeps two streams from interleaving, and
-the portal only ever opens one. Raw PCM is a deliberate ceiling
+the portal only ever opens one. Bounds: at most 4 `/audio` connections
+per sidecar (429 past that), a playback client that stops reading is
+dropped after 5 s, a `/mic` frame over 4096 bytes closes the socket
+(frames stay under `PIPE_BUF`, so FIFO writes are all-or-nothing) and an
+odd-length one is skipped. `/audio` dials the daemon's socket before
+upgrading, `/mic` opens the FIFO non-blocking: both answer 503 while the
+daemon is down. Raw PCM is a deliberate ceiling
 (≈1.5 Mbit/s out, ≈0.77 Mbit/s in, `ponytail:` comments mark it): Opus is
 the upgrade when bandwidth matters more than the zero-dependency path.
 
@@ -101,15 +115,23 @@ autoplay policy kept suspended.
 - Soft vs governed, as for files: the grant holds for *this* path, which
   the occupant cannot modify; the shared emptyDir is theirs too (same
   uid), so they can unplug the socket or feed the FIFO from inside — a
-  denial of their own audio, not an escalation.
+  denial of their own audio, not an escalation. Module loading and exit
+  are locked and the daemon reads no file of theirs: on the socket the
+  occupant can only re-route or mute their own streams.
+- Grants are checked at the handshake only: an audio socket already open
+  outlives a policy change until it closes, exactly like the desktop
+  stream. The next connect (and a reconnect) re-resolves the policy, and
+  the portal turns a toggle off when the grant is gone.
 - The sidecar's footprint grows (20m/32Mi requests, 128Mi limit; one
   `parec` per playback stream) and every running kasmvnc workspace
   drifts at this release like any sidecar image bump (ADR 0001).
 - Trivy sees the final image's Debian packages, not the copied PulseAudio
   libraries (no dpkg entries): they follow the base digest bump but are
   not scanned as packages. Known trade-off against a 265 MB sidecar.
-- Known log noise: pulseaudio 17 logs a memfd fallback
-  (`Cannot send block reference with non-registered memfd ID`, upstream
-  issue 824) on the first stream; harmless.
+- The daemon logs at `error` level: at `warning` it reports every failed
+  D-Bus lookup (there is no bus in the sidecar). Known remaining noise:
+  pulseaudio 17 logs a memfd fallback (`Cannot send block reference with
+  non-registered memfd ID`, upstream issue 824) on the first stream;
+  harmless.
 - `rdp`/`vnc` (guacd) audio is unchanged (`enable-audio` +
   `exposeAudioPort`, PulseAudio in waas-core-images).
