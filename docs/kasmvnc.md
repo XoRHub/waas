@@ -681,7 +681,12 @@ on all three — clipboard off, no printing, **no watermark** (there is
 no safe text to invent; the deterrent is the permissive side, the hard
 gates are what fail closed). A policy spec edit re-enqueues every workspace
 of the namespace (the winning policy is a namespace-global
-resolution), so the change lands on the running pods right away.
+resolution): the reconciler re-renders the `kasmvnc.yaml` ConfigMap and
+the pod template (env such as `KASM_SVC_PRINTER`, the config hash)
+right away, but — like any pod-template change — a RUNNING workload
+only picks it up at its next scale-up boundary or a manual reload, not
+mid-session (ADR 0001); until then it shows `TemplateDrifted=True` and
+the portal's "update pending" badge.
 
 - **`fileTransfer.upload` / `.download`** — default **deny** (absent =
   false). The api-server resolves the **connecting** user's policy at
