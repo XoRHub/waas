@@ -15,8 +15,9 @@ const STATE_CONNECTED = 3;
 const STATE_DISCONNECTED = 5;
 
 // KasmVNC client connection_state → pane state. 'disconnected' is final:
-// embedded, the client auto-reconnects on its own ('reconnecting') and
-// only reports 'disconnected' once it gave up or the close was clean.
+// embedded, the client auto-reconnects on its own ('reconnecting'), clean
+// close or not, and only reports 'disconnected' once retries are
+// exhausted, on a graceful server notice, or when reconnect is inhibited.
 const KASM_STATES: Record<string, ConnectionState> = {
   connecting: 'connecting',
   reconnecting: 'connecting',
