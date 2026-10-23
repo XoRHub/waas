@@ -17,6 +17,7 @@ import (
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/pkg/naming"
+	"github.com/xorhub/waas/shared/kasmagent"
 )
 
 // DefaultHomeSize mirrors the reconciler's default when a template does
@@ -404,6 +405,19 @@ func RetainedVolumeLoads(pvcs []corev1.PersistentVolumeClaim, exclude types.Name
 	return out
 }
 
+// TemplateHasKasmVNC reports whether any of the template's protocols is
+// the web-native KasmVNC endpoint. Single source for both the operator
+// (pod template, config) and this package's quota math, so they can't
+// disagree about which workloads carry the extra kasm-agent footprint.
+func TemplateHasKasmVNC(tpl *waasv1alpha1.WorkspaceTemplate) bool {
+	for _, p := range tpl.Spec.Protocols {
+		if p.Name == string(waasv1alpha1.ProtocolKasmVNC) {
+			return true
+		}
+	}
+	return false
+}
+
 // LoadOf computes the footprint the cluster will actually grant a
 // workspace: limits if set, else requests, else the image default. The
 // bool reports whether compute could be determined at all — callers
@@ -429,6 +443,21 @@ func LoadOf(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, img
 		}
 	}
 	load.CPU, load.Memory = cpu, mem
+
+	// The operator injects the kasm-agent sidecar next to every kasmvnc
+	// desktop (operator/internal/controller.kasmAgentEnabled also checks
+	// the operator-wide image toggle and the desktop's resolved VNC_PW,
+	// neither knowable here nor to the api-server's quota view) — add
+	// its footprint, or the aggregate caps and the portal's "used"
+	// numbers undercount what the cluster actually grants (a
+	// ResourceQuota sums every container of every pod). Counting it on
+	// the rare template that ends up without a sidecar (feature off
+	// fleet-wide, or no VNC_PW) only makes this pre-check a little more
+	// conservative, never wrong in the unsafe direction.
+	if cpuOK && memOK && TemplateHasKasmVNC(tpl) {
+		load.CPU.Add(resource.MustParse(kasmagent.SidecarCPULimit))
+		load.Memory.Add(resource.MustParse(kasmagent.SidecarMemoryLimit))
+	}
 
 	size := resource.MustParse(DefaultHomeSize)
 	if tpl.Spec.HomeSize != nil {

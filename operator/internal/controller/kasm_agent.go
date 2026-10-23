@@ -21,6 +21,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/policy"
 	"github.com/xorhub/waas/shared/kasmagent"
 )
 
@@ -65,6 +66,20 @@ const (
 
 var kasmPulseMount = corev1.VolumeMount{Name: kasmPulseVolume, MountPath: kasmagent.PulseDir}
 
+// kasmAgentResources is the sidecar's resource shape. shared/kasmagent
+// keeps the numbers (also used by operator/pkg/policy's quota math) so
+// the pod spec and the aggregate cpu/memory accounting can't diverge.
+var kasmAgentResources = corev1.ResourceRequirements{
+	Requests: corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse(kasmagent.SidecarCPURequest),
+		corev1.ResourceMemory: resource.MustParse(kasmagent.SidecarMemoryRequest),
+	},
+	Limits: corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse(kasmagent.SidecarCPULimit),
+		corev1.ResourceMemory: resource.MustParse(kasmagent.SidecarMemoryLimit),
+	},
+}
+
 // kasmAgentEnabled says whether THIS workspace gets the sidecar: the image
 // is configured, the template serves kasmvnc, and the desktop container
 // carries the VNC_PW the sidecar authenticates with (generated, or set by
@@ -72,7 +87,7 @@ var kasmPulseMount = corev1.VolumeMount{Name: kasmPulseVolume, MountPath: kasmag
 // image some other way gets no sidecar rather than one that cannot start
 // and keeps the pod from ever turning Ready.
 func (r *WorkspaceReconciler) kasmAgentEnabled(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) bool {
-	return r.KasmAgent.Image != "" && templateHasKasmVNC(tpl) && kasmPasswordEnv(desktopEnvOf(ws, tpl)) != nil
+	return r.KasmAgent.Image != "" && policy.TemplateHasKasmVNC(tpl) && kasmPasswordEnv(desktopEnvOf(ws, tpl)) != nil
 }
 
 // desktopEnvOf is desktopEnv without the policy decision — only the
@@ -115,14 +130,11 @@ func kasmAgentContainer(tpl *waasv1alpha1.WorkspaceTemplate, desktop corev1.Cont
 		},
 		Ports: []corev1.ContainerPort{{Name: kasmagent.PortName, ContainerPort: kasmagent.Port}},
 		// Streaming uploads never spool; PulseAudio and one parec per audio
-		// stream are the footprint (≈20Mi).
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("20m"),
-				corev1.ResourceMemory: resource.MustParse("32Mi"),
-			},
-			Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("128Mi")},
-		},
+		// stream are the footprint. A ResourceQuota with limits.aggregate
+		// renders limits.cpu/limits.memory (placement.go) — Kubernetes
+		// rejects any container missing a limit once that scope exists, so
+		// the CPU limit here is load-bearing, not just hardening.
+		Resources:    kasmAgentResources,
 		VolumeMounts: []corev1.VolumeMount{{Name: "home", MountPath: home}, kasmPulseMount},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler:        corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(kasmagent.Port)}},

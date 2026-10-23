@@ -122,9 +122,12 @@ autoplay policy kept suspended.
   outlives a policy change until it closes, exactly like the desktop
   stream. The next connect (and a reconnect) re-resolves the policy, and
   the portal turns a toggle off when the grant is gone.
-- The sidecar's footprint grows (20m/32Mi requests, 128Mi limit; one
-  `parec` per playback stream) and every running kasmvnc workspace
-  drifts at this release like any sidecar image bump (ADR 0001).
+- The sidecar's footprint grows (20m/32Mi requests, 500m CPU / 128Mi
+  memory limits; one `parec` per playback stream) and every running
+  kasmvnc workspace drifts at this release like any sidecar image bump
+  (ADR 0001). The CPU limit was added later (see `docs/kasmvnc.md` §
+  Pod shape) — without it a namespace quota's `limits.cpu` rejected the
+  pod outright, regardless of audio.
 - Trivy sees the final image's Debian packages, not the copied PulseAudio
   libraries (no dpkg entries): they follow the base digest bump but are
   not scanned as packages. Known trade-off against a 265 MB sidecar.

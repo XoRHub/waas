@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/shared/kasmagent"
 )
 
 func qty(s string) *resource.Quantity { q := resource.MustParse(s); return &q }
@@ -173,6 +174,52 @@ func TestLoadOfPrecedence(t *testing.T) {
 	// Nothing anywhere: compute unknown.
 	if _, ok = LoadOf(ws, empty, nil); ok {
 		t.Fatal("compute should be unknown")
+	}
+}
+
+// A kasmvnc template's load must include the kasm-agent sidecar's own
+// footprint, not just the desktop container — otherwise the aggregate
+// caps and the portal's "used" numbers undercount what the namespace
+// ResourceQuota (derived from the same aggregate) actually sums across
+// every container, letting the admission pre-check pass a workspace the
+// cluster then rejects.
+func TestLoadOfCountsKasmAgentSidecar(t *testing.T) {
+	kasmTpl := &waasv1alpha1.WorkspaceTemplate{
+		Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			Protocols: []waasv1alpha1.WorkspaceProtocol{{Name: "kasmvnc", Port: 6901, Default: true}},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+			},
+		},
+	}
+	ws := &waasv1alpha1.Workspace{}
+
+	load, ok := LoadOf(ws, kasmTpl, nil)
+	if !ok {
+		t.Fatal("compute should be known from template requests")
+	}
+	wantCPU := resource.MustParse("500m")
+	wantCPU.Add(resource.MustParse(kasmagent.SidecarCPULimit))
+	wantMem := resource.MustParse("1Gi")
+	wantMem.Add(resource.MustParse(kasmagent.SidecarMemoryLimit))
+	if load.CPU.Cmp(wantCPU) != 0 {
+		t.Fatalf("expected the desktop's cpu plus the sidecar's %s limit, got %s", kasmagent.SidecarCPULimit, &load.CPU)
+	}
+	if load.Memory.Cmp(wantMem) != 0 {
+		t.Fatalf("expected the desktop's memory plus the sidecar's %s limit, got %s", kasmagent.SidecarMemoryLimit, &load.Memory)
+	}
+
+	// A non-kasmvnc template (e.g. guacd/vnc) never gets the sidecar.
+	vncTpl := &waasv1alpha1.WorkspaceTemplate{
+		Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+			},
+		},
+	}
+	load, ok = LoadOf(ws, vncTpl, nil)
+	if !ok || load.CPU.String() != "500m" || load.Memory.String() != "1Gi" {
+		t.Fatalf("non-kasmvnc template must not carry the sidecar's footprint, got %+v", load)
 	}
 }
 

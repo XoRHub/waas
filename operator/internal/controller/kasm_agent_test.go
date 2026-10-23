@@ -140,6 +140,19 @@ func TestKasmAgentInjectedOnKasmvncWorkloads(t *testing.T) {
 	if !hasServicePort(svc, kasmagent.PortName) {
 		t.Fatalf("expected the %s port on the Service, got %+v", kasmagent.PortName, svc.Spec.Ports)
 	}
+
+	// A namespace ResourceQuota derived from a policy's limits.aggregate
+	// renders limits.cpu (placement.go): Kubernetes rejects any container
+	// missing a CPU limit once that scope exists, so this is not optional
+	// hardening — every non-admin kasmvnc workspace stayed Provisioning
+	// without it.
+	limits := agent.Resources.Limits
+	if limits.Cpu().IsZero() || limits.Cpu().String() != kasmagent.SidecarCPULimit {
+		t.Fatalf("expected a %s cpu limit on the sidecar, got %+v", kasmagent.SidecarCPULimit, limits)
+	}
+	if limits.Memory().String() != kasmagent.SidecarMemoryLimit {
+		t.Fatalf("expected a %s memory limit on the sidecar, got %+v", kasmagent.SidecarMemoryLimit, limits)
+	}
 }
 
 // Feature off (no image) or not a kasmvnc workload: no sidecar, no port,

@@ -72,17 +72,6 @@ func kasmConfigHash(content string) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-// templateHasKasmVNC reports whether any of the template's protocols is
-// the web-native KasmVNC endpoint (the only one this config applies to).
-func templateHasKasmVNC(tpl *waasv1alpha1.WorkspaceTemplate) bool {
-	for _, p := range tpl.Spec.Protocols {
-		if p.Name == string(waasv1alpha1.ProtocolKasmVNC) {
-			return true
-		}
-	}
-	return false
-}
-
 // kasmPolicy is what the workspace owner's WorkspacePolicy decides for a
 // kasmvnc container: the clipboard DLP, printing (follows the download
 // right: print-to-PDF is session→browser file egress) and the rendered
@@ -172,7 +161,7 @@ func (r *WorkspaceReconciler) ensureKasmConfig(ctx context.Context, ws *waasv1al
 	existing := &corev1.ConfigMap{}
 	err := r.Get(ctx, key, existing)
 
-	if !templateHasKasmVNC(tpl) {
+	if !policy.TemplateHasKasmVNC(tpl) {
 		// Not a kasmvnc workspace: there is nothing to enforce and no
 		// kasmvnc.yaml to mount; drop any stale ConfigMap.
 		if err == nil {
