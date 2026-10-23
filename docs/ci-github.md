@@ -39,6 +39,7 @@ PR — selective by path (job `changes`, dorny/paths-filter)
 ├─ ci-go.yml
 │  ├─ go-lint / go-test     DYNAMIC matrix per module, follows the real graph:
 │  │                        api-server ← operator + shared ; wwt ← shared ;
+│  │                        kasm-agent ← shared ;
 │  │                        test/smoke ← operator (lint only, tests = cluster)
 │  └─ go-generated-drift    operator/** + crd-schemas/** — regenerating
 │                            must be a no-op (incl. editor CRD schemas)
@@ -295,7 +296,7 @@ coexist.
 ## Per-component coverage (Codecov)
 
 `ci-go.yml`'s `go-test` job (one flag per Go module: `operator`,
-`api-server`, `wwt`, `shared`) and `ci-frontend.yml`'s `frontend` job
+`api-server`, `wwt`, `kasm-agent`, `shared`) and `ci-frontend.yml`'s `frontend` job
 each upload their existing coverage output (`coverage.out` / vitest's
 `lcov` reporter) to Codecov via `codecov/codecov-action`, tagged with
 a `flags:` matching the module/component name. `codecov.yml` at the repo
