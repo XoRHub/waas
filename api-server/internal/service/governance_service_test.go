@@ -20,6 +20,7 @@ import (
 	"github.com/xorhub/waas/api-server/internal/model"
 	"github.com/xorhub/waas/api-server/internal/repository"
 	"github.com/xorhub/waas/shared/auth"
+	"github.com/xorhub/waas/shared/kasmagent"
 )
 
 const testNS = "test-ns"
@@ -362,6 +363,9 @@ func TestQuotaCountsRunningWorkspaces(t *testing.T) {
 	}
 	if quota.RunningWorkspaces != 2 {
 		t.Fatalf("paused workspaces must not count as running: got %d", quota.RunningWorkspaces)
+	}
+	if quota.KasmAgentOverhead["cpu"] != kasmagent.SidecarCPULimit || quota.KasmAgentOverhead["memory"] != kasmagent.SidecarMemoryLimit {
+		t.Fatalf("kasmAgentOverhead must mirror the sidecar limits, got %v", quota.KasmAgentOverhead)
 	}
 }
 
