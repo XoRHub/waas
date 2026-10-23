@@ -7,11 +7,14 @@ import { isMap, isScalar, isSeq, parseDocument, stringify, type Pair, type YAMLM
  * and the default come from the file, so a new KasmVNC release changes
  * nothing here.
  */
-export type OptionKind = 'bool' | 'int' | 'string' | 'list';
+export type OptionKind = 'bool' | 'int' | 'string' | 'list' | 'unknown';
 
 export interface KasmOption {
   /** Dotted key path, e.g. `encoding.max_frame_rate`. */
   key: string;
+  /** `unknown`: the file leaves the value null (`watermark:` with its
+   * children, `remap_keys:` with its list, only in comments) — a
+   * legitimate override root whose shape no control can offer. */
   kind: OptionKind;
   /** The image default (JS value), '' for a key the file leaves empty. */
   default: unknown;
@@ -22,13 +25,23 @@ export interface KasmOption {
 /** A parsed kasmvnc.yaml override: nested plain objects. */
 export type Tree = Record<string, unknown>;
 
+/** A comment line that is a commented-out key or list item, not prose. */
+const commentedCode = /^([a-z_]+:|- )/;
+
 function commentText(raw: string | null | undefined): string | undefined {
   const text = raw
     ?.split('\n')
     .map((line) => line.trim())
-    .filter(Boolean)
+    .filter((line) => line && !commentedCode.test(line))
     .join(' ');
   return text || undefined;
+}
+
+/** Leaf names the defaults file only documents as comments
+ * (`# session_type: shared`, the watermark block): valid keys for an
+ * override, though the schema cannot type them. */
+export function commentedKeys(text: string): Set<string> {
+  return new Set([...text.matchAll(/^\s*#\s*([a-z_]+):/gm)].map((m) => m[1]));
 }
 
 function walk(map: YAMLMap, prefix: string, out: KasmOption[]) {
@@ -55,7 +68,8 @@ function walk(map: YAMLMap, prefix: string, out: KasmOption[]) {
       def = value.toJSON() as unknown[];
     } else if (isScalar(value)) {
       const v = value.value;
-      if (typeof v === 'boolean') kind = 'bool';
+      if (v === null) kind = 'unknown';
+      else if (typeof v === 'boolean') kind = 'bool';
       else if (typeof v === 'number' && Number.isInteger(v)) kind = 'int';
       def = v ?? '';
     }
@@ -63,8 +77,9 @@ function walk(map: YAMLMap, prefix: string, out: KasmOption[]) {
   });
 }
 
-/** Flattens a kasmvnc_defaults.yaml into dotted leaf options; [] when
- * the text is empty or not a mapping (= no schema known). */
+/** Flattens a kasmvnc_defaults.yaml into dotted leaf options (null
+ * leaves included, as `unknown`); [] when the text is empty or not a
+ * mapping (= no schema known). */
 export function parseDefaults(text: string): KasmOption[] {
   const doc = parseDocument(text);
   if (doc.errors.length > 0 || !isMap(doc.contents)) return [];
@@ -94,7 +109,8 @@ export function coerce(text: string, kind: OptionKind): unknown {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-  return /^-?\d+$/.test(text) ? Number(text) : text;
+  // No leading zero: `0700` is a mode string, not seven hundred.
+  return /^-?(0|[1-9]\d*)$/.test(text) ? Number(text) : text;
 }
 
 function isTree(value: unknown): value is Tree {

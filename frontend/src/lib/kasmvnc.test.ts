@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { coerce, leaves, parseDefaults, removePath, scalarText, setPath, toText } from './kasmvnc';
+import {
+  coerce,
+  commentedKeys,
+  leaves,
+  parseDefaults,
+  removePath,
+  scalarText,
+  setPath,
+  toText,
+} from './kasmvnc';
 
 // An excerpt of kasmweb/terminal:1.19.0's kasmvnc_defaults.yaml
 // (KasmVNC 1.5.1), shaped to hit every attachment the yaml lib uses for
@@ -13,6 +22,7 @@ desktop:
 
 user_session:
   # session_type: shared
+  new_session_disconnects_existing_exclusive_session: false
   idle_timeout: never
 
 keyboard:
@@ -37,6 +47,13 @@ data_loss_prevention:
       - image/png
     server_to_client:
       size: unlimited
+  watermark:
+    # image: /etc/kasmvnc/picture.png
+    #text:
+      # template: "\${USER} %H:%M"
+  logging:
+    # "verbose" SETTING LOGS YOUR PRIVATE INFORMATION. Keypresses and clipboard content
+    level: off
 `;
 
 describe('parseDefaults', () => {
@@ -54,11 +71,14 @@ describe('parseDefaults', () => {
       kind: 'list',
       default: ['text/html', 'image/png'],
     });
-    // An empty value is still an option (free text, no default).
-    expect(byKey['keyboard.remap_keys']).toMatchObject({ kind: 'string', default: '' });
+    // A null value (its list or children only in comments) has no shape
+    // to offer: kind unknown, kept so overrides under it are documented.
+    expect(byKey['keyboard.remap_keys']).toMatchObject({ kind: 'unknown', default: '' });
+    expect(byKey['data_loss_prevention.watermark']).toMatchObject({ kind: 'unknown' });
+    expect(byKey['data_loss_prevention.watermark'].hint).toBeUndefined();
     // Intermediate mappings are never options.
     expect(byKey['desktop.resolution']).toBeUndefined();
-    expect(Object.keys(byKey)).toHaveLength(11);
+    expect(Object.keys(byKey)).toHaveLength(14);
   });
 
   it('keeps the comment attached to a key as its hint, wherever the yaml lib hangs it', () => {
@@ -67,11 +87,22 @@ describe('parseDefaults', () => {
       'Force all clients into game mode (direct-drive relative mouse) on connect. Useful for game-focused workspace images where pointer lock is always desired.',
     );
     // Before the FIRST key of a mapping: on the mapping.
-    expect(byKey['user_session.idle_timeout'].hint).toBe('session_type: shared');
+    expect(byKey['data_loss_prevention.logging.level'].hint).toBe(
+      '"verbose" SETTING LOGS YOUR PRIVATE INFORMATION. Keypresses and clipboard content',
+    );
     // Inline: on the value.
     expect(byKey['logging.level'].hint).toBe('0 - minimal verbosity, 100 - most verbose');
     // A section comment is not a leaf hint.
     expect(byKey['pointer.enabled'].hint).toBeUndefined();
+    // A commented-out key is documentation of THAT key, not a hint for
+    // the next one.
+    expect(
+      byKey['user_session.new_session_disconnects_existing_exclusive_session'].hint,
+    ).toBeUndefined();
+  });
+
+  it('lists the leaf names the file only documents as comments', () => {
+    expect(commentedKeys(defaults)).toEqual(new Set(['session_type', 'image', 'text', 'template']));
   });
 
   it('yields no schema for empty, broken or non-mapping text', () => {
@@ -90,7 +121,10 @@ describe('coerce / scalarText', () => {
     // number whatever the default's type, a word stays a word.
     expect(coerce('900', 'string')).toBe(900);
     expect(coerce('auto', 'int')).toBe('auto');
+    expect(coerce('0', 'string')).toBe(0);
+    expect(coerce('0700', 'string')).toBe('0700');
     expect(coerce('text/html, image/png', 'list')).toEqual(['text/html', 'image/png']);
+    expect(coerce('text/html,', 'list')).toEqual(['text/html']);
   });
 
   it('renders every leaf as input text', () => {
