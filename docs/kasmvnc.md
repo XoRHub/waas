@@ -107,9 +107,10 @@ against the client served by `kasmweb/*:1.19.0`
 - **Fullscreen**: the session menu toggles the Fullscreen API on the
   whole page, not the pane, so the menu stays reachable.
 - **Load fallback**: the client reports its own state, so `onLoad` no
-  longer means "connected". A non-HTML iframe document means wwt
-  refused the request (plain-text `http.Error`: expired token, ended
-  session) and the pane shows the failure.
+  longer means "connected". An iframe page without the client's
+  `noVNC_container` element is an error page — wwt refusing the request
+  (plain-text `http.Error`: expired token, ended session) or an ingress
+  502/503 HTML page — and the pane shows the failure.
 - **Not used**: `terminate` (the client's `unload` handler already
   disconnects cleanly when the iframe is unmounted, and a message posted
   right before unmounting would never be processed), `disconnectrx`

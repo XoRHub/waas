@@ -413,10 +413,11 @@ export const DesktopPane = forwardRef<
           className="absolute inset-0 h-full w-full border-0"
           onLoad={(e) => {
             const frame = e.currentTarget;
-            // The client reports its own state (connection_state). A
-            // non-HTML document is wwt refusing the request instead
-            // (expired token, ended session: a plain-text http.Error).
-            if (frame.contentDocument?.contentType !== 'text/html') {
+            // The client reports its own state (connection_state). A page
+            // without the client's container is an error page instead:
+            // wwt refusing the request (expired token, ended session) or
+            // an ingress 502/503.
+            if (!frame.contentDocument?.getElementById('noVNC_container')) {
               endKasm('failed');
               return;
             }
