@@ -501,10 +501,13 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 	// via ConnectionInfo. Params only ever restrict, never grant. A
 	// template that failed to resolve fails closed, like every other
 	// resolution failure here: session yes, clipboard no.
-	policyGrant := s.clipboardGrant(ctx, actor)
-	clipboard := policyGrant
+	// File transfer rides the same resolution: policy-only (no params
+	// clamp it), carried in the token and the capabilities for the
+	// routes that will enforce it.
+	grants := resolvePolicyGrants(ctx, s.kube, s.namespace, s.users, actor)
+	policyGrant, clipboard := grants.clipboard, grants.clipboard
 	if tplErr != nil {
-		policyGrant, clipboard = auth.ClipboardGrant{}, auth.ClipboardGrant{}
+		grants, policyGrant, clipboard = policyGrants{}, auth.ClipboardGrant{}, auth.ClipboardGrant{}
 	} else {
 		var locked map[string]string
 		if entry != nil {
@@ -512,7 +515,7 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 		}
 		clipboard = clampClipboardGrant(clipboard, mergeParams(locked, in.Params))
 	}
-	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, string(ws.UID), clipboard, s.connectionTTL))
+	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, string(ws.UID), clipboard, grants.files, s.connectionTTL))
 	if err != nil {
 		return nil, fmt.Errorf("issuing connection token: %w", err)
 	}
@@ -522,7 +525,7 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 		SessionID:       session.ID,
 		ConnectionToken: token,
 		Protocol:        protocol,
-		Capabilities:    clipboardCapabilities(policyGrant, clipboard),
+		Capabilities:    sessionCapabilities(policyGrant, clipboard, grants.files),
 	}, nil
 }
 
@@ -555,13 +558,6 @@ func (s *WorkspaceService) EffectiveKasmVNCConfig(ctx context.Context, actor Act
 		return "", apierror.NotFound("this workspace has no KasmVNC configuration")
 	}
 	return content, nil
-}
-
-// clipboardGrant resolves the connecting user's clipboard rights from
-// their WorkspacePolicy. Resolution failure (no user record, no matching
-// policy) fails closed: session yes, clipboard no.
-func (s *WorkspaceService) clipboardGrant(ctx context.Context, actor Actor) auth.ClipboardGrant {
-	return resolveClipboardGrant(ctx, s.kube, s.namespace, s.users, actor)
 }
 
 // actorIsTemplateOwner reports whether the caller is the template's
@@ -599,23 +595,33 @@ func (s *WorkspaceService) actorPolicy(ctx context.Context, actor Actor) *waasv1
 	return pol
 }
 
-// resolveClipboardGrant is the shared policy→clipboard resolution used by
-// both workspace and remote-workspace connects.
-func resolveClipboardGrant(ctx context.Context, kube client.Client, namespace string, users repository.UserRepository, actor Actor) auth.ClipboardGrant {
+// policyGrants are the connecting user's session rights read off their
+// WorkspacePolicy. The zero value is the fail-closed outcome.
+type policyGrants struct {
+	clipboard auth.ClipboardGrant
+	files     auth.FileTransferGrant
+}
+
+// resolvePolicyGrants is the shared policy resolution used by both
+// workspace and remote-workspace connects. Resolution failure (no user
+// record, no matching policy) fails closed: session yes, rights no.
+func resolvePolicyGrants(ctx context.Context, kube client.Client, namespace string, users repository.UserRepository, actor Actor) policyGrants {
 	user, err := users.FindByID(ctx, actor.ID)
 	if err != nil {
-		return auth.ClipboardGrant{}
+		return policyGrants{}
 	}
 	policies := &waasv1alpha1.WorkspacePolicyList{}
 	if err := kube.List(ctx, policies, client.InNamespace(namespace)); err != nil {
-		return auth.ClipboardGrant{}
+		return policyGrants{}
 	}
 	pol, _, denial := policy.Resolve(policies.Items, policy.Identity{Owner: user.ID, Username: user.Username, Groups: user.Groups})
 	if denial != nil {
-		return auth.ClipboardGrant{}
+		return policyGrants{}
 	}
-	copyFrom, pasteTo := policy.ClipboardOf(pol)
-	return auth.ClipboardGrant{Copy: copyFrom, Paste: pasteTo}
+	var g policyGrants
+	g.clipboard.Copy, g.clipboard.Paste = policy.ClipboardOf(pol)
+	g.files.Upload, g.files.Download = policy.FileTransferOf(pol)
+	return g
 }
 
 // clampClipboardGrant applies the disable-copy/disable-paste connection
@@ -641,18 +647,21 @@ func clipboardParamBlocks(value string) bool {
 	return err != nil || block
 }
 
-// clipboardCapabilities builds the overlay-facing view of a clamped
-// grant: the effective per-direction rights plus, on each denied
+// sessionCapabilities builds the overlay-facing view of the grants: the
+// effective per-direction clipboard rights plus, on each denied
 // direction, WHICH gate denied it — the policy (admin-imposed, the user
 // cannot undo it) or the disable-* params (the user's own connection
 // setting, undoable + reconnect). Policy wins the label when both deny:
-// removing the param would change nothing.
-func clipboardCapabilities(policyGrant, effective auth.ClipboardGrant) *model.SessionCapabilities {
+// removing the param would change nothing. File transfer is reported as
+// resolved — nothing clamps it.
+func sessionCapabilities(policyGrant, effective auth.ClipboardGrant, files auth.FileTransferGrant) *model.SessionCapabilities {
 	return &model.SessionCapabilities{
 		ClipboardCopy:      effective.Copy,
 		ClipboardPaste:     effective.Paste,
 		ClipboardCopyLock:  clipboardLock(policyGrant.Copy, effective.Copy),
 		ClipboardPasteLock: clipboardLock(policyGrant.Paste, effective.Paste),
+		FileUpload:         files.Upload,
+		FileDownload:       files.Download,
 	}
 }
 

@@ -116,7 +116,7 @@ func kasmInfo(t *testing.T, upstream *httptest.Server) *proxy.ConnectionInfo {
 
 func connectionToken(t *testing.T, signer *auth.Signer, sid string) string {
 	t.Helper()
-	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", sid, "ws1", auth.ClipboardGrant{}, time.Minute))
+	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", sid, "ws1", auth.ClipboardGrant{}, auth.FileTransferGrant{}, time.Minute))
 	if err != nil {
 		t.Fatalf("signing: %v", err)
 	}
@@ -466,7 +466,7 @@ func TestExpiredCookieIsRejected(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", "sess-1", "ws1", auth.ClipboardGrant{}, -time.Minute))
+	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", "sess-1", "ws1", auth.ClipboardGrant{}, auth.FileTransferGrant{}, -time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +494,7 @@ func TestFreshQueryTokenBeatsExpiredCookie(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", "sess-1", "ws1", auth.ClipboardGrant{}, -time.Minute))
+	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", "sess-1", "ws1", auth.ClipboardGrant{}, auth.FileTransferGrant{}, -time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
