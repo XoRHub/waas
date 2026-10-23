@@ -707,11 +707,13 @@ type UserUsage struct {
 	Used       map[string]string `json:"used,omitempty"`
 }
 
-// SessionCapabilities is what the session may do, per clipboard
-// direction; the overlay reflects it, the proxy enforces it. A denied
-// direction carries WHY in its lock field so the overlay can tell an
-// admin policy denial (immutable for the user) from the user's own
-// disable-copy/disable-paste connection setting (undo + reconnect).
+// SessionCapabilities is what the session may do, per clipboard and
+// file-transfer direction; the overlay reflects it, the proxy enforces
+// it. A denied clipboard direction carries WHY in its lock field so the
+// overlay can tell an admin policy denial (immutable for the user) from
+// the user's own disable-copy/disable-paste connection setting (undo +
+// reconnect). File transfer has no params to clamp it: the policy alone
+// decides.
 type SessionCapabilities struct {
 	ClipboardCopy  bool `json:"clipboardCopy"`
 	ClipboardPaste bool `json:"clipboardPaste"`
@@ -720,6 +722,8 @@ type SessionCapabilities struct {
 	// the direction is allowed.
 	ClipboardCopyLock  ClipboardLock `json:"clipboardCopyLock,omitempty"`
 	ClipboardPasteLock ClipboardLock `json:"clipboardPasteLock,omitempty"`
+	FileUpload         bool          `json:"fileUpload"`
+	FileDownload       bool          `json:"fileDownload"`
 }
 
 // ClipboardLock names the gate that denied a clipboard direction.
