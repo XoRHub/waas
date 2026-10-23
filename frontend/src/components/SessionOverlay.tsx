@@ -10,6 +10,7 @@ import {
 import { KasmVNCConfigView } from '@/components/ProtocolTabs';
 import { SessionFiles } from '@/components/SessionFiles';
 import { hasClipboardApi } from '@/lib/clipboard';
+import { startMicrophone, startPlayback, type AudioEnd, type AudioLink } from '@/lib/kasmAudio';
 import { useAuthStore } from '@/stores/authStore';
 import { useEscape } from '@/hooks/useEscape';
 import { useProtocolSwitch } from '@/hooks/useProtocolSwitch';
@@ -77,18 +78,25 @@ export function SessionOverlay({
   const [receivedClip, setReceivedClip] = useState('');
   const [clipDraft, setClipDraft] = useState('');
   const [quality, setQuality] = useState<number>();
-  // kasmvnc: the live session id the Files section addresses.
+  // kasmvnc: the live session id the Files section and the audio links
+  // address. Re-read on every (re)connect — capabilities is handed over
+  // per connect — so an audio link follows the session it belongs to.
   const [kasmSid, setKasmSid] = useState<string | null>(null);
   useEffect(() => {
-    // Reading an imperative handle when the panel opens: the value is
-    // not reactive state, and reading it at every toggle CALL SITE would
-    // duplicate this line across the app.
-    if (!open) return;
+    // Reading an imperative handle: the value is not reactive state, and
+    // reading it at every toggle CALL SITE would duplicate this line
+    // across the app.
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    setKasmSid(pane.current?.readSessionId() ?? null);
+    if (!open) return;
     setReceivedClip(pane.current?.readRemoteClipboard() ?? '');
     setQuality(pane.current?.readQuality());
-    setKasmSid(pane.current?.readSessionId() ?? null);
-  }, [open, pane]);
+  }, [open, pane, capabilities]);
+  // kasmvnc: audio links, each alive while its toggle is on and the
+  // session is up (lib/kasmAudio.ts).
+  const workspaceId = workspace?.id ?? '';
+  const audio = useAudioLink(workspaceId, kasmSid, startPlayback);
+  const mic = useAudioLink(workspaceId, kasmSid, startMicrophone);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -456,6 +464,39 @@ export function SessionOverlay({
               </section>
             )}
 
+          {/* -------- kasmvnc: audio (policy-gated, kasm-agent sidecar) -------- */}
+          {!isRemote &&
+            protocol === 'kasmvnc' &&
+            kasmSid &&
+            (capabilities?.audioPlayback || capabilities?.microphone) && (
+              <section className="space-y-2">
+                <h4 className="text-xs uppercase tracking-wide text-slate-400">
+                  {t('overlay.audio')}
+                </h4>
+                {capabilities?.audioPlayback && (
+                  <OverlayToggle
+                    label={t('overlay.audioPlayback')}
+                    checked={audio.on}
+                    allowed
+                    deniedReason=""
+                    onChange={audio.toggle}
+                  />
+                )}
+                {audio.error && <p className="text-[11px] text-amber-300/90">{t(audio.error)}</p>}
+                {capabilities?.microphone && (
+                  <OverlayToggle
+                    label={t('overlay.microphone')}
+                    checked={mic.on}
+                    allowed
+                    deniedReason=""
+                    onChange={mic.toggle}
+                  />
+                )}
+                {mic.error && <p className="text-[11px] text-amber-300/90">{t(mic.error)}</p>}
+                <p className="text-[11px] text-slate-500">{t('overlay.audioHint')}</p>
+              </section>
+            )}
+
           {/* -------- kasmvnc: effective admin-managed config -------- */}
           {!isRemote && protocol === 'kasmvnc' && (
             <section className="space-y-2">
@@ -491,6 +532,54 @@ export function SessionOverlay({
       )}
     </>
   );
+}
+
+// useAudioLink keeps one audio link (playback or microphone) open while
+// its toggle is on and a session id is known, restarting it when the
+// session changes (reconnect) and reporting why it ended on its own as
+// an i18n key. Turning the toggle on clears the last error.
+function useAudioLink(
+  workspaceId: string,
+  sessionId: string | null,
+  start: (
+    workspaceId: string,
+    sessionId: string,
+    onEnd: (reason: AudioEnd) => void,
+  ) => Promise<AudioLink>,
+) {
+  const [on, setOn] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!on || !sessionId) return;
+    let link: AudioLink | undefined;
+    let cancelled = false;
+    const fail = (key: string) => {
+      setOn(false);
+      setError(key);
+    };
+    start(workspaceId, sessionId, (reason) =>
+      fail(reason === 'closed' ? 'overlay.audioClosed' : 'overlay.audioUnavailable'),
+    ).then(
+      (l) => {
+        if (cancelled) l.stop();
+        else link = l;
+      },
+      // Only the microphone rejects before its socket (getUserMedia).
+      () => fail(start === startMicrophone ? 'overlay.micDenied' : 'overlay.audioUnavailable'),
+    );
+    return () => {
+      cancelled = true;
+      link?.stop();
+    };
+  }, [on, sessionId, workspaceId, start]);
+  return {
+    on,
+    error,
+    toggle: (v: boolean) => {
+      setError(null);
+      setOn(v);
+    },
+  };
 }
 
 // ClipboardStatus renders a read-only allowed/blocked line — for the
