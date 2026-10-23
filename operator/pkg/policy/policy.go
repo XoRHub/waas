@@ -173,6 +173,25 @@ func ClipboardOf(pol *waasv1alpha1.WorkspacePolicy) (copyFromWorkspace, pasteToW
 		c.PasteToWorkspace == nil || *c.PasteToWorkspace
 }
 
+// FileTransferOf returns the file-transfer rights a policy grants. Unlike
+// the clipboard this is opt-in: a nil policy, an absent block or absent
+// fields all mean denied.
+func FileTransferOf(pol *waasv1alpha1.WorkspacePolicy) (upload, download bool) {
+	if pol == nil || pol.Spec.FileTransfer == nil {
+		return false, false
+	}
+	return pol.Spec.FileTransfer.Upload, pol.Spec.FileTransfer.Download
+}
+
+// WatermarkOf returns the watermark template a policy sets; empty (nil
+// policy, absent field) means no watermark.
+func WatermarkOf(pol *waasv1alpha1.WorkspacePolicy) string {
+	if pol == nil {
+		return ""
+	}
+	return pol.Spec.Watermark
+}
+
 // ImageAllowed says whether one catalog entry is usable by the identity
 // under the given policy, with the denial explaining which gate failed.
 func ImageAllowed(img *waasv1alpha1.WorkspaceImage, pol *waasv1alpha1.WorkspacePolicy, id Identity) *Denial {
