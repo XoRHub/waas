@@ -18,7 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/xorhub/waas/shared/auth"
-	"github.com/xorhub/waas/shared/kasmagent"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 	"github.com/xorhub/waas/wwt/internal/jwks"
 	"github.com/xorhub/waas/wwt/internal/proxy"
 )
@@ -522,7 +522,7 @@ func TestFreshQueryTokenBeatsExpiredCookie(t *testing.T) {
 	}
 }
 
-// newFakeAgent mimics the kasm-agent sidecar: plain HTTP, the same Basic
+// newFakeAgent mimics the kasmvnc-sidecar: plain HTTP, the same Basic
 // pair as KasmVNC, echoing method and path (in the body, and in the
 // X-Fake-Agent header even on an error) — and, on the audio routes, a
 // WebSocket that speaks one binary frame then echoes. Like
@@ -541,7 +541,7 @@ func newFakeAgent(t *testing.T) (*httptest.Server, *atomic.Int32) {
 		if r.Header.Get("Cookie") != "" {
 			t.Errorf("platform cookie leaked to the agent: %q", r.Header.Get("Cookie"))
 		}
-		if r.URL.Path == kasmagent.PathAudio || r.URL.Path == kasmagent.PathMic {
+		if r.URL.Path == kasmvncsidecar.PathAudio || r.URL.Path == kasmvncsidecar.PathMic {
 			ws, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {
 				return
@@ -891,7 +891,7 @@ func TestSessionRouteRefreshesTheCookie(t *testing.T) {
 	}
 }
 
-// Sidecar absent (operator.kasmAgent off, or a workspace started before
+// Sidecar absent (operator.kasmvncSidecar off, or a workspace started before
 // it was enabled): 503, not the desktop's 502.
 func TestFileRoutesAnswer503WithoutTheSidecar(t *testing.T) {
 	upstream, _ := newFakeKasmVNC(t)

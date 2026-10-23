@@ -1,16 +1,16 @@
 # Build from the repository root (the module replaces ../shared):
-#   docker build -f kasm-agent/Dockerfile .
+#   docker build -f kasmvnc-sidecar/Dockerfile .
 FROM --platform=$BUILDPLATFORM golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc AS builder
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY shared/ shared/
-COPY kasm-agent/ kasm-agent/
-WORKDIR /src/kasm-agent
+COPY kasmvnc-sidecar/ kasmvnc-sidecar/
+WORKDIR /src/kasmvnc-sidecar
 RUN go mod download
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/kasm-agent ./cmd
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/kasmvnc-sidecar ./cmd
 
 # PulseAudio for the audio routes (ADR 0004): the daemon, the three
-# modules the agent loads and parec, with the shared libraries they
+# modules the sidecar loads and parec, with the shared libraries they
 # resolve — copied into the same base below instead of installing the
 # package there, because Debian's pulseaudio drags gstreamer, ffmpeg and
 # the ALSA plugins (≈190 MB) that nothing here loads. Alpine's build is
@@ -44,6 +44,6 @@ RUN set -eu; \
 FROM debian:13-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
 WORKDIR /
 COPY --from=pulse /out /
-COPY --from=builder /out/kasm-agent /kasm-agent
+COPY --from=builder /out/kasmvnc-sidecar /kasmvnc-sidecar
 USER 65532:65532
-ENTRYPOINT ["/kasm-agent"]
+ENTRYPOINT ["/kasmvnc-sidecar"]

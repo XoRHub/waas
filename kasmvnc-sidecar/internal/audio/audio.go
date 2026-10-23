@@ -29,7 +29,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/xorhub/waas/shared/kasmagent"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 // Exec builds one child process; the default is exec.CommandContext, a
@@ -39,7 +39,7 @@ type Exec func(ctx context.Context, name string, args ...string) *exec.Cmd
 // Pulse supervises the PulseAudio daemon: one child, restarted with
 // backoff when it dies, for the sidecar's whole life.
 type Pulse struct {
-	// Dir is kasmagent.PulseDir: the socket, FIFO, runtime and state
+	// Dir is kasmvncsidecar.PulseDir: the socket, FIFO, runtime and state
 	// paths are all under it (the emptyDir is root-owned and world-writable, and
 	// PulseAudio insists on owning its runtime directory, so it gets a
 	// subdirectory it creates itself).
@@ -68,9 +68,9 @@ func (p *Pulse) args() []string {
 		"--disallow-module-loading", "--disallow-exit", "-n",
 		"-L", fmt.Sprintf("module-native-protocol-unix socket=%s auth-anonymous=1 auth-cookie-enabled=0", socketPath(p.Dir)),
 		"-L", fmt.Sprintf("module-null-sink sink_name=%s format=s16le rate=%d channels=%d",
-			kasmagent.PulseSink, kasmagent.AudioRate, kasmagent.AudioChannels),
+			kasmvncsidecar.PulseSink, kasmvncsidecar.AudioRate, kasmvncsidecar.AudioChannels),
 		"-L", fmt.Sprintf("module-pipe-source source_name=%s file=%s format=s16le rate=%d channels=%d",
-			kasmagent.PulseSource, fifoPath(p.Dir), kasmagent.AudioRate, kasmagent.MicChannels),
+			kasmvncsidecar.PulseSource, fifoPath(p.Dir), kasmvncsidecar.AudioRate, kasmvncsidecar.MicChannels),
 	}
 }
 
@@ -124,8 +124,8 @@ type Handler struct {
 
 // Register mounts /audio and /mic on mux.
 func Register(mux *http.ServeMux, h *Handler) {
-	mux.HandleFunc("GET "+kasmagent.PathAudio, h.audio)
-	mux.HandleFunc("GET "+kasmagent.PathMic, h.mic)
+	mux.HandleFunc("GET "+kasmvncsidecar.PathAudio, h.audio)
+	mux.HandleFunc("GET "+kasmvncsidecar.PathMic, h.mic)
 }
 
 // upgrader: no origin check here — wwt is the only caller, after its
@@ -134,7 +134,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 var upgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 
 const (
-	frameBytes = kasmagent.AudioRate * kasmagent.AudioFrameMillis / 1000 * kasmagent.AudioChannels * 2
+	frameBytes = kasmvncsidecar.AudioRate * kasmvncsidecar.AudioFrameMillis / 1000 * kasmvncsidecar.AudioChannels * 2
 	// maxStreams bounds the parec processes one sidecar runs: the portal
 	// opens one per tab, a handful of tabs is plenty.
 	maxStreams = 4
@@ -165,9 +165,9 @@ func (h *Handler) audio(w http.ResponseWriter, r *http.Request) {
 	_ = c.Close()
 	ctx, cancel := context.WithCancel(r.Context())
 	cmd := h.Exec(ctx, "parec",
-		"--device="+kasmagent.PulseSink+".monitor", "--raw", "--format=s16le",
-		"--rate="+strconv.Itoa(kasmagent.AudioRate), "--channels="+strconv.Itoa(kasmagent.AudioChannels),
-		"--latency-msec="+strconv.Itoa(kasmagent.AudioFrameMillis))
+		"--device="+kasmvncsidecar.PulseSink+".monitor", "--raw", "--format=s16le",
+		"--rate="+strconv.Itoa(kasmvncsidecar.AudioRate), "--channels="+strconv.Itoa(kasmvncsidecar.AudioChannels),
+		"--latency-msec="+strconv.Itoa(kasmvncsidecar.AudioFrameMillis))
 	cmd.Env = h.clientEnv()
 	cmd.Stderr = os.Stderr
 	// Kill leaves the pipe to an orphan open at worst; don't wait on it.
@@ -262,11 +262,15 @@ func (h *Handler) mic(w http.ResponseWriter, r *http.Request) {
 // client cookie out of the session home.
 func (h *Handler) clientEnv() []string {
 	return append(os.Environ(),
-		kasmagent.EnvPulseServer+"=unix:"+socketPath(h.Dir),
+		kasmvncsidecar.EnvPulseServer+"=unix:"+socketPath(h.Dir),
 		"PULSE_COOKIE="+filepath.Join(h.Dir, "client-cookie"))
 }
 
-// The socket and FIFO names are the contract's (kasmagent.PulseSocket,
-// kasmagent.PulseMicFIFO), under whatever directory the test chose.
-func socketPath(dir string) string { return filepath.Join(dir, filepath.Base(kasmagent.PulseSocket)) }
-func fifoPath(dir string) string   { return filepath.Join(dir, filepath.Base(kasmagent.PulseMicFIFO)) }
+// The socket and FIFO names are the contract's (kasmvncsidecar.PulseSocket,
+// kasmvncsidecar.PulseMicFIFO), under whatever directory the test chose.
+func socketPath(dir string) string {
+	return filepath.Join(dir, filepath.Base(kasmvncsidecar.PulseSocket))
+}
+func fifoPath(dir string) string {
+	return filepath.Join(dir, filepath.Base(kasmvncsidecar.PulseMicFIFO))
+}

@@ -49,7 +49,7 @@ type ClipboardGrant struct {
 // FileTransferGrant is the file-transfer permission resolved from the
 // user's WorkspacePolicy, stamped next to the clipboard grant. Zero value
 // = both directions denied (fail closed). wwt enforces it on the
-// kasm-agent file routes; the kasmvnc downloads surface stays blocked
+// kasmvnc-sidecar file routes; the kasmvnc downloads surface stays blocked
 // outright regardless.
 type FileTransferGrant struct {
 	// Upload permits local → workspace files.
@@ -60,7 +60,7 @@ type FileTransferGrant struct {
 
 // AudioGrant is the audio permission resolved from the user's
 // WorkspacePolicy. Zero value = both directions denied (fail closed).
-// wwt enforces it on the kasm-agent audio routes.
+// wwt enforces it on the kasmvnc-sidecar audio routes.
 type AudioGrant struct {
 	// Playback permits workspace → browser sound.
 	Playback bool `json:"playback"`

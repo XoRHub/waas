@@ -117,13 +117,13 @@ describe('CreateWorkspaceDialog', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  it('keeps room for the kasm-agent sidecar in the aggregate slider cap', async () => {
+  it('keeps room for the kasmvnc-sidecar in the aggregate slider cap', async () => {
     const quota = {
       policy: 'default',
       perWorkspace: { cpu: '4', memory: '4Gi' },
       limits: { cpu: '3' },
       used: { cpu: '1' },
-      kasmAgentOverhead: { cpu: '500m', memory: '128Mi' },
+      kasmvncSidecarOverhead: { cpu: '500m', memory: '128Mi' },
     };
     apiMock.route('/api/v1/me/quota', quota);
     try {

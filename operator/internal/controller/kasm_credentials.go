@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
-	"github.com/xorhub/waas/shared/kasmagent"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 // Generated KasmVNC credentials.
@@ -160,7 +160,7 @@ func (r *WorkspaceReconciler) ensureKasmCredentials(ctx context.Context, ws *waa
 // kasmEnv is the VNC_PW injection for generated-password workspaces.
 func kasmEnv(ws *waasv1alpha1.Workspace) corev1.EnvVar {
 	return corev1.EnvVar{
-		Name: kasmagent.EnvPassword,
+		Name: kasmvncsidecar.EnvPassword,
 		ValueFrom: &corev1.EnvVarSource{
 			SecretKeyRef: &corev1.SecretKeySelector{
 				LocalObjectReference: corev1.LocalObjectReference{Name: computeName(ws)},

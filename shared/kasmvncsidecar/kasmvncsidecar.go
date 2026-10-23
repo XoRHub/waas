@@ -1,9 +1,9 @@
-// Package kasmagent is the contract between the kasm-agent sidecar (which
+// Package kasmvncsidecar is the contract between the kasmvnc-sidecar (which
 // serves it), the operator (which injects the sidecar next to kasmvnc
 // desktops) and wwt (which proxies the browser to it behind the policy
 // gate). The three live in separate Go modules, so the port, env and
 // route names are kept here once instead of three literals that drift.
-package kasmagent
+package kasmvncsidecar
 
 // Port is the sidecar's fixed listen port: plain HTTP inside the pod
 // network, the same posture as the kasmvnc hop (docs/kasmvnc.md,
@@ -25,7 +25,7 @@ const EnvPassword = "VNC_PW"
 
 // EnvMaxUploadBytes caps one upload request's body; absent, the sidecar
 // applies DefaultMaxUploadBytes.
-const EnvMaxUploadBytes = "KASM_AGENT_MAX_UPLOAD_BYTES"
+const EnvMaxUploadBytes = "KASMVNC_SIDECAR_MAX_UPLOAD_BYTES"
 
 // DefaultMaxUploadBytes is 1 GiB.
 const DefaultMaxUploadBytes int64 = 1 << 30
@@ -49,12 +49,12 @@ const (
 const DefaultUploadDir = "Uploads"
 
 // Sidecar resource shape: the single source for both the pod spec
-// (operator/internal/controller/kasm_agent.go) and the quota math
+// (operator/internal/controller/kasmvnc_sidecar.go) and the quota math
 // (operator/pkg/policy.LoadOf) so the two can't drift apart. Every
 // container needs an explicit CPU limit once a policy's
 // limits.aggregate renders a namespace ResourceQuota with limits.cpu —
 // Kubernetes otherwise rejects the whole pod ("must specify limits.cpu
-// for: kasm-agent"), which kept every non-admin kasmvnc workspace
+// for: kasmvnc-sidecar"), which kept every non-admin kasmvnc workspace
 // Provisioning. 500m comfortably covers one streamed upload plus the
 // daemon serving up to 4 concurrent audio connections (parec and a copy
 // loop each — not compute-heavy) with headroom to spare.

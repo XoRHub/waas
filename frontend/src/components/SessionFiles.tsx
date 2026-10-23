@@ -10,9 +10,9 @@ interface Entry {
   mtime: string;
 }
 
-// Routes wwt serves under /kasm/{sid}/waas/ and relays to the kasm-agent
-// sidecar, each gated on the connection token's file-transfer grant.
-// Plain fetch, not the api client: the body is the agent's own JSON (no
+// Routes wwt serves under /kasm/{sid}/waas/ and relays to the kasmvnc-sidecar
+// container, each gated on the connection token's file-transfer grant.
+// Plain fetch, not the api client: the body is the sidecar's own JSON (no
 // envelope), and a 401 here — a session cookie wwt no longer accepts —
 // must not sign the user out of the portal the way an api-server 401 does.
 const filesUrl = (sessionId: string) => `/kasm/${encodeURIComponent(sessionId)}/waas/files`;
@@ -127,7 +127,7 @@ export function SessionFiles({
       if (!r.ok) throw r.status;
       const { stored } = (await r.json()) as { stored: string[] };
       setUploaded(stored.length);
-      // Uploads land in ~/Uploads (the agent's default): show them.
+      // Uploads land in ~/Uploads (the sidecar's default): show them.
       setDir('Uploads');
       setGeneration((g) => g + 1);
     } catch (e: unknown) {

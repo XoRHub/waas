@@ -129,7 +129,7 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 	if seen[string(waasv1alpha1.ProtocolKasmVNC)] {
 		if bad := kasmcfg.ManagedEnvNames(tpl.Spec.Env); len(bad) > 0 {
 			return nil, v.deny(tpl, fmt.Sprintf(
-				"env must not set %s: operator-owned on kasmvnc containers (the kasmweb side services are forced off, PULSE_SERVER points at the kasm-agent sidecar)",
+				"env must not set %s: operator-owned on kasmvnc containers (the kasmweb side services are forced off, PULSE_SERVER points at the kasmvnc-sidecar)",
 				strings.Join(bad, ", ")))
 		}
 	}

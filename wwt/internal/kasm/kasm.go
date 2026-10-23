@@ -37,7 +37,7 @@ import (
 	"time"
 
 	"github.com/xorhub/waas/shared/auth"
-	"github.com/xorhub/waas/shared/kasmagent"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 	"github.com/xorhub/waas/wwt/internal/jwks"
 	"github.com/xorhub/waas/wwt/internal/metrics"
 	"github.com/xorhub/waas/wwt/internal/proxy"
@@ -47,9 +47,9 @@ const (
 	routePrefix = "/kasm/"
 	cookieName  = "waas_kasm"
 	// agentPrefix is the subtree of /kasm/{sid}/ that is WaaS's own, not
-	// KasmVNC's: the kasm-agent sidecar's policy-gated file transfer and
+	// KasmVNC's: the kasmvnc-sidecar's policy-gated file transfer and
 	// audio (/kasm/{sid}/waas/files…, /waas/audio, /waas/mic — routed to
-	// the same host on the agent's port) and the cookie refresh below.
+	// the same host on the sidecar's port) and the cookie refresh below.
 	agentPrefix = "/waas"
 	// sessionPath (/kasm/{sid}/waas/session?token=…) only re-sets the
 	// session cookie from a fresh token and answers 204: the cookie IS the
@@ -78,7 +78,7 @@ type Handler struct {
 
 	transport http.RoundTripper
 	endGrace  time.Duration
-	// agentPort is kasmagent.Port; a field so tests can point at a fake.
+	// agentPort is kasmvncsidecar.Port; a field so tests can point at a fake.
 	agentPort int32
 
 	mu      sync.Mutex
@@ -116,7 +116,7 @@ func NewHandler(issuer string, keys *jwks.Client, api proxy.APIClient) *Handler 
 			IdleConnTimeout: 90 * time.Second,
 		},
 		endGrace:  reconnectGrace,
-		agentPort: kasmagent.Port,
+		agentPort: kasmvncsidecar.Port,
 		infos:     map[string]cachedInfo{},
 		streams:   map[string]*sessionStreams{},
 	}
@@ -201,9 +201,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// File transfer and audio go through the kasm-agent sidecar, gated on
+	// File transfer and audio go through the kasmvnc-sidecar, gated on
 	// the token's policy grants — the governed path. Same host (the
-	// workspace Service), the agent's port, the same injected Basic pair.
+	// workspace Service), the sidecar's port, the same injected Basic pair.
 	// The audio WebSockets ride ReverseProxy's upgrade handling like the
 	// desktop stream but are NOT desktop streams: they neither keep a
 	// session alive nor end it (the counting below is skipped).
@@ -218,9 +218,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		target := &url.URL{Scheme: "http", Host: net.JoinHostPort(info.Hostname, strconv.Itoa(int(h.agentPort)))}
-		// 503 rather than 502: the sidecar is optional (operator.kasmAgent
+		// 503 rather than 502: the sidecar is optional (operator.kasmvncSidecar
 		// off, or a workspace started before it was enabled).
-		h.proxyTo(target, info, sid, agentPath, http.StatusServiceUnavailable, "the kasm-agent sidecar is unavailable for this session").ServeHTTP(w, r)
+		h.proxyTo(target, info, sid, agentPath, http.StatusServiceUnavailable, "the kasmvnc-sidecar is unavailable for this session").ServeHTTP(w, r)
 		return
 	}
 
@@ -263,7 +263,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.proxyTo(target, info, sid, rest, http.StatusBadGateway, "desktop unreachable").ServeHTTP(w, r)
 }
 
-// agentRouteStatus gates a kasm-agent route on the connection token's
+// agentRouteStatus gates a kasmvnc-sidecar route on the connection token's
 // grants: 0 = allowed, otherwise the status and message to answer. Fail
 // closed — an unknown route is 404 whatever the grant, the file list
 // needs either direction, download and upload their own, playback and
@@ -274,15 +274,15 @@ func agentRouteStatus(claims *auth.ConnectionClaims, method, p string) (int, str
 	var want, denied string
 	files, audio := claims.FileTransfer, claims.Audio
 	switch p {
-	case kasmagent.PathList:
+	case kasmvncsidecar.PathList:
 		allowed, want, denied = files.Upload || files.Download, http.MethodGet, "file transfer"
-	case kasmagent.PathDownload:
+	case kasmvncsidecar.PathDownload:
 		allowed, want, denied = files.Download, http.MethodGet, "file transfer"
-	case kasmagent.PathUpload:
+	case kasmvncsidecar.PathUpload:
 		allowed, want, denied = files.Upload, http.MethodPost, "file transfer"
-	case kasmagent.PathAudio:
+	case kasmvncsidecar.PathAudio:
 		allowed, want, denied = audio.Playback, http.MethodGet, "audio"
-	case kasmagent.PathMic:
+	case kasmvncsidecar.PathMic:
 		allowed, want, denied = audio.Microphone, http.MethodGet, "the microphone"
 	default:
 		return http.StatusNotFound, "not found"
@@ -351,8 +351,8 @@ func (h *Handler) endSession(sid, workspaceID string, s *sessionStreams, gen uin
 	slog.Info("kasm session ended", "session", sid, "workspace", workspaceID)
 }
 
-// proxyTo relays one request to target (KasmVNC itself, or the kasm-agent
-// sidecar on the same host) with the session's Basic pair injected;
+// proxyTo relays one request to target (KasmVNC itself, or the kasmvnc-sidecar
+// container on the same host) with the session's Basic pair injected;
 // unreachableStatus/unreachableMsg is what the browser sees when the
 // upstream does not answer.
 func (h *Handler) proxyTo(target *url.URL, info *proxy.ConnectionInfo, sid, rest string, unreachableStatus int, unreachableMsg string) *httputil.ReverseProxy {

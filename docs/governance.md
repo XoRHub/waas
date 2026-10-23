@@ -34,12 +34,12 @@ WorkspacePolicy ── images[] ───────────►  WorkspaceI
   `perWorkspace` cpu/memory and the image's `resources.min`/`max` size
   the desktop container alone (what the portal slider sets), while
   `aggregate` and the portal's "used" numbers count the whole pod: on
-  kasmvnc a workspace's load adds the `kasm-agent` sidecar's limit
-  (`operator/pkg/policy.LoadOf`, numbers shared from `shared/kasmagent`)
+  kasmvnc a workspace's load adds the `kasmvnc-sidecar` container's limit
+  (`operator/pkg/policy.LoadOf`, numbers shared from `shared/kasmvncsidecar`)
   — needed because the namespace `ResourceQuota` an `aggregate` cap
   renders sums every container the same way (`docs/kasmvnc.md` § Pod
   shape). The sidecar is counted even where the operator won't inject
-  it (`operator.kasmAgent.enabled: false`, or no `VNC_PW`): neither is
+  it (`operator.kasmvncSidecar.enabled: false`, or no `VNC_PW`): neither is
   knowable from the quota math, so it stays conservative and identical
   in the api-server and the operator.
   `limits.defaults` is the sizing the portal pre-selects on the creation
@@ -381,8 +381,8 @@ before the field existed. Resolved like the clipboard: the api-server
 reads the CONNECTING user's policy at `/connect` and stamps the grant
 into the connection token (`fileTransfer`) and the session capabilities
 (`fileUpload`/`fileDownload`); no params clamp it. Enforcement points:
-on **kasmvnc**, wwt gates the portal's Files section (the `kasm-agent`
-sidecar routes: list needs either direction, download and upload their
+on **kasmvnc**, wwt gates the portal's Files section (the `kasmvnc-sidecar`
+routes: list needs either direction, download and upload their
 own) on the CONNECTING user's grant — the governed path, enforced
 outside the session container (`docs/kasmvnc.md` § Files, ADR 0003);
 and the operator reads the workspace **owner's** policy at reconcile to
@@ -404,7 +404,7 @@ denied**. Resolved the same way: the api-server reads the CONNECTING
 user's policy at `/connect` and stamps the grant into the connection
 token (`audio`) and the session capabilities (`audioPlayback`,
 `microphone`); no params clamp it. Enforcement point: on **kasmvnc**,
-wwt gates the session menu's audio links (the `kasm-agent` sidecar's
+wwt gates the session menu's audio links (the `kasmvnc-sidecar` container's
 `/audio` and `/mic` WebSockets, one grant each) on the CONNECTING user's
 grant — enforced outside the session container, the governed path
 (`docs/kasmvnc.md` § Audio, ADR 0004). The guacd protocols are

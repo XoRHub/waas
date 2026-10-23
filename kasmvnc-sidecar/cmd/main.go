@@ -1,4 +1,4 @@
-// kasm-agent is the WaaS sidecar of kasmvnc workspaces: it serves the
+// kasmvnc-sidecar is the WaaS sidecar of kasmvnc workspaces: it serves the
 // session user's home directory (list / download / upload) and the
 // session's audio (playback and microphone WebSockets, backed by its own
 // PulseAudio daemon) to wwt, which gates every request on the connection
@@ -18,10 +18,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/xorhub/waas/kasm-agent/internal/audio"
-	"github.com/xorhub/waas/kasm-agent/internal/basicauth"
-	"github.com/xorhub/waas/kasm-agent/internal/files"
-	"github.com/xorhub/waas/shared/kasmagent"
+	"github.com/xorhub/waas/kasmvnc-sidecar/internal/audio"
+	"github.com/xorhub/waas/kasmvnc-sidecar/internal/basicauth"
+	"github.com/xorhub/waas/kasmvnc-sidecar/internal/files"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 func main() {
@@ -30,16 +30,16 @@ func main() {
 	// HOME is the directory served (the desktop's home mount, set by the
 	// operator); VNC_PW the one credential accepted. Fail closed on either.
 	home := os.Getenv("HOME")
-	password := os.Getenv(kasmagent.EnvPassword)
+	password := os.Getenv(kasmvncsidecar.EnvPassword)
 	if home == "" || password == "" {
-		slog.Error("HOME and " + kasmagent.EnvPassword + " are required")
+		slog.Error("HOME and " + kasmvncsidecar.EnvPassword + " are required")
 		os.Exit(1)
 	}
-	maxUpload := kasmagent.DefaultMaxUploadBytes
-	if v := os.Getenv(kasmagent.EnvMaxUploadBytes); v != "" {
+	maxUpload := kasmvncsidecar.DefaultMaxUploadBytes
+	if v := os.Getenv(kasmvncsidecar.EnvMaxUploadBytes); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n <= 0 {
-			slog.Error("invalid "+kasmagent.EnvMaxUploadBytes, "value", v)
+			slog.Error("invalid "+kasmvncsidecar.EnvMaxUploadBytes, "value", v)
 			os.Exit(1)
 		}
 		maxUpload = n
@@ -55,18 +55,18 @@ func main() {
 
 	mux := http.NewServeMux()
 	files.Register(mux, root, maxUpload)
-	audio.Register(mux, &audio.Handler{Dir: kasmagent.PulseDir, Exec: exec.CommandContext, WriteTimeout: 5 * time.Second})
+	audio.Register(mux, &audio.Handler{Dir: kasmvncsidecar.PulseDir, Exec: exec.CommandContext, WriteTimeout: 5 * time.Second})
 	// The daemon is supervised for the sidecar's whole life; the routes
 	// answer 503 while it is down.
-	go (&audio.Pulse{Dir: kasmagent.PulseDir, Exec: exec.CommandContext, Backoff: time.Second}).Run(context.Background())
+	go (&audio.Pulse{Dir: kasmvncsidecar.PulseDir, Exec: exec.CommandContext, Backoff: time.Second}).Run(context.Background())
 
 	srv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", kasmagent.Port),
+		Addr:              fmt.Sprintf(":%d", kasmvncsidecar.Port),
 		Handler:           basicauth.Require(password, mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	slog.Info("kasm-agent listening", "addr", srv.Addr, "home", home, "maxUploadBytes", maxUpload)
+	slog.Info("kasmvnc-sidecar listening", "addr", srv.Addr, "home", home, "maxUploadBytes", maxUpload)
 	err = srv.ListenAndServe()
-	slog.Error("kasm-agent exited", "error", err)
+	slog.Error("kasmvnc-sidecar exited", "error", err)
 	os.Exit(1)
 }

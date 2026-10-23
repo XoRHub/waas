@@ -22,7 +22,7 @@ import (
 	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/metakeys"
 	"github.com/xorhub/waas/operator/pkg/policy"
-	"github.com/xorhub/waas/shared/kasmagent"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 // annotationPodTemplateHash fingerprints the desired pod template so
@@ -164,10 +164,10 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 		mounts = append(mounts, corev1.VolumeMount{Name: kasmShmVolume, MountPath: kasmShmPath})
 	}
 
-	// The kasm-agent sidecar (kasm_agent.go) shares a small emptyDir with
+	// The kasmvnc-sidecar (kasmvnc_sidecar.go) shares a small emptyDir with
 	// the desktop: its PulseAudio socket and microphone FIFO live there,
 	// and the desktop's audio clients are pointed at it (desktopEnv).
-	agent := r.kasmAgentEnabled(ws, tpl)
+	agent := r.kasmvncSidecarEnabled(ws, tpl)
 	if agent {
 		volumes = append(volumes, corev1.Volume{
 			Name: kasmPulseVolume,
@@ -228,11 +228,11 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 		},
 	}
 	containers := []corev1.Container{desktop}
-	// Policy-gated file transfer and audio for kasmvnc: the kasm-agent
-	// sidecar (kasm_agent.go), sharing the home volume, the Pulse emptyDir
+	// Policy-gated file transfer and audio for kasmvnc: the kasmvnc-sidecar
+	// sidecar (kasmvnc_sidecar.go), sharing the home volume, the Pulse emptyDir
 	// and the VNC_PW credential.
 	if agent {
-		containers = append(containers, kasmAgentContainer(tpl, desktop, podSecurityContext, r.KasmAgent))
+		containers = append(containers, kasmvncSidecarContainer(tpl, desktop, podSecurityContext, r.KasmVNCSidecar))
 	}
 	built := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
@@ -472,8 +472,8 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 // provides one — the kasmvnc and vnc/rdp mechanisms are mutually
 // exclusive, so at most one injection fires. kasmvnc containers also get
 // the kasmweb side services stamped — off, except the printer when the
-// owner's policy allows download — and, with the kasm-agent sidecar
-// (agent), PULSE_SERVER pointing at its PulseAudio; all laid last so no
+// owner's policy allows download — and, with the kasmvnc-sidecar,
+// PULSE_SERVER pointing at its PulseAudio; all laid last so no
 // template or override value survives (kasmcfg.ManagedEnv).
 func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides, printing, agent bool) []corev1.EnvVar {
 	env := mergeEnv(tpl.Spec.Env, sanitizeOverrideEnv(ov.Env))
@@ -487,7 +487,7 @@ func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate,
 			off = append(off, corev1.EnvVar{Name: name, Value: value})
 		}
 		if agent {
-			off = append(off, corev1.EnvVar{Name: kasmagent.EnvPulseServer, Value: kasmagent.PulseServer})
+			off = append(off, corev1.EnvVar{Name: kasmvncsidecar.EnvPulseServer, Value: kasmvncsidecar.PulseServer})
 		}
 		// mergeEnv only replaces the FIRST entry of a given name, so a
 		// stored template that lists one of these names twice (legacy

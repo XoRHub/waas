@@ -99,9 +99,9 @@ tests:
             name: WAAS_DESKTOP_EGRESS_EXTRA_ALLOWED_CIDRS
             value: "192.168.42.0/24,203.0.113.7/32"
 
-  # The kasm-agent sidecar image follows the component registry/tag, and
+  # The kasmvnc-sidecar image follows the component registry/tag, and
   # the empty image is the operator's off switch.
-  - it: hands the kasm-agent image and upload cap to the operator
+  - it: hands the kasmvnc-sidecar image and upload cap to the operator
     set:
       image.registry: test.registry.example/waas
       image.tag: v9.9.9-unittest
@@ -109,26 +109,26 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: WAAS_KASM_AGENT_IMAGE
-            value: test.registry.example/waas/kasm-agent:v9.9.9-unittest
+            name: WAAS_KASMVNC_SIDECAR_IMAGE
+            value: test.registry.example/waas/kasmvnc-sidecar:v9.9.9-unittest
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: WAAS_KASM_AGENT_MAX_UPLOAD_SIZE
+            name: WAAS_KASMVNC_SIDECAR_MAX_UPLOAD_SIZE
             value: "1Gi"
 
-  - it: turns the kasm-agent sidecar off with an empty image
+  - it: turns the kasmvnc-sidecar off with an empty image
     set:
-      operator.kasmAgent.enabled: false
-      operator.kasmAgent.maxUploadSize: 200Mi
+      operator.kasmvncSidecar.enabled: false
+      operator.kasmvncSidecar.maxUploadSize: 200Mi
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: WAAS_KASM_AGENT_IMAGE
+            name: WAAS_KASMVNC_SIDECAR_IMAGE
             value: ""
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: WAAS_KASM_AGENT_MAX_UPLOAD_SIZE
+            name: WAAS_KASMVNC_SIDECAR_MAX_UPLOAD_SIZE
             value: "200Mi"

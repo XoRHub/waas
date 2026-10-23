@@ -169,7 +169,7 @@ func TestRemoteConnectClipboardClampedByParams(t *testing.T) {
 }
 
 // File transfer and audio are opt-in and policy-only: the grant lands
-// identically in the token (what the kasm-agent routes enforce) and the
+// identically in the token (what the kasmvnc-sidecar routes enforce) and the
 // capabilities (what the session menu shows); no policy block means both
 // denied.
 func TestConnectFileTransferGrant(t *testing.T) {
