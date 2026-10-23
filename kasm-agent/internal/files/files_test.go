@@ -3,7 +3,9 @@ package files
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -43,6 +45,11 @@ func newServer(t *testing.T, maxUpload int64) (*httptest.Server, string) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, filepath.Join(home, "leakdir")); err != nil {
+		t.Fatal(err)
+	}
+	// A relative symlink staying inside the home: browsable like its
+	// target (os.Root refuses absolute link targets outright).
+	if err := os.Symlink("Documents", filepath.Join(home, "docs")); err != nil {
 		t.Fatal(err)
 	}
 	root, err := os.OpenRoot(home)
@@ -119,13 +126,18 @@ func TestListsDirectoriesFirst(t *testing.T) {
 	for i, e := range entries {
 		names[i] = e.Name
 	}
-	// Documents is the only real directory (the symlinks are not
-	// directories to Lstat); the rest follows ReadDir's name order.
-	if want := "Documents,leak,leakdir,notes.txt"; strings.Join(names, ",") != want {
+	// Symlinks read as their target: docs → Documents is a directory, and
+	// the two escaping ones are not listed at all. Directories first, then
+	// ReadDir's name order.
+	if want := "Documents,docs,notes.txt"; strings.Join(names, ",") != want {
 		t.Fatalf("expected %s, got %s", want, strings.Join(names, ","))
 	}
-	if !entries[0].Dir || entries[3].Dir || entries[3].Size != 5 || entries[3].MTime.IsZero() {
+	if !entries[0].Dir || !entries[1].Dir || entries[2].Dir || entries[2].Size != 5 || entries[2].MTime.IsZero() {
 		t.Fatalf("unexpected entries: %+v", entries)
+	}
+	resp = do(t, http.MethodGet, srv.URL+"/files?path=docs", nil, "")
+	if body := readBody(t, resp); resp.StatusCode != http.StatusOK || !strings.Contains(body, `"report.pdf"`) {
+		t.Fatalf("expected the linked directory to browse, got %d %s", resp.StatusCode, body)
 	}
 
 	resp = do(t, http.MethodGet, srv.URL+"/files?path=Documents", nil, "")
@@ -304,6 +316,48 @@ func TestUploadsNeverOverwrite(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404 for an unknown route, got %d", resp.StatusCode)
+	}
+}
+
+// No transaction over the home: a part that fails leaves the ones before
+// it stored, and the response says which.
+func TestUploadFailureNamesWhatWasStored(t *testing.T) {
+	srv, home := newServer(t, 1<<20)
+	resp := do(t, http.MethodPost, srv.URL+"/files/upload", multipartBody(t, "first.txt", "ok", "..", "x"), multipartType)
+	body := readBody(t, resp)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "already stored: first.txt") {
+		t.Fatalf("expected 400 naming first.txt, got %d %q", resp.StatusCode, body)
+	}
+	if _, err := os.Stat(filepath.Join(home, "Uploads", "first.txt")); err != nil {
+		t.Fatalf("the part stored before the failure must stay: %v", err)
+	}
+
+	// A body that is not multipart at all, or truncated, is the client's.
+	resp = do(t, http.MethodPost, srv.URL+"/files/upload", strings.NewReader("--b0undary\r\nContent-Disposition: form-data; name=\"files\"; filename=\"a\"\r\n\r\ncut"), multipartType)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a truncated body, got %d", resp.StatusCode)
+	}
+}
+
+// The status says whose fault it is: the path the client named (400), a
+// full volume (507), the server's own trouble (500).
+func TestErrorStatus(t *testing.T) {
+	cases := []struct {
+		err  error
+		want int
+	}{
+		{&fs.PathError{Op: "open", Path: "x", Err: fs.ErrNotExist}, http.StatusNotFound},
+		{&fs.PathError{Op: "open", Path: "x", Err: fs.ErrPermission}, http.StatusForbidden},
+		{&fs.PathError{Op: "write", Path: "x", Err: syscall.ENOSPC}, http.StatusInsufficientStorage},
+		{&fs.PathError{Op: "openat", Path: "x", Err: syscall.ENOTDIR}, http.StatusBadRequest},
+		{&fs.PathError{Op: "openat", Path: "x", Err: errors.New("path escapes from parent")}, http.StatusBadRequest},
+		{&fs.PathError{Op: "read", Path: "x", Err: syscall.EIO}, http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		if got, _ := errorStatus(tc.err); got != tc.want {
+			t.Errorf("%v: expected %d, got %d", tc.err, tc.want, got)
+		}
 	}
 }
 

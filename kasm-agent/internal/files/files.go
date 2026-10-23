@@ -11,6 +11,7 @@ package files
 
 import (
 	"cmp"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -104,10 +105,16 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	out := make([]Entry, 0, len(entries))
 	for _, e := range entries {
 		info, err := e.Info()
-		if err != nil {
-			continue // removed between readdir and stat
+		if err == nil && e.Type()&fs.ModeSymlink != 0 {
+			// A symlink reads as its target, so a linked directory browses
+			// as one; a link escaping the home — refused by os.Root — is
+			// not listed at all rather than shown as a dead file.
+			info, err = h.root.Stat(path.Join(rel, e.Name()))
 		}
-		out = append(out, Entry{Name: e.Name(), Dir: e.IsDir(), Size: info.Size(), MTime: info.ModTime().UTC()})
+		if err != nil {
+			continue // removed between readdir and stat, or escaping
+		}
+		out = append(out, Entry{Name: e.Name(), Dir: info.IsDir(), Size: info.Size(), MTime: info.ModTime().UTC()})
 	}
 	// Already sorted by name; a stable sort puts directories first.
 	slices.SortStableFunc(out, func(a, b Entry) int { return cmp.Compare(btoi(b.Dir), btoi(a.Dir)) })
@@ -173,6 +180,8 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	// Parts are streamed straight to disk — no spooling — so a large
 	// upload never costs memory or a writable filesystem beyond the home.
+	// There is no transaction over the home: a part that fails leaves the
+	// ones before it stored, and the error names them.
 	stored := []string{}
 	for {
 		part, err := mr.NextPart()
@@ -180,7 +189,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		if err != nil {
-			h.uploadError(w, err)
+			h.uploadError(w, fmt.Errorf("%w: %w", errBadBody, err), stored)
 			return
 		}
 		if part.FileName() == "" {
@@ -188,13 +197,18 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		}
 		name, err := h.store(rel, part)
 		if err != nil {
-			h.uploadError(w, err)
+			h.uploadError(w, err, stored)
 			return
 		}
 		stored = append(stored, name)
 	}
 	writeJSON(w, map[string][]string{"stored": stored})
 }
+
+var (
+	errBadName = errors.New("invalid file name")
+	errBadBody = errors.New("malformed multipart body")
+)
 
 // store writes one part into dir, never overwriting: an existing name
 // gets " (1)", " (2)"… before its extension. A write that fails midway
@@ -204,7 +218,7 @@ func (h *Handler) store(dir string, part *multipart.Part) (string, error) {
 	// last element and the directory-like names are refused.
 	base := filepath.Base(part.FileName())
 	if base == "." || base == ".." || base == string(filepath.Separator) {
-		return "", fmt.Errorf("invalid file name %q", part.FileName())
+		return "", fmt.Errorf("%w %q", errBadName, part.FileName())
 	}
 	ext := path.Ext(base)
 	stem := strings.TrimSuffix(base, ext)
@@ -233,34 +247,76 @@ func (h *Handler) store(dir string, part *multipart.Part) (string, error) {
 	}
 }
 
-func (h *Handler) uploadError(w http.ResponseWriter, err error) {
+// uploadError answers a failed part: the cap (413), a body or name the
+// client got wrong (400), else the home's own verdict (errorStatus). The
+// parts already stored stay and are named, so the client knows what to
+// resend.
+func (h *Handler) uploadError(w http.ResponseWriter, err error, stored []string) {
 	var tooBig *http.MaxBytesError
-	if errors.As(err, &tooBig) {
-		http.Error(w, fmt.Sprintf("upload exceeds the %d byte limit", h.maxUpload), http.StatusRequestEntityTooLarge)
-		return
+	var status int
+	var msg string
+	switch {
+	case errors.As(err, &tooBig):
+		status, msg = http.StatusRequestEntityTooLarge, fmt.Sprintf("upload exceeds the %d byte limit", h.maxUpload)
+	case errors.Is(err, errBadName), errors.Is(err, errBadBody), errors.Is(err, io.ErrUnexpectedEOF):
+		status, msg = http.StatusBadRequest, "invalid upload"
+	default:
+		status, msg = errorStatus(err)
 	}
-	if errors.Is(err, fs.ErrPermission) {
-		http.Error(w, "permission denied", http.StatusForbidden)
-		return
+	logFailure("upload", "", status, err)
+	if len(stored) > 0 {
+		msg += "; already stored: " + strings.Join(stored, ", ")
 	}
-	slog.Warn("upload failed", "error", err)
-	http.Error(w, "upload failed", http.StatusBadRequest)
+	http.Error(w, msg, status)
 }
 
-// fsError maps what os.Root refused to a status. Anything that is not
-// "missing" or "permission" is about the path the client named — an
-// escaping symlink, a file where a directory was expected — not about
-// the server, so it reads as 400; the detail goes to the log only.
+// fsError answers what the home refused on a list or download.
 func (h *Handler) fsError(w http.ResponseWriter, op, rel string, err error) {
+	status, msg := errorStatus(err)
+	logFailure(op, rel, status, err)
+	http.Error(w, msg, status)
+}
+
+// errorStatus maps a filesystem error to a status: missing (404),
+// permission (403), a full home volume (507), a path the client named
+// that os.Root cannot resolve (400) and, for anything else — a failing
+// volume, exhausted descriptors — the server's own fault (500).
+func errorStatus(err error) (int, string) {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		http.Error(w, "not found", http.StatusNotFound)
+		return http.StatusNotFound, "not found"
 	case errors.Is(err, fs.ErrPermission):
-		http.Error(w, "permission denied", http.StatusForbidden)
-	default:
-		slog.Warn(op+" refused", "path", rel, "error", err)
-		http.Error(w, "invalid path", http.StatusBadRequest)
+		return http.StatusForbidden, "permission denied"
+	case errors.Is(err, syscall.ENOSPC):
+		return http.StatusInsufficientStorage, "no space left on the home volume"
+	case isPathError(err):
+		return http.StatusBadRequest, "invalid path"
 	}
+	return http.StatusInternalServerError, "internal error"
+}
+
+// isPathError says the client named something that cannot resolve: a file
+// where a directory was expected or the reverse, a symlink loop, an
+// invalid or too long name, or a symlink escaping the home. The last one
+// is os.Root's own refusal, whose error (os.errPathEscapes) is not
+// exported — hence the message match.
+func isPathError(err error) bool {
+	for _, e := range []error{syscall.ENOTDIR, syscall.EISDIR, syscall.ELOOP, syscall.ENAMETOOLONG, syscall.EINVAL} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return strings.Contains(err.Error(), "escapes from parent")
+}
+
+// logFailure keeps the detail out of the response: a 4xx is the client's
+// doing (Warn), a 5xx the server's (Error).
+func logFailure(op, rel string, status int, err error) {
+	level := slog.LevelWarn
+	if status >= http.StatusInternalServerError {
+		level = slog.LevelError
+	}
+	slog.Log(context.Background(), level, op+" failed", "path", rel, "status", status, "error", err)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
