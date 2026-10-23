@@ -349,7 +349,7 @@ is exercised by CI.
 | Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time); session-menu manual exchange via the client's messages, gated by the connecting user's capabilities |
 | Persistent home | ✅ | ✅ | ✅ (`/home/kasm-user`) |
 | Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ |
-| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked (policy `fileTransfer` carried in the token, not read yet) | 🚫 | 🚫 `/api/downloads` and `/Downloads/…` blocked at the proxy (same: grant carried, routes pending) |
+| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked (policy `fileTransfer` carried in the token, not read yet) | 🚫 | 🚫 `/api/downloads` and `/Downloads/…` blocked at the proxy (same: grant carried, routes pending) — HTTP routes only: a soft control against a determined occupant (print over RFB, own Xvnc, the screen; `docs/kasmvnc.md`) |
 | Printing | ❌ | ❌ | ⚙️ `KASM_SVC_PRINTER` on when the owner's policy allows `download` — soft gate (container env), `docs/kasmvnc.md` |
 | Watermark | ❌ | ❌ | ✅ policy `watermark` text (`{user}`, strftime), stamped into `kasmvnc.yaml` — soft (Xvnc-rendered) |
 | Session recording | 🚫 `recording-*` platform-blocked | 🚫 | ❌ |
