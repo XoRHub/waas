@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
-	"github.com/xorhub/waas/shared/kasmagent"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 func qty(s string) *resource.Quantity { q := resource.MustParse(s); return &q }
@@ -177,13 +177,13 @@ func TestLoadOfPrecedence(t *testing.T) {
 	}
 }
 
-// A kasmvnc template's load must include the kasm-agent sidecar's own
+// A kasmvnc template's load must include the kasmvnc-sidecar's own
 // footprint, not just the desktop container — otherwise the aggregate
 // caps and the portal's "used" numbers undercount what the namespace
 // ResourceQuota (derived from the same aggregate) actually sums across
 // every container, letting the admission pre-check pass a workspace the
 // cluster then rejects.
-func TestLoadOfCountsKasmAgentSidecar(t *testing.T) {
+func TestLoadOfCountsKasmVNCSidecar(t *testing.T) {
 	kasmTpl := &waasv1alpha1.WorkspaceTemplate{
 		Spec: waasv1alpha1.WorkspaceTemplateSpec{
 			Protocols: []waasv1alpha1.WorkspaceProtocol{{Name: "kasmvnc", Port: 6901, Default: true}},
@@ -199,14 +199,14 @@ func TestLoadOfCountsKasmAgentSidecar(t *testing.T) {
 		t.Fatal("compute should be known from template requests")
 	}
 	wantCPU := resource.MustParse("500m")
-	wantCPU.Add(resource.MustParse(kasmagent.SidecarCPULimit))
+	wantCPU.Add(resource.MustParse(kasmvncsidecar.SidecarCPULimit))
 	wantMem := resource.MustParse("1Gi")
-	wantMem.Add(resource.MustParse(kasmagent.SidecarMemoryLimit))
+	wantMem.Add(resource.MustParse(kasmvncsidecar.SidecarMemoryLimit))
 	if load.CPU.Cmp(wantCPU) != 0 {
-		t.Fatalf("expected the desktop's cpu plus the sidecar's %s limit, got %s", kasmagent.SidecarCPULimit, &load.CPU)
+		t.Fatalf("expected the desktop's cpu plus the sidecar's %s limit, got %s", kasmvncsidecar.SidecarCPULimit, &load.CPU)
 	}
 	if load.Memory.Cmp(wantMem) != 0 {
-		t.Fatalf("expected the desktop's memory plus the sidecar's %s limit, got %s", kasmagent.SidecarMemoryLimit, &load.Memory)
+		t.Fatalf("expected the desktop's memory plus the sidecar's %s limit, got %s", kasmvncsidecar.SidecarMemoryLimit, &load.Memory)
 	}
 
 	// A non-kasmvnc template (e.g. guacd/vnc) never gets the sidecar.

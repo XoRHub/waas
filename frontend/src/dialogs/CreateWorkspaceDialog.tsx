@@ -126,12 +126,12 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     if (!limit) return undefined;
     return parse(limit) - parse(q?.used?.[kind] ?? '0');
   };
-  // Room for the slider: a kasmvnc workspace also brings its kasm-agent
-  // sidecar, which the aggregate counts but the slider does not size.
+  // Room for the slider: a kasmvnc workspace also brings its kasmvnc-sidecar
+  // container, which the aggregate counts but the slider does not size.
   const isKasm = template?.protocols?.some((p) => p.name === 'kasmvnc') ?? false;
   const room = (kind: 'cpu' | 'memory', parse: (s: string) => number) => {
     const left = remaining(kind, parse);
-    const sidecar = isKasm ? q?.kasmAgentOverhead?.[kind] : undefined;
+    const sidecar = isKasm ? q?.kasmvncSidecarOverhead?.[kind] : undefined;
     return left === undefined || !sidecar ? left : left - parse(sidecar);
   };
 

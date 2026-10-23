@@ -63,7 +63,7 @@ export class PcmQueue {
 
 if (typeof registerProcessor === 'function') {
   // Prime with 60 ms before playing (and again after an underrun), drop
-  // beyond 300 ms: the agent sends 20 ms frames.
+  // beyond 300 ms: the sidecar sends 20 ms frames.
   const PRIME_FRAMES = sampleRate * 0.06;
   const MAX_FRAMES = sampleRate * 0.3;
   const CAPTURE_FRAMES = Math.round(sampleRate * 0.02);

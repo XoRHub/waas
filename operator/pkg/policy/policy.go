@@ -17,7 +17,7 @@ import (
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/pkg/naming"
-	"github.com/xorhub/waas/shared/kasmagent"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 // DefaultHomeSize mirrors the reconciler's default when a template does
@@ -333,7 +333,7 @@ type Load struct {
 	CPU     resource.Quantity
 	Memory  resource.Quantity
 	Storage resource.Quantity
-	// SidecarCPU/SidecarMemory: the kasm-agent part already inside
+	// SidecarCPU/SidecarMemory: the kasmvnc-sidecar part already inside
 	// CPU/Memory (zero off kasmvnc). Per-workspace bounds (image min/max,
 	// perWorkspace) size the desktop container — what the portal slider
 	// sets — so CheckLimits subtracts it there; aggregates keep the pod total.
@@ -414,7 +414,7 @@ func RetainedVolumeLoads(pvcs []corev1.PersistentVolumeClaim, exclude types.Name
 // TemplateHasKasmVNC reports whether any of the template's protocols is
 // the web-native KasmVNC endpoint. Single source for both the operator
 // (pod template, config) and this package's quota math, so they can't
-// disagree about which workloads carry the extra kasm-agent footprint.
+// disagree about which workloads carry the extra kasmvnc-sidecar footprint.
 func TemplateHasKasmVNC(tpl *waasv1alpha1.WorkspaceTemplate) bool {
 	for _, p := range tpl.Spec.Protocols {
 		if p.Name == string(waasv1alpha1.ProtocolKasmVNC) {
@@ -450,8 +450,8 @@ func LoadOf(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, img
 	}
 	load.CPU, load.Memory = cpu, mem
 
-	// The operator injects the kasm-agent sidecar next to every kasmvnc
-	// desktop (operator/internal/controller.kasmAgentEnabled also checks
+	// The operator injects the kasmvnc-sidecar next to every kasmvnc
+	// desktop (operator/internal/controller.kasmvncSidecarEnabled also checks
 	// the operator-wide image toggle and the desktop's resolved VNC_PW,
 	// neither knowable here nor to the api-server's quota view) — add
 	// its footprint, or the aggregate caps and the portal's "used"
@@ -461,8 +461,8 @@ func LoadOf(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, img
 	// fleet-wide, or no VNC_PW) only makes this pre-check a little more
 	// conservative, never wrong in the unsafe direction.
 	if cpuOK && memOK && TemplateHasKasmVNC(tpl) {
-		load.SidecarCPU = resource.MustParse(kasmagent.SidecarCPULimit)
-		load.SidecarMemory = resource.MustParse(kasmagent.SidecarMemoryLimit)
+		load.SidecarCPU = resource.MustParse(kasmvncsidecar.SidecarCPULimit)
+		load.SidecarMemory = resource.MustParse(kasmvncsidecar.SidecarMemoryLimit)
 		load.CPU.Add(load.SidecarCPU)
 		load.Memory.Add(load.SidecarMemory)
 	}

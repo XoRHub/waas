@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xorhub/waas/kasm-agent/internal/basicauth"
+	"github.com/xorhub/waas/kasmvnc-sidecar/internal/basicauth"
 )
 
 const testPassword = "vnc-pw-1"

@@ -1,7 +1,7 @@
 import workletUrl from './pcmWorklet.js?url&no-inline';
 import { refreshKasmCookie } from '@/lib/kasmCookie';
 
-// Audio of kasmvnc sessions, through the kasm-agent sidecar's WebSockets
+// Audio of kasmvnc sessions, through the kasmvnc-sidecar's WebSockets
 // (wwt routes /kasm/{sid}/waas/audio and /waas/mic, each gated on the
 // connection token's audio grant). Wire format: raw PCM s16le 48 kHz in
 // 20 ms binary frames — stereo out of the workspace, mono into it.

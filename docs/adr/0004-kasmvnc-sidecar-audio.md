@@ -1,4 +1,4 @@
-# ADR 0004 — Audio on KasmVNC: PulseAudio inside the kasm-agent sidecar
+# ADR 0004 — Audio on KasmVNC: PulseAudio inside the kasmvnc-sidecar
 
 **Status**: accepted (2026-10-23). **Decider**: platform owner, on the
 Lot 4 restitution of the KasmVNC support plan.
@@ -22,11 +22,11 @@ transfer and announced that audio would extend it.
 
 ## Decision
 
-**PulseAudio lives in the sidecar, not in the desktop.** The kasm-agent
+**PulseAudio lives in the sidecar, not in the desktop.** The kasmvnc-sidecar
 supervises one `pulseaudio` daemon (restart with backoff) loading three
 modules and nothing else: `module-native-protocol-unix` on a socket in a
 small Memory emptyDir the operator mounts in **both** containers
-(`/run/waas-pulse`, `kasmagent.PulseDir`), `module-null-sink` (`waas_out`,
+(`/run/waas-pulse`, `kasmvncsidecar.PulseDir`), `module-null-sink` (`waas_out`,
 s16le 48 kHz stereo — the default sink) and `module-pipe-source`
 (`waas_mic`, a FIFO in the same emptyDir, s16le 48 kHz mono — the default
 source). The three modules are passed on the daemon's command line
@@ -43,7 +43,7 @@ in templates like them (`kasmcfg.ManagedEnv`). Both containers run as the
 desktop's uid, so the socket and FIFO need no permission dance;
 `auth-anonymous=1` because the only path to the socket is the pod.
 
-**Two WebSocket routes on the agent**, behind the same Basic pair as the
+**Two WebSocket routes on the sidecar**, behind the same Basic pair as the
 file routes: `GET /audio` streams the null sink's monitor (one `parec`
 per connection, killed when the socket closes) as raw PCM s16le 48 kHz
 stereo in 20 ms binary frames; `GET /mic` writes the browser's raw PCM
@@ -63,12 +63,12 @@ the upgrade when bandwidth matters more than the zero-dependency path.
 **Gate in wwt, mirror of file transfer.** `WorkspacePolicy.audio
 {playback, microphone}`, default deny, resolved for the connecting user
 at `/connect` and stamped into the connection token (`audio` claim) and
-the session capabilities (`audioPlayback`, `microphone`); wwt's agent
+the session capabilities (`audioPlayback`, `microphone`); wwt's sidecar
 gate (`agentRouteStatus`, the renamed `fileRouteStatus`) requires
 `playback` on `/waas/audio` and `microphone` on `/waas/mic`, one method
 each, before relaying the upgrade through the same `proxyTo`. The audio
 sockets are **not** desktop streams: they neither keep a session alive
-nor end it (the reconnect-grace counting is skipped on the agent
+nor end it (the reconnect-grace counting is skipped on the sidecar
 branch).
 
 **Defaults.** The chart's bootstrap default policy grants `playback`
@@ -89,7 +89,7 @@ for them: **105 MB**. Same base digest in both stages, so a library
 copied over itself is a no-op.
 
 **WebSocket library.** `gorilla/websocket`, already in wwt's `go.mod`,
-at the same version — the agent is no longer stdlib-only.
+at the same version — the sidecar is no longer stdlib-only.
 
 **Frontend.** One module, `lib/kasmAudio.ts` + `lib/pcmWorklet.js`: an
 `AudioContext` at 48 kHz per link, an `AudioWorklet` player with a small

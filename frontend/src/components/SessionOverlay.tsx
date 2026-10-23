@@ -452,7 +452,7 @@ export function SessionOverlay({
             </details>
           </section>
 
-          {/* -------- kasmvnc: files (policy-gated, kasm-agent sidecar) -------- */}
+          {/* -------- kasmvnc: files (policy-gated, kasmvnc-sidecar) -------- */}
           {!isRemote &&
             protocol === 'kasmvnc' &&
             kasmSid &&
@@ -470,7 +470,7 @@ export function SessionOverlay({
               </section>
             )}
 
-          {/* -------- kasmvnc: audio (policy-gated, kasm-agent sidecar) -------- */}
+          {/* -------- kasmvnc: audio (policy-gated, kasmvnc-sidecar) -------- */}
           {!isRemote &&
             protocol === 'kasmvnc' &&
             kasmSid &&

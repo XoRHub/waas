@@ -16,7 +16,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/xorhub/waas/shared/kasmagent"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 // newServer serves the audio routes with parec replaced by `yes` (an
@@ -26,10 +26,10 @@ import (
 func newServer(t *testing.T) (srv *httptest.Server, dir string, killed chan struct{}) {
 	t.Helper()
 	dir = t.TempDir()
-	if err := syscall.Mkfifo(filepath.Join(dir, filepath.Base(kasmagent.PulseMicFIFO)), 0o600); err != nil {
+	if err := syscall.Mkfifo(filepath.Join(dir, filepath.Base(kasmvncsidecar.PulseMicFIFO)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	l, err := net.Listen("unix", filepath.Join(dir, filepath.Base(kasmagent.PulseSocket)))
+	l, err := net.Listen("unix", filepath.Join(dir, filepath.Base(kasmvncsidecar.PulseSocket)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func dial(t *testing.T, srv *httptest.Server, path string) (*websocket.Conn, *ht
 // parec once the socket is gone.
 func TestAudioFramesAndTearsDown(t *testing.T) {
 	srv, _, killed := newServer(t)
-	ws, _, err := dial(t, srv, kasmagent.PathAudio)
+	ws, _, err := dial(t, srv, kasmvncsidecar.PathAudio)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,13 +102,13 @@ func TestAudioFramesAndTearsDown(t *testing.T) {
 func TestMicWritesTheFIFOSingleWriter(t *testing.T) {
 	srv, dir, _ := newServer(t)
 	// The daemon's role: hold the FIFO open for reading.
-	fifo, err := os.OpenFile(filepath.Join(dir, filepath.Base(kasmagent.PulseMicFIFO)), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	fifo, err := os.OpenFile(filepath.Join(dir, filepath.Base(kasmvncsidecar.PulseMicFIFO)), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer fifo.Close()
 
-	ws, _, err := dial(t, srv, kasmagent.PathMic)
+	ws, _, err := dial(t, srv, kasmvncsidecar.PathMic)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,13 +135,13 @@ func TestMicWritesTheFIFOSingleWriter(t *testing.T) {
 		t.Fatalf("expected both binary frames in the FIFO, got %d bytes", len(got))
 	}
 
-	if _, resp, err := dial(t, srv, kasmagent.PathMic); err == nil || resp == nil || resp.StatusCode != http.StatusConflict {
+	if _, resp, err := dial(t, srv, kasmvncsidecar.PathMic); err == nil || resp == nil || resp.StatusCode != http.StatusConflict {
 		t.Fatalf("a second microphone connection must be refused with 409, got err=%v resp=%v", err, resp)
 	}
 	ws.Close()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		ws2, _, err := dial(t, srv, kasmagent.PathMic)
+		ws2, _, err := dial(t, srv, kasmvncsidecar.PathMic)
 		if err == nil {
 			ws2.Close()
 			break
@@ -157,7 +157,7 @@ func TestMicWritesTheFIFOSingleWriter(t *testing.T) {
 // blocking on the open.
 func TestMicAnswers503WithoutTheDaemon(t *testing.T) {
 	srv, _, _ := newServer(t)
-	if _, resp, err := dial(t, srv, kasmagent.PathMic); err == nil || resp == nil || resp.StatusCode != http.StatusServiceUnavailable {
+	if _, resp, err := dial(t, srv, kasmvncsidecar.PathMic); err == nil || resp == nil || resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got err=%v resp=%v", err, resp)
 	}
 }
@@ -216,7 +216,7 @@ func TestAudioAnswers503WithoutTheDaemon(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "native")); err != nil {
 		t.Fatal(err)
 	}
-	if _, resp, err := dial(t, srv, kasmagent.PathAudio); err == nil || resp == nil || resp.StatusCode != http.StatusServiceUnavailable {
+	if _, resp, err := dial(t, srv, kasmvncsidecar.PathAudio); err == nil || resp == nil || resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got err=%v resp=%v", err, resp)
 	}
 }
@@ -227,21 +227,21 @@ func TestAudioCapsTheStreams(t *testing.T) {
 	srv, _, killed := newServer(t)
 	conns := make([]*websocket.Conn, maxStreams)
 	for i := range conns {
-		ws, _, err := dial(t, srv, kasmagent.PathAudio)
+		ws, _, err := dial(t, srv, kasmvncsidecar.PathAudio)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer ws.Close()
 		conns[i] = ws
 	}
-	if _, resp, err := dial(t, srv, kasmagent.PathAudio); err == nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+	if _, resp, err := dial(t, srv, kasmvncsidecar.PathAudio); err == nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("expected 429 past %d streams, got err=%v resp=%v", maxStreams, err, resp)
 	}
 	conns[0].Close()
 	<-killed
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		ws, _, err := dial(t, srv, kasmagent.PathAudio)
+		ws, _, err := dial(t, srv, kasmvncsidecar.PathAudio)
 		if err == nil {
 			ws.Close()
 			return
@@ -257,7 +257,7 @@ func TestAudioCapsTheStreams(t *testing.T) {
 // parec with it.
 func TestAudioDropsAStalledClient(t *testing.T) {
 	srv, _, killed := newServer(t)
-	ws, _, err := dial(t, srv, kasmagent.PathAudio)
+	ws, _, err := dial(t, srv, kasmvncsidecar.PathAudio)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,12 +273,12 @@ func TestAudioDropsAStalledClient(t *testing.T) {
 // the read limit.
 func TestMicRejectsOddAndOversizedFrames(t *testing.T) {
 	srv, dir, _ := newServer(t)
-	fifo, err := os.OpenFile(filepath.Join(dir, filepath.Base(kasmagent.PulseMicFIFO)), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	fifo, err := os.OpenFile(filepath.Join(dir, filepath.Base(kasmvncsidecar.PulseMicFIFO)), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer fifo.Close()
-	ws, _, err := dial(t, srv, kasmagent.PathMic)
+	ws, _, err := dial(t, srv, kasmvncsidecar.PathMic)
 	if err != nil {
 		t.Fatal(err)
 	}
