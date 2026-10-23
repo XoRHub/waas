@@ -141,14 +141,20 @@ func TestTemplateInputValidatesKasmVNCConfig(t *testing.T) {
 		{
 			"config setting a policy-managed clipboard key",
 			base("data_loss_prevention:\n  clipboard:\n    server_to_client:\n      enabled: true\n", kasm),
-			"clipboard enforcement is derived from WorkspacePolicy.Clipboard",
+			"derived from the WorkspacePolicy",
 		},
 		{
 			"config with the client-override flag",
 			base("runtime_configuration:\n  allow_client_to_override_kasm_server_settings: true\n", kasm),
-			"clipboard enforcement is derived from WorkspacePolicy.Clipboard",
+			"derived from the WorkspacePolicy",
 		},
 		{"config with an unmanaged clipboard sub-key", base("data_loss_prevention:\n  clipboard:\n    server_to_client:\n      size: unlimited\n", kasm), ""},
+		{
+			"config setting the policy-managed watermark text",
+			base("data_loss_prevention:\n  watermark:\n    text:\n      template: hello\n", kasm),
+			"derived from the WorkspacePolicy",
+		},
+		{"config with an unmanaged watermark sub-key", base("data_loss_prevention:\n  watermark:\n    text:\n      font_size: 24\n", kasm), ""},
 		{"invalid YAML", base("data_loss_prevention: [unterminated\n", kasm), "not valid YAML"},
 		{"env setting an operator-owned side-service toggle", withEnv(base("", kasm), "KASM_SVC_AUDIO"), "must not set KASM_SVC_AUDIO"},
 		{"kasmweb toggle on a vnc template", withEnv(base("", vnc), "KASM_SVC_AUDIO"), ""},
