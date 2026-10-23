@@ -2,6 +2,7 @@ package audio
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,22 +20,42 @@ import (
 )
 
 // newServer serves the audio routes with parec replaced by `yes` (an
-// endless "y\n" stream) and a FIFO of its own in a temp dir. killed is
-// closed when the handler tears the parec stand-in down.
+// endless "y\n" stream), a FIFO of its own in a temp dir and a listener
+// on the daemon's socket path. killed receives each time the handler
+// tears a parec stand-in down.
 func newServer(t *testing.T) (srv *httptest.Server, dir string, killed chan struct{}) {
 	t.Helper()
 	dir = t.TempDir()
 	if err := syscall.Mkfifo(filepath.Join(dir, filepath.Base(kasmagent.PulseMicFIFO)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	killed = make(chan struct{})
-	h := &Handler{Dir: dir, Exec: func(ctx context.Context, name string, _ ...string) *exec.Cmd {
+	l, err := net.Listen("unix", filepath.Join(dir, filepath.Base(kasmagent.PulseSocket)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	killed = make(chan struct{}, maxStreams+1)
+	// A short write timeout: TestAudioDropsAStalledClient waits it out,
+	// and every other test reads well within it.
+	h := &Handler{Dir: dir, WriteTimeout: time.Second, Exec: func(ctx context.Context, name string, _ ...string) *exec.Cmd {
 		if name != "parec" {
 			t.Errorf("unexpected command %q", name)
 		}
 		cmd := exec.CommandContext(ctx, "yes")
 		cmd.Cancel = func() error {
-			close(killed)
+			select {
+			case killed <- struct{}{}:
+			default:
+			}
 			return cmd.Process.Kill()
 		}
 		return cmd
@@ -141,15 +162,27 @@ func TestMicAnswers503WithoutTheDaemon(t *testing.T) {
 	}
 }
 
-// The supervisor writes the daemon script and restarts the daemon when
-// it exits.
-func TestPulseRestartsTheDaemon(t *testing.T) {
+// The supervisor restarts the daemon when it exits, clears a stale FIFO
+// first, and passes the whole configuration on the command line with
+// module loading and exit locked: nothing under the emptyDir (which the
+// desktop can write) is read as a script.
+func TestPulseRestartsTheLockedDaemon(t *testing.T) {
 	dir := t.TempDir()
+	fifo := filepath.Join(dir, "mic.fifo")
+	if err := os.WriteFile(fifo, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var starts atomic.Int32
-	p := &Pulse{Dir: dir, Backoff: time.Millisecond, Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		starts.Add(1)
-		if name != "pulseaudio" || args[len(args)-1] != filepath.Join(dir, "default.pa") {
-			t.Errorf("unexpected command %q %v", name, args)
+	var args []string
+	p := &Pulse{Dir: dir, Backoff: time.Millisecond, Exec: func(ctx context.Context, name string, a ...string) *exec.Cmd {
+		if starts.Add(1) == 1 {
+			args = a
+			if _, err := os.Stat(fifo); !os.IsNotExist(err) {
+				t.Errorf("a stale FIFO must be removed before the daemon starts, stat: %v", err)
+			}
+		}
+		if name != "pulseaudio" {
+			t.Errorf("unexpected command %q", name)
 		}
 		return exec.CommandContext(ctx, "true")
 	}}
@@ -159,18 +192,117 @@ func TestPulseRestartsTheDaemon(t *testing.T) {
 	if starts.Load() < 2 {
 		t.Fatalf("expected the daemon to be restarted, got %d start(s)", starts.Load())
 	}
-	script, err := os.ReadFile(filepath.Join(dir, "default.pa"))
+	joined := strings.Join(args, "\n")
+	for _, want := range []string{
+		"--disallow-module-loading", "--disallow-exit", "-n",
+		"module-native-protocol-unix socket=" + filepath.Join(dir, "native") + " auth-anonymous=1",
+		"module-null-sink sink_name=waas_out format=s16le rate=48000 channels=2",
+		"module-pipe-source source_name=waas_mic file=" + fifo + " format=s16le rate=48000 channels=1",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("daemon args lack %q: %q", want, args)
+		}
+	}
+	for _, a := range args {
+		if a == "-F" || a == "--file" || strings.HasPrefix(a, "--file=") {
+			t.Errorf("the daemon must not read a script: %q", args)
+		}
+	}
+}
+
+// Without the daemon's socket /audio answers 503 before upgrading.
+func TestAudioAnswers503WithoutTheDaemon(t *testing.T) {
+	srv, dir, _ := newServer(t)
+	if err := os.Remove(filepath.Join(dir, "native")); err != nil {
+		t.Fatal(err)
+	}
+	if _, resp, err := dial(t, srv, kasmagent.PathAudio); err == nil || resp == nil || resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got err=%v resp=%v", err, resp)
+	}
+}
+
+// /audio holds at most maxStreams connections: one more is 429, and a
+// slot frees once a connection is gone.
+func TestAudioCapsTheStreams(t *testing.T) {
+	srv, _, killed := newServer(t)
+	conns := make([]*websocket.Conn, maxStreams)
+	for i := range conns {
+		ws, _, err := dial(t, srv, kasmagent.PathAudio)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ws.Close()
+		conns[i] = ws
+	}
+	if _, resp, err := dial(t, srv, kasmagent.PathAudio); err == nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 past %d streams, got err=%v resp=%v", maxStreams, err, resp)
+	}
+	conns[0].Close()
+	<-killed
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		ws, _, err := dial(t, srv, kasmagent.PathAudio)
+		if err == nil {
+			ws.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("a slot must free once a stream is gone: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// A client that stops reading is dropped after WriteTimeout, and its
+// parec with it.
+func TestAudioDropsAStalledClient(t *testing.T) {
+	srv, _, killed := newServer(t)
+	ws, _, err := dial(t, srv, kasmagent.PathAudio)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{
-		"module-native-protocol-unix socket=" + filepath.Join(dir, "native") + " auth-anonymous=1",
-		"module-null-sink sink_name=waas_out format=s16le rate=48000 channels=2",
-		"module-pipe-source source_name=waas_mic file=" + filepath.Join(dir, "mic.fifo") + " format=s16le rate=48000 channels=1",
-		"set-default-sink waas_out", "set-default-source waas_mic",
-	} {
-		if !strings.Contains(string(script), want) {
-			t.Errorf("script lacks %q:\n%s", want, script)
+	defer ws.Close()
+	select {
+	case <-killed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a client that stopped reading must be dropped")
+	}
+}
+
+// /mic skips frames of odd length and closes the socket on a frame past
+// the read limit.
+func TestMicRejectsOddAndOversizedFrames(t *testing.T) {
+	srv, dir, _ := newServer(t)
+	fifo, err := os.OpenFile(filepath.Join(dir, filepath.Base(kasmagent.PulseMicFIFO)), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fifo.Close()
+	ws, _, err := dial(t, srv, kasmagent.PathMic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	for _, frame := range []string{"odd", "even"} {
+		if err := ws.WriteMessage(websocket.BinaryMessage, []byte(frame)); err != nil {
+			t.Fatal(err)
 		}
+	}
+	buf := make([]byte, 16)
+	var got []byte
+	for deadline := time.Now().Add(3 * time.Second); len(got) < 4 && time.Now().Before(deadline); {
+		n, _ := fifo.Read(buf)
+		got = append(got, buf[:max(n, 0)]...)
+		time.Sleep(5 * time.Millisecond)
+	}
+	if string(got) != "even" {
+		t.Fatalf("expected only the even frame in the FIFO, got %q", got)
+	}
+	if err := ws.WriteMessage(websocket.BinaryMessage, make([]byte, micReadLimit+2)); err != nil {
+		t.Fatal(err)
+	}
+	_ = ws.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, _, err := ws.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseMessageTooBig) {
+		t.Fatalf("an oversized frame must close the socket (1009), got %v", err)
 	}
 }

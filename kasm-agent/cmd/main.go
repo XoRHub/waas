@@ -55,7 +55,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	files.Register(mux, root, maxUpload)
-	audio.Register(mux, &audio.Handler{Dir: kasmagent.PulseDir, Exec: exec.CommandContext})
+	audio.Register(mux, &audio.Handler{Dir: kasmagent.PulseDir, Exec: exec.CommandContext, WriteTimeout: 5 * time.Second})
 	// The daemon is supervised for the sidecar's whole life; the routes
 	// answer 503 while it is down.
 	go (&audio.Pulse{Dir: kasmagent.PulseDir, Exec: exec.CommandContext, Backoff: time.Second}).Run(context.Background())

@@ -16,12 +16,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -37,8 +39,8 @@ type Exec func(ctx context.Context, name string, args ...string) *exec.Cmd
 // Pulse supervises the PulseAudio daemon: one child, restarted with
 // backoff when it dies, for the sidecar's whole life.
 type Pulse struct {
-	// Dir is kasmagent.PulseDir: the config, runtime and state paths are
-	// all under it (the emptyDir is root-owned and world-writable, and
+	// Dir is kasmagent.PulseDir: the socket, FIFO, runtime and state
+	// paths are all under it (the emptyDir is root-owned and world-writable, and
 	// PulseAudio insists on owning its runtime directory, so it gets a
 	// subdirectory it creates itself).
 	Dir  string
@@ -47,36 +49,40 @@ type Pulse struct {
 	Backoff time.Duration
 }
 
-// config is the whole daemon script: nothing else loaded (-n), no
-// cookie dance (same uid on both sides, auth-anonymous), defaults set so
-// unconfigured desktop apps land on the WaaS devices.
-func (p *Pulse) config() string {
-	return fmt.Sprintf(`load-module module-native-protocol-unix socket=%s auth-anonymous=1 auth-cookie-enabled=0
-load-module module-null-sink sink_name=%s format=s16le rate=%d channels=%d
-load-module module-pipe-source source_name=%s file=%s format=s16le rate=%d channels=%d
-set-default-sink %s
-set-default-source %s
-`, socketPath(p.Dir), kasmagent.PulseSink, kasmagent.AudioRate, kasmagent.AudioChannels,
-		kasmagent.PulseSource, fifoPath(p.Dir), kasmagent.AudioRate, kasmagent.MicChannels,
-		kasmagent.PulseSink, kasmagent.PulseSource)
+// args is the whole daemon configuration, on the command line rather
+// than in a script: the emptyDir is writable by the desktop (same uid),
+// so a script there would be the occupant's to rewrite before the next
+// restart. Nothing else is loaded (-n) and nothing can be later — module
+// loading and exit are refused to every client of the anonymous socket,
+// which leaves the occupant only their own streams to re-route or mute.
+// No cookie dance (same uid on both sides, auth-anonymous); no
+// set-default-*: the only sink and the only non-monitor source are what
+// PulseAudio picks as defaults anyway.
+func (p *Pulse) args() []string {
+	return []string{
+		"--daemonize=no", "--exit-idle-time=-1", "--use-pid-file=no",
+		// No rtkit, no D-Bus in the sidecar: don't try — and don't log
+		// every failed D-Bus lookup at warning level either.
+		"--realtime=no", "--high-priority=no",
+		"--log-target=stderr", "--log-level=error",
+		"--disallow-module-loading", "--disallow-exit", "-n",
+		"-L", fmt.Sprintf("module-native-protocol-unix socket=%s auth-anonymous=1 auth-cookie-enabled=0", socketPath(p.Dir)),
+		"-L", fmt.Sprintf("module-null-sink sink_name=%s format=s16le rate=%d channels=%d",
+			kasmagent.PulseSink, kasmagent.AudioRate, kasmagent.AudioChannels),
+		"-L", fmt.Sprintf("module-pipe-source source_name=%s file=%s format=s16le rate=%d channels=%d",
+			kasmagent.PulseSource, fifoPath(p.Dir), kasmagent.AudioRate, kasmagent.MicChannels),
+	}
 }
 
-// Run writes the config and keeps the daemon up until ctx ends.
+// Run keeps the daemon up until ctx ends.
 func (p *Pulse) Run(ctx context.Context) {
-	script := filepath.Join(p.Dir, "default.pa")
-	if err := os.WriteFile(script, []byte(p.config()), 0o644); err != nil {
-		slog.Error("writing pulseaudio config", "path", script, "error", err)
-		return
-	}
 	delay := p.Backoff
 	for ctx.Err() == nil {
 		started := time.Now()
-		cmd := p.Exec(ctx, "pulseaudio",
-			"--daemonize=no", "--exit-idle-time=-1", "--use-pid-file=no",
-			// No rtkit, no D-Bus in the sidecar: don't try.
-			"--realtime=no", "--high-priority=no",
-			"--log-target=stderr", "--log-level=warning",
-			"-n", "-F", script)
+		// module-pipe-source refuses an existing FIFO, and a daemon that
+		// crashed never unlinked its own.
+		_ = os.Remove(fifoPath(p.Dir))
+		cmd := p.Exec(ctx, "pulseaudio", p.args()...)
 		cmd.Env = append(os.Environ(),
 			"PULSE_RUNTIME_PATH="+filepath.Join(p.Dir, "runtime"),
 			"PULSE_STATE_PATH="+filepath.Join(p.Dir, "state"))
@@ -104,11 +110,16 @@ func (p *Pulse) Run(ctx context.Context) {
 type Handler struct {
 	Dir  string
 	Exec Exec
+	// WriteTimeout drops an /audio client that stopped reading instead of
+	// leaving its parec blocked on a full socket forever.
+	WriteTimeout time.Duration
 	// micMu is the single-writer rule on the FIFO: a second /mic
 	// connection is refused (409) while one is open. Simplest rule that
 	// keeps one stream's frames from interleaving with another's; the
 	// portal only ever opens one.
 	micMu sync.Mutex
+	// streams counts the open /audio connections (maxStreams).
+	streams atomic.Int32
 }
 
 // Register mounts /audio and /mic on mux.
@@ -117,16 +128,41 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET "+kasmagent.PathMic, h.mic)
 }
 
-// upgrader: no origin check — wwt is the only caller, after its own JWT
-// and policy gates, and it rewrites the Origin anyway.
+// upgrader: no origin check here — wwt is the only caller, after its
+// own JWT and policy gates, and it is wwt that refuses a cross-origin
+// upgrade (the browser's Origin is relayed as is).
 var upgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 
-const frameBytes = kasmagent.AudioRate * kasmagent.AudioFrameMillis / 1000 * kasmagent.AudioChannels * 2
+const (
+	frameBytes = kasmagent.AudioRate * kasmagent.AudioFrameMillis / 1000 * kasmagent.AudioChannels * 2
+	// maxStreams bounds the parec processes one sidecar runs: the portal
+	// opens one per tab, a handful of tabs is plenty.
+	maxStreams = 4
+	// micReadLimit: a 20 ms mono frame is 1920 B; anything far bigger is
+	// not the portal, and staying under PIPE_BUF (4096 on Linux) keeps
+	// every FIFO write all-or-nothing.
+	micReadLimit = 4096
+)
 
 // audio streams the null sink's monitor: one parec per connection,
 // killed when the socket closes (or the daemon dies, which ends parec and
 // so the socket — the portal shows "closed" and the user toggles again).
 func (h *Handler) audio(w http.ResponseWriter, r *http.Request) {
+	if h.streams.Add(1) > maxStreams {
+		h.streams.Add(-1)
+		http.Error(w, "too many audio streams are open", http.StatusTooManyRequests)
+		return
+	}
+	defer h.streams.Add(-1)
+	// parec would start, fail to connect and end a socket already
+	// upgraded; dialing first turns a down daemon into a plain 503.
+	c, err := net.Dial("unix", socketPath(h.Dir))
+	if err != nil {
+		slog.Error("reaching pulseaudio", "error", err)
+		http.Error(w, "audio is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	_ = c.Close()
 	ctx, cancel := context.WithCancel(r.Context())
 	cmd := h.Exec(ctx, "parec",
 		"--device="+kasmagent.PulseSink+".monitor", "--raw", "--format=s16le",
@@ -170,6 +206,7 @@ func (h *Handler) audio(w http.ResponseWriter, r *http.Request) {
 		if _, err := io.ReadFull(out, buf); err != nil {
 			return
 		}
+		_ = ws.SetWriteDeadline(time.Now().Add(h.WriteTimeout))
 		if err := ws.WriteMessage(websocket.BinaryMessage, buf); err != nil {
 			return
 		}
@@ -199,18 +236,20 @@ func (h *Handler) mic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.Close()
+	ws.SetReadLimit(micReadLimit)
 	for {
 		mt, data, err := ws.ReadMessage()
 		if err != nil {
 			return
 		}
-		if mt != websocket.BinaryMessage {
+		// An odd length would shift every later sample by one byte.
+		if mt != websocket.BinaryMessage || len(data)%2 != 0 {
 			continue
 		}
 		// The daemon drains the FIFO at real time: a browser running ahead
 		// of it fills the pipe, and its frame is dropped rather than the
-		// socket stalled. A 20 ms mono frame (1920 B) is under PIPE_BUF, so
-		// the write is all-or-nothing: no half frame ever skews the stream.
+		// socket stalled. Frames are under PIPE_BUF (micReadLimit), so the
+		// write is all-or-nothing: no half frame ever skews the stream.
 		_ = f.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
 		if _, err := f.Write(data); err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
 			slog.Error("writing the microphone FIFO", "error", err)
