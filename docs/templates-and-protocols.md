@@ -341,7 +341,7 @@ is exercised by CI.
 | Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time) |
 | Persistent home | ✅ | ✅ | ✅ (`/home/kasm-user`) |
 | Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ |
-| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked | 🚫 | 🚫 `/api/downloads` blocked at the proxy |
+| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked | 🚫 | 🚫 `/api/downloads` and `/Downloads/…` blocked at the proxy |
 | Session recording | 🚫 `recording-*` platform-blocked | 🚫 | ❌ |
 | Keyboard layout | N/A (direct keysyms) | ✅ `server-layout` + browser auto-detect | N/A |
 | Dynamic resize | ✅ pod-exec mechanism | ❌ the frontend never calls the endpoint for rdp: no pod to exec `waas-resize` in; guacd-native `resize-method` is the only candidate, unverified | ✅ native client-side (`resize=remote`) |
