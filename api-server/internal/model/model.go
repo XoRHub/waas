@@ -631,6 +631,8 @@ type PolicyModel struct {
 	Clipboard *ClipboardPolicyModel `json:"clipboard,omitempty"`
 	// FileTransfer mirrors the CRD block (nil = both directions denied).
 	FileTransfer *FileTransferPolicyModel `json:"fileTransfer,omitempty"`
+	// Audio mirrors the CRD block (nil = both directions denied).
+	Audio *AudioPolicyModel `json:"audio,omitempty"`
 	// Watermark is the KasmVNC desktop watermark template ("" = none).
 	Watermark string `json:"watermark,omitempty"`
 	// Overrides is the policy-level restriction on template overrides
@@ -660,6 +662,13 @@ type ClipboardPolicyModel struct {
 type FileTransferPolicyModel struct {
 	Upload   bool `json:"upload"`
 	Download bool `json:"download"`
+}
+
+// AudioPolicyModel mirrors the CRD audio block (opt-in: nil or false =
+// denied).
+type AudioPolicyModel struct {
+	Playback   bool `json:"playback"`
+	Microphone bool `json:"microphone"`
 }
 
 // PolicySubject mirrors the CRD subject.
@@ -718,13 +727,13 @@ type UserUsage struct {
 	Used       map[string]string `json:"used,omitempty"`
 }
 
-// SessionCapabilities is what the session may do, per clipboard and
-// file-transfer direction; the overlay reflects it, the proxy enforces
-// it. A denied clipboard direction carries WHY in its lock field so the
-// overlay can tell an admin policy denial (immutable for the user) from
-// the user's own disable-copy/disable-paste connection setting (undo +
-// reconnect). File transfer has no params to clamp it: the policy alone
-// decides.
+// SessionCapabilities is what the session may do, per clipboard,
+// file-transfer and audio direction; the overlay reflects it, the proxy
+// enforces it. A denied clipboard direction carries WHY in its lock field
+// so the overlay can tell an admin policy denial (immutable for the
+// user) from the user's own disable-copy/disable-paste connection setting
+// (undo + reconnect). File transfer and audio have no params to clamp
+// them: the policy alone decides.
 type SessionCapabilities struct {
 	ClipboardCopy  bool `json:"clipboardCopy"`
 	ClipboardPaste bool `json:"clipboardPaste"`
@@ -735,6 +744,8 @@ type SessionCapabilities struct {
 	ClipboardPasteLock ClipboardLock `json:"clipboardPasteLock,omitempty"`
 	FileUpload         bool          `json:"fileUpload"`
 	FileDownload       bool          `json:"fileDownload"`
+	AudioPlayback      bool          `json:"audioPlayback"`
+	Microphone         bool          `json:"microphone"`
 }
 
 // ClipboardLock names the gate that denied a clipboard direction.

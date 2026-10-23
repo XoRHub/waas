@@ -139,7 +139,7 @@ func TestRejectsWithoutValidTokenBeforeDialingGuacd(t *testing.T) {
 	}
 
 	// Expired connection token.
-	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u", "s", "w", auth.ClipboardGrant{}, auth.FileTransferGrant{}, -time.Minute))
+	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u", "s", "w", auth.ClipboardGrant{}, auth.FileTransferGrant{}, auth.AudioGrant{}, -time.Minute))
 	if err != nil {
 		t.Fatalf("signing: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestGuacPathRejectsKasmvncSessions(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1", auth.ClipboardGrant{}, auth.FileTransferGrant{}, time.Minute))
+	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1", auth.ClipboardGrant{}, auth.FileTransferGrant{}, auth.AudioGrant{}, time.Minute))
 	if err != nil {
 		t.Fatalf("signing: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestProxiesValidConnection(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1", auth.ClipboardGrant{Copy: true, Paste: true}, auth.FileTransferGrant{}, time.Minute))
+	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1", auth.ClipboardGrant{Copy: true, Paste: true}, auth.FileTransferGrant{}, auth.AudioGrant{}, time.Minute))
 	if err != nil {
 		t.Fatalf("signing: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestFramesEndOnInstructionBoundaries(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1", auth.ClipboardGrant{Copy: true, Paste: true}, auth.FileTransferGrant{}, time.Minute))
+	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1", auth.ClipboardGrant{Copy: true, Paste: true}, auth.FileTransferGrant{}, auth.AudioGrant{}, time.Minute))
 	if err != nil {
 		t.Fatalf("signing: %v", err)
 	}

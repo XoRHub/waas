@@ -75,6 +75,7 @@ table is a quick *what*.
 | defaultPolicy.clipboard.copyFromWorkspace | bool | `true` | Allow copying FROM the workspace to the local clipboard. |
 | defaultPolicy.clipboard.pasteToWorkspace | bool | `true` | Allow pasting the local clipboard INTO the workspace. |
 | defaultPolicy.fileTransfer | object | `{}` | File transfer directions (upload / download); empty = both denied. On kasmvnc, download also enables printing. |
+| defaultPolicy.audio | object | `{"playback":true}` | Audio directions on kasmvnc (playback: workspace sound in the browser; microphone: the browser's into the workspace); empty = both denied. Playback is on by default — plain usability, no egress; the microphone stays opt-in. |
 | defaultPolicy.watermark | string | `""` | KasmVNC desktop watermark text ({user} = owner's username, strftime directives); empty = none. |
 | defaultPolicy.overrides | object | `{"allowedFields":["env","resources","schedule"]}` | Template-override fields the matched user may set at instantiation time (intersected with the template's own allow-list); empty = no policy-level restriction, the template's allow-list alone applies. |
 | defaultPolicy.remoteWorkspaces | bool | `false` | Opt the matched user into the Remote Workspaces feature (out-of-cluster machines via guacd). |
@@ -87,6 +88,7 @@ table is a quick *what*.
 | adminPolicy.lifecycle | object | `{}` | Workspace longevity bounds; empty = never suspended/deleted. |
 | adminPolicy.clipboard | object | `{}` | Clipboard bridge directions; empty = both allowed. |
 | adminPolicy.fileTransfer | object | `{"download":true,"upload":true}` | File transfer directions; both granted — the point of this policy (empty would deny both). |
+| adminPolicy.audio | object | `{"microphone":true,"playback":true}` | Audio directions; both granted (empty would deny both). |
 | adminPolicy.watermark | string | `""` | KasmVNC desktop watermark text; empty = none. |
 | adminPolicy.overrides | object | `{"allowedFields":["env","securityContext","podSecurityContext","volumes","nodeSelector","tolerations","resources","protocol","protocolParams","schedule","placement","metadata"]}` | Template-override fields admins may set at instantiation time (intersected with the template's own allow-list). |
 | adminPolicy.remoteWorkspaces | bool | `true` | Opt admins into the Remote Workspaces feature (out-of-cluster machines via guacd). |

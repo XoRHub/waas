@@ -66,6 +66,22 @@ func TestClipboardOf(t *testing.T) {
 }
 
 // File transfer is opt-in: only an explicit true grants a direction.
+func TestAudioOf(t *testing.T) {
+	for _, tc := range []struct {
+		pol                  *waasv1alpha1.WorkspacePolicy
+		playback, microphone bool
+	}{
+		{nil, false, false},
+		{&waasv1alpha1.WorkspacePolicy{}, false, false},
+		{&waasv1alpha1.WorkspacePolicy{Spec: waasv1alpha1.WorkspacePolicySpec{Audio: &waasv1alpha1.AudioPolicy{Playback: true}}}, true, false},
+		{&waasv1alpha1.WorkspacePolicy{Spec: waasv1alpha1.WorkspacePolicySpec{Audio: &waasv1alpha1.AudioPolicy{Playback: true, Microphone: true}}}, true, true},
+	} {
+		if p, m := AudioOf(tc.pol); p != tc.playback || m != tc.microphone {
+			t.Errorf("AudioOf(%+v) = %v/%v, want %v/%v", tc.pol, p, m, tc.playback, tc.microphone)
+		}
+	}
+}
+
 func TestFileTransferOf(t *testing.T) {
 	cases := []struct {
 		name             string
