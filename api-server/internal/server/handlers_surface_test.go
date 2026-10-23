@@ -99,7 +99,7 @@ func TestMetaEndpoints(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("kasmvnc-managed-keys: %d", rec.Code)
 	}
-	// Dotted paths, straight from kasmcfg.ManagedClipboardKeyPaths — the
+	// Dotted paths, straight from kasmcfg.ManagedKeyPaths — the
 	// template editor locks exactly what the validation rejects.
 	if keys := decodeData[[]string](t, rec.Body.Bytes()); !slices.Contains(keys, "runtime_configuration.allow_client_to_override_kasm_server_settings") {
 		t.Fatalf("kasmvnc-managed-keys must list the policy-managed dotted keys, got %v", keys)
