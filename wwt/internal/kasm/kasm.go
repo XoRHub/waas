@@ -229,9 +229,11 @@ func (h *Handler) streamOpened(sid string) {
 }
 
 // streamClosed arms the session end once its last stream is gone.
-// Pending ends live in memory only: a wwt restart within the grace
-// loses them, the same exposure as a wwt crash mid-stream (see the
-// api-server's SessionSweeper).
+// Pending ends live in memory only: a wwt restart or crash within the
+// grace loses them, and the api-server's SessionSweeper is NOT a safety
+// net for that — it only reaps sessions whose workspace was deleted, so
+// a lost end leaves the row open (and idle-suspend blocked) until the
+// workspace itself goes away.
 func (h *Handler) streamClosed(sid, workspaceID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
