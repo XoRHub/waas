@@ -55,7 +55,7 @@ func TestMapCatalogToWorkspaces(t *testing.T) {
 	}
 	r, _ := newFixture(t, linuxTemplate(), img, onXfce, onOther, elsewhere)
 
-	reqs := r.mapCatalogToWorkspaces(context.Background(), img)
+	reqs := r.mapNamespaceToWorkspaces(context.Background(), img)
 	if len(reqs) != 2 {
 		t.Fatalf("expected the namespace's whole fleet (2), got %+v", reqs)
 	}
@@ -63,5 +63,24 @@ func TestMapCatalogToWorkspaces(t *testing.T) {
 		if req.Namespace != "default" {
 			t.Fatalf("catalog edits must stay namespace-scoped, got %+v", req)
 		}
+	}
+}
+
+// TestMapPolicyToWorkspaces pins the policy watch: the winning policy is
+// a namespace-global resolution (highest priority among matches), and it
+// feeds the kasmvnc container (clipboard, watermark, printer), so an edit
+// re-enqueues every workspace of the namespace — and only them.
+func TestMapPolicyToWorkspaces(t *testing.T) {
+	pol := &waasv1alpha1.WorkspacePolicy{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "default"}}
+	onXfce := workspace()
+	elsewhere := &waasv1alpha1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "far", Namespace: "other"},
+		Spec:       waasv1alpha1.WorkspaceSpec{TemplateRef: "xfce", Owner: "u3"},
+	}
+	r, _ := newFixture(t, linuxTemplate(), pol, onXfce, elsewhere)
+
+	reqs := r.mapNamespaceToWorkspaces(context.Background(), pol)
+	if len(reqs) != 1 || reqs[0].Name != "marc" || reqs[0].Namespace != "default" {
+		t.Fatalf("a policy edit must enqueue exactly the namespace's fleet (default/marc), got %+v", reqs)
 	}
 }
