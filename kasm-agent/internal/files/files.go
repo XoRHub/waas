@@ -2,9 +2,7 @@
 // Files section: list a directory, download a file, upload files. Nothing
 // else — no delete, no rename, no move.
 //
-// Auth is the Basic pair wwt injects for KasmVNC (the password is the
-// kasmweb VNC_PW); wwt has already validated the connection JWT and the
-// policy grant before any request gets here. Paths are confined to the
+// Auth is the caller's (basicauth, in main). Paths are confined to the
 // home with os.Root, so "..", absolute paths and escaping symlinks are
 // refused whatever the client sends.
 package files
@@ -12,7 +10,6 @@ package files
 import (
 	"cmp"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,12 +30,10 @@ import (
 	"github.com/xorhub/waas/shared/kasmagent"
 )
 
-// Handler serves the file routes of kasmagent under the given root.
-type Handler struct {
+// handler serves the file routes of kasmagent under the given root.
+type handler struct {
 	root      *os.Root
-	password  string
 	maxUpload int64
-	mux       *http.ServeMux
 }
 
 // Entry is one directory listing row.
@@ -49,25 +44,13 @@ type Entry struct {
 	MTime time.Time `json:"mtime"`
 }
 
-func NewHandler(root *os.Root, password string, maxUpload int64) *Handler {
-	h := &Handler{root: root, password: password, maxUpload: maxUpload, mux: http.NewServeMux()}
-	// Exact paths: the mux answers 405 on a wrong method, 404 elsewhere.
-	h.mux.HandleFunc("GET "+kasmagent.PathList, h.list)
-	h.mux.HandleFunc("GET "+kasmagent.PathDownload, h.download)
-	h.mux.HandleFunc("POST "+kasmagent.PathUpload, h.upload)
-	return h
-}
-
-// ServeHTTP authenticates, then routes. No WWW-Authenticate challenge on
-// 401: the response is relayed by wwt to a browser fetch, and a Basic
-// challenge there would pop the browser's own login dialog.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	_, pw, ok := r.BasicAuth()
-	if !ok || subtle.ConstantTimeCompare([]byte(pw), []byte(h.password)) != 1 {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	h.mux.ServeHTTP(w, r)
+// Register mounts the file routes on mux. Exact paths: the mux answers
+// 405 on a wrong method, 404 elsewhere.
+func Register(mux *http.ServeMux, root *os.Root, maxUpload int64) {
+	h := &handler{root: root, maxUpload: maxUpload}
+	mux.HandleFunc("GET "+kasmagent.PathList, h.list)
+	mux.HandleFunc("GET "+kasmagent.PathDownload, h.download)
+	mux.HandleFunc("POST "+kasmagent.PathUpload, h.upload)
 }
 
 var errBadPath = errors.New("path must be relative to the home directory")
@@ -89,7 +72,7 @@ func relPath(q string) (string, error) {
 	return clean, nil
 }
 
-func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
+func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 	rel, err := relPath(r.URL.Query().Get("path"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -121,7 +104,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
+func (h *handler) download(w http.ResponseWriter, r *http.Request) {
 	rel, err := relPath(r.URL.Query().Get("path"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -156,7 +139,7 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 }
 
-func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
+func (h *handler) upload(w http.ResponseWriter, r *http.Request) {
 	dir := r.URL.Query().Get("dir")
 	if dir == "" {
 		dir = kasmagent.DefaultUploadDir
@@ -213,7 +196,7 @@ var (
 // store writes one part into dir, never overwriting: an existing name
 // gets " (1)", " (2)"… before its extension. A write that fails midway
 // (cap hit, client gone) leaves no truncated file behind.
-func (h *Handler) store(dir string, part *multipart.Part) (string, error) {
+func (h *handler) store(dir string, part *multipart.Part) (string, error) {
 	// Browsers send bare names; a hostile client's path is reduced to its
 	// last element and the directory-like names are refused.
 	base := filepath.Base(part.FileName())
@@ -251,7 +234,7 @@ func (h *Handler) store(dir string, part *multipart.Part) (string, error) {
 // client got wrong (400), else the home's own verdict (errorStatus). The
 // parts already stored stay and are named, so the client knows what to
 // resend.
-func (h *Handler) uploadError(w http.ResponseWriter, err error, stored []string) {
+func (h *handler) uploadError(w http.ResponseWriter, err error, stored []string) {
 	var tooBig *http.MaxBytesError
 	var status int
 	var msg string
@@ -271,7 +254,7 @@ func (h *Handler) uploadError(w http.ResponseWriter, err error, stored []string)
 }
 
 // fsError answers what the home refused on a list or download.
-func (h *Handler) fsError(w http.ResponseWriter, op, rel string, err error) {
+func (h *handler) fsError(w http.ResponseWriter, op, rel string, err error) {
 	status, msg := errorStatus(err)
 	logFailure(op, rel, status, err)
 	http.Error(w, msg, status)
