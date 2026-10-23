@@ -218,7 +218,9 @@ admin's. Full precedence map across both data planes:
   (`core-ubuntu-*`, `ubuntu-noble-desktop`, `firefox`, `vs-code`,
   `terminal`), some amd64-only (`desktop`, `chrome`) — the existing
   `Architectures` → nodeAffinity placement covers this.
-- Home lives at `/home/kasm-user` (template `homeMountPath`); `KASMVNC_AUTO_RECOVER`
+- Home lives at `/home/kasm-user` (template `homeMountPath`; the admin
+  template editor pre-fills it when kasmvnc is added and the field is
+  still empty); `KASMVNC_AUTO_RECOVER`
   brings Xvnc and the app back after a pod restart.
 - **`/dev/shm` is operator-managed**: browsers in kasmweb images outgrow
   the container runtime's default 64Mi, so every kasmvnc pod gets a
