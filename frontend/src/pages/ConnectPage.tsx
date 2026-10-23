@@ -256,21 +256,15 @@ function DesktopView({
         />
       )}
       {(state === 'disconnected' || state === 'failed') && (
-        <div className="absolute inset-x-0 bottom-10 flex justify-center gap-2">
-          <button
-            onClick={() => navigate('/')}
-            className="rounded-md border border-white/30 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-          >
-            {t('connect.back')}
-          </button>
+        <div className="absolute inset-x-0 bottom-10 flex justify-center">
           {/* A fresh /connect: new session and token (a KasmVNC iframe
               cannot outlive its token's expiry on its own). */}
-          <button
-            onClick={() => pane.current?.reconnect()}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            {t('app.retry')}
-          </button>
+          <ScreenActions
+            actionLabel={t('app.retry')}
+            onAction={() => pane.current?.reconnect()}
+            secondaryLabel={t('connect.back')}
+            onSecondary={() => navigate('/')}
+          />
         </div>
       )}
     </div>
@@ -287,38 +281,39 @@ function WaitScreen({ title, subtitle }: { title: string; subtitle?: string }) {
   );
 }
 
-function ErrorScreen({
-  message,
-  actionLabel,
-  onAction,
-  secondaryLabel,
-  onSecondary,
-}: {
-  message: string;
+interface ScreenActionsProps {
   actionLabel: string;
   onAction: () => void;
   secondaryLabel?: string;
   onSecondary?: () => void;
-}) {
+}
+
+function ScreenActions({ actionLabel, onAction, secondaryLabel, onSecondary }: ScreenActionsProps) {
+  return (
+    <div className="flex gap-2">
+      {secondaryLabel && onSecondary && (
+        <button
+          onClick={onSecondary}
+          className="rounded-md border border-white/30 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
+        >
+          {secondaryLabel}
+        </button>
+      )}
+      <button
+        onClick={onAction}
+        className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+      >
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
+function ErrorScreen({ message, ...actions }: ScreenActionsProps & { message: string }) {
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-4 bg-black text-white [view-transition-name:workspace-open]">
       <p className="max-w-md text-center text-sm text-white/80">{message}</p>
-      <div className="flex gap-2">
-        {secondaryLabel && onSecondary && (
-          <button
-            onClick={onSecondary}
-            className="rounded-md border border-white/30 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-          >
-            {secondaryLabel}
-          </button>
-        )}
-        <button
-          onClick={onAction}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          {actionLabel}
-        </button>
-      </div>
+      <ScreenActions {...actions} />
     </div>
   );
 }
