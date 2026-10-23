@@ -363,7 +363,7 @@ is exercised by CI.
 | Dynamic resize | ✅ pod-exec mechanism | ❌ the frontend never calls the endpoint for rdp: no pod to exec `waas-resize` in; guacd-native `resize-method` is the only candidate, unverified | ✅ native client-side (`resize=remote`) |
 | Multi-monitor | ❌ | ❌ | not integrated (upstream client capability, unverified through the iframe) |
 | Live (no-reconnect) params | `disable-copy`/`disable-paste` only | same | image quality preset (session menu → client `setvideoquality`) |
-| Connection state / reconnect | guac client state; Retry = fresh `/connect` | same | client-reported (`connection_state`), client auto-reconnect then Retry = fresh `/connect` + token |
+| Connection state / reconnect | guac client state; Retry = fresh `/connect` | same | client-reported (`connection_state`), client auto-reconnect (session cookie refreshed on a timer, `docs/kasmvnc.md` § Auth) then Retry = fresh `/connect` + token |
 | Full screen, Ctrl+Alt+M | ✅ session menu | ✅ | ✅ (keystrokes replayed from the iframe) |
 | Post-creation overrides | ✅ protocol-independent (`PATCH /overrides` + reload) | ✅ | ✅ |
 

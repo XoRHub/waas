@@ -183,11 +183,17 @@ The contract the three modules share — port `4800`, env and route names
   the download route when download is granted (locked otherwise), an
   **Upload files…** picker when upload is granted (multiple files, into
   `Uploads`, which the listing then shows). The requests ride the
-  session cookie wwt set on the iframe's first request (same origin,
-  `Path=/kasm/{sid}`); they use a plain `fetch`, not the api client,
-  because a 401 there must not sign the user out of the portal and the
-  body is the agent's own JSON. 403 reads "Denied by your policy", 413
-  names the cap, 503 the missing sidecar.
+  session cookie (same origin, `Path=/kasm/{sid}`), which the section
+  re-sets from a fresh token **before each listing and each upload**
+  (`frontend/src/lib/kasmCookie.ts`, the refresh described under
+  **Auth**) — so Files works whether or not the iframe has set the
+  cookie yet, and a long upload starts on a fresh token; downloads are
+  plain links and ride whatever the pane's timer and the listing left.
+  They use a plain `fetch`, not the api client, because a 401 there
+  must not sign the user out of the portal and the body is the agent's
+  own JSON. 403 reads "Denied by your policy", 413 names the cap, 503
+  the missing sidecar, 401 (the refresh itself failed: the session
+  ended underneath) "Session expired — reopen Files".
 
 This is the **governed path for normal use**: a separate container the
 occupant cannot modify enforces the grant for *this* route, and KasmVNC's
@@ -231,6 +237,12 @@ against the client served by `kasmweb/*:1.19.0`
   overlay shortcut `Ctrl+Alt+M` never reaches the desktop, whereas on
   guac sessions it is forwarded to it as well. The listener dies with
   the iframe document; the next load binds the new one.
+- **Cookie refresh**: the pane re-sets the session cookie from a fresh
+  token at half the token's remaining life (read from its `exp`, 30 s
+  floor) for as long as the session is up — `DesktopPane`, kasm branch,
+  through `lib/kasmCookie.ts` — so the client's own auto-reconnect keeps
+  authenticating past the connection token's TTL. A failed refresh is
+  retried at the next tick; the loop stops with the session.
 - **Idle timeout**: the client disconnects after 20 minutes without
   *input* (keyboard, mouse); the portal keeps that default and never
   sends `set_idle_timeout`. `idle_disconnect=0` does not disable it: the
