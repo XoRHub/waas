@@ -285,6 +285,7 @@ func TestWebsocketPassthroughEndsSessionOnClose(t *testing.T) {
 	upstream, _ := newFakeKasmVNC(t)
 	api := &fakeAPI{info: kasmInfo(t, upstream)}
 	handler, signer := newTestHandler(t, api)
+	handler.endGrace = 10 * time.Millisecond
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -322,6 +323,48 @@ func TestWebsocketPassthroughEndsSessionOnClose(t *testing.T) {
 	}
 	if api.ended.Load() != 1 {
 		t.Fatalf("expected exactly one EndSession after the stream closed, got %d", api.ended.Load())
+	}
+}
+
+// The session only ends once its LAST stream has been gone for the
+// whole grace: a reconnect within it (KasmVNC's auto-reconnect) or a
+// still-open second stream (multi-monitor) keeps it alive.
+func TestSessionEndWaitsForLastStreamAndGrace(t *testing.T) {
+	api := &fakeAPI{}
+	handler, _ := newTestHandler(t, api)
+	const grace = 50 * time.Millisecond
+	handler.endGrace = grace
+
+	// Reconnect within the grace: the pending end is cancelled.
+	handler.streamOpened("sess-1")
+	handler.streamClosed("sess-1", "ws1")
+	handler.streamOpened("sess-1")
+	time.Sleep(3 * grace)
+	if n := api.ended.Load(); n != 0 {
+		t.Fatalf("a reconnect within the grace must cancel the end, got %d EndSession", n)
+	}
+
+	// Two streams: closing one keeps the session, closing both ends it once.
+	handler.streamOpened("sess-1")
+	handler.streamClosed("sess-1", "ws1")
+	time.Sleep(3 * grace)
+	if n := api.ended.Load(); n != 0 {
+		t.Fatalf("a still-open stream must keep the session, got %d EndSession", n)
+	}
+	handler.streamClosed("sess-1", "ws1")
+	deadline := time.Now().Add(3 * time.Second)
+	for api.ended.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(3 * grace)
+	if n := api.ended.Load(); n != 1 {
+		t.Fatalf("expected exactly one EndSession once the last stream is gone, got %d", n)
+	}
+	handler.mu.Lock()
+	_, tracked := handler.streams["sess-1"]
+	handler.mu.Unlock()
+	if tracked {
+		t.Fatal("an ended session must not stay tracked")
 	}
 }
 
