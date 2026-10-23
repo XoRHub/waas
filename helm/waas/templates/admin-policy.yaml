@@ -36,6 +36,13 @@ spec:
   clipboard:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.adminPolicy.fileTransfer }}
+  fileTransfer:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.adminPolicy.watermark }}
+  watermark: {{ . | quote }}
+  {{- end }}
   {{- with .Values.adminPolicy.overrides.allowedFields }}
   overrides:
     allowedFields:
