@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -61,12 +62,17 @@ func hasServicePort(svc *corev1.Service, name string) bool {
 	return false
 }
 
-// The sidecar shares the desktop's home volume, credential and identity,
-// is hardened, and gets its port on the workspace Service.
+// The sidecar shares the desktop's home volume, the Pulse emptyDir, the
+// credential and identity, is hardened, and gets its port on the
+// workspace Service; the desktop's audio clients are pointed at it.
 func TestKasmAgentInjectedOnKasmvncWorkloads(t *testing.T) {
 	ws := workspace()
 	ws.Spec.TemplateRef = "kasm-firefox"
-	dep, svc := kasmAgentFixture(t, kasmTemplate(), ws, testKasmAgent)
+	// A template PULSE_SERVER (legacy data, the webhook refuses it now) is
+	// overridden like the side-service toggles.
+	tpl := kasmTemplate()
+	tpl.Spec.Env = []corev1.EnvVar{{Name: kasmagent.EnvPulseServer, Value: "tcp:elsewhere"}}
+	dep, svc := kasmAgentFixture(t, tpl, ws, testKasmAgent)
 	spec := dep.Spec.Template.Spec
 	if len(spec.Containers) != 2 {
 		t.Fatalf("expected desktop + sidecar, got %d containers", len(spec.Containers))
@@ -74,6 +80,29 @@ func TestKasmAgentInjectedOnKasmvncWorkloads(t *testing.T) {
 	desktop, agent := spec.Containers[0], sidecarOf(t, dep)
 	if agent.Image != testKasmAgent.Image {
 		t.Fatalf("unexpected sidecar image %q", agent.Image)
+	}
+
+	var pulse *corev1.Volume
+	for i := range spec.Volumes {
+		if spec.Volumes[i].Name == kasmPulseVolume {
+			pulse = &spec.Volumes[i]
+		}
+	}
+	if pulse == nil || pulse.EmptyDir == nil || pulse.EmptyDir.Medium != corev1.StorageMediumMemory {
+		t.Fatalf("expected a Memory emptyDir %q for the Pulse socket, got %+v", kasmPulseVolume, spec.Volumes)
+	}
+	mountsPulse := func(m corev1.VolumeMount) bool { return m.Name == kasmPulseVolume && m.MountPath == kasmagent.PulseDir }
+	if !slices.ContainsFunc(desktop.VolumeMounts, mountsPulse) || !slices.ContainsFunc(agent.VolumeMounts, mountsPulse) {
+		t.Fatalf("both containers must mount the Pulse emptyDir at %s, got desktop %+v, agent %+v", kasmagent.PulseDir, desktop.VolumeMounts, agent.VolumeMounts)
+	}
+	var pulseServer []string
+	for _, e := range desktop.Env {
+		if e.Name == kasmagent.EnvPulseServer {
+			pulseServer = append(pulseServer, e.Value)
+		}
+	}
+	if !slices.Equal(pulseServer, []string{kasmagent.PulseServer}) {
+		t.Fatalf("the desktop must get exactly one PULSE_SERVER pointing at the sidecar, got %v", pulseServer)
 	}
 
 	env := envByName(agent.Env)
@@ -92,7 +121,7 @@ func TestKasmAgentInjectedOnKasmvncWorkloads(t *testing.T) {
 	if len(agent.Ports) != 1 || agent.Ports[0].Name != kasmagent.PortName || agent.Ports[0].ContainerPort != kasmagent.Port {
 		t.Fatalf("unexpected sidecar ports %+v", agent.Ports)
 	}
-	if len(agent.VolumeMounts) != 1 || agent.VolumeMounts[0].Name != "home" ||
+	if len(agent.VolumeMounts) != 2 || agent.VolumeMounts[0].Name != "home" ||
 		agent.VolumeMounts[0].MountPath != "/home/kasm-user" || agent.VolumeMounts[0].ReadOnly {
 		t.Fatalf("the sidecar must mount the home volume read-write at the same path, got %+v", agent.VolumeMounts)
 	}
@@ -113,7 +142,8 @@ func TestKasmAgentInjectedOnKasmvncWorkloads(t *testing.T) {
 	}
 }
 
-// Feature off (no image) or not a kasmvnc workload: no sidecar, no port.
+// Feature off (no image) or not a kasmvnc workload: no sidecar, no port,
+// no Pulse volume, no PULSE_SERVER.
 func TestKasmAgentAbsentWhenOffOrNotKasmvnc(t *testing.T) {
 	ws := workspace()
 	ws.Spec.TemplateRef = "kasm-firefox"
@@ -121,6 +151,12 @@ func TestKasmAgentAbsentWhenOffOrNotKasmvnc(t *testing.T) {
 	if len(dep.Spec.Template.Spec.Containers) != 1 || hasServicePort(svc, kasmagent.PortName) {
 		t.Fatalf("no image configured: expected no sidecar and no Service port, got %d containers, %+v",
 			len(dep.Spec.Template.Spec.Containers), svc.Spec.Ports)
+	}
+	desktop := dep.Spec.Template.Spec.Containers[0]
+	if slices.ContainsFunc(dep.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool { return v.Name == kasmPulseVolume }) ||
+		slices.ContainsFunc(desktop.VolumeMounts, func(m corev1.VolumeMount) bool { return m.Name == kasmPulseVolume }) ||
+		envByName(desktop.Env)[kasmagent.EnvPulseServer].Name != "" {
+		t.Fatal("without the sidecar there is no Pulse volume and no PULSE_SERVER to stamp")
 	}
 
 	dep, svc = kasmAgentFixture(t, linuxTemplate(), workspace(), testKasmAgent)
