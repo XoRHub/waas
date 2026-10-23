@@ -256,10 +256,74 @@ A content change rolls the workload: subPath mounts never refresh in
 place, so the content hash is stamped on the pod template
 (`annotationKasmConfigHash`).
 
-`kasmvncConfig` is editable from the admin template editor (shown only
-when a `kasmvnc` protocol is present, same guard as the webhook), and
-the effective merged file is readable by the workspace owner via
+The effective merged file is readable by the workspace owner via
 `GET /api/v1/workspaces/{id}/kasmvnc-config`.
+
+**The YAML file is what is effective — the image env is not.** The
+kasmweb `vnc_startup.sh` passes its env-derived flags to `vncserver`
+(`-FrameRate=24 -DynamicQualityMin=4 -DynamicQualityMax=7 -geometry
+$VNC_RESOLUTION …`), but `vncserver` then appends the config-derived
+flags AFTER them (captured live on `kasmweb/terminal:1.19.0`: `…
+-FrameRate=24 … -FrameRate 60 … -DynamicQualityMin 7 …
+-DynamicQualityMax 8 … -geometry 1024x768 …`) and Xvnc keeps the last
+value. So for every key the YAML covers, `kasmvnc_defaults.yaml` + the
+WaaS override decide, and `VNC_RESOLUTION`, `MAX_FRAME_RATE`,
+`VNCOPTIONS` are effectively dead. The defaults the template editor
+shows are therefore the real effective defaults.
+
+### Template editor: schema-driven, read from the image
+
+`kasmvncConfig` is edited from the admin template editor (shown only
+when a `kasmvnc` protocol is present, same guard as the webhook —
+`frontend/src/pages/admin/templates/KasmVNCConfigFieldset.tsx`) in
+three tabs over the same data, **Essentials | Advanced | YAML**. The
+option list is **not maintained by WaaS**: it is the image's own
+`kasmvnc_defaults.yaml`, published by the catalog as the per-entry
+`kasmvnc` hint (`docs/image-catalog.md` § KasmVNC defaults) and looked
+up for the template's image among the admin catalogs
+(`DiscoveredImage.kasmvnc`). Flattened to dotted keys
+(`frontend/src/lib/kasmvnc.ts`), each key gets its control type from
+its default's YAML type (bool → the tri-state of `ParamField`, int →
+number, list → comma-separated text, else text), its default as the
+"image default" option, and the file's comments as hints. The header
+says what was read: *KasmVNC 1.5.1 · N options read from the image*.
+
+- **Essentials**: a fixed table — the only KasmVNC knowledge WaaS
+  keeps (`ESSENTIALS` in the fieldset) — mapping everyday controls to
+  keys: initial resolution (`desktop.resolution.width`/`.height`), auto
+  resize, max frames per second, image quality (a preset writes both
+  `rect_encoding_mode.min_quality`/`max_quality`), disconnect after
+  inactivity (`user_session.idle_timeout`, **seconds** or `never` —
+  checked in 1.5.1's `vncserver`), ignore Num Lock, game mode,
+  clipboard max transfer size (both `…clipboard.*.size`, **bytes** or
+  `unlimited`). An essential whose key the image lacks is not offered
+  (one line says so); with no defaults known (image not catalogued, or
+  a catalog predating the field) every essential is offered without
+  its image default. Copy/paste is a locked row: policy-owned.
+- **Advanced**: every key of the file, grouped by top-level section,
+  searchable (key or hint); modified rows are highlighted. The
+  policy-managed keys are locked, from `GET
+  /api/v1/meta/kasmvnc-managed-keys` (the dotted form of
+  `kasmcfg.ManagedClipboardKeyPaths` — the frontend keeps no copy, same
+  doctrine as `/meta/override-fields`). Needs the image defaults; says
+  so otherwise.
+- **YAML**: the raw editor, unchanged.
+
+The YAML text is the single source of truth (it is what the CR
+stores): the structured tabs parse it into a tree and write it back on
+every edit, so switching tabs never loses anything, and an override
+they cannot represent (a nested list…) round-trips untouched. Only
+values that differ from the image are written, with the YAML type the
+key expects (bools from the default's type; a number is written as a
+number whatever the default's type, because KasmVNC's scalar keys are
+often unions — `never|<seconds>`, `unlimited|<bytes>`, `auto|<n>` —
+whose default is the word). Overrides whose key does not exist in the
+current image's defaults are listed as a non-blocking warning with a
+**Remove** action (they stay saved until removed: KasmVNC ignores
+unknown keys). A footer counts the overrides and offers **Reset all**.
+A broken or non-mapping YAML blocks the structured tabs until fixed.
+The read-only views (connection settings, session menu, create
+dialog) keep showing the raw YAML.
 
 ### Clipboard enforcement (policy-derived DLP)
 
