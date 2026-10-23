@@ -520,3 +520,170 @@ func TestFreshQueryTokenBeatsExpiredCookie(t *testing.T) {
 		t.Fatal("the session cookie must be re-set from the fresh token")
 	}
 }
+
+// newFakeAgent mimics the kasm-agent sidecar: plain HTTP, the same Basic
+// pair as KasmVNC, echoing method and path. Like newFakeKasmVNC it
+// asserts nothing of the platform's leaks upstream.
+func newFakeAgent(t *testing.T) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if u, p, ok := r.BasicAuth(); !ok || u != "kasm_user" || p != "vnc-pw-1" {
+			http.Error(w, "401", http.StatusUnauthorized)
+			return
+		}
+		if r.Header.Get("Cookie") != "" {
+			t.Errorf("platform cookie leaked to the agent: %q", r.Header.Get("Cookie"))
+		}
+		fmt.Fprintf(w, "AGENT %s %s", r.Method, r.URL.RequestURI())
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &hits
+}
+
+func filesToken(t *testing.T, signer *auth.Signer, sid string, grant auth.FileTransferGrant) string {
+	t.Helper()
+	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", sid, "ws1", auth.ClipboardGrant{}, grant, time.Minute))
+	if err != nil {
+		t.Fatalf("signing: %v", err)
+	}
+	return token
+}
+
+// Every file route is gated on the token's grant, each with exactly one
+// method, and only an allowed request reaches the sidecar — with the
+// injected Basic pair and its query intact.
+func TestFileRoutesGatedOnTheGrant(t *testing.T) {
+	upstream, kasmHits := newFakeKasmVNC(t)
+	agent, agentHits := newFakeAgent(t)
+	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
+	agentURL, _ := url.Parse(agent.URL)
+	port, _ := strconv.Atoi(agentURL.Port())
+	handler.agentPort = int32(port)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	none := auth.FileTransferGrant{}
+	down := auth.FileTransferGrant{Download: true}
+	up := auth.FileTransferGrant{Upload: true}
+	both := auth.FileTransferGrant{Upload: true, Download: true}
+	cases := []struct {
+		grant  auth.FileTransferGrant
+		method string
+		path   string
+		want   int
+		body   string
+	}{
+		// No grant: everything 403, nothing reaches the sidecar.
+		{none, http.MethodGet, "/waas/files", http.StatusForbidden, ""},
+		{none, http.MethodGet, "/waas/files/download?path=a.txt", http.StatusForbidden, ""},
+		{none, http.MethodPost, "/waas/files/upload", http.StatusForbidden, ""},
+		// Download only: list and download, no upload.
+		{down, http.MethodGet, "/waas/files?path=Documents", http.StatusOK, "AGENT GET /files?path=Documents"},
+		{down, http.MethodGet, "/waas/files/download?path=a.txt", http.StatusOK, "AGENT GET /files/download?path=a.txt"},
+		{down, http.MethodPost, "/waas/files/upload", http.StatusForbidden, ""},
+		// Upload only: list and upload, no download.
+		{up, http.MethodGet, "/waas/files", http.StatusOK, "AGENT GET /files"},
+		{up, http.MethodPost, "/waas/files/upload?dir=in", http.StatusOK, "AGENT POST /files/upload?dir=in"},
+		{up, http.MethodGet, "/waas/files/download?path=a.txt", http.StatusForbidden, ""},
+		// One method per route, whatever the grant.
+		{both, http.MethodPost, "/waas/files", http.StatusMethodNotAllowed, ""},
+		{both, http.MethodPost, "/waas/files/download?path=a.txt", http.StatusMethodNotAllowed, ""},
+		{both, http.MethodGet, "/waas/files/upload", http.StatusMethodNotAllowed, ""},
+		{both, http.MethodDelete, "/waas/files/download?path=a.txt", http.StatusMethodNotAllowed, ""},
+		// Unknown agent routes, including normalization tricks that must
+		// not resolve to a gated one.
+		{both, http.MethodGet, "/waas", http.StatusNotFound, ""},
+		{both, http.MethodGet, "/waas/", http.StatusNotFound, ""},
+		{both, http.MethodGet, "/waas/other", http.StatusNotFound, ""},
+		{both, http.MethodGet, "/waas/files/../files/download/../../../api/downloads", http.StatusNotFound, ""},
+		// Trailing-slash and dot variants normalize onto the gated route.
+		{down, http.MethodGet, "/waas/files/", http.StatusOK, "AGENT GET /files"},
+		{none, http.MethodGet, "/waas//files/./download?path=a.txt", http.StatusForbidden, ""},
+	}
+	for _, tc := range cases {
+		agentBefore := agentHits.Load()
+		req, _ := http.NewRequest(tc.method, server.URL+"/kasm/sess-1"+tc.path, nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: filesToken(t, signer, "sess-1", tc.grant)})
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", tc.method, tc.path, err)
+		}
+		body := readAll(t, resp)
+		if resp.StatusCode != tc.want {
+			t.Errorf("%+v %s %s: expected %d, got %d (%s)", tc.grant, tc.method, tc.path, tc.want, resp.StatusCode, strings.TrimSpace(body))
+		}
+		if tc.body != "" && body != tc.body {
+			t.Errorf("%s %s: expected upstream %q, got %q", tc.method, tc.path, tc.body, body)
+		}
+		if reached := agentHits.Load() > agentBefore; reached != (tc.want == http.StatusOK) {
+			t.Errorf("%+v %s %s: agent reached=%v for status %d", tc.grant, tc.method, tc.path, reached, resp.StatusCode)
+		}
+	}
+	if kasmHits.Load() != 0 {
+		t.Fatalf("no file route may reach KasmVNC itself; got %d hits", kasmHits.Load())
+	}
+
+	// A sibling path that merely starts with the prefix letters is KasmVNC's.
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1/waasx.js", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: filesToken(t, signer, "sess-1", none)})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := readAll(t, resp); resp.StatusCode != http.StatusOK || body != "KASM_PAGE /waasx.js" {
+		t.Fatalf("expected the KasmVNC page for /waasx.js, got %d %q", resp.StatusCode, body)
+	}
+}
+
+// A download grant lifts nothing on KasmVNC's own egress routes: the
+// governed path is the sidecar, /api/downloads and /Downloads stay 403.
+func TestDownloadsPathsStayBlockedWithGrant(t *testing.T) {
+	upstream, hits := newFakeKasmVNC(t)
+	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	token := filesToken(t, signer, "sess-1", auth.FileTransferGrant{Upload: true, Download: true})
+	for _, p := range []string{"/api/downloads", "/Downloads/Downloads/secret.txt"} {
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1"+p, nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 for %s even with a full grant, got %d", p, resp.StatusCode)
+		}
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("downloads paths must never reach upstream; got %d hits", hits.Load())
+	}
+}
+
+// Sidecar absent (operator.kasmAgent off, or a workspace started before
+// it was enabled): 503, not the desktop's 502.
+func TestFileRoutesAnswer503WithoutTheSidecar(t *testing.T) {
+	upstream, _ := newFakeKasmVNC(t)
+	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closedURL, _ := url.Parse(closed.URL)
+	closed.Close()
+	port, _ := strconv.Atoi(closedURL.Port())
+	handler.agentPort = int32(port)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1/waas/files", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: filesToken(t, signer, "sess-1", auth.FileTransferGrant{Download: true})})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 without the sidecar, got %d", resp.StatusCode)
+	}
+}
