@@ -75,12 +75,15 @@ export function SessionOverlay({
   // Clipboard API). Refreshed each time the overlay opens.
   const [receivedClip, setReceivedClip] = useState('');
   const [clipDraft, setClipDraft] = useState('');
+  const [quality, setQuality] = useState<number>();
   useEffect(() => {
     // Reading an imperative handle when the panel opens: the value is
     // not reactive state, and reading it at every toggle CALL SITE would
     // duplicate this line across the app.
+    if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (open) setReceivedClip(pane.current?.readRemoteClipboard() ?? '');
+    setReceivedClip(pane.current?.readRemoteClipboard() ?? '');
+    setQuality(pane.current?.readQuality());
   }, [open, pane]);
 
   useEffect(() => {
@@ -247,7 +250,53 @@ export function SessionOverlay({
               {t('overlay.openSplitView')}
               {!target.capabilities.splitView && <span className="ml-1 text-xs">🔒</span>}
             </button>
+            {/* The whole page, not the pane: the overlay must stay
+                reachable in full screen. */}
+            <button
+              onClick={() =>
+                void (document.fullscreenElement
+                  ? document.exitFullscreen()
+                  : document.documentElement.requestFullscreen())
+              }
+              className="w-full rounded-md bg-slate-700/70 px-3 py-1.5 text-left hover:bg-slate-600"
+            >
+              {t('overlay.fullscreen')}
+            </button>
           </section>
+
+          {/* -------- kasmvnc: image quality (client preset, live) -------- */}
+          {protocol === 'kasmvnc' && (
+            <section className="space-y-2">
+              <h4 className="text-xs uppercase tracking-wide text-slate-400">
+                {t('overlay.quality')}
+              </h4>
+              <div className="flex gap-1">
+                {(
+                  [
+                    [1, t('overlay.qualityLow')],
+                    [2, t('overlay.qualityMedium')],
+                    [3, t('overlay.qualityHigh')],
+                    [5, t('overlay.qualityLossless')],
+                  ] as const
+                ).map(([level, label]) => (
+                  <button
+                    key={level}
+                    onClick={() => {
+                      pane.current?.setQuality(level);
+                      setQuality(level);
+                    }}
+                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium ${
+                      level === quality
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-700/70 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* -------- protocol (quick switch, any kind) -------- */}
           {target.protocols.length > 1 && (
@@ -320,63 +369,65 @@ export function SessionOverlay({
                   deniedReason={pasteDeniedReason}
                   onChange={(v) => toggleClipboard('paste', v)}
                 />
-
-                {/* Manual exchange: the universal fallback. Remote→local has
-                no other path without the Clipboard API (plain HTTP, or
-                Firefox denying readText); it also makes clipboard flows
-                verifiable regardless of browser permissions. */}
-                <details className="rounded-md bg-slate-800/60 px-3 py-1.5">
-                  <summary className="cursor-pointer text-slate-300">
-                    {t('overlay.clipboardManual')}
-                  </summary>
-                  <div className="mt-2 space-y-2">
-                    {!hasClipboardApi() && (
-                      <p className="text-[11px] text-amber-300/90">
-                        {t('overlay.clipboardInsecureHint')}
-                      </p>
-                    )}
-                    <div className="space-y-1">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400">
-                        {t('overlay.clipboardReceived')}
-                      </p>
-                      {effCopy && receivedClip ? (
-                        <textarea
-                          readOnly
-                          value={receivedClip}
-                          rows={3}
-                          onFocus={(e) => e.target.select()}
-                          className="w-full rounded-md bg-slate-950/60 p-2 text-xs text-slate-100"
-                        />
-                      ) : (
-                        <p className="text-[11px] text-slate-500">
-                          {effCopy ? t('overlay.clipboardReceivedEmpty') : copyDeniedReason}
-                        </p>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <textarea
-                        value={clipDraft}
-                        onChange={(e) => setClipDraft(e.target.value)}
-                        placeholder={t('overlay.clipboardSendPlaceholder')}
-                        rows={2}
-                        disabled={!effPaste}
-                        className="w-full rounded-md bg-slate-950/60 p-2 text-xs text-slate-100 disabled:opacity-40"
-                      />
-                      <button
-                        onClick={() => {
-                          pane.current?.sendClipboard(clipDraft);
-                          setClipDraft('');
-                        }}
-                        disabled={!effPaste || clipDraft === ''}
-                        className="w-full rounded-md bg-slate-700/70 px-3 py-1.5 text-left hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {t('overlay.clipboardSend')}
-                      </button>
-                    </div>
-                  </div>
-                </details>
               </>
             )}
+
+            {/* Manual exchange: the universal fallback, kasmvnc included
+                (through the client's clipboardsnd/clipboardrx messages).
+                Remote→local has no other path without the Clipboard API
+                (plain HTTP, or Firefox denying readText); it also makes
+                clipboard flows verifiable regardless of browser
+                permissions. */}
+            <details className="rounded-md bg-slate-800/60 px-3 py-1.5">
+              <summary className="cursor-pointer text-slate-300">
+                {t('overlay.clipboardManual')}
+              </summary>
+              <div className="mt-2 space-y-2">
+                {!hasClipboardApi() && (
+                  <p className="text-[11px] text-amber-300/90">
+                    {t('overlay.clipboardInsecureHint')}
+                  </p>
+                )}
+                <div className="space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                    {t('overlay.clipboardReceived')}
+                  </p>
+                  {effCopy && receivedClip ? (
+                    <textarea
+                      readOnly
+                      value={receivedClip}
+                      rows={3}
+                      onFocus={(e) => e.target.select()}
+                      className="w-full rounded-md bg-slate-950/60 p-2 text-xs text-slate-100"
+                    />
+                  ) : (
+                    <p className="text-[11px] text-slate-500">
+                      {effCopy ? t('overlay.clipboardReceivedEmpty') : copyDeniedReason}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <textarea
+                    value={clipDraft}
+                    onChange={(e) => setClipDraft(e.target.value)}
+                    placeholder={t('overlay.clipboardSendPlaceholder')}
+                    rows={2}
+                    disabled={!effPaste}
+                    className="w-full rounded-md bg-slate-950/60 p-2 text-xs text-slate-100 disabled:opacity-40"
+                  />
+                  <button
+                    onClick={() => {
+                      pane.current?.sendClipboard(clipDraft);
+                      setClipDraft('');
+                    }}
+                    disabled={!effPaste || clipDraft === ''}
+                    className="w-full rounded-md bg-slate-700/70 px-3 py-1.5 text-left hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {t('overlay.clipboardSend')}
+                  </button>
+                </div>
+              </div>
+            </details>
           </section>
 
           {/* -------- kasmvnc: effective admin-managed config -------- */}
