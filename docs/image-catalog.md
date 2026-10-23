@@ -318,7 +318,9 @@ Same regime as `recommended`: a display/prefill hint, never read by
 `enforce()`/`buildPodTemplate`. The sync worker stores it opaquely
 (`catalog_entries.kasmvnc`, JSON like `recommended`; a `defaults` over
 64 KiB drops the whole hint — an anti-abuse bound, real files are
-~4 KB) and `DiscoveredImage.kasmvnc` projects it to the portal, where
+~4 KB) and `DiscoveredImage.kasmvnc`
+projects it to the portal — on the admin listing (`/admin/images`)
+only, the end-user `/catalog` strips it — where
 the admin template editor's KasmVNC section derives its option list,
 control types and default values from it — so a new KasmVNC release
 needs no WaaS change (`docs/kasmvnc.md` § Configuration). The producer

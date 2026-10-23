@@ -606,8 +606,21 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 		got[0].Recommended.PodSecurityContext == nil || got[0].Recommended.PodSecurityContext.RunAsUser == nil || *got[0].Recommended.PodSecurityContext.RunAsUser != 1000 {
 		t.Fatalf("profile/recommended not surfaced: %+v", got[0])
 	}
-	if got[0].KasmVNC == nil || got[0].KasmVNC.Version != "1.5.1" || got[0].KasmVNC.Defaults != "---\ndesktop:\n  allow_resize: true\n" {
-		t.Fatalf("kasmvnc not surfaced: %+v", got[0].KasmVNC)
+	// The KasmVNC defaults only serve the admin template editor: the
+	// admin listing carries them, the end-user catalog is stripped.
+	if got[0].KasmVNC != nil {
+		t.Fatalf("end-user catalog must not carry the kasmvnc defaults: %+v", got[0].KasmVNC)
+	}
+	admin, err := svc.AdminListImages(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(admin, func(m model.CatalogImage) bool { return m.Name == "waas-images" })
+	if i < 0 || len(admin[i].Discovered) != 1 {
+		t.Fatalf("admin listing lost the image or its entries: %+v", admin)
+	}
+	if k := admin[i].Discovered[0].KasmVNC; k == nil || k.Version != "1.5.1" || k.Defaults != "---\ndesktop:\n  allow_resize: true\n" {
+		t.Fatalf("kasmvnc not surfaced on the admin listing: %+v", k)
 	}
 	// Per-image protocols derive from the hint tags (vnc here), not the
 	// parent entry's list (kasmvnc) — the single-app-image fix.

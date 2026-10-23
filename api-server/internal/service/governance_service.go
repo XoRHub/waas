@@ -122,6 +122,13 @@ func (s *GovernanceService) Catalog(ctx context.Context, actor Actor) ([]model.C
 			return nil, err
 		}
 		m.Templates = templatesByEntry[allowed[i].Name]
+		// The KasmVNC defaults (a ~4 KB file per kasmweb image) only
+		// serve the admin template editor, which reads the admin
+		// listing; the end-user catalog is fetched by every portal
+		// page and must not carry them.
+		for j := range m.Discovered {
+			m.Discovered[j].KasmVNC = nil
+		}
 		out = append(out, m)
 	}
 	return out, nil
