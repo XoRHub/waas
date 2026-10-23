@@ -94,6 +94,12 @@ lives in [guacd-parameters.md](guacd-parameters.md) (generated —
   session and merged over the template params in the internal
   ConnectionInfo; wwt forwards them during the guacd handshake.
   `hostname`/`port` remain platform-managed whatever the params say.
+- `POST /api/v1/workspaces/{id}/sessions/{sid}/token` mints a fresh
+  connection token for one of the caller's **open** sessions (owner
+  only, 409 once ended), re-resolving the policy grants — the same
+  minting path as `/connect`, minus the session row. The kasmvnc data
+  plane needs it: its cookie is the token, and a desktop outlives the
+  token's TTL (`docs/kasmvnc.md` § Auth).
 - The portal stores each user's per-workspace protocol/params choice in
   their profile preferences (`workspaceSettings`) — the server still
   re-validates at connect time, so the preference is a convenience, not a

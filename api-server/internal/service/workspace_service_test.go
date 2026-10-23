@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -324,6 +325,97 @@ func TestByIDActionsAreStrictlyOwnerOnly(t *testing.T) {
 	}
 	if _, err := f.workspace.SetPaused(ctx, admin, "uid-mine", true); err != nil {
 		t.Fatalf("admin pause on their own workspace: %v", err)
+	}
+}
+
+// TestRefreshConnectionToken pins the kasmvnc cookie-refresh contract: the
+// owner gets a fresh token for their open session with the grants
+// re-resolved (a policy change lands on the next refresh), anyone else
+// — admin included — gets not-found, a session of another workspace too,
+// and an ended session is a conflict.
+func TestRefreshConnectionToken(t *testing.T) {
+	ctx := context.Background()
+	f := newRemoteFixture(t, []model.User{
+		{ID: "admin1", Username: "boss", Role: auth.RoleAdmin},
+		{ID: "u1", Username: "alice"},
+	}, []waasv1alpha1.WorkspacePolicy{{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec:       waasv1alpha1.WorkspacePolicySpec{FileTransfer: &waasv1alpha1.FileTransferPolicy{Upload: true}},
+	}})
+	seedOwnedWorkspace(t, f, "alices", "u1")
+	seedOwnedWorkspace(t, f, "other", "u1")
+	// A resolvable template: without one the grants fail closed.
+	tpl := &waasv1alpha1.WorkspaceTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "xfce", Namespace: testNS},
+		Spec:       waasv1alpha1.WorkspaceTemplateSpec{Protocols: []waasv1alpha1.WorkspaceProtocol{{Name: "kasmvnc", Default: true}}},
+	}
+	if err := f.kube.Create(ctx, tpl); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, s := range []*model.Session{
+		{ID: "sess-1", UserID: "u1", WorkspaceID: "uid-alices", Protocol: "kasmvnc", StartedAt: now},
+		{ID: "sess-other", UserID: "u1", WorkspaceID: "uid-other", Protocol: "kasmvnc", StartedAt: now},
+	} {
+		if err := f.sessionsDB.Create(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alice := Actor{ID: "u1", Username: "alice", Role: string(auth.RoleUser)}
+
+	got, err := f.workspace.RefreshConnectionToken(ctx, alice, "uid-alices", "sess-1")
+	if err != nil {
+		t.Fatalf("owner refresh: %v", err)
+	}
+	claims, err := auth.VerifyConnectionToken(got.ConnectionToken, "waas-test", f.signer.Public())
+	if err != nil || claims.SessionID != "sess-1" || claims.WorkspaceID != "uid-alices" {
+		t.Fatalf("expected a token for sess-1 on uid-alices, got %+v, %v", claims, err)
+	}
+	if !claims.FileTransfer.Upload || claims.FileTransfer.Download || !got.Capabilities.FileUpload || got.Capabilities.FileDownload {
+		t.Fatalf("expected the policy's upload-only grant, got %+v / %+v", claims.FileTransfer, got.Capabilities)
+	}
+
+	// The policy changes mid-session: the next refresh carries it.
+	pol := &waasv1alpha1.WorkspacePolicy{}
+	if err := f.kube.Get(ctx, client.ObjectKey{Namespace: testNS, Name: "default"}, pol); err != nil {
+		t.Fatal(err)
+	}
+	pol.Spec.FileTransfer.Download = true
+	if err := f.kube.Update(ctx, pol); err != nil {
+		t.Fatal(err)
+	}
+	got, err = f.workspace.RefreshConnectionToken(ctx, alice, "uid-alices", "sess-1")
+	if err != nil {
+		t.Fatalf("refresh after policy change: %v", err)
+	}
+	claims, _ = auth.VerifyConnectionToken(got.ConnectionToken, "waas-test", f.signer.Public())
+	if !claims.FileTransfer.Download {
+		t.Fatalf("a policy change must apply on refresh, got %+v", claims.FileTransfer)
+	}
+
+	// Not the owner (admin included), or a session of another workspace:
+	// not-found, never a 403 confirming the id.
+	admin := Actor{ID: "admin1", Username: "boss", Role: string(auth.RoleAdmin)}
+	if _, err := f.workspace.RefreshConnectionToken(ctx, admin, "uid-alices", "sess-1"); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Fatalf("admin refresh on another user's session must be not-found, got %v", err)
+	}
+	if _, err := f.workspace.RefreshConnectionToken(ctx, alice, "uid-alices", "sess-other"); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Fatalf("another workspace's session must be not-found, got %v", err)
+	}
+	if _, err := f.workspace.RefreshConnectionToken(ctx, alice, "uid-alices", "nope"); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Fatalf("an unknown session must be not-found, got %v", err)
+	}
+
+	// Ended: conflict, like ConnectionInfo.
+	if err := f.sessionsDB.End(ctx, "sess-1", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.workspace.RefreshConnectionToken(ctx, alice, "uid-alices", "sess-1"); err == nil ||
+		!strings.Contains(err.Error(), "already ended") {
+		t.Fatalf("an ended session must be a conflict, got %v", err)
 	}
 }
 
