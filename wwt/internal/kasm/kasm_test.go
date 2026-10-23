@@ -237,31 +237,40 @@ func TestBlocksDownloadsPaths(t *testing.T) {
 	priming := hits.Load()
 
 	// Every shape of the downloads path — listing, subdirectory, and the
-	// normalization tricks (case, trailing slash, dot, double slash) —
-	// must be refused, and the workspace container must never be reached.
-	for _, p := range []string{
-		"/api/downloads",
-		"/api/downloads/",
-		"/api/downloads?path=sub",
-		"/api/downloads/secret.txt",
-		"/API/Downloads",
-		"/api/./downloads",
-		"/api//downloads",
+	// normalization tricks (case, trailing slash, dot, double slash,
+	// embedded NUL) — must be refused, and the workspace container must
+	// never be reached.
+	cases := []struct {
+		path string
+		want int
+	}{
+		{"/api/downloads", http.StatusForbidden},
+		{"/api/downloads/", http.StatusForbidden},
+		{"/api/downloads?path=sub", http.StatusForbidden},
+		{"/api/downloads/secret.txt", http.StatusForbidden},
+		{"/API/Downloads", http.StatusForbidden},
+		{"/api/./downloads", http.StatusForbidden},
+		{"/api//downloads", http.StatusForbidden},
 		// The kasmweb images' www/Downloads/Downloads → ~/Downloads symlink.
-		"/Downloads",
-		"/Downloads/",
-		"/Downloads/Downloads/secret.txt",
-		"/downloads/downloads/",
-		"/./Downloads//Downloads",
-	} {
-		req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1"+p, nil)
+		{"/Downloads", http.StatusForbidden},
+		{"/Downloads/", http.StatusForbidden},
+		{"/Downloads/Downloads/secret.txt", http.StatusForbidden},
+		{"/downloads/downloads/", http.StatusForbidden},
+		{"/./Downloads//Downloads", http.StatusForbidden},
+		// An embedded NUL truncates the upstream's own percent-decoder
+		// past isDownloadsPath's exact/prefix match ("/Downloads\x00x" is
+		// neither "/downloads" nor "/downloads/..."); rejected outright.
+		{"/Downloads%00x", http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1"+tc.path, nil)
 		resp, err := client.Do(req)
 		if err != nil {
-			t.Fatalf("GET %s: %v", p, err)
+			t.Fatalf("GET %s: %v", tc.path, err)
 		}
 		resp.Body.Close()
-		if resp.StatusCode != http.StatusForbidden {
-			t.Errorf("expected 403 for %q, got %d", p, resp.StatusCode)
+		if resp.StatusCode != tc.want {
+			t.Errorf("expected %d for %q, got %d", tc.want, tc.path, resp.StatusCode)
 		}
 	}
 	if hits.Load() != priming {

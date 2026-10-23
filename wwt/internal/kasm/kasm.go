@@ -113,6 +113,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// A NUL truncates the upstream's own percent-decoder: /Downloads%00x
+	// decodes here to "/Downloads\x00x" — past isDownloadsPath's
+	// exact/prefix match — but upstream reads it as "/Downloads" and
+	// serves the symlinked listing anyway. Reject outright.
+	if strings.ContainsRune(rest, 0) {
+		http.Error(w, "invalid request path", http.StatusBadRequest)
+		return
+	}
 
 	// 1. Authenticate: token query (first hit, from the iframe URL) or
 	// the session-scoped cookie (every subsequent page request).
