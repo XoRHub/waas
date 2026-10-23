@@ -27,7 +27,7 @@ RUN apt-get update \
 # Debian is merged-usr (/lib -> usr/lib): resolve each directory to its
 # real path so COPY below never writes through the symlink.
 RUN set -eu; \
-    take() { d=$(readlink -f "$(dirname "$1")"); mkdir -p "/out$d"; cp -L "$1" "/out$d/"; }; \
+    take() { d=$(readlink -f "$(dirname "$1")"); mkdir -p "/out$d"; cp -L "$1" "/out$d/"; echo "$1" >> /tmp/taken.txt; }; \
     for d in /usr/lib/pulse-*/modules; do mods="$d"; done; \
     for f in /usr/bin/pulseaudio /usr/bin/parec \
              "$mods/module-native-protocol-unix.so" "$mods/libprotocol-native.so" \
@@ -37,6 +37,32 @@ RUN set -eu; \
         awk '$2 == "=>" && $3 ~ /^\// { print $3 }' /tmp/ldd.txt > /tmp/libs.txt; \
         while read -r lib; do take "$lib"; done < /tmp/libs.txt; \
     done
+
+# The copied binaries are (L)GPL: redistributing them needs their licence
+# text and a pointer to the source (GPL-2.0 s.1 and s.3). Resolve each
+# copied file to its owning package (dpkg only knows the real /usr/lib
+# path, not the merged-usr /lib symlink), then ship that package's
+# copyright file, a manifest (binary package=version plus its source
+# package and version) and a NOTICE.
+RUN set -eu; \
+    doc=/out/usr/share/doc/waas-kasmvnc-sidecar; mkdir -p "$doc"; \
+    sort -u /tmp/taken.txt > /tmp/files.txt; \
+    while read -r f; do dpkg -S "$(readlink -f "$f")"; done < /tmp/files.txt > /tmp/owners.txt; \
+    sed -e 's/: .*//' -e 's/, /\n/g' /tmp/owners.txt > /tmp/owners-pkgs.txt; \
+    sort -u /tmp/owners-pkgs.txt > /tmp/pkgs.txt; \
+    while read -r pkg; do \
+        name=${pkg%%:*}; mkdir -p "/out/usr/share/doc/$name"; \
+        cp -L "/usr/share/doc/$name/copyright" "/out/usr/share/doc/$name/"; \
+        dpkg-query -W -f '${Package}=${Version} (source: ${source:Package} ${source:Version})\n' "$name" >> "$doc/packages.txt"; \
+    done < /tmp/pkgs.txt; \
+    sort -u -o "$doc/packages.txt" "$doc/packages.txt"; \
+    printf '%s\n' \
+      'The PulseAudio binaries and shared libraries in this image are unmodified' \
+      'Debian packages, listed in packages.txt as package=version (source: source' \
+      'package and version). Their licences are in' \
+      '/usr/share/doc/<package>/copyright. The corresponding source of those exact' \
+      'versions is at https://snapshot.debian.org/ (or: apt-get source' \
+      '<source package>=<source version>).' > "$doc/NOTICE"
 
 # The operator sets runAsUser/runAsGroup to the desktop's uid/gid
 # (kasmweb: 1000) so uploads land owned by the session user and the
