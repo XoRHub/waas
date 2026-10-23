@@ -63,15 +63,17 @@ describe('SessionOverlay clipboard section by protocol', () => {
   it('shows the enforced clipboard state read-only on kasmvnc', async () => {
     // The kasm path bypasses the guac tunnel: the clipboard is enforced
     // in the container from the policy, so the overlay reflects that state
-    // read-only (no live toggle, no manual exchange), reading straight
-    // from capabilities.
+    // read-only (no live toggle), reading straight from capabilities. The
+    // manual exchange works there too (through the client's messages),
+    // gated by the same capabilities.
     await renderOverlay('kasmvnc', { clipboardCopy: true, clipboardPaste: false });
 
     // Labels shown, but as status — not interactive checkboxes.
     expect(screen.getByText('Copy from workspace')).toBeInTheDocument();
     expect(screen.getByText('Paste to workspace')).toBeInTheDocument();
-    expect(screen.queryByText('Manual exchange')).toBeNull();
     expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.getByText('Manual exchange')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Text to send/)).toBeDisabled();
 
     // Truthful per-direction status from capabilities.
     expect(screen.getByText('Allowed')).toBeInTheDocument();
@@ -287,5 +289,35 @@ describe('SessionOverlay kasmvnc effective config', () => {
 
     expect(screen.queryByText('KasmVNC configuration (managed by the administrator)')).toBeNull();
     expect(apiMock.api.get).not.toHaveBeenCalledWith('/api/v1/workspaces/w1/kasmvnc-config');
+  });
+});
+
+describe('SessionOverlay kasmvnc image quality', () => {
+  it('shows the pane quality and applies a preset live', async () => {
+    const setQuality = vi.fn();
+    const pane = {
+      current: { readQuality: () => 2, setQuality, readRemoteClipboard: () => '' },
+    } as unknown as React.RefObject<DesktopPaneHandle>;
+    signIn({ username: 'marc' });
+    renderWithProviders(
+      <SessionOverlay
+        workspace={workspace('kasmvnc')}
+        capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+        pane={pane}
+      />,
+    );
+    await userEvent.click(screen.getByTitle(/session menu/i));
+
+    expect(screen.getByRole('button', { name: 'Medium' }).className).toContain('bg-blue-600');
+    await userEvent.click(screen.getByRole('button', { name: 'High' }));
+
+    expect(setQuality).toHaveBeenCalledWith(3);
+    expect(screen.getByRole('button', { name: 'High' }).className).toContain('bg-blue-600');
+  });
+
+  it('has no quality control on guacd protocols', async () => {
+    await renderOverlay('vnc');
+
+    expect(screen.queryByText('Image quality')).toBeNull();
   });
 });
