@@ -60,15 +60,22 @@ proxy.
 | `/api/send_full_frame` | Forces a full frame resend to read-only users | Open |
 | `/api/get_bottleneck_stats`, `/api/get_frame_stats` | Session telemetry | Open |
 
-- **`/api/downloads` is blocked** at the proxy (`isDownloadsAPIPath`,
+- **`/api/downloads` is blocked** at the proxy (`isDownloadsPath`,
   `kasm.go`) because it is the same session→browser file egress the
   guacd path gates behind `TierPlatform` for
   `enable-sftp`/`enable-drive` ("until the file-transfer feature ships
   with its own policy gate", `operator/pkg/params/params.go`). No such
   gate exists for kasmvnc yet, so the endpoint is blocked outright to
   keep file egress governed identically across protocols. The path is
-  normalized and lowercased before matching so trailing-slash, dot and
-  double-slash variants can't slip past.
+  normalized and lowercased before matching so case, trailing-slash,
+  dot and double-slash variants can't slip past.
+- **`/Downloads/…` is blocked too**, for the same reason: the kasmweb
+  images symlink `/usr/share/kasmvnc/www/Downloads/Downloads` to
+  `~/Downloads`, and KasmVNC's built-in HTTP server serves its
+  `httpd_directory` following symlinks, directory listings included —
+  verified on `kasmweb/terminal:1.19.0`: `GET /Downloads/Downloads/`
+  lists `~/Downloads` and every file in it downloads with a 200. The
+  whole top-level `/downloads` prefix (same normalization) answers 403.
 - **The other eight stay open by documented choice**: a WaaS kasmvnc
   session is single-user and self-owned, with no third party to protect
   the user from — they already have the keyboard and screen.

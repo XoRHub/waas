@@ -219,7 +219,7 @@ func TestRejectsNonKasmSessions(t *testing.T) {
 	}
 }
 
-func TestBlocksDownloadsAPI(t *testing.T) {
+func TestBlocksDownloadsPaths(t *testing.T) {
 	upstream, hits := newFakeKasmVNC(t)
 	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
 	server := httptest.NewServer(handler)
@@ -247,6 +247,12 @@ func TestBlocksDownloadsAPI(t *testing.T) {
 		"/API/Downloads",
 		"/api/./downloads",
 		"/api//downloads",
+		// The kasmweb images' www/Downloads/Downloads → ~/Downloads symlink.
+		"/Downloads",
+		"/Downloads/",
+		"/Downloads/Downloads/secret.txt",
+		"/downloads/downloads/",
+		"/./Downloads//Downloads",
 	} {
 		req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1"+p, nil)
 		resp, err := client.Do(req)

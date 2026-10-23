@@ -132,17 +132,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// KasmVNC's downloads API (/api/downloads) lists — and serves — files
-	// from the session's downloads directory: the same session→browser
+	// from the session's downloads directory, and the kasmweb images
+	// expose the same directory a second way: www/Downloads/Downloads is
+	// a symlink to ~/Downloads, which the built-in HTTP server lists and
+	// serves (verified on kasmweb 1.19.0). Both are the session→browser
 	// file egress the guacd path gates behind TierPlatform for
 	// enable-sftp/enable-drive ("until the file-transfer feature ships
 	// with its own policy gate", operator/pkg/params/params.go). No such
-	// gate exists for kasmvnc yet, so the endpoint is blocked outright to
-	// keep file egress governed identically across protocols. The rest of
-	// the kasmvnc /api surface stays open by design: a WaaS kasmvnc
-	// session is single-user and self-owned (kasm_user holds the owner
-	// role), with no third party to protect the user from — see
-	// docs/kasmvnc.md.
-	if isDownloadsAPIPath(rest) {
+	// gate exists for kasmvnc yet, so both are blocked outright to keep
+	// file egress governed identically across protocols. The rest of the
+	// kasmvnc /api surface stays open by design: a WaaS kasmvnc session
+	// is single-user and self-owned (kasm_user holds the owner role),
+	// with no third party to protect the user from — see docs/kasmvnc.md.
+	if isDownloadsPath(rest) {
 		http.Error(w, "file transfer is not enabled for this session", http.StatusForbidden)
 		return
 	}
@@ -242,14 +244,21 @@ func (h *Handler) forget(sid string) {
 	h.mu.Unlock()
 }
 
-// isDownloadsAPIPath reports whether an upstream path targets KasmVNC's
-// downloads API (/api/downloads or any subpath). The path arrives
-// already URL-decoded from splitPath (leading slash guaranteed); it is
-// normalized and lowercased before matching so trailing-slash, dot, and
-// double-slash variants can't slip a request past the block.
-func isDownloadsAPIPath(p string) bool {
+// isDownloadsPath reports whether an upstream path targets the session's
+// downloads folder: KasmVNC's downloads API (/api/downloads) or the
+// kasmweb images' www/Downloads symlink (/Downloads), with any subpath.
+// The path arrives already URL-decoded from splitPath (leading slash
+// guaranteed); it is normalized and lowercased before matching so
+// case, trailing-slash, dot, and double-slash variants can't slip a
+// request past the block.
+func isDownloadsPath(p string) bool {
 	clean := strings.ToLower(path.Clean(p))
-	return clean == "/api/downloads" || strings.HasPrefix(clean, "/api/downloads/")
+	for _, prefix := range []string{"/api/downloads", "/downloads"} {
+		if clean == prefix || strings.HasPrefix(clean, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // splitPath extracts the session ID and the upstream path from
