@@ -6,6 +6,7 @@ import { TabbedPanels } from '@/components/TabbedPanels';
 import { parseYaml, YamlEditor } from '@/components/YamlEditor';
 import {
   coerce,
+  commentedKeys,
   leaves,
   parseDefaults,
   removePath,
@@ -129,8 +130,19 @@ export function KasmVNCConfigFieldset({
   const managedKeys = useKasmVNCManagedKeys().data?.data ?? [];
   const info = findDiscovered(images.data?.data, image)?.kasmvnc;
   const options = useMemo(() => parseDefaults(info?.defaults ?? ''), [info?.defaults]);
+  const commented = useMemo(() => commentedKeys(info?.defaults ?? ''), [info?.defaults]);
   const known = options.length > 0;
   const byKey = new Map(options.map((o) => [o.key, o]));
+  // A null default has no shape to offer a control for: YAML tab only.
+  const offered = options.filter((o) => o.kind !== 'unknown');
+  // KasmVNC refuses to start on an unsupported key, so an override is
+  // flagged unless the image documents it: as a typed default, under a
+  // null-valued one (watermark.text.template), or commented out
+  // (session_type).
+  const documented = (key: string) =>
+    byKey.has(key) ||
+    commented.has(key.split('.').pop() ?? key) ||
+    options.some((o) => o.kind === 'unknown' && key.startsWith(o.key + '.'));
 
   const parsed = useMemo(() => parseYaml(value, validateKasmVNCConfig), [value]);
   // null = the YAML is broken or not a mapping: the structured tabs
@@ -148,7 +160,7 @@ export function KasmVNCConfigFieldset({
     else setPath(next, key, coerce(text, byKey.get(key)?.kind ?? 'string'));
   };
 
-  const orphans = known ? Object.keys(current).filter((k) => !byKey.has(k)) : [];
+  const orphans = known ? Object.keys(current).filter((k) => !documented(k)) : [];
   const changed = Object.keys(current).length;
   const defaultLabel = (keys: string[]) => {
     const texts = [...new Set(keys.map((k) => scalarText(byKey.get(k)?.default)))].filter(Boolean);
@@ -234,9 +246,14 @@ export function KasmVNCConfigFieldset({
   );
 
   const [query, setQuery] = useState('');
+  // A list is edited as comma-separated text, but the tree holds the
+  // parsed items: the text being typed (`text/html,`) is kept here
+  // until the input blurs, or the trailing comma would vanish on every
+  // keystroke.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const needle = query.trim().toLowerCase();
   const sections = new Map<string, KasmOption[]>();
-  for (const o of options) {
+  for (const o of offered) {
     if (needle && !o.key.includes(needle) && !o.hint?.toLowerCase().includes(needle)) continue;
     const section = o.key.split('.')[0];
     sections.set(section, [...(sections.get(section) ?? []), o]);
@@ -283,11 +300,20 @@ export function KasmVNCConfigFieldset({
               category: 'display',
               live: false,
             };
+            const isList = o.kind === 'list';
             return (
               <div
                 key={o.key}
                 data-key={o.key}
                 className={`rounded-md p-2 ${modified ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                onBlur={
+                  isList
+                    ? () =>
+                        setDrafts((d) =>
+                          Object.fromEntries(Object.entries(d).filter(([k]) => k !== o.key)),
+                        )
+                    : undefined
+                }
               >
                 {managed && (
                   <span className="float-right text-[11px] text-amber-600 dark:text-amber-400">
@@ -296,8 +322,11 @@ export function KasmVNCConfigFieldset({
                 )}
                 <ParamField
                   meta={meta}
-                  value={modified ? scalarText(current[o.key]) : ''}
-                  onChange={(text) => update((next) => setKey(next, o.key, text))}
+                  value={drafts[o.key] ?? (modified ? scalarText(current[o.key]) : '')}
+                  onChange={(text) => {
+                    if (isList) setDrafts((d) => ({ ...d, [o.key]: text }));
+                    update((next) => setKey(next, o.key, text));
+                  }}
                   disabled={managed}
                 />
               </div>
@@ -334,7 +363,7 @@ export function KasmVNCConfigFieldset({
         {known
           ? t('admin.templatesPage.kasmvncSchema', {
               version: info?.version,
-              count: options.length,
+              count: offered.length,
             })
           : t('admin.templatesPage.kasmvncSchemaUnknown')}
       </p>

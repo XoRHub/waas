@@ -196,8 +196,9 @@ config can loosen security-relevant KasmVNC settings (`require_ssl`,
 auth file paths), which is the admin's call. The admin template editor
 edits it as Essentials / Advanced / YAML tabs whose option list and
 defaults come from the image itself (the catalog's `kasmvnc` hint) and
-writes only the values that differ from the image — the field stays
-the same opaque string. Full detail: [kasmvnc.md](kasmvnc.md).
+writes only the keys set explicitly (an explicit choice equal to the
+default is still written) — the field stays the same opaque string.
+Full detail: [kasmvnc.md](kasmvnc.md).
 
 ### Private registries (`WorkspaceImage.spec.imagePullSecretRef`)
 

@@ -26,6 +26,7 @@ desktop:
   allow_resize: true
 
 user_session:
+  # session_type: shared
   idle_timeout: never
 
 keyboard:
@@ -36,12 +37,17 @@ runtime_configuration:
 
 data_loss_prevention:
   clipboard:
+    allow_mimetypes:
+      - text/html
+      - image/png
     server_to_client:
       enabled: true
       size: unlimited
     client_to_server:
       enabled: true
       size: unlimited
+  watermark:
+    # image: /etc/kasmvnc/picture.png
 
 encoding:
   max_frame_rate: 60
@@ -92,7 +98,7 @@ describe('KasmVNCConfigFieldset — essentials', () => {
   it('reads the schema from the catalog entry of the template image', async () => {
     renderWithProviders(<Host />);
     expect(
-      await screen.findByText('KasmVNC 1.5.1 · 13 options read from the image'),
+      await screen.findByText('KasmVNC 1.5.1 · 14 options read from the image'),
     ).toBeInTheDocument();
     // The image default is named on each control.
     expect(screen.getByRole('option', { name: 'Image default (1024 × 768)' })).toBeInTheDocument();
@@ -167,6 +173,39 @@ describe('KasmVNCConfigFieldset — advanced, orphans, YAML', () => {
     expect(last.value).toContain('max_frame_rate: 30');
     expect(rowOf('encoding.max_frame_rate')).toHaveClass('bg-blue-50');
     expect(rowOf('desktop.allow_resize')).not.toHaveClass('bg-blue-50');
+  });
+
+  it('lets a list option be typed item by item, and keeps a null default out of the list', async () => {
+    renderWithProviders(<Host />);
+    await screen.findByText(/options read from the image/);
+    await tab(en.admin.templatesPage.kasmvncTabAdvanced);
+    // watermark: (children only in comments) has no control to offer.
+    expect(document.querySelector('[data-key="data_loss_prevention.watermark"]')).toBeNull();
+    const row = document.querySelector<HTMLElement>(
+      '[data-key="data_loss_prevention.clipboard.allow_mimetypes"]',
+    )!;
+    await userEvent.selectOptions(within(row).getByRole('combobox'), '__custom__');
+    const input = within(row).getByRole('textbox');
+    await userEvent.type(input, 'text/html,');
+    // The trailing comma survives the round-trip through the tree.
+    expect(input).toHaveValue('text/html,');
+    await userEvent.type(input, ' image/png');
+    expect(last.value).toContain('allow_mimetypes:\n      - text/html\n      - image/png\n');
+    await userEvent.tab();
+    expect(input).toHaveValue('text/html, image/png');
+  });
+
+  it('does not flag an override the image only documents in comments or under a null default', async () => {
+    renderWithProviders(
+      <Host
+        initial={
+          'user_session:\n  session_type: shared\ndata_loss_prevention:\n  watermark:\n    text:\n      template: hi\n'
+        }
+      />,
+    );
+    await screen.findByText(/options read from the image/);
+    expect(screen.queryByText(en.admin.templatesPage.kasmvncOrphans)).toBeNull();
+    expect(screen.getByText('2 options changed from the image defaults')).toBeInTheDocument();
   });
 
   it('filters the advanced list by key or hint', async () => {

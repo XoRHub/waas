@@ -311,19 +311,37 @@ says what was read: *KasmVNC 1.5.1 · N options read from the image*.
 
 The YAML text is the single source of truth (it is what the CR
 stores): the structured tabs parse it into a tree and write it back on
-every edit, so switching tabs never loses anything, and an override
-they cannot represent (a nested list…) round-trips untouched. Only
-values that differ from the image are written, with the YAML type the
+every edit. Data is never lost across tabs, but a structured edit
+re-serializes the whole text — comments and formatting typed in the
+YAML tab are dropped — while an override the tabs cannot represent (a
+nested list…) round-trips untouched. What is written is every key set
+explicitly, even when equal to the image default: the tri-state
+**Off** on a key whose default is `false` is a real override,
+**Default** is the absence of the key. Values take the YAML type the
 key expects (bools from the default's type; a number is written as a
 number whatever the default's type, because KasmVNC's scalar keys are
 often unions — `never|<seconds>`, `unlimited|<bytes>`, `auto|<n>` —
-whose default is the word). Overrides whose key does not exist in the
-current image's defaults are listed as a non-blocking warning with a
-**Remove** action (they stay saved until removed: KasmVNC ignores
-unknown keys). A footer counts the overrides and offers **Reset all**.
-A broken or non-mapping YAML blocks the structured tabs until fixed.
-The read-only views (connection settings, session menu, create
-dialog) keep showing the raw YAML.
+whose default is the word; a numeric string with a leading zero such
+as `0700` stays a string; a list is typed as comma-separated text,
+committed item by item). A key whose default is null in the file
+(`data_loss_prevention.watermark:` and `keyboard.remap_keys:`, whose
+children or list are only in comments) has no shape to offer a control
+for: it is not listed in Advanced, YAML tab only.
+
+**Unknown keys are fatal.** KasmVNC 1.5.1's `vncserver` exits 1 on any
+config key it does not support (`CheckForUnsupportedConfigKeys`;
+verified live on `kasmweb/terminal:1.19.0` — `Unsupported config keys
+found: legacy.option`, Xvnc never starts, the container exits). So
+overrides whose key the image does not document are listed as a
+warning with a **Remove** action; "documented" is a typed default, a
+key under a null-valued default (`…watermark.text.template`), or a
+leaf name the file only shows commented out (`# session_type:
+shared`). The warning does not block the save — the image defaults may
+be absent or stale, and the api-server cannot check it without them —
+but the workspace would not start. A footer counts the overrides and
+offers **Reset all**. A broken or non-mapping YAML blocks the
+structured tabs until fixed. The read-only views (connection settings,
+session menu, create dialog) keep showing the raw YAML.
 
 ### Clipboard enforcement (policy-derived DLP)
 
