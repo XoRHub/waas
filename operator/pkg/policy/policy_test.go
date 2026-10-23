@@ -223,6 +223,46 @@ func TestLoadOfCountsKasmAgentSidecar(t *testing.T) {
 	}
 }
 
+// Image min/max and perWorkspace size the desktop container (the portal
+// slider's range); only the aggregate counts the sidecar on top.
+func TestCheckLimitsKasmVNCBoundsDesktopOnly(t *testing.T) {
+	image := img("x", "r/x:1", true)
+	image.Spec.Resources = &waasv1alpha1.ImageResources{
+		Min: &waasv1alpha1.ComputeSize{CPU: qty("250m"), Memory: qty("512Mi")},
+		Max: &waasv1alpha1.ComputeSize{CPU: qty("2"), Memory: qty("4Gi")},
+	}
+	p := pol("quota", 0)
+	p.Spec.Limits = waasv1alpha1.PolicyLimits{
+		PerWorkspace: &waasv1alpha1.PerWorkspaceCaps{CPU: qty("2"), Memory: qty("4Gi")},
+		Aggregate:    &waasv1alpha1.AggregateCaps{CPU: qty("2")},
+	}
+	kasmLoad := func(cpu, mem string) Load {
+		tpl := &waasv1alpha1.WorkspaceTemplate{Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			Protocols: []waasv1alpha1.WorkspaceProtocol{{Name: "kasmvnc", Port: 6901, Default: true}},
+			Resources: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpu), corev1.ResourceMemory: resource.MustParse(mem)},
+			},
+		}}
+		l, _ := LoadOf(&waasv1alpha1.Workspace{}, tpl, &image)
+		return l
+	}
+
+	// Exactly at image.max / perWorkspace: allowed per-workspace, but the
+	// pod total (2 + sidecar) trips the 2-cpu aggregate.
+	atMax := kasmLoad("2", "4Gi")
+	if d := CheckLimits(atMax, true, &image, &p, nil); d == nil || d.Reason != ReasonQuotaExceeded {
+		t.Fatalf("aggregate must count the sidecar, got %v", d)
+	}
+	p.Spec.Limits.Aggregate = nil
+	if d := CheckLimits(atMax, true, &image, &p, nil); d != nil {
+		t.Fatalf("desktop at image.max/perWorkspace must pass: %v", d)
+	}
+	// The sidecar must not lift an undersized desktop over image.min.
+	if d := CheckLimits(kasmLoad("200m", "1Gi"), true, &image, &p, nil); d == nil || d.Reason != ReasonResourcesInvalid {
+		t.Fatalf("desktop below image.min must be denied, got %v", d)
+	}
+}
+
 func TestCheckLimits(t *testing.T) {
 	image := img("x", "r/x:1", true)
 	image.Spec.Resources = &waasv1alpha1.ImageResources{
