@@ -152,6 +152,10 @@ type CatalogEntry struct {
 	// API model's compatibility cadence.
 	Profile     string
 	Recommended json.RawMessage
+	// KasmVNC mirrors shared/catalog.Entry's KasmVNC the same opaque
+	// way as Recommended: the raw JSON of the image's KasmVNC
+	// version/defaults, a template-form hint only. Nil = unknown.
+	KasmVNC json.RawMessage
 	// Architectures the image is published for (amd64/arm64), per
 	// image — a template-form prefill hint, never enforcement. Nil =
 	// unknown (manifest without the field).

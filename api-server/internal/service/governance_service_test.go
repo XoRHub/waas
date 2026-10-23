@@ -584,6 +584,7 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 			OS:    "linux", App: "firefox", Icon: "firefox", SyncedAt: time.Now(),
 			Profile:     "hardened",
 			Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000},"env":[{"name":"WAAS_AUDIO_ENABLED","protocols":["vnc"]}]}`),
+			KasmVNC:     json.RawMessage(`{"version":"1.5.1","defaults":"---\ndesktop:\n  allow_resize: true\n"}`),
 		}}
 		if err := svc.catalog.ReplaceEntries(ctx, img.Name, entry); err != nil {
 			t.Fatalf("seeding catalog entries of %s: %v", img.Name, err)
@@ -604,6 +605,9 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 	if got[0].Profile != "hardened" || got[0].Recommended == nil ||
 		got[0].Recommended.PodSecurityContext == nil || got[0].Recommended.PodSecurityContext.RunAsUser == nil || *got[0].Recommended.PodSecurityContext.RunAsUser != 1000 {
 		t.Fatalf("profile/recommended not surfaced: %+v", got[0])
+	}
+	if got[0].KasmVNC == nil || got[0].KasmVNC.Version != "1.5.1" || got[0].KasmVNC.Defaults != "---\ndesktop:\n  allow_resize: true\n" {
+		t.Fatalf("kasmvnc not surfaced: %+v", got[0].KasmVNC)
 	}
 	// Per-image protocols derive from the hint tags (vnc here), not the
 	// parent entry's list (kasmvnc) — the single-app-image fix.

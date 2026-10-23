@@ -281,7 +281,8 @@ func (w *CatalogSyncWorker) syncLocked(ctx context.Context, img *waasv1alpha1.Wo
 			DisplayName:   e.DisplayName,
 			Description:   normalizeDescription(e.Description),
 			Profile:       normalizeProfile(e.Profile),
-			Recommended:   marshalRecommended(e.Recommended),
+			Recommended:   marshalHint(e.Recommended),
+			KasmVNC:       marshalHint(normalizeKasmVNC(e.KasmVNC)),
 			Architectures: normalizeArchitectures(e.Architectures),
 			SyncedAt:      now,
 		})
@@ -406,18 +407,30 @@ func (w *CatalogSyncWorker) sourceChanged(img *waasv1alpha1.WorkspaceImage) bool
 	return !ok || !reflect.DeepEqual(last, img.Spec.Catalog)
 }
 
-// marshalRecommended serializes a parsed recommendation for the JSON
-// column; nil (absent in the manifest) stays nil rather than "null" so
-// the repository can tell "no recommendation" from "an empty one".
-func marshalRecommended(r *catalog.Recommendation) json.RawMessage {
-	if r == nil {
+// marshalHint serializes a parsed hint block (recommended, kasmvnc) for
+// its JSON column; nil (absent in the manifest) stays nil rather than
+// "null" so the repository can tell "no hint" from "an empty one".
+func marshalHint[T any](h *T) json.RawMessage {
+	if h == nil {
 		return nil
 	}
-	b, err := json.Marshal(r)
+	b, err := json.Marshal(h)
 	if err != nil {
 		return nil
 	}
 	return b
+}
+
+// normalizeKasmVNC drops the whole hint when its defaults file exceeds
+// a bound no real kasmvnc_defaults.yaml approaches (~4 KB observed) —
+// same anti-abuse guard as normalizeDescription, sized so a hostile
+// manifest cannot push arbitrary text into every catalog response.
+func normalizeKasmVNC(k *catalog.KasmVNCInfo) *catalog.KasmVNCInfo {
+	const maxDefaults = 64 << 10
+	if k == nil || len(k.Defaults) > maxDefaults {
+		return nil
+	}
+	return k
 }
 
 // normalizeOS degrades an unrecognized os value to "" (treated as

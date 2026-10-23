@@ -466,7 +466,7 @@ func TestCatalogRepositorySuite(t *testing.T) {
 		}
 
 		first := []CatalogEntry{
-			{Image: "ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.0.0", OS: "linux", App: "ubuntu-xfce", Version: "1.0.0", Icon: "linux", DisplayName: "Ubuntu XFCE", Description: "Full XFCE desktop, VNC.", Profile: "hardened", Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000}}`), Architectures: []string{"amd64"}, SyncedAt: synced},
+			{Image: "ghcr.io/xorhub/waas-workspace-images/ubuntu-xfce:1.0.0", OS: "linux", App: "ubuntu-xfce", Version: "1.0.0", Icon: "linux", DisplayName: "Ubuntu XFCE", Description: "Full XFCE desktop, VNC.", Profile: "hardened", Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000}}`), KasmVNC: json.RawMessage(`{"version":"1.5.1","defaults":"---\ndesktop:\n  allow_resize: true\n"}`), Architectures: []string{"amd64"}, SyncedAt: synced},
 			{Image: "ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0", App: "firefox", SyncedAt: synced},
 		}
 		if err := repo.ReplaceEntries(ctx, "ubuntu-xfce", first); err != nil {
@@ -516,6 +516,22 @@ func TestCatalogRepositorySuite(t *testing.T) {
 		}
 		if got[0].Profile != "" || got[0].Recommended != nil {
 			t.Fatalf("absent profile/recommended should stay zero: %+v", got[0])
+		}
+		var kasmvnc struct {
+			Version  string `json:"version"`
+			Defaults string `json:"defaults"`
+		}
+		if got[1].KasmVNC == nil {
+			t.Fatalf("kasmvnc round-trip: %+v", got[1])
+		}
+		if err := json.Unmarshal(got[1].KasmVNC, &kasmvnc); err != nil {
+			t.Fatalf("kasmvnc is not valid JSON: %v (%s)", err, got[1].KasmVNC)
+		}
+		if kasmvnc.Version != "1.5.1" || kasmvnc.Defaults != "---\ndesktop:\n  allow_resize: true\n" {
+			t.Fatalf("kasmvnc round-trip mismatch: %+v", kasmvnc)
+		}
+		if got[0].KasmVNC != nil {
+			t.Fatalf("absent kasmvnc should stay nil: %+v", got[0])
 		}
 		if len(got[1].Architectures) != 1 || got[1].Architectures[0] != "amd64" {
 			t.Fatalf("architectures round-trip: %+v", got[1].Architectures)
