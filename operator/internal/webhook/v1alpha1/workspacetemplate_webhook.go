@@ -123,12 +123,13 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 				strings.Join(bad, ", ")))
 		}
 	}
-	// Same trap for the kasmweb side-service toggles the operator stamps
-	// on kasmvnc containers (controller.desktopEnv).
+	// Same trap for the env the operator stamps on kasmvnc containers
+	// (controller.desktopEnv): the kasmweb side-service toggles and
+	// PULSE_SERVER.
 	if seen[string(waasv1alpha1.ProtocolKasmVNC)] {
 		if bad := kasmcfg.ManagedEnvNames(tpl.Spec.Env); len(bad) > 0 {
 			return nil, v.deny(tpl, fmt.Sprintf(
-				"env must not set %s: the kasmweb side services WaaS does not proxy are forced off by the operator",
+				"env must not set %s: operator-owned on kasmvnc containers (the kasmweb side services are forced off, PULSE_SERVER points at the kasm-agent sidecar)",
 				strings.Join(bad, ", ")))
 		}
 	}
