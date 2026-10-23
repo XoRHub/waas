@@ -29,6 +29,17 @@ session — the whole client app flows through this handler.
 - **Session end**: `httputil.ReverseProxy` only returns once the
   upgraded WebSocket closes — that return is the session-end signal
   (`EndSession`), with the api-server's SessionSweeper as safety net.
+  The proxy counts live `/websockify` streams per session (the client
+  can hold several: multi-monitor `screen.html` windows) and ends the
+  session only once the last one has been gone for a **30 s reconnect
+  grace** (`reconnectGrace`, `kasm.go`); a new stream within it cancels
+  the pending end. This is what lets KasmVNC's own auto-reconnect
+  survive a network blip — an ended session answers 409 on
+  `ConnectionInfo`. The reconnect still needs a valid cookie: past the
+  connection JWT's expiry (5 min by default) it fails with 401 until
+  the portal reopens the iframe with a fresh token. Pending ends live
+  in wwt memory: a wwt restart within the grace loses them, as a wwt
+  crash mid-stream already did.
 - **Remote workspaces**: kasmvnc is refused there (400) — the kasm
   proxy targets an in-cluster pod, "external machine" semantics has no
   kasm equivalent (`docs/remote-workspaces.md`).
