@@ -214,6 +214,17 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
 
     expect(onStateChange).toHaveBeenLastCalledWith('disconnected');
     expect(container.querySelector('iframe')).toBeNull();
+    expect(screen.getByText('connect.idleTimeout')).toBeTruthy();
+  });
+
+  it('reports exhausted retries as a plain disconnect, not as idle', async () => {
+    const { fromClient } = await renderKasm();
+
+    // The client's order once auto-reconnect gave up.
+    fromClient({ action: 'connection_state', value: 'disconnected' });
+    fromClient({ action: 'idle_session_timeout', value: 'Idle session timeout exceeded' });
+
+    expect(screen.getByText('connect.disconnected')).toBeTruthy();
   });
 
   it('ignores messages from another window or another origin', async () => {

@@ -87,6 +87,8 @@ export const DesktopPane = forwardRef<
   // WHY (quota, policy, phase); swallowing it left users with a bare
   // "connection failed".
   const [failDetail, setFailDetail] = useState<string | null>(null);
+  // kasm: the session ended on the client's own idle timeout.
+  const [idle, setIdle] = useState(false);
   // kasmvnc sessions embed KasmVNC's own web client instead of the guac
   // canvas: wwt reverse-proxies the whole app under /kasm/{session}.
   const [kasmUrl, setKasmUrl] = useState<string | null>(null);
@@ -177,6 +179,7 @@ export const DesktopPane = forwardRef<
     // previous attempt's cleanup, so it also wins over the 'disconnected'
     // a guac client reports while being torn down).
     setFailDetail(null);
+    setIdle(false);
     setBoth('connecting');
 
     // Messages from the KasmVNC client (same-origin iframe). Anything not
@@ -189,8 +192,11 @@ export const DesktopPane = forwardRef<
       const { action, value } = (e.data ?? {}) as { action?: string; value?: unknown };
       const next = action === 'connection_state' && typeof value === 'string' && KASM_STATES[value];
       if (next === 'disconnected' || action === 'idle_session_timeout') {
-        // idle_session_timeout comes on idle AND once auto-reconnect gave
-        // up; the client then navigates itself away — the session is over.
+        // The client then navigates itself away: the session is over.
+        // Retries exhausted send 'disconnected' first, which unmounts the
+        // iframe (its later idle_session_timeout is dropped above): one
+        // that gets here is the real 20-min idle timeout.
+        setIdle(action === 'idle_session_timeout');
         endKasm('disconnected');
       } else if (next) {
         setBoth(next);
@@ -431,7 +437,7 @@ export const DesktopPane = forwardRef<
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black text-sm text-white">
           <p>
             {state === 'connecting' && t('connect.connecting')}
-            {state === 'disconnected' && t('connect.disconnected')}
+            {state === 'disconnected' && t(idle ? 'connect.idleTimeout' : 'connect.disconnected')}
             {state === 'failed' && t('connect.failed')}
           </p>
           {state === 'failed' && failDetail && (

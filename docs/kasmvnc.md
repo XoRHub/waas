@@ -87,7 +87,7 @@ against the client served by `kasmweb/*:1.19.0`
 | Direction | Message | What the portal does |
 |---|---|---|
 | client → portal | `connection_state` (`connecting`, `connected`, `reconnecting`, `disconnecting`, `disconnected`) | drives the pane state; `reconnecting` reads as connecting; `disconnected` is final (embedded, the client only sends it once auto-reconnect gave up or the close was clean): the iframe is unmounted and **Retry** opens a fresh session with a fresh token |
-| client → portal | `idle_session_timeout` | final as well: sent on the client's own idle timeout (`idle_disconnect`, 20 min without input by default) **and** when auto-reconnect retries are exhausted; the client navigates itself to `disconnected.html` 10 s later |
+| client → portal | `idle_session_timeout` | final as well: sent on the client's own idle timeout **and** when auto-reconnect retries are exhausted (then right after `connection_state: disconnected`, which already ended the session); the client navigates itself to `disconnected.html` 10 s later. Received first, it is the idle timeout: the pane says so ("Disconnected after 20 minutes without activity") instead of the plain "connection closed" |
 | client → portal | `clipboardrx` (`value`: text) | desktop → portal clipboard: fills the session menu's manual exchange (and a best-effort `writeText`); dropped unless the session capabilities allow copy |
 | portal → client | `clipboardsnd` (`value`: text) | manual exchange "Send to workspace"; only posted when the capabilities allow paste (the client applies it only with `clipboard_up`) |
 | portal → client | `setvideoquality` (`value`: `1` low, `2` medium — the client default, `3` high, `5` lossless) | session-menu quality presets, applied live; the choice is also handed to the next iframe URL as `video_quality`, so a reconnect keeps it |
@@ -104,6 +104,11 @@ against the client served by `kasmweb/*:1.19.0`
   window; when a portal handler consumes it (`Ctrl+Alt+M`, `Escape`
   closing the menu) it is kept from the desktop. The listener dies with
   the iframe document; the next load binds the new one.
+- **Idle timeout**: the client disconnects after 20 minutes without
+  *input* (keyboard, mouse); the
+  portal keeps that default and never sends `set_idle_timeout`.
+  `idle_disconnect=0` does not disable it: the client falls back to
+  1200 s. **Retry** opens a fresh session.
 - **Fullscreen**: the session menu toggles the Fullscreen API on the
   whole page, not the pane, so the menu stays reachable.
 - **Load fallback**: the client reports its own state, so `onLoad` no

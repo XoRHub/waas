@@ -205,6 +205,7 @@
   "connect": {
     "connecting": "Connexion à votre bureau…",
     "disconnected": "La connexion a été fermée.",
+    "idleTimeout": "Déconnecté après 20 minutes sans activité.",
     "back": "Retour à mes espaces",
     "failed": "Impossible de se connecter au bureau.",
     "leave": "Quitter la session",
