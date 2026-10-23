@@ -16,6 +16,13 @@ metadata:
     # Long-lived desktop streams over WebSocket.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # kasmvnc file uploads (/kasm/{sid}/waas/files/upload) stream bodies
+    # up to operator.kasmAgent.maxUploadSize; nginx would otherwise cut
+    # them at its 1m default and spool them to disk first. One Ingress,
+    # so the limit applies to every path (the api-server bounds its own
+    # bodies). The quantity's binary suffix becomes nginx's (1Gi → 1g).
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ .Values.operator.kasmAgent.maxUploadSize | toString | replace "Gi" "g" | replace "Mi" "m" | replace "Ki" "k" | quote }}
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
 spec:
   {{- with .Values.ingress.className }}
   ingressClassName: {{ . | quote }}

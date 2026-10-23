@@ -122,7 +122,7 @@ table is a quick *what*.
 | operator.desktopEgress.extraAllowedCIDRs | list | `[]` | Extra always-reachable CIDRs, each a dedicated allow rule that wins over blockedCIDRs (NetworkPolicy rules OR together). Also honored when allowInternet is false. |
 | operator.policyBypass | string | `"system:masters"` | Comma-separated users/groups exempt from workspace policy checks. |
 | operator.kasmAgent.enabled | bool | `true` | Inject the kasm-agent sidecar on kasmvnc workloads. false leaves kasmvnc file transfer unavailable whatever the policies grant. |
-| operator.kasmAgent.maxUploadSize | string | `"1Gi"` | Largest upload request the sidecar accepts (Kubernetes quantity); larger uploads answer 413. |
+| operator.kasmAgent.maxUploadSize | string | `"1Gi"` | Largest upload request the sidecar accepts (Kubernetes quantity, an integer with a binary suffix — Ki/Mi/Gi); larger uploads answer 413. The Ingress derives its nginx `proxy-body-size` from it; another ingress controller needs its own body limit raised to this value. |
 | operator.resources.requests.cpu | string | `"50m"` |  |
 | operator.resources.requests.memory | string | `"64Mi"` |  |
 | operator.resources.limits.memory | string | `"256Mi"` |  |

@@ -367,7 +367,7 @@ operator:
   kasmAgent:
     # -- Inject the kasm-agent sidecar on kasmvnc workloads. false leaves kasmvnc file transfer unavailable whatever the policies grant.
     enabled: true
-    # -- Largest upload request the sidecar accepts (Kubernetes quantity); larger uploads answer 413.
+    # -- Largest upload request the sidecar accepts (Kubernetes quantity, an integer with a binary suffix — Ki/Mi/Gi); larger uploads answer 413. The Ingress derives its nginx `proxy-body-size` from it; another ingress controller needs its own body limit raised to this value.
     maxUploadSize: 1Gi
   resources:
     requests: { cpu: 50m, memory: 64Mi }

@@ -134,6 +134,18 @@ The contract the three modules share — port `4800`, env and route names
   body above the cap is **413** with no truncated file left behind. The
   cap is `operator.kasmAgent.maxUploadSize` (1 GiB default), handed to
   the sidecar as `KASM_AGENT_MAX_UPLOAD_BYTES`.
+- **Edge body limit**: the upload rides the public edge first, which
+  has its own cap — ingress-nginx cuts request bodies at **1m** by
+  default and spools them to disk. The chart's Ingress therefore sets
+  `nginx.ingress.kubernetes.io/proxy-body-size` from the same value (the
+  quantity's binary suffix becomes nginx's: `1Gi` → `1g`, hence "an
+  integer with a binary suffix" in the value's doc) and turns
+  `proxy-request-buffering` off; one Ingress, so both apply to every
+  path. Another ingress controller needs its equivalent raised to the
+  cap by hand (the chart only knows nginx's annotations). The Gateway
+  API `HTTPRoute` has no body-size limit of its own — whether the
+  Gateway implementation adds one is its configuration, not the
+  route's.
 - **Pod shape**: the sidecar mounts the **same home volume at the same
   path**, read-write, and runs as the desktop's uid/gid — the container
   `securityContext` wins over the pod's, else the kasmweb `1000/1000` —
