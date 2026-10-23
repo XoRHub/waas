@@ -341,7 +341,7 @@ be absent or stale, and the api-server cannot check it without them —
 but the workspace would not start. A policy-managed key present in the
 YAML (an old or imported template) is listed the same way, with
 **Remove**: the api-server refuses the save while it is set. A footer
-counts the overrides and
+counts the overrides (a `key:` left without a value is not one) and
 offers **Reset all**. A broken or non-mapping YAML blocks the
 structured tabs until fixed. The read-only views (connection settings,
 session menu, create dialog) keep showing the raw YAML.

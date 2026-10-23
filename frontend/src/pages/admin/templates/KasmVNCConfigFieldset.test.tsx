@@ -91,7 +91,8 @@ function Host({ initial = '', image = TERMINAL }: { initial?: string; image?: st
 }
 
 const tab = (name: string) => userEvent.click(screen.getByRole('button', { name }));
-const row = (label: string) => screen.getByText(label).parentElement!;
+// Each essential is a labelled group, so its segments read in context.
+const row = (label: string) => screen.getByRole('group', { name: label });
 const segment = (label: string, name: string) => within(row(label)).getByRole('button', { name });
 
 describe('KasmVNCConfigFieldset — essentials', () => {
@@ -116,7 +117,10 @@ describe('KasmVNCConfigFieldset — essentials', () => {
     unmount();
 
     renderWithProviders(<Host image="docker.io/kasmweb/unknown:0.0.0" />);
-    expect(await screen.findAllByText(en.admin.templatesPage.kasmvncSchemaUnknown)).toHaveLength(2);
+    expect(
+      await screen.findByText(en.admin.templatesPage.kasmvncSchemaUnknown),
+    ).toBeInTheDocument();
+    expect(screen.getByText(en.admin.templatesPage.kasmvncAdvancedNeedsSchema)).toBeInTheDocument();
     expect(segment(en.admin.templatesPage.kasmvncGameMode, 'Default (—)')).toBeInTheDocument();
     expect(screen.getAllByRole('option', { name: 'Image default' }).length).toBeGreaterThan(0);
   });
@@ -150,7 +154,7 @@ describe('KasmVNCConfigFieldset — essentials', () => {
       en.admin.templatesPage.kasmvncIdle30,
     );
     expect(last.value).toContain('user_session:\n  idle_timeout: 1800\n');
-    await userEvent.click(segment(en.admin.templatesPage.kasmvncQuality, 'Image default (7 × 8)'));
+    await userEvent.click(segment(en.admin.templatesPage.kasmvncQuality, 'Image default (7 / 8)'));
     expect(last.value).not.toContain('rect_encoding_mode');
     expect(last.value).toContain('width: 1920');
   });
@@ -263,6 +267,12 @@ describe('KasmVNCConfigFieldset — advanced, orphans, YAML', () => {
     expect(last.value).toContain('ignore_numlock: true');
     // Known defaults: the nested key is an orphan, never silently dropped.
     expect(screen.getByText(en.admin.templatesPage.kasmvncOrphans)).toBeInTheDocument();
+  });
+
+  it('does not count a key left without a value as an override', async () => {
+    renderWithProviders(<Host initial={'desktop:\n  allow_resize:\n'} />);
+    await screen.findByText(/options read from the image/);
+    expect(screen.getByText(en.admin.templatesPage.kasmvncUnchanged)).toBeInTheDocument();
   });
 
   it('resets every override at once', async () => {

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAdminImages, useKasmVNCManagedKeys } from '@/hooks/useApi';
 import { BoolField, ParamField, Segmented } from '@/components/ParamField';
@@ -38,10 +38,14 @@ const ESSENTIALS: {
    * verbatim (`label`) or by an i18n suffix (`labelKey`). */
   choices?: { label?: string; labelKey?: string; values: unknown[] }[];
   segmented?: boolean;
+  /** Between the keys' defaults in the "Image default (…)" label; ' / '
+   * when omitted. */
+  separator?: string;
 }[] = [
   {
     id: 'Resolution',
     keys: ['desktop.resolution.width', 'desktop.resolution.height'],
+    separator: ' × ',
     choices: [
       { label: '1280×720', values: [1280, 720] },
       { label: '1920×1080', values: [1920, 1080] },
@@ -88,11 +92,15 @@ const ESSENTIALS: {
 ];
 
 /** Label + control + hint, laid out like ParamField (which can't host
- * a friendly label: its label IS the parameter name). */
+ * a friendly label: its label IS the parameter name). A labelled group,
+ * so the segmented buttons inside read with their row's name. */
 function Row({ label, hint, children }: { label: string; hint: string; children: ReactNode }) {
+  const id = useId();
   return (
-    <div className="block">
-      <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
+    <div className="block" role="group" aria-labelledby={id}>
+      <span id={id} className="text-xs text-slate-500 dark:text-slate-400">
+        {label}
+      </span>
       {children}
       <span className="mt-0.5 block font-mono text-[11px] leading-tight text-slate-400 dark:text-slate-500">
         {hint}
@@ -168,17 +176,18 @@ export function KasmVNCConfigFieldset({
     { message: t('admin.templatesPage.kasmvncOrphans'), keys: orphans },
     { message: t('admin.templatesPage.kasmvncManagedPresent'), keys: stray },
   ].filter((w) => w.keys.length > 0);
-  const changed = Object.keys(current).length;
-  const defaultLabel = (keys: string[]) => {
+  // A `key:` with no value is not an override.
+  const changed = Object.values(current).filter((v) => v !== null).length;
+  const defaultLabel = (keys: string[], separator = ' / ') => {
     const texts = [...new Set(keys.map((k) => scalarText(byKey.get(k)?.default)))].filter(Boolean);
     return texts.length
-      ? t('admin.templatesPage.kasmvncImageDefaultValue', { value: texts.join(' × ') })
+      ? t('admin.templatesPage.kasmvncImageDefaultValue', { value: texts.join(separator) })
       : t('admin.templatesPage.kasmvncImageDefault');
   };
 
   const essentials = (
     <div className="space-y-3">
-      {ESSENTIALS.map(({ id, keys, choices, segmented }) => {
+      {ESSENTIALS.map(({ id, keys, choices, segmented, separator }) => {
         const label = t(`admin.templatesPage.kasmvnc${id}`);
         const hint = keys.join(', ');
         if (known && !keys.every((k) => byKey.has(k))) {
@@ -211,7 +220,7 @@ export function KasmVNCConfigFieldset({
           choices.findIndex((c) => c.values.every((v, i) => current[keys[i]] === v)),
         );
         const segments = [
-          { value: '-1', label: defaultLabel(keys) },
+          { value: '-1', label: defaultLabel(keys, separator) },
           ...choices.map((c, i) => ({
             value: String(i),
             label: c.labelKey ? t(`admin.templatesPage.kasmvnc${c.labelKey}`) : (c.label ?? ''),
@@ -267,7 +276,7 @@ export function KasmVNCConfigFieldset({
   }
   const advanced = !known ? (
     <p className="text-xs text-slate-400 dark:text-slate-500">
-      {t('admin.templatesPage.kasmvncSchemaUnknown')}
+      {t('admin.templatesPage.kasmvncAdvancedNeedsSchema')}
     </p>
   ) : (
     <div className="space-y-3">

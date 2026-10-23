@@ -336,6 +336,7 @@
       "kasmvncSearch": "Search options…",
       "kasmvncNoMatch": "No option matches \"{{query}}\".",
       "kasmvncAdvancedHint": "Every option of the image's kasmvnc_defaults.yaml, grouped by section; empty = image default.",
+      "kasmvncAdvancedNeedsSchema": "The Advanced tab needs the image's KasmVNC defaults — use the YAML tab.",
       "kasmvncManaged": "locked — managed by policy",
       "kasmvncOrphans": "Options unknown to this image version — KasmVNC refuses to start on an unsupported key, so the workspace would not start:",
       "kasmvncManagedPresent": "Options managed by the WorkspacePolicy clipboard setting — saving is refused while they are set here:",
