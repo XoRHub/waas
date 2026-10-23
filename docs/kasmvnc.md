@@ -37,18 +37,26 @@ session — the whole client app flows through this handler.
   parser requires one (browsers always send it, health probes don't).
 - **Session end**: `httputil.ReverseProxy` only returns once the
   upgraded WebSocket closes — that return is the session-end signal
-  (`EndSession`), with the api-server's SessionSweeper as safety net.
-  The proxy counts live `/websockify` streams per session (the client
-  can hold several: multi-monitor `screen.html` windows) and ends the
-  session only once the last one has been gone for a **30 s reconnect
-  grace** (`reconnectGrace`, `kasm.go`); a new stream within it cancels
-  the pending end. This is what lets KasmVNC's own auto-reconnect
-  survive a network blip — an ended session answers 409 on
-  `ConnectionInfo`. The reconnect still needs a valid cookie: past the
-  connection JWT's expiry (5 min by default) it fails with 401 until
-  the portal reopens the iframe with a fresh token. Pending ends live
-  in wwt memory: a wwt restart within the grace loses them, as a wwt
-  crash mid-stream already did.
+  (`EndSession`). The proxy counts live `/websockify` streams per
+  session (the client can hold several: multi-monitor `screen.html`
+  windows) and ends the session only once the last one has been gone
+  for a **30 s reconnect grace** (`reconnectGrace`, `kasm.go`); a new
+  stream within it cancels the pending end. This is what lets
+  KasmVNC's own auto-reconnect survive a network blip — an ended
+  session answers 409 on `ConnectionInfo`. The reconnect still needs a
+  valid cookie: past the connection JWT's expiry (5 min by default) it
+  fails with 401 until the portal reopens the iframe with a fresh
+  token. **The grace lives on one wwt replica, in memory**: with
+  `wwt.replicas > 1` and no per-session routing affinity, a reconnect
+  that lands on a different replica won't cancel the first replica's
+  timer — the row ends while the stream is still live. Running more
+  than one `wwt` replica requires sticky routing on `/kasm/{sid}`
+  (e.g. ingress-nginx's `upstream-hash-by: $request_uri`-style
+  hashing). A wwt restart or crash within the grace loses the pending
+  end the same way, and the api-server's SessionSweeper is **not** a
+  safety net for that: it only reaps sessions whose workspace CR was
+  deleted (`session_sweeper.go`), so a lost end leaves the row open —
+  blocking idle-suspend — until the workspace itself goes away.
 - **Remote workspaces**: kasmvnc is refused there (400) — the kasm
   proxy targets an in-cluster pod, "external machine" semantics has no
   kasm equivalent (`docs/remote-workspaces.md`).
@@ -137,14 +145,28 @@ laid over the template and override env; verified on
 `kasmweb/terminal:1.19.0`: with them off, Xvnc on 6901 is the only
 listener. Like the clipboard keys, a template that sets one would be
 silently overridden, so the admission webhook and the api-server
-template validation reject them. Two consequences:
+template validation reject them.
+
+**This is default-off hardening, not enforcement against the session
+user.** `vnc_startup.sh` sources the user's own, persistent
+`$HOME/.bashrc` before starting Xvnc, and the user owns the Xvnc
+process itself (same container, same uid) — so a session user can
+`export KASM_SVC_PRINTER=1` (or any of the other six) from inside
+their own session and restart Xvnc to re-enable it, or start the
+binary by hand. The value of the stamp is fewer listeners and fewer
+closed-source binaries running **by default**: it shrinks the attack
+surface a visitor would find without effort, it does not gate what the
+session's own occupant can do inside their own container. The actual
+enforced control for session→browser file egress is the wwt-side path
+blocks below (`/api/downloads`, `/Downloads`) — nothing started or
+configured inside the container can be relied on against its own
+occupant. Two consequences of the stamp itself:
 
 - `KASM_SVC_AUDIO=0` also skips the image's `START_PULSEAUDIO` step
   (it is nested in the audio service start), so no PulseAudio runs in
-  the pod. `START_PULSEAUDIO` itself is left alone.
-- Printing (PDF to `~/PDF` and a browser download) is off. It is a
-  file-egress channel, so it comes back only behind the file-transfer
-  policy gate, like `/api/downloads`.
+  the pod by default. `START_PULSEAUDIO` itself is left alone.
+- Printing (PDF to `~/PDF` and a browser download) defaults off, same
+  as every other side service here — not gated: see above.
 
 ## Configuration: file hierarchy and the WaaS merge
 
@@ -212,6 +234,17 @@ unmanaged clipboard sub-keys (`size`, `allow_mimetypes`,
 admin's. Full precedence map across both data planes:
 `docs/clipboard.md`.
 
+This holds against the vector it is built for — the KasmVNC web
+client re-enabling the clipboard at connect time, which the third key
+above closes. It has the same limit as the side-service stamp above,
+though: Xvnc is what enforces the DLP, and the session's own occupant
+owns the Xvnc process in their own container — they can kill and
+restart it with a different config, bypassing `~/.vnc/kasmvnc.yaml`
+altogether. Nothing enforced inside the container by Xvnc or
+`vnc_startup.sh` holds against that container's own occupant; it is
+the same reasoning as the side services above, and the same reason the
+hard file-egress controls live in `wwt`, not in the container.
+
 ## Images, placement, licensing
 
 - Catalog entries for `docker.io/kasmweb/*` are approved by **fixed
@@ -240,6 +273,12 @@ admin's. Full precedence map across both data planes:
   container's memory limit. A template whose `volumes` passthrough
   already mounts `/dev/shm` keeps its own (sized as the admin wants)
   and gets no second one.
+- **Upgrade note**: the side-service env stamps and the `/dev/shm`
+  mount are both pod-template changes. Upgrading the operator to a
+  version that adds them makes every already-running kasmvnc workspace
+  show drift (`TemplateDrifted`); it converges at the workspace's next
+  scale-up boundary, not immediately (ADR 0001,
+  `docs/adr/0001-template-boundary-convergence.md`).
 - **KasmVNC is GPL-2.0**: unlimited execution, including commercial —
   GPL only restricts distribution. WaaS neither redistributes nor
   modifies the images, so no source obligation attaches. The
