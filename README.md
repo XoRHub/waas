@@ -47,7 +47,7 @@ Browser ── HTTPS/WSS ──> API Server (chi) ──> PostgreSQL (users, quo
 | Operator        | `operator/`   | Reconciles `Workspace`/`WorkspaceTemplate` CRDs into pods/PVCs (Linux) or KubeVirt VMs (Windows). K8s API only — never touches the DB. |
 | API Server      | `api-server/` | REST API, auth (local + OIDC), RBAC, business logic. Creates CRDs via the K8s API — never pods directly.                               |
 | WebSocket Proxy | `wwt/`        | Validates the JWT **before** opening any TCP connection to guacd.                                                                      |
-| kasm-agent      | `kasm-agent/` | Sidecar of KasmVNC workspaces: policy-gated file transfer over the session home, reached only through `wwt` (ADR 0003).               |
+| kasm-agent      | `kasm-agent/` | Sidecar of KasmVNC workspaces: policy-gated file transfer over the session home and audio (playback, microphone) through its own PulseAudio, reached only through `wwt` (ADR 0003, 0004). |
 | Frontend        | `frontend/`   | React 19 admin dashboard + user portal. Only ever talks to the API Server.                                                             |
 | Shared          | `shared/`     | JWT claims & auth primitives shared by API Server and proxy; the kasm-agent contract shared with the operator.                        |
 | Helm chart      | `helm/waas/`  | Single-chart install: operator, API server, proxy, frontend, guacd, PostgreSQL — see [helm/waas/README.md](helm/waas/README.md).       |
