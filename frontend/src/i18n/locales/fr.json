@@ -338,6 +338,7 @@
       "kasmvncAdvancedHint": "Toutes les options du kasmvnc_defaults.yaml de l'image, par section ; vide = défaut de l'image.",
       "kasmvncManaged": "verrouillé — géré par la politique",
       "kasmvncOrphans": "Options inconnues de cette version d'image — KasmVNC refuse de démarrer sur une clé non prise en charge, le workspace ne démarrerait pas :",
+      "kasmvncManagedPresent": "Options gérées par le réglage presse-papier de la WorkspacePolicy — l'enregistrement est refusé tant qu'elles sont définies ici :",
       "kasmvncRemove": "Retirer",
       "kasmvncUnchanged": "Aucune option modifiée — valeurs de l'image",
       "kasmvncChanged_one": "{{count}} option modifiée par rapport aux défauts de l'image",

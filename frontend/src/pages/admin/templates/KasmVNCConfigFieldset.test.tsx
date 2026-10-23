@@ -234,6 +234,23 @@ describe('KasmVNCConfigFieldset — advanced, orphans, YAML', () => {
     expect(screen.getByText('1 option changed from the image defaults')).toBeInTheDocument();
   });
 
+  it('lists a policy-managed key found in the YAML with a Remove action', async () => {
+    renderWithProviders(
+      <Host
+        initial={'runtime_configuration:\n  allow_client_to_override_kasm_server_settings: false\n'}
+      />,
+    );
+    expect(
+      await screen.findByText(en.admin.templatesPage.kasmvncManagedPresent),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(en.admin.templatesPage.kasmvncOrphans)).toBeNull();
+    await userEvent.click(
+      screen.getByRole('button', { name: en.admin.templatesPage.kasmvncRemove }),
+    );
+    expect(last.value).toBe('');
+    expect(screen.queryByText(en.admin.templatesPage.kasmvncManagedPresent)).toBeNull();
+  });
+
   it('round-trips an override the structured tabs cannot represent across tab switches and edits', async () => {
     const nested = 'network:\n  udp:\n    peers:\n      - host: a\n        port: 1\n';
     renderWithProviders(<Host initial={nested} />);
