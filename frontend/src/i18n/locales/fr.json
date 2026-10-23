@@ -513,7 +513,20 @@
     "clipboardSendPlaceholder": "Texte à envoyer au presse-papiers du workspace…",
     "clipboardSend": "Envoyer au workspace",
     "clipboardInsecureHint": "Sans HTTPS, le navigateur bloque la synchronisation automatique : utilisez Ctrl+V dans la session pour coller, et cet échange manuel pour récupérer une copie.",
-    "clipboardKasmvnc": "Presse-papiers KasmVNC natif, appliqué dans le conteneur d'après votre policy — non modifiable à chaud pendant la session."
+    "clipboardKasmvnc": "Presse-papiers KasmVNC natif, appliqué dans le conteneur d'après votre policy — non modifiable à chaud pendant la session.",
+    "files": "Fichiers",
+    "filesHome": "Accueil",
+    "filesEmpty": "Dossier vide",
+    "filesUpload": "Envoyer des fichiers…",
+    "filesUploading": "Envoi en cours…",
+    "filesUploaded_one": "{{count}} fichier envoyé dans Uploads",
+    "filesUploaded_other": "{{count}} fichiers envoyés dans Uploads",
+    "filesTooLarge": "Trop volumineux pour la limite d'envoi de ce workspace",
+    "filesUnavailable": "Le transfert de fichiers n'est pas encore disponible sur ce workspace — redémarrez-le pour l'activer",
+    "filesError": "Impossible d'atteindre les fichiers du workspace",
+    "filesHint": "Le dossier personnel de votre workspace. Les envois arrivent dans le dossier Uploads.",
+    "filesHintUploadOnly": "Le dossier personnel de votre workspace. Les envois arrivent dans Uploads ; le téléchargement est refusé par votre policy.",
+    "filesHintDownloadOnly": "Le dossier personnel de votre workspace. L'envoi est refusé par votre policy."
   },
   "schedule": {
     "title": "Planning (uptime / downtime)",
