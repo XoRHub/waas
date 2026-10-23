@@ -11,8 +11,9 @@ package kasmagent
 const Port int32 = 4800
 
 // PortName names the port on the sidecar container and the workspace
-// Service (distinct from the protocol and audio port names).
-const PortName = "files"
+// Service. Prefixed: the protocol port names are the admin's (a template
+// may declare a protocol called "files"), and an audio port is "audio".
+const PortName = "waas-files"
 
 // EnvPassword is the kasmweb images' own password variable. The sidecar
 // accepts the exact Basic pair wwt already injects for KasmVNC
