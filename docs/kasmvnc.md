@@ -7,6 +7,15 @@ WebSocket on port 6901, self-signed cert, HTTP Basic auth): **guacd
 cannot connect to it**, so `kasmvnc` is a separate data plane, exclusive
 on a template (see `docs/templates-and-protocols.md`).
 
+**Version**: the kasmweb `1.19.0` images run **KasmVNC 1.5.1**
+(`Xvnc KasmVNC 1.5.1.582662953c…`, package `kasmvncserver 1.5.1-1`,
+checked on `kasmweb/terminal:1.19.0`); the newest public upstream tag is
+`v1.5.0`. The kasmweb.com KasmVNC docs are outdated (they still
+describe 1.0.0): the configuration reference is upstream's
+[`unix/kasmvnc_defaults.yaml`](https://github.com/kasmtech/KasmVNC/blob/master/unix/kasmvnc_defaults.yaml)
+— or, authoritatively for a given image, its own
+`/usr/share/kasmvnc/kasmvnc_defaults.yaml`.
+
 ## Data plane
 
 The browser renders KasmVNC's own web client in a same-origin iframe;
@@ -141,7 +150,8 @@ template validation reject them. Two consequences:
 
 KasmVNC itself deep-merges three files, key by key, lowest to highest
 priority (official reference:
-<https://kasmweb.com/kasmvnc/docs/latest/configuration.html>):
+<https://kasmweb.com/kasmvnc/docs/latest/configuration.html> — outdated,
+see **Version** above):
 
 1. `/usr/share/kasmvnc/kasmvnc_defaults.yaml` — the full defaults
    shipped by the image (resolution, encoding, SSL, brute-force,
@@ -220,8 +230,9 @@ admin's. Full precedence map across both data planes:
   `Architectures` → nodeAffinity placement covers this.
 - Home lives at `/home/kasm-user` (template `homeMountPath`; the admin
   template editor pre-fills it when kasmvnc is added and the field is
-  still empty); `KASMVNC_AUTO_RECOVER`
-  brings Xvnc and the app back after a pod restart.
+  still empty). `KASMVNC_AUTO_RECOVER=true` comes from the image's own
+  env (not from WaaS): `vnc_startup.sh` then restarts a crashed Xvnc in
+  place instead of exiting the container.
 - **`/dev/shm` is operator-managed**: browsers in kasmweb images outgrow
   the container runtime's default 64Mi, so every kasmvnc pod gets a
   `medium: Memory` emptyDir (`kasmvnc-shm`, `sizeLimit: 512Mi` — enough
