@@ -135,6 +135,7 @@ describe('DesktopPane', () => {
 describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
   const renderKasm = async (
     capabilities: SessionCapabilities = { clipboardCopy: true, clipboardPaste: true },
+    autoFocus = false,
   ) => {
     apiMock.api.post.mockResolvedValue({
       data: { sessionId: 's1', connectionToken: 'tok', protocol: 'kasmvnc', capabilities },
@@ -142,7 +143,13 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
     const pane = createRef<DesktopPaneHandle>();
     const onStateChange = vi.fn();
     const { container } = render(
-      <DesktopPane ref={pane} workspaceId="w1" onStateChange={onStateChange} />,
+      <DesktopPane
+        ref={pane}
+        workspaceId="w1"
+        onStateChange={onStateChange}
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- the prop under test
+        autoFocus={autoFocus}
+      />,
     );
     await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
     const frame = container.querySelector('iframe')!;
@@ -167,17 +174,31 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
 
     fromClient({ action: 'connection_state', value: 'connected' });
     expect(onStateChange).toHaveBeenLastCalledWith('connected');
-    expect(frame.className).not.toContain('invisible');
 
     // The client's own auto-reconnect is transient: back to connecting.
     fromClient({ action: 'connection_state', value: 'reconnecting' });
     expect(onStateChange).toHaveBeenLastCalledWith('connecting');
-    expect(frame.className).toContain('invisible');
 
     // 'disconnected' is final: the iframe goes, the session is over.
     fromClient({ action: 'connection_state', value: 'disconnected' });
     expect(onStateChange).toHaveBeenLastCalledWith('disconnected');
     expect(container.querySelector('iframe')).toBeNull();
+  });
+
+  it('keeps the iframe visible while connecting (the client focuses itself on connect)', async () => {
+    const { frame } = await renderKasm();
+
+    expect(frame.className).not.toContain('invisible');
+    expect(getComputedStyle(frame).visibility).not.toBe('hidden');
+    expect(screen.getByText('connect.connecting')).toBeTruthy();
+  });
+
+  it('focuses the iframe on connect when autoFocus is set', async () => {
+    const { frame, fromClient } = await renderKasm(undefined, true);
+
+    fromClient({ action: 'connection_state', value: 'connected' });
+
+    expect(document.activeElement).toBe(frame);
   });
 
   it('ends the session on idle_session_timeout', async () => {
@@ -272,6 +293,9 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
       if (e.ctrlKey && e.altKey && e.key === 'm') e.preventDefault();
     };
     window.addEventListener('keydown', shortcut);
+    // Stand-in for the client's own keyboard handler (inside the iframe).
+    const desktop = vi.fn();
+    win.document.addEventListener('keydown', desktop);
     const press = (init: KeyboardEventInit) => {
       const ev = new win.KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true });
       win.document.dispatchEvent(ev);
@@ -280,12 +304,15 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
 
     // Before load: nothing listens on the client's window yet.
     expect(press({ key: 'm', ctrlKey: true, altKey: true }).defaultPrevented).toBe(false);
+    expect(desktop).toHaveBeenCalledTimes(1);
 
     fireEvent.load(frame);
     // The portal consumed it: kept from the desktop.
     expect(press({ key: 'm', ctrlKey: true, altKey: true }).defaultPrevented).toBe(true);
+    expect(desktop).toHaveBeenCalledTimes(1);
     // Anything else still reaches the desktop untouched.
     expect(press({ key: 'a' }).defaultPrevented).toBe(false);
+    expect(desktop).toHaveBeenCalledTimes(2);
 
     window.removeEventListener('keydown', shortcut);
   });
