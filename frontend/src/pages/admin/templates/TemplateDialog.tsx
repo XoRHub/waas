@@ -424,6 +424,7 @@ export function TemplateDialog({
                   <KasmVNCConfigFieldset
                     value={input.kasmvncConfig ?? ''}
                     onChange={(text) => set({ kasmvncConfig: text })}
+                    image={input.image}
                   />
                 )}
               </>
