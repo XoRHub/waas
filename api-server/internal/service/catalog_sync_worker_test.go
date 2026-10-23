@@ -412,6 +412,60 @@ func TestCatalogSyncWorkerCopiesRecommendation(t *testing.T) {
 	}
 }
 
+func TestCatalogSyncWorkerCopiesKasmVNC(t *testing.T) {
+	manifest := `apiVersion: waas.xorhub.io/catalog/v1
+images:
+  - image: docker.io/kasmweb/terminal:1.19.0
+    kasmvnc:
+      version: "1.5.1"
+      defaults: |
+        ---
+        desktop:
+          allow_resize: true
+  - image: docker.io/kasmweb/firefox:1.19.0
+  - image: docker.io/kasmweb/chrome:1.19.0
+    kasmvnc:
+      version: "1.5.1"
+      defaults: "` + strings.Repeat("x", 64<<10+1) + `"
+`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(manifest))
+	}))
+	defer srv.Close()
+
+	img := workerRegistryImage("kasm", workerURLSource(srv.URL))
+	w, _, catalogRepo := catalogWorkerFixture(t, img)
+	ctx := context.Background()
+
+	w.syncAll(ctx)
+
+	entries, err := catalogRepo.ListEntries(ctx, "kasm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("catalog_entries = %+v, want 3 rows", entries)
+	}
+	// ORDER BY image: chrome, firefox, terminal.
+	var got struct {
+		Version  string `json:"version"`
+		Defaults string `json:"defaults"`
+	}
+	if err := json.Unmarshal(entries[2].KasmVNC, &got); err != nil {
+		t.Fatalf("kasmvnc did not land as valid JSON: %v (%s)", err, entries[2].KasmVNC)
+	}
+	if got.Version != "1.5.1" || got.Defaults != "---\ndesktop:\n  allow_resize: true\n" {
+		t.Errorf("kasmvnc mismatch: %+v", got)
+	}
+	if entries[1].KasmVNC != nil {
+		t.Errorf("absent kasmvnc should stay nil: %s", entries[1].KasmVNC)
+	}
+	// Oversized defaults: the whole hint is dropped, the row survives.
+	if entries[0].KasmVNC != nil {
+		t.Errorf("oversized defaults must drop the hint: %d bytes stored", len(entries[0].KasmVNC))
+	}
+}
+
 const workerProfileManifest = `apiVersion: waas.xorhub.io/catalog/v1
 images:
   - image: ghcr.io/xorhub/waas-workspace-images/firefox:1.0.0@sha256:def

@@ -545,6 +545,19 @@ type DiscoveredImage struct {
 	// compatibility cadences, same split as DiscoveredImage vs
 	// shared/catalog.Entry.
 	Recommended *DeploymentRecommendation `json:"recommended,omitempty"`
+	// KasmVNC is the KasmVNC server this image bundles (version and its
+	// own kasmvnc_defaults.yaml, verbatim): the admin template editor
+	// derives its KasmVNC option list, control types and default values
+	// from it. Display/prefill only, same split from shared/catalog as
+	// Recommended. Absent = unknown (image not catalogued, or a catalog
+	// predating the field).
+	KasmVNC *KasmVNCInfo `json:"kasmvnc,omitempty"`
+}
+
+// KasmVNCInfo mirrors shared/catalog.KasmVNCInfo.
+type KasmVNCInfo struct {
+	Version  string `json:"version,omitempty"`
+	Defaults string `json:"defaults,omitempty"`
 }
 
 // DeploymentRecommendation mirrors shared/catalog.Recommendation for
