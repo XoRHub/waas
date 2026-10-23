@@ -57,6 +57,15 @@ const (
 	annotationKasmConfigHash = "waas.xorhub.io/kasmvnc-config-hash"
 )
 
+// The operator-managed /dev/shm of kasmvnc pods (see buildPodTemplate).
+// 512Mi is enough for Firefox/Chrome; a Memory-medium emptyDir counts
+// against the container's memory limit.
+const (
+	kasmShmVolume = "kasmvnc-shm"
+	kasmShmPath   = "/dev/shm"
+	kasmShmSize   = "512Mi"
+)
+
 func kasmConfigHash(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(sum[:])[:16]

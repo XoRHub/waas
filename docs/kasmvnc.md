@@ -219,9 +219,14 @@ admin's. Full precedence map across both data planes:
   `terminal`), some amd64-only (`desktop`, `chrome`) — the existing
   `Architectures` → nodeAffinity placement covers this.
 - Home lives at `/home/kasm-user` (template `homeMountPath`); `KASMVNC_AUTO_RECOVER`
-  brings Xvnc and the app back after a pod restart. A Memory emptyDir on
-  `/dev/shm` (via the `volumes` passthrough) is recommended — 512Mi is
-  enough for Firefox.
+  brings Xvnc and the app back after a pod restart.
+- **`/dev/shm` is operator-managed**: browsers in kasmweb images outgrow
+  the container runtime's default 64Mi, so every kasmvnc pod gets a
+  `medium: Memory` emptyDir (`kasmvnc-shm`, `sizeLimit: 512Mi` — enough
+  for Firefox/Chrome) mounted at `/dev/shm`. It counts against the
+  container's memory limit. A template whose `volumes` passthrough
+  already mounts `/dev/shm` keeps its own (sized as the admin wants)
+  and gets no second one.
 - **KasmVNC is GPL-2.0**: unlimited execution, including commercial —
   GPL only restricts distribution. WaaS neither redistributes nor
   modifies the images, so no source obligation attaches. The

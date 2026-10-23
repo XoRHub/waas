@@ -197,7 +197,7 @@ func TestKasmConfigAbsentForNonKasmWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, v := range dep.Spec.Template.Spec.Volumes {
-		if v.Name == kasmConfigVolume || v.Name == kasmVncDirVolume {
+		if v.Name == kasmConfigVolume || v.Name == kasmVncDirVolume || v.Name == kasmShmVolume {
 			t.Fatalf("non-kasmvnc workspace must not mount kasmvnc volumes, found %q", v.Name)
 		}
 	}
@@ -242,6 +242,41 @@ func TestKasmSideServicesForcedOff(t *testing.T) {
 	}
 	if env["START_PULSEAUDIO"] != "1" {
 		t.Error("unmanaged env must survive")
+	}
+}
+
+// kasmvnc pods get a Memory /dev/shm unless the admin already mounts one.
+func TestKasmShmMount(t *testing.T) {
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+	spec := kasmDeployment(t, kasmTemplate(), ws).Spec.Template.Spec
+	var shm *corev1.Volume
+	for i := range spec.Volumes {
+		if spec.Volumes[i].Name == kasmShmVolume {
+			shm = &spec.Volumes[i]
+		}
+	}
+	if shm == nil || shm.EmptyDir == nil || shm.EmptyDir.Medium != corev1.StorageMediumMemory ||
+		shm.EmptyDir.SizeLimit == nil || shm.EmptyDir.SizeLimit.String() != kasmShmSize {
+		t.Fatalf("expected a %s Memory emptyDir for /dev/shm, got %+v", kasmShmSize, shm)
+	}
+	if !slices.ContainsFunc(spec.Containers[0].VolumeMounts, func(m corev1.VolumeMount) bool {
+		return m.Name == kasmShmVolume && m.MountPath == "/dev/shm"
+	}) {
+		t.Fatalf("expected the /dev/shm mount, got %+v", spec.Containers[0].VolumeMounts)
+	}
+
+	// Admin-provided /dev/shm: theirs is kept, ours is not added.
+	tpl := kasmTemplate()
+	tpl.Spec.Workload = &waasv1alpha1.WorkspaceWorkload{
+		Volumes:      []corev1.Volume{{Name: "dshm", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{Medium: corev1.StorageMediumMemory}}}},
+		VolumeMounts: []corev1.VolumeMount{{Name: "dshm", MountPath: "/dev/shm/"}},
+	}
+	spec = kasmDeployment(t, tpl, ws).Spec.Template.Spec
+	for _, v := range spec.Volumes {
+		if v.Name == kasmShmVolume {
+			t.Fatal("an admin /dev/shm mount must not get a duplicate")
+		}
 	}
 }
 

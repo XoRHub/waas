@@ -6,10 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path"
+	"slices"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -141,6 +144,22 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 				SubPath:   kasmConfigKey,
 				ReadOnly:  true,
 			})
+	}
+
+	// Browsers in kasmweb images outgrow the container runtime's default
+	// 64Mi /dev/shm. An admin mount there (volumes passthrough) wins: a
+	// second mount on the same path would be rejected by the API server.
+	if templateHasKasmVNC(tpl) && !slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+		return path.Clean(m.MountPath) == kasmShmPath
+	}) {
+		volumes = append(volumes, corev1.Volume{
+			Name: kasmShmVolume,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
+				Medium:    corev1.StorageMediumMemory,
+				SizeLimit: ptr.To(resource.MustParse(kasmShmSize)),
+			}},
+		})
+		mounts = append(mounts, corev1.VolumeMount{Name: kasmShmVolume, MountPath: kasmShmPath})
 	}
 
 	securityContext := wl.SecurityContext
