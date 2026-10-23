@@ -183,6 +183,40 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 		}
 		annotations[annotationKasmConfigHash] = kasmConfigHash(kasmConfig)
 	}
+	desktop := corev1.Container{
+		Name:            "desktop",
+		Image:           tpl.Spec.Image,
+		Env:             desktopEnv(ws, tpl, ov, kasmPol.printing),
+		Resources:       resources,
+		Ports:           ports,
+		SecurityContext: securityContext,
+		VolumeMounts:    mounts,
+		// TCPSocket for every protocol, kasmvnc included: KasmVNC
+		// serves everything behind Basic auth, so an HTTPGet probe
+		// would 401 and the pod would never turn Ready (the empty
+		// connects KasmVNC logs at debug are documented in
+		// docs/kasmvnc.md).
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(probePort)},
+			},
+			InitialDelaySeconds: 5,
+			PeriodSeconds:       5,
+		},
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(probePort)},
+			},
+			InitialDelaySeconds: 30,
+			PeriodSeconds:       10,
+		},
+	}
+	containers := []corev1.Container{desktop}
+	// Policy-gated file transfer for kasmvnc: the kasm-agent sidecar
+	// (kasm_agent.go), sharing the home volume and the VNC_PW credential.
+	if r.kasmAgentEnabled(ws, tpl) {
+		containers = append(containers, kasmAgentContainer(tpl, desktop, podSecurityContext, r.KasmAgent))
+	}
 	built := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      labels,
@@ -202,35 +236,8 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 			AutomountServiceAccountToken: ptr.To(false),
 			ServiceAccountName:           wl.ServiceAccountName,
 			SecurityContext:              podSecurityContext,
-			Containers: []corev1.Container{{
-				Name:            "desktop",
-				Image:           tpl.Spec.Image,
-				Env:             desktopEnv(ws, tpl, ov, kasmPol.printing),
-				Resources:       resources,
-				Ports:           ports,
-				SecurityContext: securityContext,
-				VolumeMounts:    mounts,
-				// TCPSocket for every protocol, kasmvnc included: KasmVNC
-				// serves everything behind Basic auth, so an HTTPGet probe
-				// would 401 and the pod would never turn Ready (the empty
-				// connects KasmVNC logs at debug are documented in
-				// docs/kasmvnc.md).
-				ReadinessProbe: &corev1.Probe{
-					ProbeHandler: corev1.ProbeHandler{
-						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(probePort)},
-					},
-					InitialDelaySeconds: 5,
-					PeriodSeconds:       5,
-				},
-				LivenessProbe: &corev1.Probe{
-					ProbeHandler: corev1.ProbeHandler{
-						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(probePort)},
-					},
-					InitialDelaySeconds: 30,
-					PeriodSeconds:       10,
-				},
-			}},
-			Volumes: volumes,
+			Containers:                   containers,
+			Volumes:                      volumes,
 		},
 	}
 	// Fingerprint of everything above — the drift detector.

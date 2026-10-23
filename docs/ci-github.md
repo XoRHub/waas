@@ -39,7 +39,7 @@ PR — selective by path (job `changes`, dorny/paths-filter)
 ├─ ci-go.yml
 │  ├─ go-lint / go-test     DYNAMIC matrix per module, follows the real graph:
 │  │                        api-server ← operator + shared ; wwt ← shared ;
-│  │                        kasm-agent ← shared ;
+│  │                        kasm-agent ← shared ; operator ← shared ;
 │  │                        test/smoke ← operator (lint only, tests = cluster)
 │  └─ go-generated-drift    operator/** + crd-schemas/** — regenerating
 │                            must be a no-op (incl. editor CRD schemas)
