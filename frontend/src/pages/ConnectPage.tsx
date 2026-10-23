@@ -256,12 +256,20 @@ function DesktopView({
         />
       )}
       {(state === 'disconnected' || state === 'failed') && (
-        <div className="absolute inset-x-0 bottom-10 flex justify-center">
+        <div className="absolute inset-x-0 bottom-10 flex justify-center gap-2">
           <button
             onClick={() => navigate('/')}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="rounded-md border border-white/30 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
           >
             {t('connect.back')}
+          </button>
+          {/* A fresh /connect: new session and token (a KasmVNC iframe
+              cannot outlive its token's expiry on its own). */}
+          <button
+            onClick={() => pane.current?.reconnect()}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            {t('app.retry')}
           </button>
         </div>
       )}
