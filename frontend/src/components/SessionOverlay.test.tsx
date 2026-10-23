@@ -7,13 +7,15 @@ import { renderWithProviders, signIn } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
 import { DesktopPane, type DesktopPaneHandle } from '@/components/DesktopPane';
 import type { SessionCapabilities, Workspace } from '@/types';
+import { CaptureRefused } from '@/lib/kasmAudio';
 import { SessionOverlay } from './SessionOverlay';
 
 const audioMock = {
   startPlayback: vi.fn(),
   startMicrophone: vi.fn(),
 };
-vi.mock('@/lib/kasmAudio', () => ({
+vi.mock('@/lib/kasmAudio', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/kasmAudio')>()),
   get startPlayback() {
     return audioMock.startPlayback;
   },
@@ -450,16 +452,18 @@ describe('SessionOverlay kasmvnc audio', () => {
       readSessionId: () => 's1',
     },
   } as unknown as React.RefObject<DesktopPaneHandle>;
+  const overlay = (caps: Partial<SessionCapabilities>) => (
+    <SessionOverlay
+      workspace={workspace('kasmvnc')}
+      capabilities={{ clipboardCopy: true, clipboardPaste: true, ...noGrants, ...caps }}
+      pane={kasmPane}
+    />
+  );
   const renderAudio = async (caps: Partial<SessionCapabilities>) => {
     signIn({ username: 'marc' });
-    renderWithProviders(
-      <SessionOverlay
-        workspace={workspace('kasmvnc')}
-        capabilities={{ clipboardCopy: true, clipboardPaste: true, ...noGrants, ...caps }}
-        pane={kasmPane}
-      />,
-    );
+    const { rerender } = renderWithProviders(overlay(caps));
     await userEvent.click(screen.getByTitle(/session menu/i));
+    return (next: Partial<SessionCapabilities>) => rerender(overlay(next));
   };
   afterEach(() => {
     audioMock.startPlayback.mockReset();
@@ -505,11 +509,35 @@ describe('SessionOverlay kasmvnc audio', () => {
   });
 
   it('names a refused microphone capture', async () => {
-    audioMock.startMicrophone.mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
+    audioMock.startMicrophone.mockRejectedValue(
+      new CaptureRefused(new DOMException('denied', 'NotAllowedError')),
+    );
     await renderAudio({ microphone: true });
     await userEvent.click(screen.getByLabelText(/microphone/i));
     expect(await screen.findByText(/refused microphone access/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/microphone/i)).not.toBeChecked();
+  });
+
+  it('does not blame the browser for a microphone setup failure', async () => {
+    audioMock.startMicrophone.mockRejectedValue(new DOMException('worklet', 'AbortError'));
+    await renderAudio({ microphone: true });
+    await userEvent.click(screen.getByLabelText(/microphone/i));
+    expect(await screen.findByText(/audio is not available/i)).toBeInTheDocument();
+    expect(screen.queryByText(/refused microphone access/i)).toBeNull();
+  });
+
+  it('closes the link and resets the toggle when the grant is gone after a reconnect', async () => {
+    const stop = vi.fn();
+    audioMock.startPlayback.mockResolvedValue({ stop });
+    const withCaps = await renderAudio({ audioPlayback: true });
+    await userEvent.click(screen.getByLabelText(/workspace sound/i));
+    await waitFor(() => expect(audioMock.startPlayback).toHaveBeenCalledOnce());
+    withCaps({});
+    await waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(screen.queryByText('Workspace sound')).toBeNull();
+    withCaps({ audioPlayback: true });
+    expect(screen.getByLabelText(/workspace sound/i)).not.toBeChecked();
+    expect(audioMock.startPlayback).toHaveBeenCalledOnce();
   });
 
   it('never shows audio on guacd protocols, grant or not', async () => {

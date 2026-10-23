@@ -1,6 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { float32ToInt16, int16ToFloat32, resampleLinear } from './kasmAudio';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  CaptureRefused,
+  float32ToInt16,
+  int16ToFloat32,
+  resampleLinear,
+  startMicrophone,
+  startPlayback,
+} from './kasmAudio';
 import { PcmQueue } from './pcmWorklet.js';
+
+vi.mock('@/lib/kasmCookie', () => ({ refreshKasmCookie: () => Promise.resolve(0) }));
 
 describe('PCM conversion', () => {
   it('round-trips s16le through float and clamps out-of-range samples', () => {
@@ -68,5 +77,47 @@ describe('PcmQueue (jitter buffer)', () => {
     const q = new PcmQueue(1, 2);
     q.push(new Float32Array([1, 2, 3]));
     expect(q.frames).toBe(3);
+  });
+});
+
+describe('link setup failures', () => {
+  // An AudioContext whose worklet never loads, and a live capture track.
+  const close = vi.fn(() => Promise.resolve());
+  const stopTrack = vi.fn();
+  const stub = (getUserMedia: () => Promise<unknown>) => {
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        sampleRate = 48000;
+        audioWorklet = { addModule: () => Promise.reject(new DOMException('no', 'AbortError')) };
+        close = close;
+      },
+    );
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+  };
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    close.mockClear();
+    stopTrack.mockClear();
+  });
+
+  it('releases the microphone and closes the context when the worklet fails', async () => {
+    stub(() => Promise.resolve({ getTracks: () => [{ stop: stopTrack }] }));
+    const err = await startMicrophone('w1', 's1', vi.fn()).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DOMException);
+    expect(err).not.toBeInstanceOf(CaptureRefused);
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('wraps a refused capture in CaptureRefused', async () => {
+    stub(() => Promise.reject(new DOMException('denied', 'NotAllowedError')));
+    await expect(startMicrophone('w1', 's1', vi.fn())).rejects.toBeInstanceOf(CaptureRefused);
+  });
+
+  it('closes the playback context when the worklet fails', async () => {
+    stub(() => Promise.reject(new Error('unused')));
+    await expect(startPlayback('w1', 's1', vi.fn())).rejects.toBeInstanceOf(DOMException);
+    expect(close).toHaveBeenCalledOnce();
   });
 });

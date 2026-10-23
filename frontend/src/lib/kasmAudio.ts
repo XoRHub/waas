@@ -62,15 +62,28 @@ export type AudioEnd = 'unavailable' | 'closed';
 const wsUrl = (sessionId: string, route: 'audio' | 'mic') =>
   `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/kasm/${encodeURIComponent(sessionId)}/waas/${route}`;
 
+const closeQuietly = (ctx: AudioContext) => void ctx.close().catch(() => undefined);
+
 // One context per link: independent lifecycles, nothing shared to tear
-// down in the right order.
+// down in the right order. A context whose worklet failed to load is
+// closed, not leaked.
 async function newContext(): Promise<AudioContext> {
   const ctx = new AudioContext({ sampleRate: AUDIO_RATE });
-  await ctx.audioWorklet.addModule(workletUrl);
+  try {
+    await ctx.audioWorklet.addModule(workletUrl);
+  } catch (e) {
+    closeQuietly(ctx);
+    throw e;
+  }
   return ctx;
 }
 
-const closeQuietly = (ctx: AudioContext) => void ctx.close().catch(() => undefined);
+/** startMicrophone's rejection when the browser refused the capture itself. */
+export class CaptureRefused extends Error {
+  constructor(cause: unknown) {
+    super('microphone capture refused', { cause });
+  }
+}
 
 /**
  * Plays the workspace's sound. The socket rides the session cookie, so it
@@ -120,25 +133,38 @@ export async function startPlayback(
 }
 
 /**
- * Sends the browser's microphone into the workspace. Rejects with the
- * browser's getUserMedia error when the capture is refused (permission,
- * no device, insecure context) — before any socket is opened.
+ * Sends the browser's microphone into the workspace. Rejects with
+ * CaptureRefused (wrapping getUserMedia's error) when the capture is
+ * refused — permission, no device, insecure context — and with the setup
+ * error otherwise; either way before any socket is opened, and with the
+ * capture released: a failed link never leaves the microphone live.
  */
 export async function startMicrophone(
   workspaceId: string,
   sessionId: string,
   onEnd: (reason: AudioEnd) => void,
 ): Promise<AudioLink> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, echoCancellation: true },
-  });
+  const stream = await navigator.mediaDevices
+    .getUserMedia({ audio: { channelCount: 1, echoCancellation: true } })
+    .catch((e: unknown) => {
+      throw new CaptureRefused(e);
+    });
   const stopTracks = () => stream.getTracks().forEach((t) => t.stop());
-  await refreshKasmCookie(workspaceId, sessionId).catch(() => undefined);
-  const ctx = await newContext();
-  const node = new AudioWorkletNode(ctx, 'waas-pcm-capture', { outputChannelCount: [1] });
-  ctx.createMediaStreamSource(stream).connect(node);
-  // Connected so the graph keeps running; the capture outputs silence.
-  node.connect(ctx.destination);
+  let ctx: AudioContext | undefined;
+  let node: AudioWorkletNode;
+  try {
+    await refreshKasmCookie(workspaceId, sessionId).catch(() => undefined);
+    ctx = await newContext();
+    node = new AudioWorkletNode(ctx, 'waas-pcm-capture', { outputChannelCount: [1] });
+    ctx.createMediaStreamSource(stream).connect(node);
+    // Connected so the graph keeps running; the capture outputs silence.
+    node.connect(ctx.destination);
+  } catch (e) {
+    stopTracks();
+    // Unset when newContext itself failed: it closed its own.
+    if (ctx) closeQuietly(ctx);
+    throw e;
+  }
   const ws = new WebSocket(wsUrl(sessionId, 'mic'));
   let opened = false;
   ws.onopen = () => {
