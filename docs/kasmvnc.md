@@ -150,8 +150,9 @@ proxy.
   policy gate now exists (`WorkspacePolicy.fileTransfer`, carried in
   the connection token — see **File transfer, printing, watermark**
   below) but no wwt route reads it yet, so the endpoint stays blocked
-  outright until the file-transfer routes land; file egress stays
-  governed identically across protocols meanwhile. The path is
+  outright until the file-transfer routes land. This closes the HTTP
+  route only — casual or accidental egress — not every channel (see
+  **File egress is a soft control** below). The path is
   normalized and lowercased before matching so case, trailing-slash,
   dot and double-slash variants can't slip past.
 - **`/Downloads/…` is blocked too**, for the same reason: the kasmweb
@@ -215,11 +216,9 @@ their own session and restart Xvnc to re-enable it, or start the
 binary by hand. The value of the stamp is fewer listeners and fewer
 closed-source binaries running **by default**: it shrinks the attack
 surface a visitor would find without effort, it does not gate what the
-session's own occupant can do inside their own container. The actual
-enforced control for session→browser file egress is the wwt-side path
-blocks below (`/api/downloads`, `/Downloads`) — nothing started or
-configured inside the container can be relied on against its own
-occupant. Two consequences of the stamp itself:
+session's own occupant can do inside their own container — nothing
+started or configured inside the container can be relied on against
+its own occupant. Two consequences of the stamp itself:
 
 - `KASM_SVC_AUDIO=0` also skips the image's `START_PULSEAUDIO` step
   (it is nested in the audio service start), so no PulseAudio runs in
@@ -390,8 +389,18 @@ owns the Xvnc process in their own container — they can kill and
 restart it with a different config, bypassing `~/.vnc/kasmvnc.yaml`
 altogether. Nothing enforced inside the container by Xvnc or
 `vnc_startup.sh` holds against that container's own occupant; it is
-the same reasoning as the side services above, and the same reason the
-hard file-egress controls live in `wwt`, not in the container.
+the same reasoning as the side services above.
+
+**File egress is a soft control on kasmvnc.** The wwt path blocks
+(`/api/downloads`, `/Downloads`) only stop the HTTP routes, i.e.
+casual or accidental egress. A determined occupant has other channels
+wwt cannot tell apart from the session itself: print jobs travel
+inside the RFB WebSocket (UnixRelay messages 182/183,
+`common/rfb/msgTypes.h`), not over `/Downloads`; they can restart Xvnc
+with their own `-httpd` directory and serve their own client JS; and
+the screen itself is an egress channel. The governed path for normal
+users will be the policy-gated file-transfer sidecar (planned),
+not a hard guarantee against the occupant.
 
 ### File transfer, printing, watermark (policy gates)
 
@@ -403,7 +412,9 @@ reconcile yields the clipboard DLP, the printer toggle and the
 rendered watermark; a resolution failure (no user policy) fails closed
 on all three — clipboard off, no printing, **no watermark** (there is
 no safe text to invent; the deterrent is the permissive side, the hard
-gates are what fail closed).
+gates are what fail closed). A policy spec edit re-enqueues every workspace
+of the namespace (the winning policy is a namespace-global
+resolution), so the change lands on the running pods right away.
 
 - **`fileTransfer.upload` / `.download`** — default **deny** (absent =
   false). The api-server resolves the **connecting** user's policy at
@@ -418,10 +429,11 @@ gates are what fail closed).
   allows `download` (print-to-PDF then a browser download: the same
   egress class), `"0"` otherwise, inside the `SideServiceEnv` stamp.
   The image then passes `-UnixRelay printer:/tmp/printer` to Xvnc and
-  the web client handles the print job over the VNC stream. **Soft
-  gate**: it is a container env toggle, with the limit described above
-  — the occupant can set it themselves and restart Xvnc. Default-off
-  stays the value.
+  the web client handles the print job over the VNC stream — not over
+  `/Downloads`, so the wwt path blocks never see it. **Soft gate**: it
+  is a container env toggle, with the limit described above — the
+  occupant can set it themselves and restart Xvnc. Default-off stays
+  the value.
 - **Watermark** — `WorkspacePolicy.watermark` is a text template; when
   set, the operator stamps **one key**,
   `data_loss_prevention.watermark.text.template`, into the policy layer
@@ -437,17 +449,23 @@ gates are what fail closed).
   into a crash loop. Template syntax: Xvnc runs `strftime` on the text
   live (`%H:%M`, `%Y-%m-%d`), and the WaaS token **`{user}`** is
   replaced by the workspace **owner's** username at reconcile.
-  **Escaping**: `vncserver` interpolates `${NAME}` from its own
-  environment, then hands the value to Xvnc inside single quotes
-  *without* escaping (`-DLP_WatermarkText '<text>'`, in a shell
-  command). The admin's text is trusted but a `'` would break Xvnc's
-  startup, so the CRD pattern (and the admin API, as a 400) refuse it.
-  The username — the one input an admin does not type — is reduced to
+  **Escaping**: `vncserver` splices `${NAME}` from its own environment
+  into the value, then hands it to Xvnc inside single quotes *without*
+  escaping (`-DLP_WatermarkText '<text>'`, through a shell). So a `'`
+  breaks out of the argument, and so does any `${…}`: an env value
+  (settable through the template or override `env`) can carry a quote
+  and run a command, and `${VNC_PW}` would draw the password on
+  screen. The CRD therefore refuses `'`, `$` and control characters
+  (pattern `^[^'$\x00-\x1f\x7f]*$`, at most 200 characters; the admin
+  API mirrors both as a 400 via `kasmcfg.ValidateWatermark`, and the
+  operator renders no watermark for a text that fails it). The
+  username — the one input an admin does not type — is reduced to
   `[A-Za-z0-9._@-]` (anything else becomes `_`,
-  `kasmcfg.WatermarkText`): no quote can leave the argument, no `$` or
-  `%` can become an env or strftime expansion. YAML itself needs no
-  care: the value is marshalled, never templated. Soft control like
-  the rest of the file: Xvnc renders it, the occupant owns Xvnc.
+  `kasmcfg.WatermarkText`): no quote, `$` or `%` can come from it. A
+  text of exactly `true`/`false` renders as `1`/`0` (`vncserver`
+  coerces booleans). YAML itself needs no care: the value is
+  marshalled, never templated. Soft control like the rest of the file:
+  Xvnc renders it, the occupant owns Xvnc.
 
 ## Images, placement, licensing
 
