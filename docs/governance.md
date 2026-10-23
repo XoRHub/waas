@@ -31,6 +31,12 @@ WorkspacePolicy ── images[] ───────────►  WorkspaceI
   CONCURRENCY (paused workspaces and retained volumes don't count);
   the latter is enforced at both transitions into compute: creating a
   non-paused workspace and resuming a paused one.
+  `perWorkspace`/`aggregate` cpu/memory count the whole pod, not just
+  the desktop container: on kasmvnc a workspace's load includes the
+  `kasm-agent` sidecar's own request/limit (`operator/pkg/policy.LoadOf`,
+  numbers shared from `shared/kasmagent`) — needed because the
+  namespace `ResourceQuota` an `aggregate` cap renders sums every
+  container the same way (`docs/kasmvnc.md` § Pod shape).
   `limits.defaults` is the sizing the portal pre-selects on the creation
   sliders when the image declares no `resources.default` (image wins);
   it is display-only and never enforced.

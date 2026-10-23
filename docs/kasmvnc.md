@@ -171,9 +171,19 @@ route names, the PulseAudio paths and the audio wire format — lives in
   and the PulseAudio socket is reachable. Hardened: non-root (unless
   the desktop itself runs as root), read-only rootfs, drop ALL, no
   privilege escalation, RuntimeDefault seccomp; 20m/32Mi requests,
-  128Mi memory limit (uploads stream straight to disk, nothing is
-  spooled; PulseAudio and one `parec` per playback stream are the
-  footprint); TCP readiness probe on 4800. The workspace Service gains a `waas-files`
+  500m CPU / 128Mi memory limits (uploads stream straight to disk,
+  nothing is spooled; PulseAudio and one `parec` per playback stream
+  are the footprint — 500m leaves headroom for the daemon plus up to 4
+  concurrent `/audio` connections). The CPU limit is load-bearing, not
+  just hardening: a policy's `limits.aggregate` renders a `waas-quota`
+  namespace `ResourceQuota` with `limits.cpu`/`limits.memory`
+  (`operator/internal/controller/placement.go`), and Kubernetes rejects
+  any container missing a CPU limit once that scope exists — every
+  non-admin kasmvnc workspace stayed `Provisioning` without it. The
+  same numbers feed the quota pre-check (`operator/pkg/policy.LoadOf`
+  adds the sidecar's footprint to a kasmvnc workspace's load, shared
+  via `shared/kasmagent` so the pod spec and the quota math agree);
+  TCP readiness probe on 4800. The workspace Service gains a `waas-files`
   port (converges on every reconcile, ADR 0001's exception). Sidecar
   image: `<registry>/kasm-agent:<tag>`, same tag as the other
   components; `operator.kasmAgent.enabled: false` renders an empty

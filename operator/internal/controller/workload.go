@@ -105,7 +105,7 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	// same policy decision also gates the printer env below.
 	kasmConfig := ""
 	var kasmPol kasmPolicy
-	if templateHasKasmVNC(tpl) {
+	if policy.TemplateHasKasmVNC(tpl) {
 		kasmPol = r.kasmPolicyOf(ctx, ws)
 		kasmConfig, _ = applyPolicy(tpl.Spec.KasmVNCConfig, kasmPol)
 	}
@@ -151,7 +151,7 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	// Browsers in kasmweb images outgrow the container runtime's default
 	// 64Mi /dev/shm. An admin mount there (volumes passthrough) wins: a
 	// second mount on the same path would be rejected by the API server.
-	if templateHasKasmVNC(tpl) && !slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+	if policy.TemplateHasKasmVNC(tpl) && !slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
 		return path.Clean(m.MountPath) == kasmShmPath
 	}) {
 		volumes = append(volumes, corev1.Volume{
@@ -477,7 +477,7 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 // template or override value survives (kasmcfg.ManagedEnv).
 func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides, printing, agent bool) []corev1.EnvVar {
 	env := mergeEnv(tpl.Spec.Env, sanitizeOverrideEnv(ov.Env))
-	if templateHasKasmVNC(tpl) {
+	if policy.TemplateHasKasmVNC(tpl) {
 		off := make([]corev1.EnvVar, 0, len(kasmcfg.ManagedEnv))
 		for _, name := range kasmcfg.SideServiceEnv {
 			value := "0"
