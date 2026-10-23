@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/xorhub/waas/shared/auth"
+	"github.com/xorhub/waas/shared/kasmagent"
 	"github.com/xorhub/waas/wwt/internal/jwks"
 	"github.com/xorhub/waas/wwt/internal/proxy"
 )
@@ -522,11 +523,13 @@ func TestFreshQueryTokenBeatsExpiredCookie(t *testing.T) {
 }
 
 // newFakeAgent mimics the kasm-agent sidecar: plain HTTP, the same Basic
-// pair as KasmVNC, echoing method and path. Like newFakeKasmVNC it
-// asserts nothing of the platform's leaks upstream.
+// pair as KasmVNC, echoing method and path — and, on the audio routes,
+// a WebSocket that speaks one binary frame then echoes. Like
+// newFakeKasmVNC it asserts nothing of the platform's leaks upstream.
 func newFakeAgent(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 	var hits atomic.Int32
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		if u, p, ok := r.BasicAuth(); !ok || u != "kasm_user" || p != "vnc-pw-1" {
@@ -536,6 +539,23 @@ func newFakeAgent(t *testing.T) (*httptest.Server, *atomic.Int32) {
 		if r.Header.Get("Cookie") != "" {
 			t.Errorf("platform cookie leaked to the agent: %q", r.Header.Get("Cookie"))
 		}
+		if r.URL.Path == kasmagent.PathAudio || r.URL.Path == kasmagent.PathMic {
+			ws, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer ws.Close()
+			_ = ws.WriteMessage(websocket.BinaryMessage, []byte("PCM "+r.URL.Path))
+			for {
+				mt, msg, err := ws.ReadMessage()
+				if err != nil {
+					return
+				}
+				if err := ws.WriteMessage(mt, msg); err != nil {
+					return
+				}
+			}
+		}
 		fmt.Fprintf(w, "AGENT %s %s", r.Method, r.URL.RequestURI())
 	}))
 	t.Cleanup(srv.Close)
@@ -544,7 +564,12 @@ func newFakeAgent(t *testing.T) (*httptest.Server, *atomic.Int32) {
 
 func filesToken(t *testing.T, signer *auth.Signer, sid string, grant auth.FileTransferGrant) string {
 	t.Helper()
-	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", sid, "ws1", auth.ClipboardGrant{}, grant, auth.AudioGrant{}, time.Minute))
+	return grantsToken(t, signer, sid, grant, auth.AudioGrant{})
+}
+
+func grantsToken(t *testing.T, signer *auth.Signer, sid string, files auth.FileTransferGrant, audio auth.AudioGrant) string {
+	t.Helper()
+	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", sid, "ws1", auth.ClipboardGrant{}, files, audio, time.Minute))
 	if err != nil {
 		t.Fatalf("signing: %v", err)
 	}
@@ -634,6 +659,104 @@ func TestFileRoutesGatedOnTheGrant(t *testing.T) {
 	}
 	if body := readAll(t, resp); resp.StatusCode != http.StatusOK || body != "KASM_PAGE /waasx.js" {
 		t.Fatalf("expected the KasmVNC page for /waasx.js, got %d %q", resp.StatusCode, body)
+	}
+}
+
+// The audio routes are gated on the audio grant, each direction its own,
+// and a full file-transfer grant opens neither. The gate table is
+// exercised with plain GETs: an allowed one reaches the sidecar, whose
+// upgrader answers 400 to a non-WebSocket request — that 400 IS the proof
+// the gate let it through.
+func TestAudioRoutesGatedOnTheGrant(t *testing.T) {
+	upstream, kasmHits := newFakeKasmVNC(t)
+	agent, agentHits := newFakeAgent(t)
+	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
+	agentURL, _ := url.Parse(agent.URL)
+	port, _ := strconv.Atoi(agentURL.Port())
+	handler.agentPort = int32(port)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	files := auth.FileTransferGrant{Upload: true, Download: true}
+	playback := auth.AudioGrant{Playback: true}
+	mic := auth.AudioGrant{Microphone: true}
+	for _, tc := range []struct {
+		files   auth.FileTransferGrant
+		audio   auth.AudioGrant
+		method  string
+		path    string
+		want    int
+		reached bool
+	}{
+		{files, auth.AudioGrant{}, http.MethodGet, "/waas/audio", http.StatusForbidden, false},
+		{files, auth.AudioGrant{}, http.MethodGet, "/waas/mic", http.StatusForbidden, false},
+		{auth.FileTransferGrant{}, playback, http.MethodGet, "/waas/mic", http.StatusForbidden, false},
+		{auth.FileTransferGrant{}, mic, http.MethodGet, "/waas/audio", http.StatusForbidden, false},
+		{auth.FileTransferGrant{}, playback, http.MethodPost, "/waas/audio", http.StatusMethodNotAllowed, false},
+		{auth.FileTransferGrant{}, mic, http.MethodPost, "/waas/mic", http.StatusMethodNotAllowed, false},
+		{auth.FileTransferGrant{}, playback, http.MethodGet, "/waas/audio", http.StatusBadRequest, true},
+		{auth.FileTransferGrant{}, mic, http.MethodGet, "/waas/mic", http.StatusBadRequest, true},
+		// An audio grant opens no file route.
+		{auth.FileTransferGrant{}, auth.AudioGrant{Playback: true, Microphone: true}, http.MethodGet, "/waas/files", http.StatusForbidden, false},
+	} {
+		agentBefore := agentHits.Load()
+		req, _ := http.NewRequest(tc.method, server.URL+"/kasm/sess-1"+tc.path, nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: grantsToken(t, signer, "sess-1", tc.files, tc.audio)})
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := readAll(t, resp)
+		if resp.StatusCode != tc.want {
+			t.Errorf("%+v/%+v %s %s: expected %d, got %d (%s)", tc.files, tc.audio, tc.method, tc.path, tc.want, resp.StatusCode, strings.TrimSpace(body))
+		}
+		if reached := agentHits.Load() > agentBefore; reached != tc.reached {
+			t.Errorf("%+v %s %s: agent reached=%v for status %d", tc.audio, tc.method, tc.path, reached, resp.StatusCode)
+		}
+	}
+	if kasmHits.Load() != 0 {
+		t.Fatalf("no audio route may reach KasmVNC itself; got %d hits", kasmHits.Load())
+	}
+}
+
+// The audio WebSocket is relayed to the sidecar end to end, and it is
+// not a desktop stream: opening and closing it never arms a session end.
+func TestAudioWebsocketPassthroughIsNotADesktopStream(t *testing.T) {
+	upstream, _ := newFakeKasmVNC(t)
+	agent, _ := newFakeAgent(t)
+	api := &fakeAPI{info: kasmInfo(t, upstream)}
+	handler, signer := newTestHandler(t, api)
+	handler.endGrace = time.Millisecond
+	agentURL, _ := url.Parse(agent.URL)
+	port, _ := strconv.Atoi(agentURL.Port())
+	handler.agentPort = int32(port)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	token := grantsToken(t, signer, "sess-1", auth.FileTransferGrant{}, auth.AudioGrant{Playback: true, Microphone: true})
+	for _, p := range []string{"/waas/audio", "/waas/mic"} {
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/kasm/sess-1" + p + "?token=" + token
+		ws, _, err := websocket.DefaultDialer.Dial(wsURL, http.Header{"Origin": []string{server.URL}})
+		if err != nil {
+			t.Fatalf("dialing %s through the proxy: %v", p, err)
+		}
+		if _, msg, err := ws.ReadMessage(); err != nil || string(msg) != "PCM "+strings.TrimPrefix(p, "/waas") {
+			t.Fatalf("%s: expected the agent's first frame, got %q err=%v", p, msg, err)
+		}
+		if err := ws.WriteMessage(websocket.BinaryMessage, []byte("frame-1")); err != nil {
+			t.Fatal(err)
+		}
+		if _, msg, err := ws.ReadMessage(); err != nil || string(msg) != "frame-1" {
+			t.Fatalf("%s: expected the echo, got %q err=%v", p, msg, err)
+		}
+		ws.Close()
+	}
+	time.Sleep(20 * time.Millisecond)
+	handler.mu.Lock()
+	_, tracked := handler.streams["sess-1"]
+	handler.mu.Unlock()
+	if tracked || api.ended.Load() != 0 {
+		t.Fatalf("audio sockets must not count as desktop streams: tracked=%v ended=%d", tracked, api.ended.Load())
 	}
 }
 
