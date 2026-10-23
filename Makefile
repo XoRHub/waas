@@ -220,9 +220,9 @@ helm-unittest:
 frontend-build:
 	cd frontend && npm ci && npm run build
 
-# api-server, wwt and kasm-agent build from the repo root (module replaces ../shared).
+# The Go images build from the repo root (their modules replace ../shared).
 docker-build:
-	docker build -t ghcr.io/xorhub/waas/operator:dev operator
+	docker build -t ghcr.io/xorhub/waas/operator:dev -f operator/Dockerfile .
 	docker build -t ghcr.io/xorhub/waas/api-server:dev -f api-server/Dockerfile .
 	docker build -t ghcr.io/xorhub/waas/wwt:dev -f wwt/Dockerfile .
 	docker build -t ghcr.io/xorhub/waas/kasm-agent:dev -f kasm-agent/Dockerfile .

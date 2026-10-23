@@ -50,5 +50,6 @@ manifests:
 	# a grant behind.
 	uv run ../hack/ci/check_operator_rbac.py ../helm/waas/templates/operator/roles.yaml config/rbac/role.yaml
 
+# From the repo root: the module replaces ../shared.
 docker-build:
-	docker build -t ghcr.io/xorhub/waas/operator:dev .
+	docker build -t ghcr.io/xorhub/waas/operator:dev -f Dockerfile ..

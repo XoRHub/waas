@@ -107,7 +107,7 @@ jobs:
       # Change scopes follow the REAL dependency graph (go.mod replace
       # directives):
       #   api-server -> operator + shared, wwt -> shared,
-      #   kasm-agent -> shared, test/smoke -> operator, operator self-contained.
+      #   kasm-agent -> shared, operator -> shared, test/smoke -> operator.
       # &ci is the global-rebuild trap: shared CI config changes retrigger
       # every scope. Keep it FIRST in every list.
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -156,9 +156,11 @@ jobs:
               - 'hack/ci/**'
               - 'operator/api/**'
               - 'operator/config/**'
+            # operator's Dockerfile copies shared/.
             image-operator:
               - *ci
               - 'operator/**'
+              - 'shared/**'
             # api-server's Dockerfile copies shared/ + operator/{api,pkg}.
             image-api-server:
               - *ci
@@ -210,8 +212,10 @@ jobs:
 
           LINT=() ; TEST=()
           [ "$F_SHARED" = "true" ] && { LINT+=(shared); TEST+=(shared); }
-          [ "$F_OPERATOR" = "true" ] && { LINT+=(operator); TEST+=(operator); }
           # Dependents: a change in a dependency re-gates the dependent.
+          if [ "$F_OPERATOR" = "true" ] || [ "$F_SHARED" = "true" ]; then
+            LINT+=(operator); TEST+=(operator)
+          fi
           if [ "$F_API" = "true" ] || [ "$F_SHARED" = "true" ] || [ "$F_OPERATOR" = "true" ]; then
             LINT+=(api-server); TEST+=(api-server)
           fi
@@ -235,7 +239,7 @@ jobs:
 
           img() { [ "$4" = "true" ] && printf '{"name":"%s","context":"%s","dockerfile":"%s"}\n' "$1" "$2" "$3" || true; }
           {
-            img operator   operator operator/Dockerfile   "$F_IMG_OPERATOR"
+            img operator   .        operator/Dockerfile   "$F_IMG_OPERATOR"
             img api-server .        api-server/Dockerfile "$F_IMG_API"
             img wwt        .        wwt/Dockerfile        "$F_IMG_WWT"
             img kasm-agent .        kasm-agent/Dockerfile "$F_IMG_AGENT"
