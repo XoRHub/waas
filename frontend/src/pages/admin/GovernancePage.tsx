@@ -400,6 +400,16 @@ function validatePolicy(value: unknown, knownFields?: string[]): YamlIssue[] {
   if (pol.remoteWorkspaces !== undefined && typeof pol.remoteWorkspaces !== 'boolean') {
     issues.push({ line: 0, message: 'remoteWorkspaces: must be true or false' });
   }
+  const fileTransfer = pol.fileTransfer as Record<string, unknown> | undefined | null;
+  for (const dir of ['upload', 'download']) {
+    if (fileTransfer?.[dir] !== undefined && typeof fileTransfer[dir] !== 'boolean') {
+      issues.push({ line: 0, message: `fileTransfer.${dir}: must be true or false` });
+    }
+  }
+  // The scaffold's empty `watermark:` parses as null — that is "none".
+  if (pol.watermark != null && typeof pol.watermark !== 'string') {
+    issues.push({ line: 0, message: 'watermark: must be a text' });
+  }
   return issues;
 }
 

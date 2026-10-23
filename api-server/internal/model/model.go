@@ -629,6 +629,10 @@ type PolicyModel struct {
 	Limits    PolicyLimitsModel     `json:"limits"`
 	Lifecycle map[string]string     `json:"lifecycle,omitempty"`
 	Clipboard *ClipboardPolicyModel `json:"clipboard,omitempty"`
+	// FileTransfer mirrors the CRD block (nil = both directions denied).
+	FileTransfer *FileTransferPolicyModel `json:"fileTransfer,omitempty"`
+	// Watermark is the KasmVNC desktop watermark template ("" = none).
+	Watermark string `json:"watermark,omitempty"`
 	// Overrides is the policy-level restriction on template overrides
 	// (nil = no restriction; empty list = all overrides forbidden).
 	Overrides *PolicyOverridesModel `json:"overrides,omitempty"`
@@ -649,6 +653,13 @@ type PolicyOverridesModel struct {
 type ClipboardPolicyModel struct {
 	CopyFromWorkspace *bool `json:"copyFromWorkspace,omitempty"`
 	PasteToWorkspace  *bool `json:"pasteToWorkspace,omitempty"`
+}
+
+// FileTransferPolicyModel mirrors the CRD fileTransfer block (opt-in:
+// nil or false = denied).
+type FileTransferPolicyModel struct {
+	Upload   bool `json:"upload"`
+	Download bool `json:"download"`
 }
 
 // PolicySubject mirrors the CRD subject.

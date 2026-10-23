@@ -768,6 +768,14 @@ export interface PolicyModel {
   lifecycle?: { [key: string]: string };
   clipboard?: ClipboardPolicyModel;
   /**
+   * FileTransfer mirrors the CRD block (nil = both directions denied).
+   */
+  fileTransfer?: FileTransferPolicyModel;
+  /**
+   * Watermark is the KasmVNC desktop watermark template ("" = none).
+   */
+  watermark?: string;
+  /**
    * Overrides is the policy-level restriction on template overrides
    * (nil = no restriction; empty list = all overrides forbidden).
    */
@@ -795,6 +803,14 @@ export interface PolicyOverridesModel {
 export interface ClipboardPolicyModel {
   copyFromWorkspace?: boolean;
   pasteToWorkspace?: boolean;
+}
+/**
+ * FileTransferPolicyModel mirrors the CRD fileTransfer block (opt-in:
+ * nil or false = denied).
+ */
+export interface FileTransferPolicyModel {
+  upload: boolean;
+  download: boolean;
 }
 /**
  * PolicySubject mirrors the CRD subject.
