@@ -672,8 +672,9 @@ export interface DiscoveredImage {
    * own kasmvnc_defaults.yaml, verbatim): the admin template editor
    * derives its KasmVNC option list, control types and default values
    * from it. Display/prefill only, same split from shared/catalog as
-   * Recommended. Absent = unknown (image not catalogued, or a catalog
-   * predating the field).
+   * Recommended. Only the admin listing (/admin/images) carries it;
+   * the end-user catalog strips it. Absent = unknown (image not
+   * catalogued, or a catalog predating the field).
    */
   kasmvnc?: KasmVNCInfo;
 }
