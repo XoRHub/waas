@@ -424,13 +424,16 @@ func marshalHint[T any](h *T) json.RawMessage {
 // normalizeKasmVNC drops the whole hint when its defaults file exceeds
 // a bound no real kasmvnc_defaults.yaml approaches (~4 KB observed) —
 // same anti-abuse guard as normalizeDescription, sized so a hostile
-// manifest cannot push arbitrary text into every catalog response.
+// manifest cannot push arbitrary text into every catalog response —
+// and caps the version string, shown verbatim in the template editor.
 func normalizeKasmVNC(k *catalog.KasmVNCInfo) *catalog.KasmVNCInfo {
-	const maxDefaults = 64 << 10
+	const maxDefaults, maxVersion = 64 << 10, 64
 	if k == nil || len(k.Defaults) > maxDefaults {
 		return nil
 	}
-	return k
+	out := *k
+	out.Version = capText(k.Version, maxVersion)
+	return &out
 }
 
 // normalizeOS degrades an unrecognized os value to "" (treated as
@@ -463,12 +466,17 @@ func normalizeProfile(profile string) string {
 // every API response, it must never clip a legitimate description
 // (unlike the producer's former 80-char displayName shortening).
 func normalizeDescription(desc string) string {
-	const maxLen = 2048
-	desc = strings.TrimSpace(desc)
-	if len(desc) > maxLen {
-		desc = strings.ToValidUTF8(desc[:maxLen], "")
+	return capText(desc, 2048)
+}
+
+// capText trims s and hard-caps it at maxLen bytes, keeping the cut
+// valid UTF-8 when it lands mid-rune.
+func capText(s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	if len(s) > maxLen {
+		s = strings.ToValidUTF8(s[:maxLen], "")
 	}
-	return desc
+	return s
 }
 
 // normalizeArchitectures drops any value that is not a known

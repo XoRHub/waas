@@ -30,6 +30,7 @@ import (
 	"github.com/xorhub/waas/api-server/internal/database"
 	"github.com/xorhub/waas/api-server/internal/k8s"
 	"github.com/xorhub/waas/api-server/internal/repository"
+	"github.com/xorhub/waas/shared/catalog"
 )
 
 const workerCatalogManifest = `apiVersion: waas.xorhub.io/catalog/v1
@@ -582,6 +583,12 @@ func TestNormalizeDescription(t *testing.T) {
 	}
 	if short := normalizeDescription("short"); short != "short" {
 		t.Errorf("under-cap description must pass through, got %q", short)
+	}
+	// The kasmvnc version is shown verbatim in the template editor:
+	// same trim-and-cap, sized for a version string.
+	k := normalizeKasmVNC(&catalog.KasmVNCInfo{Version: " " + strings.Repeat("9", 100), Defaults: "---\n"})
+	if k == nil || len(k.Version) != 64 || k.Version[0] != '9' || k.Defaults != "---\n" {
+		t.Errorf("kasmvnc version cap: %+v", k)
 	}
 }
 
