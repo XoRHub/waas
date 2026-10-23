@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
@@ -76,20 +77,44 @@ func hasNestedKey(root map[string]any, keys ...string) bool {
 	return false
 }
 
+// WatermarkMaxLength and watermarkPattern are the WorkspacePolicy.Watermark
+// CRD markers (MaxLength, Pattern), mirrored here for the api-server's
+// clean 400 and the controller's defense in depth; TestWatermarkMarkersMatchCRD
+// keeps them in lockstep. KasmVNC's vncserver splices ${NAME} from its
+// environment into the text, then hands it to Xvnc inside single quotes
+// WITHOUT escaping, through a shell: a ' breaks out of the argument, and
+// so does a $ (an env value set via the template or override env can
+// carry a quote — and ${VNC_PW} would draw the password on screen).
+// Control characters are refused too: a watermark is one line.
+const WatermarkMaxLength = 200
+
+var watermarkPattern = regexp.MustCompile(`^[^'$\x00-\x1f\x7f]*$`)
+
+// ValidateWatermark reports why an admin watermark template is refused.
+func ValidateWatermark(text string) error {
+	if utf8.RuneCountInString(text) > WatermarkMaxLength {
+		return fmt.Errorf("at most %d characters", WatermarkMaxLength)
+	}
+	if !watermarkPattern.MatchString(text) {
+		return fmt.Errorf("single quotes, $ and control characters are not allowed")
+	}
+	return nil
+}
+
 // unsafeWatermarkRune is everything a username may not contribute to the
 // watermark text (see WatermarkText).
 var unsafeWatermarkRune = regexp.MustCompile(`[^A-Za-z0-9._@-]`)
 
 // WatermarkText renders a policy watermark template for one workspace:
-// {user} becomes the owner's username. KasmVNC's vncserver hands the text
-// to Xvnc inside single quotes WITHOUT escaping, after expanding ${NAME}
-// from its own environment, and Xvnc then runs strftime on it — so the
-// username, the one input an admin does not type, is reduced to
-// [A-Za-z0-9._@-] (every other rune becomes _): no quote can break out of
-// the shell argument, no $ or % can become an env or strftime expansion.
-// The YAML side needs no care: the value is marshalled, never templated.
+// {user} becomes the owner's username. The admin's template is held to
+// ValidateWatermark (an invalid one — admission bypassed — renders no
+// watermark rather than a shell break-out); the username, the one input
+// an admin does not type, is reduced to [A-Za-z0-9._@-] (every other rune
+// becomes _): no quote can leave the shell argument, no $ or % can become
+// an env or strftime expansion. The YAML side needs no care: the value
+// is marshalled, never templated.
 func WatermarkText(template, username string) string {
-	if template == "" {
+	if template == "" || ValidateWatermark(template) != nil {
 		return ""
 	}
 	return strings.ReplaceAll(template, "{user}", unsafeWatermarkRune.ReplaceAllString(username, "_"))
@@ -110,8 +135,10 @@ const PrinterEnv = "KASM_SVC_PRINTER"
 // user — vnc_startup.sh sources the user's persistent $HOME/.bashrc
 // before starting Xvnc, and the user owns Xvnc itself, so `export
 // KASM_SVC_PRINTER=1` + restarting Xvnc undoes it from inside the
-// session. The enforced control for session→browser file egress is the
-// wwt path blocks (isDownloadsPath). Like the managed keys, a template
+// session. Nothing is a hard file-egress control against that occupant
+// (print jobs ride the RFB stream, not /Downloads; see docs/kasmvnc.md):
+// the wwt path blocks (isDownloadsPath) only close the HTTP routes. Like
+// the managed keys, a template
 // value here would be silently overwritten, so the webhook and the
 // api-server refuse them.
 var SideServiceEnv = []string{

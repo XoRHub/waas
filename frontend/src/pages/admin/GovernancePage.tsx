@@ -409,6 +409,18 @@ function validatePolicy(value: unknown, knownFields?: string[]): YamlIssue[] {
   // The scaffold's empty `watermark:` parses as null — that is "none".
   if (pol.watermark != null && typeof pol.watermark !== 'string') {
     issues.push({ line: 0, message: 'watermark: must be a text' });
+  } else if (typeof pol.watermark === 'string') {
+    // Mirrors the CRD markers (kasmcfg.ValidateWatermark): KasmVNC's
+    // vncserver expands ${NAME} and single-quotes the text unescaped.
+    if ([...pol.watermark].length > 200) {
+      issues.push({ line: 0, message: 'watermark: at most 200 characters' });
+    }
+    if (/['$\x00-\x1f\x7f]/.test(pol.watermark)) {
+      issues.push({
+        line: 0,
+        message: 'watermark: single quotes, $ and control characters are not allowed',
+      });
+    }
   }
   return issues;
 }

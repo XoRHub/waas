@@ -1,10 +1,13 @@
 package kasmcfg
 
 import (
+	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/yaml"
 )
 
 func TestManagedEnvNames(t *testing.T) {
@@ -100,10 +103,64 @@ func TestWatermarkText(t *testing.T) {
 		{"{user}", "${VNC_PW}", "__VNC_PW_"},
 		{"{user}", "a %Y b", "a__Y_b"},
 		{"{user}", "", ""},
+		// An invalid template (admission bypassed) renders nothing.
+		{"${EVIL}", "alice", ""},
 	}
 	for _, tc := range cases {
 		if got := WatermarkText(tc.template, tc.username); got != tc.want {
 			t.Errorf("WatermarkText(%q, %q) = %q, want %q", tc.template, tc.username, got, tc.want)
 		}
+	}
+}
+
+func TestValidateWatermark(t *testing.T) {
+	for _, ok := range []string{"", "{user} %H:%M", "café ☕ " + strings.Repeat("x", WatermarkMaxLength-7)} {
+		if err := ValidateWatermark(ok); err != nil {
+			t.Errorf("ValidateWatermark(%q) = %v, want nil", ok, err)
+		}
+	}
+	for _, bad := range []string{"it's", "${EVIL}", "$HOME", "a\nb", "a\tb", "a\x00b", "a\x7fb", strings.Repeat("x", WatermarkMaxLength+1)} {
+		if ValidateWatermark(bad) == nil {
+			t.Errorf("ValidateWatermark(%q) = nil, want an error", bad)
+		}
+	}
+}
+
+// TestWatermarkMarkersMatchCRD keeps the api-server/controller mirror in
+// lockstep with the kubebuilder markers on WorkspacePolicy.Watermark: the
+// markers are comments, nothing else checks them.
+func TestWatermarkMarkersMatchCRD(t *testing.T) {
+	const file = "../../config/crd/bases/waas.xorhub.io_workspacepolicies.yaml"
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("reading %s (run `make manifests`?): %v", file, err)
+	}
+	var crd struct {
+		Spec struct {
+			Versions []struct {
+				Schema struct {
+					OpenAPIV3Schema struct {
+						Properties struct {
+							Spec struct {
+								Properties struct {
+									Watermark struct {
+										MaxLength int    `json:"maxLength"`
+										Pattern   string `json:"pattern"`
+									} `json:"watermark"`
+								} `json:"properties"`
+							} `json:"spec"`
+						} `json:"properties"`
+					} `json:"openAPIV3Schema"`
+				} `json:"schema"`
+			} `json:"versions"`
+		} `json:"spec"`
+	}
+	if err := yaml.Unmarshal(raw, &crd); err != nil || len(crd.Spec.Versions) == 0 {
+		t.Fatalf("parsing %s: %v", file, err)
+	}
+	w := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties.Spec.Properties.Watermark
+	if w.MaxLength != WatermarkMaxLength || w.Pattern != watermarkPattern.String() {
+		t.Fatalf("CRD watermark markers (maxLength %d, pattern %q) diverge from kasmcfg (%d, %q)",
+			w.MaxLength, w.Pattern, WatermarkMaxLength, watermarkPattern.String())
 	}
 }

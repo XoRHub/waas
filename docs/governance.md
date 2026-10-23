@@ -388,9 +388,10 @@ replaced by the workspace **owner's** username at reconcile — the
 operator stamps the result into the mounted `kasmvnc.yaml` next to the
 clipboard DLP keys. Empty/absent = no watermark, also on resolution
 failure (the deterrent is the permissive side; the hard gates are what
-fail closed). A single quote is refused by the CRD (and as a 400 by the
-admin API): KasmVNC's `vncserver` hands the text to Xvnc single-quoted
-and unescaped. It is a **soft control**: Xvnc renders it inside the
+fail closed). Single quotes, `$` and control characters are refused by
+the CRD (max 200 characters; the admin API mirrors both as a 400):
+KasmVNC's `vncserver` expands `${NAME}` and hands the text to Xvnc
+single-quoted and unescaped through a shell. It is a **soft control**: Xvnc renders it inside the
 user's own container (`docs/kasmvnc.md` for the threat model and the
 username sanitization).
 
