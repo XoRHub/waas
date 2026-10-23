@@ -163,13 +163,19 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
           }),
         );
       });
-    return { pane, onStateChange, container, frame, fromClient };
+    // The served vnc.html, as far as the pane's onLoad check goes.
+    const loadClient = () => {
+      const doc = frame.contentDocument!;
+      doc.appendChild(doc.createElement('div')).id = 'noVNC_container';
+      fireEvent.load(frame);
+    };
+    return { pane, onStateChange, container, frame, fromClient, loadClient };
   };
 
   it('drives the pane state from the client connection_state, not from onLoad', async () => {
-    const { onStateChange, container, frame, fromClient } = await renderKasm();
+    const { onStateChange, container, fromClient, loadClient } = await renderKasm();
 
-    fireEvent.load(frame);
+    loadClient();
     expect(onStateChange).not.toHaveBeenCalledWith('connected');
 
     fromClient({ action: 'connection_state', value: 'connected' });
@@ -222,9 +228,9 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
     expect(onStateChange).not.toHaveBeenCalledWith('connected');
   });
 
-  it('fails when wwt answers instead of the client (non-HTML document)', async () => {
+  it('fails when the iframe page is not the client (wwt or ingress error page)', async () => {
     const { onStateChange, container, frame } = await renderKasm();
-    Object.defineProperty(frame.contentDocument!, 'contentType', { value: 'text/plain' });
+    frame.contentDocument!.appendChild(frame.contentDocument!.createElement('h1'));
 
     fireEvent.load(frame);
 
@@ -287,7 +293,7 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
   });
 
   it('replays iframe keystrokes on the portal window so its shortcuts work', async () => {
-    const { frame } = await renderKasm();
+    const { frame, loadClient } = await renderKasm();
     const win = frame.contentWindow! as typeof window;
     // Stand-in for the overlay's window-level Ctrl+Alt+M handler.
     const shortcut = (e: KeyboardEvent) => {
@@ -307,7 +313,7 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
     expect(press({ key: 'm', ctrlKey: true, altKey: true }).defaultPrevented).toBe(false);
     expect(desktop).toHaveBeenCalledTimes(1);
 
-    fireEvent.load(frame);
+    loadClient();
     // The portal consumed it: kept from the desktop.
     expect(press({ key: 'm', ctrlKey: true, altKey: true }).defaultPrevented).toBe(true);
     expect(desktop).toHaveBeenCalledTimes(1);
