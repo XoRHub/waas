@@ -172,10 +172,21 @@ The contract the three modules share — port `4800`, env and route names
   explicit credentials Secret feeding the image some other way) gets no
   sidecar either: one that cannot authenticate would only keep the pod
   from turning Ready.
-- **Upgrade note**: the sidecar is a pod-template change, so a kasmvnc
-  workspace running when it is enabled shows drift and gets it at the
-  next scale-up boundary (ADR 0001); until then the Files section says
-  file transfer is not available yet and to restart.
+- **Not mirrored**: the sidecar mounts the home volume and nothing
+  else. An admin `volumeMounts` passthrough that mounts another volume
+  *under* the home (`~/shared`, `~/data`) is visible to the desktop but
+  not to the sidecar: the listing shows an empty directory there, and
+  an upload into it lands on the home volume, hidden behind the mount
+  in the desktop. Known limitation — mirroring every mount would also
+  mirror its secrets and hostPaths into a second container.
+- **Upgrade note**: the sidecar is part of the pod template, so **every
+  platform release** (its image tag follows the components') and every
+  `operator.kasmAgent.maxUploadSize` change (an env value) alters the
+  spec: already-running kasmvnc workspaces show `TemplateDrifted` and
+  converge at their next scale-up boundary (ADR 0001) — the same
+  behavior as enabling the sidecar on an installed platform, where
+  until then the Files section says file transfer is not available yet
+  and to restart.
 - **Portal**: the session menu shows a **Files** section on kasmvnc
   sessions when the capabilities grant at least one direction (hidden
   entirely otherwise — `frontend/src/components/SessionFiles.tsx`): the
