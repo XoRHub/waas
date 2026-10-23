@@ -336,6 +336,7 @@
       "kasmvncSearch": "Rechercher une option…",
       "kasmvncNoMatch": "Aucune option ne correspond à « {{query}} ».",
       "kasmvncAdvancedHint": "Toutes les options du kasmvnc_defaults.yaml de l'image, par section ; vide = défaut de l'image.",
+      "kasmvncAdvancedNeedsSchema": "L'onglet Avancé a besoin des défauts KasmVNC de l'image — passez par l'onglet YAML.",
       "kasmvncManaged": "verrouillé — géré par la politique",
       "kasmvncOrphans": "Options inconnues de cette version d'image — KasmVNC refuse de démarrer sur une clé non prise en charge, le workspace ne démarrerait pas :",
       "kasmvncManagedPresent": "Options gérées par le réglage presse-papier de la WorkspacePolicy — l'enregistrement est refusé tant qu'elles sont définies ici :",
