@@ -60,6 +60,8 @@ vi.mock('@/components/DesktopPane', () => ({
         pane.reconnect();
         onStateChange('connecting');
       },
+      // The overlay reads the session id on every (re)connect.
+      readSessionId: () => null,
     }));
     return <div data-testid="desktop-pane" />;
   },

@@ -564,7 +564,7 @@ func (s *WorkspaceService) connectResult(ctx context.Context, actor Actor, ws *w
 		}
 		clipboard = clampClipboardGrant(clipboard, mergeParams(locked, session.Params))
 	}
-	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, string(ws.UID), clipboard, grants.files, s.connectionTTL))
+	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, string(ws.UID), clipboard, grants.files, grants.audio, s.connectionTTL))
 	if err != nil {
 		return nil, fmt.Errorf("issuing connection token: %w", err)
 	}
@@ -572,7 +572,7 @@ func (s *WorkspaceService) connectResult(ctx context.Context, actor Actor, ws *w
 		SessionID:       session.ID,
 		ConnectionToken: token,
 		Protocol:        session.Protocol,
-		Capabilities:    sessionCapabilities(policyGrant, clipboard, grants.files),
+		Capabilities:    sessionCapabilities(policyGrant, clipboard, grants.files, grants.audio),
 	}, nil
 }
 
@@ -647,6 +647,7 @@ func (s *WorkspaceService) actorPolicy(ctx context.Context, actor Actor) *waasv1
 type policyGrants struct {
 	clipboard auth.ClipboardGrant
 	files     auth.FileTransferGrant
+	audio     auth.AudioGrant
 }
 
 // resolvePolicyGrants is the shared policy resolution used by both
@@ -668,6 +669,7 @@ func resolvePolicyGrants(ctx context.Context, kube client.Client, namespace stri
 	var g policyGrants
 	g.clipboard.Copy, g.clipboard.Paste = policy.ClipboardOf(pol)
 	g.files.Upload, g.files.Download = policy.FileTransferOf(pol)
+	g.audio.Playback, g.audio.Microphone = policy.AudioOf(pol)
 	return g
 }
 
@@ -699,9 +701,9 @@ func clipboardParamBlocks(value string) bool {
 // direction, WHICH gate denied it — the policy (admin-imposed, the user
 // cannot undo it) or the disable-* params (the user's own connection
 // setting, undoable + reconnect). Policy wins the label when both deny:
-// removing the param would change nothing. File transfer is reported as
-// resolved — nothing clamps it.
-func sessionCapabilities(policyGrant, effective auth.ClipboardGrant, files auth.FileTransferGrant) *model.SessionCapabilities {
+// removing the param would change nothing. File transfer and audio are
+// reported as resolved — nothing clamps them.
+func sessionCapabilities(policyGrant, effective auth.ClipboardGrant, files auth.FileTransferGrant, audio auth.AudioGrant) *model.SessionCapabilities {
 	return &model.SessionCapabilities{
 		ClipboardCopy:      effective.Copy,
 		ClipboardPaste:     effective.Paste,
@@ -709,6 +711,8 @@ func sessionCapabilities(policyGrant, effective auth.ClipboardGrant, files auth.
 		ClipboardPasteLock: clipboardLock(policyGrant.Paste, effective.Paste),
 		FileUpload:         files.Upload,
 		FileDownload:       files.Download,
+		AudioPlayback:      audio.Playback,
+		Microphone:         audio.Microphone,
 	}
 }
 

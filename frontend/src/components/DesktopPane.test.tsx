@@ -139,6 +139,8 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
       clipboardPaste: true,
       fileUpload: false,
       fileDownload: false,
+      audioPlayback: false,
+      microphone: false,
     },
     autoFocus = false,
     connectionToken = 'tok',
@@ -293,6 +295,8 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
       clipboardPaste: true,
       fileUpload: false,
       fileDownload: false,
+      audioPlayback: false,
+      microphone: false,
     });
 
     fromClient({ action: 'clipboardrx', value: 'from desktop' });
@@ -306,6 +310,8 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
       clipboardPaste: allowed,
       fileUpload: false,
       fileDownload: false,
+      audioPlayback: false,
+      microphone: false,
     });
     const post = vi.spyOn(frame.contentWindow!, 'postMessage');
 

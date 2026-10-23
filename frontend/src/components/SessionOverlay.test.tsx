@@ -36,13 +36,19 @@ const workspace = (protocol: string): Workspace => ({
   protocols: [{ name: protocol, default: true }],
 });
 
+const noGrants = {
+  fileUpload: false,
+  fileDownload: false,
+  audioPlayback: false,
+  microphone: false,
+};
+
 const renderOverlay = async (
   protocol: string,
   capabilities: SessionCapabilities = {
     clipboardCopy: true,
     clipboardPaste: true,
-    fileUpload: false,
-    fileDownload: false,
+    ...noGrants,
   },
 ) => {
   signIn({ username: 'marc' });
@@ -74,8 +80,7 @@ describe('SessionOverlay clipboard section by protocol', () => {
     await renderOverlay('kasmvnc', {
       clipboardCopy: true,
       clipboardPaste: false,
-      fileUpload: false,
-      fileDownload: false,
+      ...noGrants,
     });
 
     // Labels shown, but as status — not interactive checkboxes.
@@ -101,8 +106,7 @@ describe('SessionOverlay clipboard section by protocol', () => {
       clipboardPaste: false,
       clipboardCopyLock: 'params',
       clipboardPasteLock: 'policy',
-      fileUpload: false,
-      fileDownload: false,
+      ...noGrants,
     });
 
     expect(screen.getByTitle(/Disabled by your connection settings/)).toBeInTheDocument();
@@ -157,8 +161,7 @@ describe('SessionOverlay protocol quick switch', () => {
           capabilities={{
             clipboardCopy: true,
             clipboardPaste: true,
-            fileUpload: false,
-            fileDownload: false,
+            ...noGrants,
           }}
           pane={pane}
         />
@@ -211,8 +214,7 @@ describe('SessionOverlay protocol quick switch', () => {
           capabilities={{
             clipboardCopy: true,
             clipboardPaste: true,
-            fileUpload: false,
-            fileDownload: false,
+            ...noGrants,
           }}
           pane={pane}
         />
@@ -278,8 +280,7 @@ describe('SessionOverlay reconnect params', () => {
         capabilities={{
           clipboardCopy: true,
           clipboardPaste: true,
-          fileUpload: false,
-          fileDownload: false,
+          ...noGrants,
         }}
         pane={createRef<DesktopPaneHandle>()}
       />,
@@ -337,8 +338,7 @@ describe('SessionOverlay kasmvnc image quality', () => {
         capabilities={{
           clipboardCopy: true,
           clipboardPaste: true,
-          fileUpload: false,
-          fileDownload: false,
+          ...noGrants,
         }}
         pane={pane}
       />,
@@ -383,7 +383,7 @@ describe('SessionOverlay kasmvnc files', () => {
         capabilities={{
           clipboardCopy: true,
           clipboardPaste: true,
-          fileUpload: false,
+          ...noGrants,
           fileDownload: true,
         }}
         pane={kasmPane}
@@ -406,8 +406,7 @@ describe('SessionOverlay kasmvnc files', () => {
         capabilities={{
           clipboardCopy: true,
           clipboardPaste: true,
-          fileUpload: false,
-          fileDownload: false,
+          ...noGrants,
         }}
         pane={kasmPane}
       />,
@@ -421,6 +420,7 @@ describe('SessionOverlay kasmvnc files', () => {
     await renderOverlay('vnc', {
       clipboardCopy: true,
       clipboardPaste: true,
+      ...noGrants,
       fileUpload: true,
       fileDownload: true,
     });

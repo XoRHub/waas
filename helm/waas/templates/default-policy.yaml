@@ -42,6 +42,10 @@ spec:
   fileTransfer:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.defaultPolicy.audio }}
+  audio:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- with .Values.defaultPolicy.watermark }}
   watermark: {{ . | quote }}
   {{- end }}
