@@ -88,7 +88,10 @@ The contract the three modules share — port `4800`, env and route names
 
 - **Routes** (relative to the sidecar; the browser reaches them as
   `/kasm/{sid}/waas/files…`): `GET /files?path=<rel>` lists a directory
-  (`[{name, dir, size, mtime}]`, directories first), `GET
+  (`[{name, dir, size, mtime}]`, directories first; a symlink reads as
+  its target, so a linked directory browses as one, and a link `os.Root`
+  refuses — escaping the home, or with an absolute target — is left out
+  of the listing), `GET
   /files/download?path=<rel>` streams a file as an inert attachment
   (`application/octet-stream`, `nosniff`, `Content-Security-Policy:
   sandbox`; anything but a regular file — a directory, a FIFO — is 400,
@@ -96,7 +99,14 @@ The contract the three modules share — port `4800`, env and route names
   /files/upload?dir=<rel>` takes a
   `multipart/form-data` body, streams each part into `dir` (default
   `Uploads`, created if missing) and answers `{"stored": [names]}`.
-  Nothing else: no delete, rename or move.
+  Nothing else: no delete, rename or move. **Statuses**: 404 missing,
+  403 permission, 413 over the cap, 400 for a path the client named
+  that cannot resolve (escaping symlink, a file where a directory was
+  expected, a malformed upload body or name), **507** when the home
+  volume is full, 500 (logged) for the server's own trouble. There is no
+  transaction over the home: a multi-file upload failing mid-way keeps
+  the files already stored, and the error body names them (`already
+  stored: a.txt, b.pdf`).
 - **Gate in wwt** (`fileRouteStatus`, `kasm.go`): after the connection
   JWT is validated like any kasm request, each route is checked against
   the token's `fileTransfer` claims — list needs upload *or* download,
