@@ -48,6 +48,9 @@ export interface DesktopPaneHandle {
   /** KasmVNC only: video quality preset (the client's video_quality). */
   setQuality: (level: number) => void;
   readQuality: () => number;
+  /** KasmVNC only: the live session id (null off the kasm path) — the
+   *  overlay's Files section addresses /kasm/{id}/waas/… with it. */
+  readSessionId: () => string | null;
 }
 
 /**
@@ -94,6 +97,7 @@ export const DesktopPane = forwardRef<
   // canvas: wwt reverse-proxies the whole app under /kasm/{session}.
   const [kasmUrl, setKasmUrl] = useState<string | null>(null);
   const kasmActiveRef = useRef(false);
+  const kasmSessionRef = useRef<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const kasmCapsRef = useRef<SessionCapabilities | undefined>(undefined);
   // The client's own default preset (medium); handed over on every
@@ -126,6 +130,7 @@ export const DesktopPane = forwardRef<
   const endKasm = useCallback(
     (s: ConnectionState) => {
       kasmActiveRef.current = false;
+      kasmSessionRef.current = null;
       setKasmUrl(null);
       setBoth(s);
     },
@@ -162,6 +167,7 @@ export const DesktopPane = forwardRef<
       postToKasm('setvideoquality', level);
     },
     readQuality: () => kasmQualityRef.current,
+    readSessionId: () => kasmSessionRef.current,
   }));
 
   useEffect(() => {
@@ -271,6 +277,7 @@ export const DesktopPane = forwardRef<
         kasmCapsRef.current = result.capabilities;
         window.addEventListener('message', onKasmMessage);
         kasmActiveRef.current = true;
+        kasmSessionRef.current = result.sessionId;
         setKasmUrl(`/kasm/${result.sessionId}/vnc.html?${q.toString()}`);
         return;
       }
@@ -378,6 +385,7 @@ export const DesktopPane = forwardRef<
       // Unmounting the iframe closes the KasmVNC WebSocket: that is the
       // kasm session's disconnect.
       kasmActiveRef.current = false;
+      kasmSessionRef.current = null;
       setKasmUrl(null);
       displayHost.replaceChildren();
     };

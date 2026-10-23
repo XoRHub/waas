@@ -323,7 +323,12 @@ describe('SessionOverlay kasmvnc image quality', () => {
   it('shows the pane quality and applies a preset live', async () => {
     const setQuality = vi.fn();
     const pane = {
-      current: { readQuality: () => 2, setQuality, readRemoteClipboard: () => '' },
+      current: {
+        readQuality: () => 2,
+        setQuality,
+        readRemoteClipboard: () => '',
+        readSessionId: () => 's1',
+      },
     } as unknown as React.RefObject<DesktopPaneHandle>;
     signIn({ username: 'marc' });
     renderWithProviders(
@@ -351,5 +356,74 @@ describe('SessionOverlay kasmvnc image quality', () => {
     await renderOverlay('vnc');
 
     expect(screen.queryByText('Image quality')).toBeNull();
+  });
+});
+
+describe('SessionOverlay kasmvnc files', () => {
+  const kasmPane = {
+    current: {
+      readQuality: () => 2,
+      setQuality: vi.fn(),
+      readRemoteClipboard: () => '',
+      readSessionId: () => 's1',
+    },
+  } as unknown as React.RefObject<DesktopPaneHandle>;
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shows the Files section on kasmvnc when the policy grants a direction', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('[]', { status: 200 }))),
+    );
+    signIn({ username: 'marc' });
+    renderWithProviders(
+      <SessionOverlay
+        workspace={workspace('kasmvnc')}
+        capabilities={{
+          clipboardCopy: true,
+          clipboardPaste: true,
+          fileUpload: false,
+          fileDownload: true,
+        }}
+        pane={kasmPane}
+      />,
+    );
+    await userEvent.click(screen.getByTitle(/session menu/i));
+
+    expect(screen.getByText('Files')).toBeInTheDocument();
+    expect(await screen.findByText('Empty folder')).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith('/kasm/s1/waas/files?path=', expect.anything());
+  });
+
+  it('hides it entirely without any grant', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    signIn({ username: 'marc' });
+    renderWithProviders(
+      <SessionOverlay
+        workspace={workspace('kasmvnc')}
+        capabilities={{
+          clipboardCopy: true,
+          clipboardPaste: true,
+          fileUpload: false,
+          fileDownload: false,
+        }}
+        pane={kasmPane}
+      />,
+    );
+    await userEvent.click(screen.getByTitle(/session menu/i));
+    expect(screen.queryByText('Files')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('never shows it on guacd protocols, grant or not', async () => {
+    await renderOverlay('vnc', {
+      clipboardCopy: true,
+      clipboardPaste: true,
+      fileUpload: true,
+      fileDownload: true,
+    });
+    expect(screen.queryByText('Files')).toBeNull();
   });
 });
