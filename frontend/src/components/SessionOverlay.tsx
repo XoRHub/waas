@@ -10,7 +10,13 @@ import {
 import { KasmVNCConfigView } from '@/components/ProtocolTabs';
 import { SessionFiles } from '@/components/SessionFiles';
 import { hasClipboardApi } from '@/lib/clipboard';
-import { startMicrophone, startPlayback, type AudioEnd, type AudioLink } from '@/lib/kasmAudio';
+import {
+  CaptureRefused,
+  startMicrophone,
+  startPlayback,
+  type AudioEnd,
+  type AudioLink,
+} from '@/lib/kasmAudio';
 import { useAuthStore } from '@/stores/authStore';
 import { useEscape } from '@/hooks/useEscape';
 import { useProtocolSwitch } from '@/hooks/useProtocolSwitch';
@@ -95,8 +101,8 @@ export function SessionOverlay({
   // kasmvnc: audio links, each alive while its toggle is on and the
   // session is up (lib/kasmAudio.ts).
   const workspaceId = workspace?.id ?? '';
-  const audio = useAudioLink(workspaceId, kasmSid, startPlayback);
-  const mic = useAudioLink(workspaceId, kasmSid, startMicrophone);
+  const audio = useAudioLink(workspaceId, kasmSid, startPlayback, !!capabilities?.audioPlayback);
+  const mic = useAudioLink(workspaceId, kasmSid, startMicrophone, !!capabilities?.microphone);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -535,9 +541,11 @@ export function SessionOverlay({
 }
 
 // useAudioLink keeps one audio link (playback or microphone) open while
-// its toggle is on and a session id is known, restarting it when the
-// session changes (reconnect) and reporting why it ended on its own as
-// an i18n key. Turning the toggle on clears the last error.
+// its toggle is on, the policy grants it and a session id is known,
+// restarting it when the session changes (reconnect) and reporting why
+// it ended on its own as an i18n key. Turning the toggle on clears the
+// last error; losing the grant (a reconnect under a stricter policy)
+// turns it off, so a later grant does not silently reopen the link.
 function useAudioLink(
   workspaceId: string,
   sessionId: string | null,
@@ -546,9 +554,13 @@ function useAudioLink(
     sessionId: string,
     onEnd: (reason: AudioEnd) => void,
   ) => Promise<AudioLink>,
+  granted: boolean,
 ) {
   const [on, setOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Adjusted during render, not in an effect: the link's effect below
+  // never runs with on && !granted.
+  if (on && !granted) setOn(false);
   useEffect(() => {
     if (!on || !sessionId) return;
     let link: AudioLink | undefined;
@@ -564,8 +576,8 @@ function useAudioLink(
         if (cancelled) l.stop();
         else link = l;
       },
-      // Only the microphone rejects before its socket (getUserMedia).
-      () => fail(start === startMicrophone ? 'overlay.micDenied' : 'overlay.audioUnavailable'),
+      (e: unknown) =>
+        fail(e instanceof CaptureRefused ? 'overlay.micDenied' : 'overlay.audioUnavailable'),
     );
     return () => {
       cancelled = true;
