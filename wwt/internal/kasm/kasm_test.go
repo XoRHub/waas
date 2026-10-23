@@ -523,8 +523,9 @@ func TestFreshQueryTokenBeatsExpiredCookie(t *testing.T) {
 }
 
 // newFakeAgent mimics the kasm-agent sidecar: plain HTTP, the same Basic
-// pair as KasmVNC, echoing method and path — and, on the audio routes,
-// a WebSocket that speaks one binary frame then echoes. Like
+// pair as KasmVNC, echoing method and path (in the body, and in the
+// X-Fake-Agent header even on an error) — and, on the audio routes, a
+// WebSocket that speaks one binary frame then echoes. Like
 // newFakeKasmVNC it asserts nothing of the platform's leaks upstream.
 func newFakeAgent(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
@@ -532,6 +533,7 @@ func newFakeAgent(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
+		w.Header().Set("X-Fake-Agent", r.URL.Path)
 		if u, p, ok := r.BasicAuth(); !ok || u != "kasm_user" || p != "vnc-pw-1" {
 			http.Error(w, "401", http.StatusUnauthorized)
 			return
@@ -664,9 +666,9 @@ func TestFileRoutesGatedOnTheGrant(t *testing.T) {
 
 // The audio routes are gated on the audio grant, each direction its own,
 // and a full file-transfer grant opens neither. The gate table is
-// exercised with plain GETs: an allowed one reaches the sidecar, whose
-// upgrader answers 400 to a non-WebSocket request — that 400 IS the proof
-// the gate let it through.
+// exercised with plain GETs: an allowed one reaches the sidecar's route
+// (its X-Fake-Agent header names it), whose upgrader answers 400 to a
+// non-WebSocket request.
 func TestAudioRoutesGatedOnTheGrant(t *testing.T) {
 	upstream, kasmHits := newFakeKasmVNC(t)
 	agent, agentHits := newFakeAgent(t)
@@ -713,9 +715,49 @@ func TestAudioRoutesGatedOnTheGrant(t *testing.T) {
 		if reached := agentHits.Load() > agentBefore; reached != tc.reached {
 			t.Errorf("%+v %s %s: agent reached=%v for status %d", tc.audio, tc.method, tc.path, reached, resp.StatusCode)
 		}
+		if want := strings.TrimPrefix(tc.path, "/waas"); tc.reached && resp.Header.Get("X-Fake-Agent") != want {
+			t.Errorf("%s: expected the agent's %s route to answer, got %q", tc.path, want, resp.Header.Get("X-Fake-Agent"))
+		}
 	}
 	if kasmHits.Load() != 0 {
 		t.Fatalf("no audio route may reach KasmVNC itself; got %d hits", kasmHits.Load())
+	}
+}
+
+// A WebSocket upgrade whose Origin is another site (or opaque) is refused
+// before anything upstream — desktop stream and agent sockets alike; a
+// same-origin one and an Origin-less one (health probes) go through.
+func TestCrossOriginUpgradeRefused(t *testing.T) {
+	upstream, kasmHits := newFakeKasmVNC(t)
+	agent, agentHits := newFakeAgent(t)
+	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
+	agentURL, _ := url.Parse(agent.URL)
+	port, _ := strconv.Atoi(agentURL.Port())
+	handler.agentPort = int32(port)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	token := grantsToken(t, signer, "sess-1", auth.FileTransferGrant{}, auth.AudioGrant{Playback: true})
+	dialer := websocket.Dialer{Subprotocols: []string{"binary"}}
+	for _, p := range []string{"/websockify", "/waas/audio"} {
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/kasm/sess-1" + p + "?token=" + token
+		for _, origin := range []string{"https://evil.example", "null", "http://127.0.0.1.evil.example"} {
+			before := kasmHits.Load() + agentHits.Load()
+			_, resp, err := dialer.Dial(wsURL, http.Header{"Origin": []string{origin}})
+			if err == nil || resp == nil || resp.StatusCode != http.StatusForbidden {
+				t.Errorf("%s from %s: expected 403, got err=%v resp=%v", p, origin, err, resp)
+			}
+			if kasmHits.Load()+agentHits.Load() != before {
+				t.Errorf("%s from %s: a cross-origin upgrade must reach nothing upstream", p, origin)
+			}
+		}
+		for _, h := range []http.Header{{"Origin": []string{server.URL}}, nil} {
+			ws, _, err := dialer.Dial(wsURL, h)
+			if err != nil {
+				t.Fatalf("%s with Origin %v: %v", p, h, err)
+			}
+			ws.Close()
+		}
 	}
 }
 

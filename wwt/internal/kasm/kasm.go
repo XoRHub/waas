@@ -139,6 +139,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request path", http.StatusBadRequest)
 		return
 	}
+	// Cross-site WebSocket hijacking, in depth beyond the SameSite=Strict
+	// cookie: browsers always send Origin on a WebSocket handshake, and
+	// every legitimate one here (the KasmVNC client in its same-origin
+	// iframe, the portal's audio links) comes from this very host. An
+	// absent Origin is a non-browser client (health probes) and passes —
+	// proxyTo sets one for KasmVNC's parser.
+	isUpgrade := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+	if isUpgrade && !sameOrigin(r) {
+		http.Error(w, "cross-origin WebSocket refused", http.StatusForbidden)
+		return
+	}
 
 	// 1. Authenticate: token query (first hit, from the iframe URL) or
 	// the session-scoped cookie (every subsequent page request).
@@ -235,8 +246,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 3. Proxy. httputil.ReverseProxy relays WebSocket upgrades natively
 	// and only returns once the tunnel closes — which is exactly the
 	// session-end signal the platform needs (after the reconnect grace).
-	isDesktopStream := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
-	if isDesktopStream {
+	if isUpgrade {
 		// The upgraded request only returns once the tunnel closes: its
 		// whole lifetime is the desktop stream. Asset requests don't count.
 		metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolKasm).Inc()
@@ -411,6 +421,17 @@ func isDownloadsPath(p string) bool {
 		}
 	}
 	return false
+}
+
+// sameOrigin reports whether the request's Origin, when present, names
+// the host it was sent to (an opaque "null" origin never does).
+func sameOrigin(r *http.Request) bool {
+	o := r.Header.Get("Origin")
+	if o == "" {
+		return true
+	}
+	u, err := url.Parse(o)
+	return err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host)
 }
 
 // splitPath extracts the session ID and the upstream path from
