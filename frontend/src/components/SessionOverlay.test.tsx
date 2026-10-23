@@ -1,13 +1,26 @@
 // @vitest-environment jsdom
 import { createRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, signIn } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
 import { DesktopPane, type DesktopPaneHandle } from '@/components/DesktopPane';
 import type { SessionCapabilities, Workspace } from '@/types';
 import { SessionOverlay } from './SessionOverlay';
+
+const audioMock = {
+  startPlayback: vi.fn(),
+  startMicrophone: vi.fn(),
+};
+vi.mock('@/lib/kasmAudio', () => ({
+  get startPlayback() {
+    return audioMock.startPlayback;
+  },
+  get startMicrophone() {
+    return audioMock.startMicrophone;
+  },
+}));
 
 const apiMock = createApiMock({
   '/api/v1/meta/protocols': [],
@@ -425,5 +438,88 @@ describe('SessionOverlay kasmvnc files', () => {
       fileDownload: true,
     });
     expect(screen.queryByText('Files')).toBeNull();
+  });
+});
+
+describe('SessionOverlay kasmvnc audio', () => {
+  const kasmPane = {
+    current: {
+      readQuality: () => 2,
+      setQuality: vi.fn(),
+      readRemoteClipboard: () => '',
+      readSessionId: () => 's1',
+    },
+  } as unknown as React.RefObject<DesktopPaneHandle>;
+  const renderAudio = async (caps: Partial<SessionCapabilities>) => {
+    signIn({ username: 'marc' });
+    renderWithProviders(
+      <SessionOverlay
+        workspace={workspace('kasmvnc')}
+        capabilities={{ clipboardCopy: true, clipboardPaste: true, ...noGrants, ...caps }}
+        pane={kasmPane}
+      />,
+    );
+    await userEvent.click(screen.getByTitle(/session menu/i));
+  };
+  afterEach(() => {
+    audioMock.startPlayback.mockReset();
+    audioMock.startMicrophone.mockReset();
+  });
+
+  it('hides the section without any audio grant and shows only the granted toggles', async () => {
+    await renderAudio({});
+    expect(screen.queryByText('Audio')).toBeNull();
+    cleanup();
+    await renderAudio({ audioPlayback: true });
+    expect(screen.getByText('Audio')).toBeInTheDocument();
+    expect(screen.getByText('Workspace sound')).toBeInTheDocument();
+    expect(screen.queryByText('Microphone')).toBeNull();
+  });
+
+  it('opens the playback link on toggle and stops it on toggle-off', async () => {
+    const stop = vi.fn();
+    audioMock.startPlayback.mockResolvedValue({ stop });
+    await renderAudio({ audioPlayback: true });
+    const toggle = screen.getByLabelText(/workspace sound/i);
+    await userEvent.click(toggle);
+    await waitFor(() =>
+      expect(audioMock.startPlayback).toHaveBeenCalledWith('w1', 's1', expect.any(Function)),
+    );
+    expect(toggle).toBeChecked();
+    await userEvent.click(toggle);
+    await waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(toggle).not.toBeChecked();
+  });
+
+  it('reports a stream that ended on its own and turns the toggle off', async () => {
+    audioMock.startPlayback.mockImplementation(
+      (_w: string, _s: string, onEnd: (reason: string) => void) => {
+        onEnd('closed');
+        return Promise.resolve({ stop: vi.fn() });
+      },
+    );
+    await renderAudio({ audioPlayback: true });
+    await userEvent.click(screen.getByLabelText(/workspace sound/i));
+    expect(await screen.findByText(/audio stream stopped/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/workspace sound/i)).not.toBeChecked();
+  });
+
+  it('names a refused microphone capture', async () => {
+    audioMock.startMicrophone.mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
+    await renderAudio({ microphone: true });
+    await userEvent.click(screen.getByLabelText(/microphone/i));
+    expect(await screen.findByText(/refused microphone access/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/microphone/i)).not.toBeChecked();
+  });
+
+  it('never shows audio on guacd protocols, grant or not', async () => {
+    await renderOverlay('vnc', {
+      clipboardCopy: true,
+      clipboardPaste: true,
+      ...noGrants,
+      audioPlayback: true,
+      microphone: true,
+    });
+    expect(screen.queryByText('Audio')).toBeNull();
   });
 });
