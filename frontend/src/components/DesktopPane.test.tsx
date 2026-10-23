@@ -141,9 +141,10 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
       fileDownload: false,
     },
     autoFocus = false,
+    connectionToken = 'tok',
   ) => {
     apiMock.api.post.mockResolvedValue({
-      data: { sessionId: 's1', connectionToken: 'tok', protocol: 'kasmvnc', capabilities },
+      data: { sessionId: 's1', connectionToken, protocol: 'kasmvnc', capabilities },
     });
     const pane = createRef<DesktopPaneHandle>();
     const onStateChange = vi.fn();
@@ -194,6 +195,38 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
     fromClient({ action: 'connection_state', value: 'disconnected' });
     expect(onStateChange).toHaveBeenLastCalledWith('disconnected');
     expect(container.querySelector('iframe')).toBeNull();
+  });
+
+  it('re-sets the session cookie at half the token life while the session is up', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      // A token good for 10 minutes: the first refresh is due at 5.
+      const exp = Math.floor(Date.now() / 1000) + 600;
+      const token = `h.${btoa(JSON.stringify({ exp })).replace(/=+$/, '')}.s`;
+      const { container, fromClient } = await renderKasm(undefined, false, token);
+      apiMock.api.post.mockClear();
+
+      await vi.advanceTimersByTimeAsync(299_000);
+      expect(apiMock.api.post).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(apiMock.api.post).toHaveBeenCalledWith('/api/v1/workspaces/w1/sessions/s1/token');
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/kasm/s1/waas/session?token=${encodeURIComponent(token)}`,
+        expect.anything(),
+      );
+
+      // The session is over: no more refreshes.
+      fromClient({ action: 'connection_state', value: 'disconnected' });
+      expect(container.querySelector('iframe')).toBeNull();
+      apiMock.api.post.mockClear();
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(apiMock.api.post).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('keeps the iframe visible while connecting (the client focuses itself on connect)', async () => {
