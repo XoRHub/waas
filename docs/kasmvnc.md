@@ -89,8 +89,11 @@ The contract the three modules share — port `4800`, env and route names
 - **Routes** (relative to the sidecar; the browser reaches them as
   `/kasm/{sid}/waas/files…`): `GET /files?path=<rel>` lists a directory
   (`[{name, dir, size, mtime}]`, directories first), `GET
-  /files/download?path=<rel>` streams a file as an attachment (a
-  directory is 400), `POST /files/upload?dir=<rel>` takes a
+  /files/download?path=<rel>` streams a file as an inert attachment
+  (`application/octet-stream`, `nosniff`, `Content-Security-Policy:
+  sandbox`; anything but a regular file — a directory, a FIFO — is 400,
+  and the open is non-blocking so a FIFO cannot hang the sidecar), `POST
+  /files/upload?dir=<rel>` takes a
   `multipart/form-data` body, streams each part into `dir` (default
   `Uploads`, created if missing) and answers `{"stored": [names]}`.
   Nothing else: no delete, rename or move.

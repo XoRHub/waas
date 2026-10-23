@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/xorhub/waas/shared/kasmagent"
@@ -119,7 +120,10 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	f, err := h.root.Open(rel)
+	// O_NONBLOCK: opening a FIFO the occupant left in their home would
+	// otherwise block until a writer shows up, hanging the handler; the
+	// regular-file check below then refuses it (and devices, sockets…).
+	f, err := h.root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		h.fsError(w, "downloading", rel, err)
 		return
@@ -130,14 +134,18 @@ func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
 		h.fsError(w, "downloading", rel, err)
 		return
 	}
-	if info.IsDir() {
-		http.Error(w, "path is a directory", http.StatusBadRequest)
+	if !info.Mode().IsRegular() {
+		http.Error(w, "not a regular file", http.StatusBadRequest)
 		return
 	}
 	// FormatMediaType quotes the name and switches to filename* for
-	// non-ASCII, so a crafted name cannot break the header.
+	// non-ASCII, so a crafted name cannot break the header. The content is
+	// an inert attachment whatever the extension says: never sniffed,
+	// never rendered, never scripted if a browser opens it anyway.
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": info.Name()}))
+	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox")
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 }
 

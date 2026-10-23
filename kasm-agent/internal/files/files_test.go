@@ -11,7 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 const testPassword = "vnc-pw-1"
@@ -191,8 +193,35 @@ func TestDownloadsAsAttachment(t *testing.T) {
 	if got := resp.Header.Get("Content-Disposition"); got != `attachment; filename=report.pdf` {
 		t.Fatalf("unexpected Content-Disposition %q", got)
 	}
-	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "application/pdf") {
-		t.Fatalf("expected a pdf content type from the name, got %q", got)
+	// Inert whatever the extension: no type from the name, no sniffing,
+	// sandboxed if a browser renders it anyway.
+	for h, want := range map[string]string{
+		"Content-Type":            "application/octet-stream",
+		"X-Content-Type-Options":  "nosniff",
+		"Content-Security-Policy": "sandbox",
+	} {
+		if got := resp.Header.Get(h); got != want {
+			t.Fatalf("expected %s: %q, got %q", h, want, got)
+		}
+	}
+}
+
+// A FIFO in the home must not hang the handler (a blocking open waits for
+// a writer forever): refused like any non-regular file.
+func TestDownloadRefusesNonRegularFiles(t *testing.T) {
+	srv, home := newServer(t, 1<<20)
+	if err := syscall.Mkfifo(filepath.Join(home, "pipe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/files/download?path=pipe", nil)
+	req.SetBasicAuth("kasm_user", testPassword)
+	resp, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("the download must answer, not block: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a FIFO, got %d", resp.StatusCode)
 	}
 }
 
