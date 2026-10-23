@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/params"
 	"github.com/xorhub/waas/operator/pkg/policy"
 
@@ -705,11 +706,10 @@ func (s *GovernanceService) AdminUpsertPolicy(ctx context.Context, actor Actor, 
 	if in.FileTransfer != nil {
 		spec.FileTransfer = &waasv1alpha1.FileTransferPolicy{Upload: in.FileTransfer.Upload, Download: in.FileTransfer.Download}
 	}
-	// Mirrors the CRD pattern with a clean 400 (the admission refusal
-	// would reach the admin as a wrapped 500): KasmVNC's vncserver hands
-	// the text to Xvnc single-quoted and unescaped.
-	if strings.Contains(in.Watermark, "'") {
-		return nil, apierror.BadRequest("watermark: single quotes are not allowed")
+	// Mirrors the CRD markers with a clean 400 (the admission refusal
+	// would reach the admin as a wrapped 500) — see kasmcfg.ValidateWatermark.
+	if err := kasmcfg.ValidateWatermark(in.Watermark); err != nil {
+		return nil, apierror.BadRequest("watermark: " + err.Error())
 	}
 	spec.Watermark = in.Watermark
 	if in.Overrides != nil {

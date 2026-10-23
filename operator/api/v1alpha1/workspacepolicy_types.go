@@ -82,10 +82,12 @@ type WorkspacePolicySpec struct {
 	// inside the container (soft control, see docs/kasmvnc.md). Xvnc
 	// expands strftime directives live (%H:%M); the WaaS token {user} is
 	// replaced by the workspace owner's username at reconcile. Empty =
-	// no watermark. A single quote is refused: KasmVNC's vncserver hands
-	// the text to Xvnc single-quoted and unescaped.
+	// no watermark. Single quotes, $ and control characters are refused:
+	// KasmVNC's vncserver expands ${NAME} from its environment, then hands
+	// the text to Xvnc single-quoted and unescaped through a shell (both
+	// markers mirrored by kasmcfg.ValidateWatermark).
 	// +kubebuilder:validation:MaxLength=200
-	// +kubebuilder:validation:Pattern=`^[^']*$`
+	// +kubebuilder:validation:Pattern=`^[^'$\x00-\x1f\x7f]*$`
 	// +optional
 	Watermark string `json:"watermark,omitempty"`
 

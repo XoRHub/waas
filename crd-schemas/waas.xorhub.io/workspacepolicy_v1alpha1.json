@@ -263,9 +263,9 @@
           "type": "array"
         },
         "watermark": {
-          "description": "Watermark is a text template KasmVNC renders over the desktop of\nthe governed users' kasmvnc sessions \u2014 a deterrent enforced by Xvnc\ninside the container (soft control, see docs/kasmvnc.md). Xvnc\nexpands strftime directives live (%H:%M); the WaaS token {user} is\nreplaced by the workspace owner's username at reconcile. Empty =\nno watermark. A single quote is refused: KasmVNC's vncserver hands\nthe text to Xvnc single-quoted and unescaped.",
+          "description": "Watermark is a text template KasmVNC renders over the desktop of\nthe governed users' kasmvnc sessions \u2014 a deterrent enforced by Xvnc\ninside the container (soft control, see docs/kasmvnc.md). Xvnc\nexpands strftime directives live (%H:%M); the WaaS token {user} is\nreplaced by the workspace owner's username at reconcile. Empty =\nno watermark. Single quotes, $ and control characters are refused:\nKasmVNC's vncserver expands ${NAME} from its environment, then hands\nthe text to Xvnc single-quoted and unescaped through a shell (both\nmarkers mirrored by kasmcfg.ValidateWatermark).",
           "maxLength": 200,
-          "pattern": "^[^']*$",
+          "pattern": "^[^'$\\x00-\\x1f\\x7f]*$",
           "type": "string"
         }
       },

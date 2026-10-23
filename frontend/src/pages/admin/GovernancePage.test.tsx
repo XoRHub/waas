@@ -305,6 +305,20 @@ describe('policy editor', () => {
     expect(apiMock.api.put).not.toHaveBeenCalled();
   });
 
+  it('flags a shell-unsafe watermark live before submit', async () => {
+    const editor = await openEditor();
+    await userEvent.clear(editor);
+    await userEvent.type(editor, 'watermark: $HOME');
+    expect(
+      await screen.findByText(
+        /watermark: single quotes, \$ and control characters are not allowed/,
+      ),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: en.app.save }));
+    expect(apiMock.api.put).not.toHaveBeenCalled();
+  });
+
   it('keeps the allowedFields chips and the YAML in sync (registry-driven)', async () => {
     const editor = await openEditor();
     // Chips come from GET /meta/override-fields, not a local list.
