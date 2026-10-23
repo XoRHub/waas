@@ -70,8 +70,11 @@ putting it in `params` alone fixes the value for everyone.
 
 ### Resolution chain — `kasmvnc`
 
-Code: `ensureKasmConfig`/`kasmClipboardGrant`/`applyClipboardPolicy`
-(`operator/internal/controller/kasm_config.go`).
+Code: `ensureKasmConfig`/`kasmPolicyOf`/`applyPolicy`
+(`operator/internal/controller/kasm_config.go`). The same owner-policy
+resolution also carries the kasmvnc watermark and printer gate
+(`docs/kasmvnc.md` § File transfer, printing, watermark) — one decision
+per reconcile, stamped together.
 
 1. At reconcile (not at connection time): `policy.ClipboardOf(resolved
    policy of the workspace OWNER, not of the connecting user)` —

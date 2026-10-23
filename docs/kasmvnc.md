@@ -146,9 +146,12 @@ proxy.
   `kasm.go`) because it is the same session→browser file egress the
   guacd path gates behind `TierPlatform` for
   `enable-sftp`/`enable-drive` ("until the file-transfer feature ships
-  with its own policy gate", `operator/pkg/params/params.go`). No such
-  gate exists for kasmvnc yet, so the endpoint is blocked outright to
-  keep file egress governed identically across protocols. The path is
+  with its own policy gate", `operator/pkg/params/params.go`). The
+  policy gate now exists (`WorkspacePolicy.fileTransfer`, carried in
+  the connection token — see **File transfer, printing, watermark**
+  below) but no wwt route reads it yet, so the endpoint stays blocked
+  outright until the file-transfer routes land; file egress stays
+  governed identically across protocols meanwhile. The path is
   normalized and lowercased before matching so case, trailing-slash,
   dot and double-slash variants can't slip past.
 - **`/Downloads/…` is blocked too**, for the same reason: the kasmweb
@@ -193,12 +196,14 @@ writing to `~/Uploads`), gamepad (`KASM_SVC_GAMEPAD`, 4904), webcam
 smartcard (`KASM_SVC_SMARTCARD`, `pcscd` + a relay). WaaS proxies none
 of them — only 6901 goes through `wwt` — yet the namespace
 NetworkPolicy is not port-scoped, so each would be an open listener in
-the pod. For kasmvnc containers the operator therefore sets all seven
-to `"0"` (single source: `operator/pkg/kasmcfg.DisabledSideServiceEnv`),
-laid over the template and override env; verified on
+the pod. For kasmvnc containers the operator therefore stamps all seven
+(single source: `operator/pkg/kasmcfg.SideServiceEnv`), laid over the
+template and override env: six to `"0"`, and `KASM_SVC_PRINTER` to
+`"1"` only when the owner's policy allows **download** (see **File
+transfer, printing, watermark** below), `"0"` otherwise. Verified on
 `kasmweb/terminal:1.19.0`: with them off, Xvnc on 6901 is the only
-listener. Like the clipboard keys, a template that sets one would be
-silently overridden, so the admission webhook and the api-server
+listener. Like the policy-managed keys, a template that sets one would
+be silently overridden, so the admission webhook and the api-server
 template validation reject them.
 
 **This is default-off hardening, not enforcement against the session
@@ -219,8 +224,9 @@ occupant. Two consequences of the stamp itself:
 - `KASM_SVC_AUDIO=0` also skips the image's `START_PULSEAUDIO` step
   (it is nested in the audio service start), so no PulseAudio runs in
   the pod by default. `START_PULSEAUDIO` itself is left alone.
-- Printing (PDF to `~/PDF` and a browser download) defaults off, same
-  as every other side service here — not gated: see above.
+- Printing (PDF to `~/PDF` and a browser download) is the one toggle a
+  policy turns on — a **soft gate**, with exactly the limit described
+  above: see **File transfer, printing, watermark**.
 
 ## Configuration: file hierarchy and the WaaS merge
 
@@ -249,8 +255,8 @@ WaaS writes into `~/.vnc/kasmvnc.yaml` is TWO layers merged
 
 1. the admin's opaque `WorkspaceTemplate.spec.kasmvncConfig`
    (convenience config, every upstream option works), then
-2. the clipboard DLP keys derived from `WorkspacePolicy.Clipboard`
-   (the security authority), stamped last.
+2. the keys derived from the owner's `WorkspacePolicy` (the security
+   authority) — the clipboard DLP and the watermark text — stamped last.
 
 A content change rolls the workload: subPath mounts never refresh in
 place, so the content hash is stamped on the pod template
@@ -299,12 +305,13 @@ says what was read: *KasmVNC 1.5.1 · N options read from the image*.
   `unlimited`). An essential whose key the image lacks is not offered
   (one line says so); with no defaults known (image not catalogued, or
   a catalog predating the field) every essential is offered without
-  its image default. Copy/paste is a locked row: policy-owned.
+  its image default. Copy/paste and the watermark are one locked row:
+  policy-owned.
 - **Advanced**: every key of the file, grouped by top-level section,
   searchable (key or hint); modified rows are highlighted. The
   policy-managed keys are locked, from `GET
   /api/v1/meta/kasmvnc-managed-keys` (the dotted form of
-  `kasmcfg.ManagedClipboardKeyPaths` — the frontend keeps no copy, same
+  `kasmcfg.ManagedKeyPaths` — the frontend keeps no copy, same
   doctrine as `/meta/override-fields`). Needs the image defaults; says
   so otherwise.
 - **YAML**: the raw editor, unchanged.
@@ -353,7 +360,9 @@ container — not just a greyed-out button. At reconcile, the operator
 resolves the workspace **owner's** policy (container-level DLP can only
 enforce one policy per workload; on personal kasmvnc namespaces owner
 == user; resolution failure fails closed) and stamps three keys, the
-single source being `operator/pkg/kasmcfg.ManagedClipboardKeyPaths`:
+single source being `operator/pkg/kasmcfg` (`KeyClipboardCopy`,
+`KeyClipboardPaste`, `KeyClientOverride`; `ManagedKeyPaths` is the
+union with the watermark keys below):
 
 ```yaml
 data_loss_prevention.clipboard.server_to_client.enabled: <copyAllowed>
@@ -383,6 +392,62 @@ altogether. Nothing enforced inside the container by Xvnc or
 `vnc_startup.sh` holds against that container's own occupant; it is
 the same reasoning as the side services above, and the same reason the
 hard file-egress controls live in `wwt`, not in the container.
+
+### File transfer, printing, watermark (policy gates)
+
+Two more `WorkspacePolicy` fields reach the kasmvnc container through
+the **same owner-policy path** as the clipboard (`kasmPolicyOf` →
+`applyPolicy`/`desktopEnv`, `operator/internal/controller/kasm_config.go`;
+`docs/governance.md` for the fields themselves). One resolution per
+reconcile yields the clipboard DLP, the printer toggle and the
+rendered watermark; a resolution failure (no user policy) fails closed
+on all three — clipboard off, no printing, **no watermark** (there is
+no safe text to invent; the deterrent is the permissive side, the hard
+gates are what fail closed).
+
+- **`fileTransfer.upload` / `.download`** — default **deny** (absent =
+  false). The api-server resolves the **connecting** user's policy at
+  `/connect` and stamps the grant into the connection token
+  (`ConnectionClaims.FileTransfer`) and the session capabilities
+  (`fileUpload`/`fileDownload`), next to the clipboard. Nothing
+  enforces the grant yet: `/api/downloads` and `/Downloads` stay
+  blocked at the proxy, the guacd sftp/drive params stay
+  platform-blocked. The grant is in place for the file-transfer routes
+  to read.
+- **Printing** — `KASM_SVC_PRINTER` is `"1"` when the **owner's** policy
+  allows `download` (print-to-PDF then a browser download: the same
+  egress class), `"0"` otherwise, inside the `SideServiceEnv` stamp.
+  The image then passes `-UnixRelay printer:/tmp/printer` to Xvnc and
+  the web client handles the print job over the VNC stream. **Soft
+  gate**: it is a container env toggle, with the limit described above
+  — the occupant can set it themselves and restart Xvnc. Default-off
+  stays the value.
+- **Watermark** — `WorkspacePolicy.watermark` is a text template; when
+  set, the operator stamps **one key**,
+  `data_loss_prevention.watermark.text.template`, into the policy layer
+  (`kasmcfg.KeyWatermarkText`). Nothing else is needed on 1.5.1: font,
+  size (48), tint, angle and offset all have Xvnc defaults — verified
+  live on `kasmweb/terminal:1.19.0` with only that key in
+  `~/.vnc/kasmvnc.yaml`: Xvnc starts with `-DLP_WatermarkText 'WaaS
+  alice.smith %H:%M'` on its command line (checked with `ps -eo args`).
+  The admin may still tune the other sub-keys (`font_size`, `angle`,
+  `timezone_name`…) in `kasmvncConfig`; `…watermark.image` is refused
+  there like the text key, because `vncserver` exits when image and
+  text are both set — a template image would turn a policy watermark
+  into a crash loop. Template syntax: Xvnc runs `strftime` on the text
+  live (`%H:%M`, `%Y-%m-%d`), and the WaaS token **`{user}`** is
+  replaced by the workspace **owner's** username at reconcile.
+  **Escaping**: `vncserver` interpolates `${NAME}` from its own
+  environment, then hands the value to Xvnc inside single quotes
+  *without* escaping (`-DLP_WatermarkText '<text>'`, in a shell
+  command). The admin's text is trusted but a `'` would break Xvnc's
+  startup, so the CRD pattern (and the admin API, as a 400) refuse it.
+  The username — the one input an admin does not type — is reduced to
+  `[A-Za-z0-9._@-]` (anything else becomes `_`,
+  `kasmcfg.WatermarkText`): no quote can leave the argument, no `$` or
+  `%` can become an env or strftime expansion. YAML itself needs no
+  care: the value is marshalled, never templated. Soft control like
+  the rest of the file: Xvnc renders it, the occupant owns Xvnc.
 
 ## Images, placement, licensing
 
