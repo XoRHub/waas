@@ -109,6 +109,14 @@ export const DesktopPane = forwardRef<
   // The connection must not restart when unrelated preferences change.
   const effectiveJSON = JSON.stringify(effective ?? {});
 
+  const setBoth = useCallback(
+    (s: ConnectionState) => {
+      setState(s);
+      onStateChange?.(s);
+    },
+    [onStateChange],
+  );
+
   // Unmounting the iframe closes its WebSocket (the client disconnects
   // cleanly on unload): that is the kasm session's disconnect. Reconnect
   // = generation bump, which also mints a fresh token past its expiry.
@@ -116,10 +124,9 @@ export const DesktopPane = forwardRef<
     (s: ConnectionState) => {
       kasmActiveRef.current = false;
       setKasmUrl(null);
-      setState(s);
-      onStateChange?.(s);
+      setBoth(s);
     },
-    [onStateChange],
+    [setBoth],
   );
 
   // The client only trusts messages from its parent window; same origin
@@ -165,13 +172,12 @@ export const DesktopPane = forwardRef<
     let keyboard: InstanceType<typeof Guacamole.Keyboard> | null = null;
     let cancelled = false;
     // Each (re)connect attempt starts clean: a later guac-level failure
-    // must not resurface a stale API detail.
+    // must not resurface a stale API detail, and a Retry from the
+    // failed/closed screen must read as connecting (this runs after the
+    // previous attempt's cleanup, so it also wins over the 'disconnected'
+    // a guac client reports while being torn down).
     setFailDetail(null);
-
-    const setBoth = (s: ConnectionState) => {
-      setState(s);
-      onStateChange?.(s);
-    };
+    setBoth('connecting');
 
     // Messages from the KasmVNC client (same-origin iframe). Anything not
     // posted by THIS pane's iframe document is ignored: another pane, a
@@ -376,6 +382,7 @@ export const DesktopPane = forwardRef<
     onCapabilities,
     autoFocus,
     generation,
+    setBoth,
     endKasm,
     clipboard,
     sessionResize,
