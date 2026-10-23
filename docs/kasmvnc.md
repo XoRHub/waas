@@ -338,7 +338,10 @@ key under a null-valued default (`…watermark.text.template`), or a
 leaf name the file only shows commented out (`# session_type:
 shared`). The warning does not block the save — the image defaults may
 be absent or stale, and the api-server cannot check it without them —
-but the workspace would not start. A footer counts the overrides and
+but the workspace would not start. A policy-managed key present in the
+YAML (an old or imported template) is listed the same way, with
+**Remove**: the api-server refuses the save while it is set. A footer
+counts the overrides and
 offers **Reset all**. A broken or non-mapping YAML blocks the
 structured tabs until fixed. The read-only views (connection settings,
 session menu, create dialog) keep showing the raw YAML.

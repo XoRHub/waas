@@ -161,6 +161,13 @@ export function KasmVNCConfigFieldset({
   };
 
   const orphans = known ? Object.keys(current).filter((k) => !documented(k)) : [];
+  // An old or imported template may carry a policy-managed key: the
+  // api-server refuses the save while it is set.
+  const stray = managedKeys.filter((k) => k in current);
+  const warnings = [
+    { message: t('admin.templatesPage.kasmvncOrphans'), keys: orphans },
+    { message: t('admin.templatesPage.kasmvncManagedPresent'), keys: stray },
+  ].filter((w) => w.keys.length > 0);
   const changed = Object.keys(current).length;
   const defaultLabel = (keys: string[]) => {
     const texts = [...new Set(keys.map((k) => scalarText(byKey.get(k)?.default)))].filter(Boolean);
@@ -367,10 +374,13 @@ export function KasmVNCConfigFieldset({
             })
           : t('admin.templatesPage.kasmvncSchemaUnknown')}
       </p>
-      {orphans.length > 0 && (
-        <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-          <p>{t('admin.templatesPage.kasmvncOrphans')}</p>
-          {orphans.map((key) => (
+      {warnings.map(({ message, keys }) => (
+        <div
+          key={message}
+          className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+        >
+          <p>{message}</p>
+          {keys.map((key) => (
             <div key={key} className="flex items-center justify-between gap-2">
               <code className="font-mono">
                 {key}: {scalarText(current[key])}
@@ -385,7 +395,7 @@ export function KasmVNCConfigFieldset({
             </div>
           ))}
         </div>
-      )}
+      ))}
       <TabbedPanels
         tabs={[
           {
