@@ -109,6 +109,34 @@ Verified against upstream docs and maintainer-settled issues
 - **Upload (browser → session)**: absent at every scale and not planned
   upstream ([kasmtech/KasmVNC#209](https://github.com/kasmtech/KasmVNC/issues/209)).
 
+### Image side services: forced off
+
+The kasmweb images do ship the platform's side services as closed-source
+binaries, and their `vnc_startup.sh` starts each one unless its toggle
+is `0`: audio out (`KASM_SVC_AUDIO`, ports 4901/8081, plus the
+PulseAudio + ffmpeg pipeline feeding it), audio in
+(`KASM_SVC_AUDIO_INPUT`, 4903), uploads (`KASM_SVC_UPLOADS`, 4902,
+writing to `~/Uploads`), gamepad (`KASM_SVC_GAMEPAD`, 4904), webcam
+(`KASM_SVC_WEBCAM`, 4905, only with `/dev/video0`), printer
+(`KASM_SVC_PRINTER`, a `-UnixRelay` on Xvnc + a PDF service) and
+smartcard (`KASM_SVC_SMARTCARD`, `pcscd` + a relay). WaaS proxies none
+of them — only 6901 goes through `wwt` — yet the namespace
+NetworkPolicy is not port-scoped, so each would be an open listener in
+the pod. For kasmvnc containers the operator therefore sets all seven
+to `"0"` (single source: `operator/pkg/kasmcfg.DisabledSideServiceEnv`),
+laid over the template and override env; verified on
+`kasmweb/terminal:1.19.0`: with them off, Xvnc on 6901 is the only
+listener. Like the clipboard keys, a template that sets one would be
+silently overridden, so the admission webhook and the api-server
+template validation reject them. Two consequences:
+
+- `KASM_SVC_AUDIO=0` also skips the image's `START_PULSEAUDIO` step
+  (it is nested in the audio service start), so no PulseAudio runs in
+  the pod. `START_PULSEAUDIO` itself is left alone.
+- Printing (PDF to `~/PDF` and a browser download) is off. It is a
+  file-egress channel, so it comes back only behind the file-transfer
+  policy gate, like `/api/downloads`.
+
 ## Configuration: file hierarchy and the WaaS merge
 
 KasmVNC itself deep-merges three files, key by key, lowest to highest

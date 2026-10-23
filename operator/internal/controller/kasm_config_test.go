@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -11,6 +12,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 )
 
 // nestedBool reads a nested boolean out of a kasmvnc.yaml document, failing
@@ -198,6 +200,48 @@ func TestKasmConfigAbsentForNonKasmWorkspace(t *testing.T) {
 		if v.Name == kasmConfigVolume || v.Name == kasmVncDirVolume {
 			t.Fatalf("non-kasmvnc workspace must not mount kasmvnc volumes, found %q", v.Name)
 		}
+	}
+	for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
+		if slices.Contains(kasmcfg.DisabledSideServiceEnv, e.Name) {
+			t.Fatalf("non-kasmvnc workspace must not get kasmweb side-service env, found %q", e.Name)
+		}
+	}
+}
+
+func kasmDeployment(t *testing.T, tpl *waasv1alpha1.WorkspaceTemplate, ws *waasv1alpha1.Workspace) *appsv1.Deployment {
+	t.Helper()
+	r, c := newFixture(t, tpl, ws)
+	reconcile(t, r, ws)
+	dep := &appsv1.Deployment{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatal(err)
+	}
+	return dep
+}
+
+// The kasmweb side services WaaS does not proxy are forced off, over
+// whatever the template or the workspace override says.
+func TestKasmSideServicesForcedOff(t *testing.T) {
+	tpl := kasmTemplate()
+	tpl.Spec.Env = []corev1.EnvVar{{Name: "KASM_SVC_AUDIO", Value: "1"}, {Name: "START_PULSEAUDIO", Value: "1"}}
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+	ws.Spec.Overrides = &waasv1alpha1.WorkspaceOverrides{Env: []corev1.EnvVar{{Name: "KASM_SVC_PRINTER", Value: "1"}}}
+
+	env := map[string]string{}
+	for _, e := range kasmDeployment(t, tpl, ws).Spec.Template.Spec.Containers[0].Env {
+		if _, dup := env[e.Name]; dup {
+			t.Fatalf("env %q set twice", e.Name)
+		}
+		env[e.Name] = e.Value
+	}
+	for _, name := range kasmcfg.DisabledSideServiceEnv {
+		if env[name] != "0" {
+			t.Errorf("%s must be forced to 0, got %q", name, env[name])
+		}
+	}
+	if env["START_PULSEAUDIO"] != "1" {
+		t.Error("unmanaged env must survive")
 	}
 }
 
