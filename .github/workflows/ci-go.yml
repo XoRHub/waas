@@ -36,7 +36,7 @@ jobs:
       # Deliberately NOT per-module `go-version-file`: the single pin in
       # .mise.toml satisfies every module's `go` directive (the comment
       # on that pin keeps it that way).
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
           install_args: go golangci-lint
       # setup-go's built-in module/build cache, now explicit —
@@ -81,7 +81,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Toolchain + cache: same rationale as go-lint above.
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
           install_args: go
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -147,7 +147,7 @@ jobs:
       # out to hack/ci/check_operator_rbac.py (its own pyyaml pin, no
       # venv) to verify the Helm operator ClusterRole against this same
       # regenerated RBAC.
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
           install_args: go uv
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
