@@ -136,15 +136,15 @@ func main() {
 		"enabled", desktopEgress.Enabled, "allowInternet", desktopEgress.AllowInternet,
 		"blockedCIDRs", desktopEgress.BlockedCIDRs, "extraAllowedCIDRs", desktopEgress.ExtraAllowedCIDRs)
 
-	// kasm-agent sidecar of kasmvnc workloads (policy-gated file
+	// kasmvnc-sidecar of kasmvnc workloads (policy-gated file
 	// transfer): image from the chart, empty = off. Same refusal-to-start
 	// on an unparseable cap as the egress config above.
-	kasmAgent, err := controller.KasmAgentFromEnv()
+	kasmvncSidecar, err := controller.KasmVNCSidecarFromEnv()
 	if err != nil {
-		setupLog.Error(err, "invalid kasm-agent configuration — refusing to start")
+		setupLog.Error(err, "invalid kasmvnc-sidecar configuration — refusing to start")
 		os.Exit(1)
 	}
-	setupLog.Info("kasm-agent sidecar configured", "image", kasmAgent.Image, "maxUploadBytes", kasmAgent.MaxUploadBytes)
+	setupLog.Info("kasmvnc-sidecar configured", "image", kasmvncSidecar.Image, "maxUploadBytes", kasmvncSidecar.MaxUploadBytes)
 
 	if err := (&controller.WorkspaceReconciler{
 		Client:            mgr.GetClient(),
@@ -156,7 +156,7 @@ func main() {
 		PlatformNamespace:       platformNamespace,
 		DesktopEgress:           desktopEgress,
 		DefaultNamespacePattern: defaultNamespacePattern,
-		KasmAgent:               kasmAgent,
+		KasmVNCSidecar:          kasmvncSidecar,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 		os.Exit(1)

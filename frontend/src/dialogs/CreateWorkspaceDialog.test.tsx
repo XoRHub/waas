@@ -117,6 +117,33 @@ describe('CreateWorkspaceDialog', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
+  it('keeps room for the kasmvnc-sidecar in the aggregate slider cap', async () => {
+    const quota = {
+      policy: 'default',
+      perWorkspace: { cpu: '4', memory: '4Gi' },
+      limits: { cpu: '3' },
+      used: { cpu: '1' },
+      kasmvncSidecarOverhead: { cpu: '500m', memory: '128Mi' },
+    };
+    apiMock.route('/api/v1/me/quota', quota);
+    try {
+      signIn({ username: 'marc' });
+      renderWithProviders(<CreateWorkspaceDialog onClose={() => {}} />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Template' }));
+      await userEvent.click(await screen.findByRole('option', { name: /XFCE Desktop/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
+      // 3 cap - 1 used - 0.5 sidecar: the desktop can take 1.5 vCPU.
+      const [cpuSlider] = await screen.findAllByRole('slider');
+      expect(cpuSlider).toHaveAttribute('max', '1500');
+    } finally {
+      apiMock.route('/api/v1/me/quota', {
+        policy: 'default',
+        perWorkspace: { cpu: '2', memory: '4Gi' },
+        defaults: { cpu: '1', memory: '2Gi' },
+      });
+    }
+  });
+
   it('the metadata tab is gated on the right and lands in the overrides', async () => {
     signIn({ username: 'marc' });
     renderWithProviders(<CreateWorkspaceDialog onClose={() => {}} />);

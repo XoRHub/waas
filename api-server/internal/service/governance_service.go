@@ -23,6 +23,7 @@ import (
 	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/params"
 	"github.com/xorhub/waas/operator/pkg/policy"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 
 	"github.com/xorhub/waas/api-server/internal/apierror"
 	"github.com/xorhub/waas/api-server/internal/model"
@@ -174,6 +175,9 @@ func (s *GovernanceService) Quota(ctx context.Context, actor Actor) (*model.Quot
 		RetainedVolumes:      use.retainedVolumes,
 		RetainedStorage:      use.retainedStorage,
 		Features:             featureFlags(pol, isAdmin),
+		KasmVNCSidecarOverhead: map[string]string{
+			"cpu": kasmvncsidecar.SidecarCPULimit, "memory": kasmvncsidecar.SidecarMemoryLimit,
+		},
 	}
 	if pol.Spec.Overrides != nil {
 		status.AllowedOverrides = []string{}

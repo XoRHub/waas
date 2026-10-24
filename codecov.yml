@@ -1,5 +1,5 @@
 # Per-component coverage (see docs/ci-github.md). Flags mirror the images
-# built by ci-images.yml (operator, api-server, wwt, kasm-agent,
+# built by ci-images.yml (operator, api-server, wwt, kasmvnc-sidecar,
 # frontend) plus "shared", a Go module with no image of its own.
 #
 # carryforward: true is required because ci-go.yml/ci-frontend.yml only
@@ -36,8 +36,8 @@ flags:
   wwt:
     paths: [wwt/]
     carryforward: true
-  kasm-agent:
-    paths: [kasm-agent/]
+  kasmvnc-sidecar:
+    paths: [kasmvnc-sidecar/]
     carryforward: true
   frontend:
     paths: [frontend/src/]

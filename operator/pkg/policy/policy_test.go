@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 func qty(s string) *resource.Quantity { q := resource.MustParse(s); return &q }
@@ -173,6 +174,92 @@ func TestLoadOfPrecedence(t *testing.T) {
 	// Nothing anywhere: compute unknown.
 	if _, ok = LoadOf(ws, empty, nil); ok {
 		t.Fatal("compute should be unknown")
+	}
+}
+
+// A kasmvnc template's load must include the kasmvnc-sidecar's own
+// footprint, not just the desktop container — otherwise the aggregate
+// caps and the portal's "used" numbers undercount what the namespace
+// ResourceQuota (derived from the same aggregate) actually sums across
+// every container, letting the admission pre-check pass a workspace the
+// cluster then rejects.
+func TestLoadOfCountsKasmVNCSidecar(t *testing.T) {
+	kasmTpl := &waasv1alpha1.WorkspaceTemplate{
+		Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			Protocols: []waasv1alpha1.WorkspaceProtocol{{Name: "kasmvnc", Port: 6901, Default: true}},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+			},
+		},
+	}
+	ws := &waasv1alpha1.Workspace{}
+
+	load, ok := LoadOf(ws, kasmTpl, nil)
+	if !ok {
+		t.Fatal("compute should be known from template requests")
+	}
+	wantCPU := resource.MustParse("500m")
+	wantCPU.Add(resource.MustParse(kasmvncsidecar.SidecarCPULimit))
+	wantMem := resource.MustParse("1Gi")
+	wantMem.Add(resource.MustParse(kasmvncsidecar.SidecarMemoryLimit))
+	if load.CPU.Cmp(wantCPU) != 0 {
+		t.Fatalf("expected the desktop's cpu plus the sidecar's %s limit, got %s", kasmvncsidecar.SidecarCPULimit, &load.CPU)
+	}
+	if load.Memory.Cmp(wantMem) != 0 {
+		t.Fatalf("expected the desktop's memory plus the sidecar's %s limit, got %s", kasmvncsidecar.SidecarMemoryLimit, &load.Memory)
+	}
+
+	// A non-kasmvnc template (e.g. guacd/vnc) never gets the sidecar.
+	vncTpl := &waasv1alpha1.WorkspaceTemplate{
+		Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+			},
+		},
+	}
+	load, ok = LoadOf(ws, vncTpl, nil)
+	if !ok || load.CPU.String() != "500m" || load.Memory.String() != "1Gi" {
+		t.Fatalf("non-kasmvnc template must not carry the sidecar's footprint, got %+v", load)
+	}
+}
+
+// Image min/max and perWorkspace size the desktop container (the portal
+// slider's range); only the aggregate counts the sidecar on top.
+func TestCheckLimitsKasmVNCBoundsDesktopOnly(t *testing.T) {
+	image := img("x", "r/x:1", true)
+	image.Spec.Resources = &waasv1alpha1.ImageResources{
+		Min: &waasv1alpha1.ComputeSize{CPU: qty("250m"), Memory: qty("512Mi")},
+		Max: &waasv1alpha1.ComputeSize{CPU: qty("2"), Memory: qty("4Gi")},
+	}
+	p := pol("quota", 0)
+	p.Spec.Limits = waasv1alpha1.PolicyLimits{
+		PerWorkspace: &waasv1alpha1.PerWorkspaceCaps{CPU: qty("2"), Memory: qty("4Gi")},
+		Aggregate:    &waasv1alpha1.AggregateCaps{CPU: qty("2")},
+	}
+	kasmLoad := func(cpu, mem string) Load {
+		tpl := &waasv1alpha1.WorkspaceTemplate{Spec: waasv1alpha1.WorkspaceTemplateSpec{
+			Protocols: []waasv1alpha1.WorkspaceProtocol{{Name: "kasmvnc", Port: 6901, Default: true}},
+			Resources: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpu), corev1.ResourceMemory: resource.MustParse(mem)},
+			},
+		}}
+		l, _ := LoadOf(&waasv1alpha1.Workspace{}, tpl, &image)
+		return l
+	}
+
+	// Exactly at image.max / perWorkspace: allowed per-workspace, but the
+	// pod total (2 + sidecar) trips the 2-cpu aggregate.
+	atMax := kasmLoad("2", "4Gi")
+	if d := CheckLimits(atMax, true, &image, &p, nil); d == nil || d.Reason != ReasonQuotaExceeded {
+		t.Fatalf("aggregate must count the sidecar, got %v", d)
+	}
+	p.Spec.Limits.Aggregate = nil
+	if d := CheckLimits(atMax, true, &image, &p, nil); d != nil {
+		t.Fatalf("desktop at image.max/perWorkspace must pass: %v", d)
+	}
+	// The sidecar must not lift an undersized desktop over image.min.
+	if d := CheckLimits(kasmLoad("200m", "1Gi"), true, &image, &p, nil); d == nil || d.Reason != ReasonResourcesInvalid {
+		t.Fatalf("desktop below image.min must be denied, got %v", d)
 	}
 }
 

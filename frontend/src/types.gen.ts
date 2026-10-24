@@ -734,6 +734,12 @@ export interface QuotaStatus {
   limits?: { [key: string]: string }; // aggregate caps (cpu/memory/storage)
   used?: { [key: string]: string }; // current aggregates
   perWorkspace?: { [key: string]: string };
+  /**
+   * KasmVNCSidecarOverhead (cpu/memory) is what a kasmvnc workspace's
+   * kasmvnc-sidecar adds to the aggregate on top of the desktop
+   * sizing; the create slider subtracts it from the remaining room.
+   */
+  kasmvncSidecarOverhead?: { [key: string]: string };
   defaults?: { [key: string]: string }; // policy-proposed sizing (image defaults win)
   lifecycle?: { [key: string]: string }; // idleSuspendAfter / maxLifetime
   /**
