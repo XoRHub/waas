@@ -4,6 +4,7 @@ import Guacamole from 'guacamole-common-js';
 import { useClipboardBridge } from '@/hooks/useClipboardBridge';
 import { useSessionResize } from '@/hooks/useSessionResize';
 import { api, ApiError } from '@/lib/api';
+import { refreshKasmCookie, tokenTTL } from '@/lib/kasmCookie';
 import { detectServerLayout } from '@/lib/keyboard';
 import { useAuthStore } from '@/stores/authStore';
 import type { ConnectResult, SessionCapabilities, WorkspaceConnectionPrefs } from '@/types';
@@ -13,6 +14,11 @@ export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fai
 // Guacamole.Client state 3 = CONNECTED, 5 = DISCONNECTED.
 const STATE_CONNECTED = 3;
 const STATE_DISCONNECTED = 5;
+
+// Floor on the kasm cookie refresh cadence (half the token life
+// otherwise): a token whose exp cannot be read must not become a tight
+// loop on the api-server.
+const KASM_REFRESH_MIN_MS = 30_000;
 
 // KasmVNC client connection_state → pane state. 'disconnected' is final:
 // embedded, the client auto-reconnects on its own ('reconnecting'), clean
@@ -179,6 +185,7 @@ export const DesktopPane = forwardRef<
     const conn = JSON.parse(effectiveJSON) as WorkspaceConnectionPrefs;
     let client: InstanceType<typeof Guacamole.Client> | null = null;
     let keyboard: InstanceType<typeof Guacamole.Keyboard> | null = null;
+    let kasmRefresh: ReturnType<typeof setTimeout> | undefined;
     let cancelled = false;
     // Each (re)connect attempt starts clean: a later guac-level failure
     // must not resurface a stale API detail, and a Retry from the
@@ -279,6 +286,25 @@ export const DesktopPane = forwardRef<
         kasmActiveRef.current = true;
         kasmSessionRef.current = result.sessionId;
         setKasmUrl(`/kasm/${result.sessionId}/vnc.html?${q.toString()}`);
+
+        // That cookie IS the token, and the desktop outlives its TTL:
+        // re-set it at half-life for as long as the session is up, so
+        // the client's own auto-reconnect and the Files routes keep
+        // authenticating. A failed refresh is retried at the next tick;
+        // a session that ended underneath (endKasm) stops the loop.
+        let ttl = tokenTTL(result.connectionToken);
+        const refreshCookie = async () => {
+          if (cancelled || !kasmActiveRef.current) return;
+          try {
+            ttl = await refreshKasmCookie(workspaceId, result.sessionId);
+          } catch {
+            // retried at the next tick
+          }
+          if (!cancelled && kasmActiveRef.current) {
+            kasmRefresh = setTimeout(refreshCookie, Math.max(ttl / 2, KASM_REFRESH_MIN_MS));
+          }
+        };
+        kasmRefresh = setTimeout(refreshCookie, Math.max(ttl / 2, KASM_REFRESH_MIN_MS));
         return;
       }
 
@@ -372,6 +398,7 @@ export const DesktopPane = forwardRef<
 
     return () => {
       cancelled = true;
+      clearTimeout(kasmRefresh);
       window.removeEventListener('message', onKasmMessage);
       sessionResize.detach();
       clipboard.detach();

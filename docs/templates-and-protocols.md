@@ -94,6 +94,12 @@ lives in [guacd-parameters.md](guacd-parameters.md) (generated —
   session and merged over the template params in the internal
   ConnectionInfo; wwt forwards them during the guacd handshake.
   `hostname`/`port` remain platform-managed whatever the params say.
+- `POST /api/v1/workspaces/{id}/sessions/{sid}/token` mints a fresh
+  connection token for one of the caller's **open** sessions (owner
+  only, 409 once ended), re-resolving the policy grants — the same
+  minting path as `/connect`, minus the session row. The kasmvnc data
+  plane needs it: its cookie is the token, and a desktop outlives the
+  token's TTL (`docs/kasmvnc.md` § Auth).
 - The portal stores each user's per-workspace protocol/params choice in
   their profile preferences (`workspaceSettings`) — the server still
   re-validates at connect time, so the preference is a convenience, not a
@@ -357,7 +363,7 @@ is exercised by CI.
 | Dynamic resize | ✅ pod-exec mechanism | ❌ the frontend never calls the endpoint for rdp: no pod to exec `waas-resize` in; guacd-native `resize-method` is the only candidate, unverified | ✅ native client-side (`resize=remote`) |
 | Multi-monitor | ❌ | ❌ | not integrated (upstream client capability, unverified through the iframe) |
 | Live (no-reconnect) params | `disable-copy`/`disable-paste` only | same | image quality preset (session menu → client `setvideoquality`) |
-| Connection state / reconnect | guac client state; Retry = fresh `/connect` | same | client-reported (`connection_state`), client auto-reconnect then Retry = fresh `/connect` + token |
+| Connection state / reconnect | guac client state; Retry = fresh `/connect` | same | client-reported (`connection_state`), client auto-reconnect (session cookie refreshed on a timer, `docs/kasmvnc.md` § Auth) then Retry = fresh `/connect` + token |
 | Full screen, Ctrl+Alt+M | ✅ session menu | ✅ | ✅ (keystrokes replayed from the iframe) |
 | Post-creation overrides | ✅ protocol-independent (`PATCH /overrides` + reload) | ✅ | ✅ |
 
