@@ -122,6 +122,13 @@ func (s *GovernanceService) Catalog(ctx context.Context, actor Actor) ([]model.C
 			return nil, err
 		}
 		m.Templates = templatesByEntry[allowed[i].Name]
+		// The KasmVNC defaults (a ~4 KB file per kasmweb image) only
+		// serve the admin template editor, which reads the admin
+		// listing; the end-user catalog is fetched by every portal
+		// page and must not carry them.
+		for j := range m.Discovered {
+			m.Discovered[j].KasmVNC = nil
+		}
 		out = append(out, m)
 	}
 	return out, nil
@@ -933,7 +940,7 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 		return model.CatalogImage{}, fmt.Errorf("listing catalog entries of %s: %w", img.Name, err)
 	}
 	for _, e := range entries {
-		rec := unmarshalRecommended(e.Recommended)
+		rec := unmarshalHint[model.DeploymentRecommendation](e.Recommended)
 		m.Discovered = append(m.Discovered, model.DiscoveredImage{
 			Image:         e.Image,
 			OS:            e.OS,
@@ -944,6 +951,7 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 			Description:   e.Description,
 			Profile:       e.Profile,
 			Recommended:   rec,
+			KasmVNC:       unmarshalHint[model.KasmVNCInfo](e.KasmVNC),
 			Architectures: e.Architectures,
 			Protocols:     deriveProtocols(rec),
 		})
@@ -999,19 +1007,19 @@ func deriveProtocols(rec *model.DeploymentRecommendation) []string {
 	return append(out, rest...)
 }
 
-// unmarshalRecommended decodes the opaque JSON persisted by
-// CatalogSyncWorker; a nil/malformed column yields nil rather than an
-// error — this is display/prefill data, never a reason to fail an API
-// response.
-func unmarshalRecommended(raw json.RawMessage) *model.DeploymentRecommendation {
+// unmarshalHint decodes an opaque hint column (recommended, kasmvnc)
+// persisted by CatalogSyncWorker; a nil/malformed column yields nil
+// rather than an error — this is display/prefill data, never a reason
+// to fail an API response.
+func unmarshalHint[T any](raw json.RawMessage) *T {
 	if len(raw) == 0 {
 		return nil
 	}
-	var r model.DeploymentRecommendation
-	if err := json.Unmarshal(raw, &r); err != nil {
+	var h T
+	if err := json.Unmarshal(raw, &h); err != nil {
 		return nil
 	}
-	return &r
+	return &h
 }
 
 func policyToModel(pol *waasv1alpha1.WorkspacePolicy) model.PolicyModel {

@@ -298,6 +298,34 @@ click (its `description` becomes the value placeholder) — so an empty
 literal never sneaks into the CR and supersedes the operator's own
 credential injection.
 
+## KasmVNC defaults (`kasmvnc`) — the template form's option schema
+
+A kasmweb/* entry can carry the KasmVNC server it bundles:
+
+```yaml
+  - image: docker.io/kasmweb/terminal:1.19.0
+    kasmvnc:
+      version: "1.5.1"     # from `Xvnc -version`
+      defaults: |          # the image's own /usr/share/kasmvnc/kasmvnc_defaults.yaml, verbatim
+        ---
+        desktop:
+          resolution:
+            width: 1024
+        ...
+```
+
+Same regime as `recommended`: a display/prefill hint, never read by
+`enforce()`/`buildPodTemplate`. The sync worker stores it opaquely
+(`catalog_entries.kasmvnc`, JSON like `recommended`; a `defaults` over
+64 KiB drops the whole hint — an anti-abuse bound, real files are
+~4 KB; `version` is capped at 64 bytes) and `DiscoveredImage.kasmvnc`
+projects it to the portal — on the admin listing (`/admin/images`)
+only, the end-user `/catalog` strips it — where
+the admin template editor's KasmVNC section derives its option list,
+control types and default values from it — so a new KasmVNC release
+needs no WaaS change (`docs/kasmvnc.md` § Configuration). The producer
+reads both values from the image at catalog generation time.
+
 ## Architecture prefill (`architectures`) — the one on-selection write
 
 A catalog entry can also list the `architectures` (amd64/arm64) that

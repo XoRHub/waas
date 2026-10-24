@@ -193,8 +193,12 @@ an empty field. A content change rolls the workload (hash annotation on
 the pod template). The webhook rejects the field on templates without a
 kasmvnc protocol. Trust boundary: templates are admin-managed CRs — the
 config can loosen security-relevant KasmVNC settings (`require_ssl`,
-auth file paths), which is the admin's call. Full detail:
-[kasmvnc.md](kasmvnc.md).
+auth file paths), which is the admin's call. The admin template editor
+edits it as Essentials / Advanced / YAML tabs whose option list and
+defaults come from the image itself (the catalog's `kasmvnc` hint) and
+writes only the keys set explicitly (an explicit choice equal to the
+default is still written) — the field stays the same opaque string.
+Full detail: [kasmvnc.md](kasmvnc.md).
 
 ### Private registries (`WorkspaceImage.spec.imagePullSecretRef`)
 
