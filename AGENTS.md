@@ -1,8 +1,9 @@
 # AGENTS.md — working on WaaS as a coding agent
 
 Monorepo: `operator/` (Go, controller-runtime), `api-server/` (Go, chi),
-`wwt/` (Go websocket proxy), `frontend/` (React 19 + Vite), `shared/`
-(Go), `helm/waas/` (single chart). Architecture overview: [README](README.md).
+`wwt/` (Go websocket proxy), `kasm-agent/` (Go, KasmVNC file-transfer
+sidecar), `frontend/` (React 19 + Vite), `shared/` (Go), `helm/waas/`
+(single chart). Architecture overview: [README](README.md).
 
 ## Hard boundaries — never cross these
 
@@ -12,6 +13,8 @@ Monorepo: `operator/` (Go, controller-runtime), `api-server/` (Go, chi),
 - **Frontend**: only ever talks to the API Server, never the K8s API.
 - **guacd**: ClusterIP only, never exposed outside the cluster; `wwt`
   validates the JWT **before** opening any TCP connection to it.
+- **kasm-agent**: reached only through `wwt`, which validates the JWT
+  and the policy grant before relaying; never exposed on its own.
 - **Audit logs**: append-only.
 
 A change that needs to cross one of these boundaries is an architecture

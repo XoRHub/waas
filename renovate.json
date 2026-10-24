@@ -41,7 +41,7 @@
       "platformAutomerge": true
     },
     {
-      "description": "All non-major Go bumps (all four modules, direct and indirect) in one weekly PR, automerged once required checks pass and the release is >=10 days old.",
+      "description": "All non-major Go bumps (all five modules, direct and indirect) in one weekly PR, automerged once required checks pass and the release is >=10 days old.",
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["patch", "minor"],
       "groupName": "go-non-major",

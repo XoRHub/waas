@@ -34,6 +34,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xorhub/waas/shared/auth"
+	"github.com/xorhub/waas/shared/kasmagent"
 	"github.com/xorhub/waas/wwt/internal/jwks"
 	"github.com/xorhub/waas/wwt/internal/metrics"
 	"github.com/xorhub/waas/wwt/internal/proxy"
@@ -42,6 +44,10 @@ import (
 const (
 	routePrefix = "/kasm/"
 	cookieName  = "waas_kasm"
+	// agentPrefix is the subtree of /kasm/{sid}/ served by the kasm-agent
+	// sidecar instead of KasmVNC (/kasm/{sid}/waas/files…): the policy-gated
+	// file transfer, routed to the same host on the agent's port.
+	agentPrefix = "/waas"
 	// infoTTL bounds how long a resolved ConnectionInfo is reused. Asset
 	// bursts (one page load ≈ dozens of requests) must not hammer the
 	// internal API, but a paused/deleted workspace must stop resolving
@@ -63,6 +69,8 @@ type Handler struct {
 
 	transport http.RoundTripper
 	endGrace  time.Duration
+	// agentPort is kasmagent.Port; a field so tests can point at a fake.
+	agentPort int32
 
 	mu      sync.Mutex
 	infos   map[string]cachedInfo
@@ -98,9 +106,10 @@ func NewHandler(issuer string, keys *jwks.Client, api proxy.APIClient) *Handler 
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402
 			IdleConnTimeout: 90 * time.Second,
 		},
-		endGrace: reconnectGrace,
-		infos:    map[string]cachedInfo{},
-		streams:  map[string]*sessionStreams{},
+		endGrace:  reconnectGrace,
+		agentPort: kasmagent.Port,
+		infos:     map[string]cachedInfo{},
+		streams:   map[string]*sessionStreams{},
 	}
 }
 
@@ -159,6 +168,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// File transfer goes through the kasm-agent sidecar, gated on the
+	// token's policy grant — the governed path. Same host (the workspace
+	// Service), the agent's port, the same injected Basic pair.
+	if agentPath, ok := strings.CutPrefix(rest, agentPrefix); ok && (agentPath == "" || agentPath[0] == '/') {
+		agentPath = path.Clean("/" + agentPath)
+		if status, msg := fileRouteStatus(claims.FileTransfer, r.Method, agentPath); status != 0 {
+			http.Error(w, msg, status)
+			return
+		}
+		target := &url.URL{Scheme: "http", Host: net.JoinHostPort(info.Hostname, strconv.Itoa(int(h.agentPort)))}
+		// 503 rather than 502: the sidecar is optional (operator.kasmAgent
+		// off, or a workspace started before it was enabled).
+		h.proxyTo(target, info, sid, agentPath, http.StatusServiceUnavailable, "file transfer is unavailable for this session").ServeHTTP(w, r)
+		return
+	}
+
 	// KasmVNC's downloads API (/api/downloads) lists — and serves — files
 	// from the session's downloads directory, and the kasmweb images
 	// expose the same directory a second way: www/Downloads/Downloads is
@@ -166,12 +191,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// serves (verified on kasmweb 1.19.0). Both are the session→browser
 	// file egress the guacd path gates behind TierPlatform for
 	// enable-sftp/enable-drive ("until the file-transfer feature ships
-	// with its own policy gate", operator/pkg/params/params.go). No such
-	// gate exists for kasmvnc yet, so both are blocked outright to keep
-	// file egress governed identically across protocols. The rest of the
-	// kasmvnc /api surface stays open by design: a WaaS kasmvnc session
-	// is single-user and self-owned (kasm_user holds the owner role),
-	// with no third party to protect the user from — see docs/kasmvnc.md.
+	// with its own policy gate", operator/pkg/params/params.go). They
+	// stay blocked outright even with a download grant: the governed
+	// route is the sidecar above (one auditable surface, no symlinked
+	// directory listings). The rest of the kasmvnc /api surface stays
+	// open by design: a WaaS kasmvnc session is single-user and
+	// self-owned (kasm_user holds the owner role), with no third party to
+	// protect the user from — see docs/kasmvnc.md.
 	if isDownloadsPath(rest) {
 		http.Error(w, "file transfer is not enabled for this session", http.StatusForbidden)
 		return
@@ -207,7 +233,36 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.streamClosed(sid, claims.WorkspaceID)
 		}()
 	}
-	h.proxyTo(info, sid, rest).ServeHTTP(w, r)
+	target := &url.URL{Scheme: "https", Host: net.JoinHostPort(info.Hostname, strconv.Itoa(int(info.Port)))}
+	h.proxyTo(target, info, sid, rest, http.StatusBadGateway, "desktop unreachable").ServeHTTP(w, r)
+}
+
+// fileRouteStatus gates a kasm-agent route on the connection token's
+// file-transfer grant: 0 = allowed, otherwise the status and message to
+// answer. Fail closed — an unknown route is 404 whatever the grant, the
+// list needs either direction, download and upload their own, and each
+// route has exactly one method (so a POST can never ride a download
+// grant into the upload route).
+func fileRouteStatus(grant auth.FileTransferGrant, method, p string) (int, string) {
+	var allowed bool
+	var want string
+	switch p {
+	case kasmagent.PathList:
+		allowed, want = grant.Upload || grant.Download, http.MethodGet
+	case kasmagent.PathDownload:
+		allowed, want = grant.Download, http.MethodGet
+	case kasmagent.PathUpload:
+		allowed, want = grant.Upload, http.MethodPost
+	default:
+		return http.StatusNotFound, "not found"
+	}
+	if !allowed {
+		return http.StatusForbidden, "file transfer is not enabled for this session"
+	}
+	if method != want {
+		return http.StatusMethodNotAllowed, "method not allowed"
+	}
+	return 0, ""
 }
 
 // streamOpened counts a new desktop stream and cancels a pending end
@@ -265,11 +320,11 @@ func (h *Handler) endSession(sid, workspaceID string, s *sessionStreams, gen uin
 	slog.Info("kasm session ended", "session", sid, "workspace", workspaceID)
 }
 
-func (h *Handler) proxyTo(info *proxy.ConnectionInfo, sid, rest string) *httputil.ReverseProxy {
-	target := &url.URL{
-		Scheme: "https",
-		Host:   net.JoinHostPort(info.Hostname, strconv.Itoa(int(info.Port))),
-	}
+// proxyTo relays one request to target (KasmVNC itself, or the kasm-agent
+// sidecar on the same host) with the session's Basic pair injected;
+// unreachableStatus/unreachableMsg is what the browser sees when the
+// upstream does not answer.
+func (h *Handler) proxyTo(target *url.URL, info *proxy.ConnectionInfo, sid, rest string, unreachableStatus int, unreachableMsg string) *httputil.ReverseProxy {
 	username := info.Username
 	if username == "" {
 		username = "kasm_user"
@@ -289,15 +344,15 @@ func (h *Handler) proxyTo(info *proxy.ConnectionInfo, sid, rest string) *httputi
 			// KasmVNC's WebSocket handshake parser requires an Origin
 			// header (browsers always send one, health probes don't).
 			if pr.Out.Header.Get("Origin") == "" {
-				pr.Out.Header.Set("Origin", "https://"+target.Host)
+				pr.Out.Header.Set("Origin", target.Scheme+"://"+target.Host)
 			}
 		},
 		Transport: h.transport,
 		// The desktop stream is latency-sensitive: flush every write.
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			slog.Error("kasm upstream error", "session", sid, "error", err)
-			http.Error(w, "desktop unreachable", http.StatusBadGateway)
+			slog.Error("kasm upstream error", "session", sid, "upstream", target.Host, "error", err)
+			http.Error(w, unreachableMsg, unreachableStatus)
 		},
 	}
 }

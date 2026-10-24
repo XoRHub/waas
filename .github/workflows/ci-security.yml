@@ -32,7 +32,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/work" -w /work hadolint/hadolint:v2.15.1-alpine \
             hadolint --failure-threshold warning \
-            operator/Dockerfile api-server/Dockerfile wwt/Dockerfile frontend/Dockerfile
+            operator/Dockerfile api-server/Dockerfile wwt/Dockerfile kasm-agent/Dockerfile frontend/Dockerfile
       - name: shellcheck
         # hack/ci/ scripts run IN the pipeline (coverage-ratchet.sh) —
         # they get at least the same gate as the dev-env ones.

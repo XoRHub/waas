@@ -65,6 +65,28 @@ tests:
       - notExists:
           path: metadata.annotations["cert-manager.io/cluster-issuer"]
 
+  # Uploads to kasmvnc sessions would otherwise be cut at nginx's 1m
+  # default: the body limit follows the sidecar's cap, unbuffered.
+  - it: sizes the nginx body limit from the kasm-agent upload cap
+    set:
+      ingress.enabled: true
+    asserts:
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/proxy-body-size"]
+          value: 1g
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/proxy-request-buffering"]
+          value: "off"
+
+  - it: converts a Mi upload cap to the nginx unit
+    set:
+      ingress.enabled: true
+      operator.kasmAgent.maxUploadSize: 200Mi
+    asserts:
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/proxy-body-size"]
+          value: 200m
+
   - it: skips the cert-manager annotation when issuerRef.name is empty
     set:
       ingress.enabled: true
