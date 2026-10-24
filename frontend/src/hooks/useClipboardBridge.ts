@@ -38,6 +38,17 @@ export function useClipboardBridge() {
       .catch(() => {}); // permission denied: paste event still works
   }, []);
 
+  // Desktop → browser, whatever the transport (guac stream or the
+  // KasmVNC iframe's clipboardrx message).
+  const receive = useCallback((text: string) => {
+    syncRef.current.receive(text);
+    // Best effort: writeText needs a secure context AND document
+    // focus. The overlay's manual exchange covers the rest.
+    if (hasClipboardApi() && document.hasFocus()) {
+      void navigator.clipboard.writeText(text).catch(() => {});
+    }
+  }, []);
+
   const detach = useCallback(() => {
     detachRef.current?.();
     detachRef.current = null;
@@ -61,14 +72,7 @@ export function useClipboardBridge() {
         reader.ontext = (text) => {
           data += text;
         };
-        reader.onend = () => {
-          sync.receive(data);
-          // Best effort: writeText needs a secure context AND document
-          // focus. The overlay's manual exchange covers the rest.
-          if (hasClipboardApi() && document.hasFocus()) {
-            void navigator.clipboard.writeText(data).catch(() => {});
-          }
-        };
+        reader.onend = () => receive(data);
       };
 
       // ---- clipboard: browser → desktop --------------------------------
@@ -105,7 +109,7 @@ export function useClipboardBridge() {
         sendRef.current = () => {};
       };
     },
-    [syncFromSystem],
+    [receive, syncFromSystem],
   );
 
   // Unmount: drop the listeners if the owner did not detach explicitly.
@@ -124,6 +128,8 @@ export function useClipboardBridge() {
       attach,
       /** Unbind (reconnect/unmount); the echo-guard state is kept. */
       detach,
+      /** Record (and best-effort copy locally) text the desktop sent. */
+      receive,
       /** Push text to the desktop clipboard; force bypasses the echo guard. */
       sendClipboard,
       /** Last text the desktop clipboard sent us (overlay manual fallback). */
@@ -131,6 +137,6 @@ export function useClipboardBridge() {
       /** Prime/refresh the desktop with the current system clipboard. */
       syncFromSystem,
     }),
-    [attach, detach, sendClipboard, readRemoteClipboard, syncFromSystem],
+    [attach, detach, receive, sendClipboard, readRemoteClipboard, syncFromSystem],
   );
 }
