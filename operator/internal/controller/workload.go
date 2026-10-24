@@ -96,16 +96,17 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 		MountPath: tpl.Spec.EffectiveHomeMountPath(),
 	}}, mergeVolumeMounts(wl.VolumeMounts, ov.VolumeMounts)...)
 
-	// Effective KasmVNC config (admin template + policy clipboard
-	// enforcement), mounted as a single-file subPath at
-	// <home>/.vnc/kasmvnc.yaml. For a kasmvnc workspace this is always
-	// non-empty (it carries at least the DLP block);
-	// applyClipboardPolicy's only error path is invalid admin YAML, which
-	// ensureKasmConfig already rejected earlier this reconcile.
+	// Effective KasmVNC config (admin template + policy enforcement),
+	// mounted as a single-file subPath at <home>/.vnc/kasmvnc.yaml. For a
+	// kasmvnc workspace this is always non-empty (it carries at least the
+	// DLP block); applyPolicy's only error path is invalid admin YAML,
+	// which ensureKasmConfig already rejected earlier this reconcile. The
+	// same policy decision also gates the printer env below.
 	kasmConfig := ""
+	var kasmPol kasmPolicy
 	if templateHasKasmVNC(tpl) {
-		copyAllowed, pasteAllowed := r.kasmClipboardGrant(ctx, ws)
-		kasmConfig, _ = applyClipboardPolicy(tpl.Spec.KasmVNCConfig, copyAllowed, pasteAllowed)
+		kasmPol = r.kasmPolicyOf(ctx, ws)
+		kasmConfig, _ = applyPolicy(tpl.Spec.KasmVNCConfig, kasmPol)
 	}
 	if kasmConfig != "" {
 		volumes = append(volumes,
@@ -174,8 +175,8 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	labels, annotations := workloadMeta(ws, tpl)
 	// The kasmvnc config is content OUTSIDE the pod spec (a ConfigMap):
 	// its hash rides the annotations so the generic fingerprint below
-	// covers config edits AND policy-driven clipboard changes (a policy
-	// edit changes the effective content and thus rolls the workload).
+	// covers config edits AND policy-driven changes (a policy edit changes
+	// the effective content and thus rolls the workload).
 	if kasmConfig != "" {
 		if annotations == nil {
 			annotations = map[string]string{}
@@ -204,7 +205,7 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 			Containers: []corev1.Container{{
 				Name:            "desktop",
 				Image:           tpl.Spec.Image,
-				Env:             desktopEnv(ws, tpl, ov),
+				Env:             desktopEnv(ws, tpl, ov, kasmPol.printing),
 				Resources:       resources,
 				Ports:           ports,
 				SecurityContext: securityContext,
@@ -446,14 +447,19 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 // both from the pod-namespace Secret) when no explicit source
 // provides one — the kasmvnc and vnc/rdp mechanisms are mutually
 // exclusive, so at most one injection fires. kasmvnc containers also get
-// the kasmweb side services forced off, laid last so no template or
-// override value survives (kasmcfg.DisabledSideServiceEnv).
-func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides) []corev1.EnvVar {
+// the kasmweb side services stamped — off, except the printer when the
+// owner's policy allows download — laid last so no template or override
+// value survives (kasmcfg.SideServiceEnv).
+func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides, printing bool) []corev1.EnvVar {
 	env := mergeEnv(tpl.Spec.Env, sanitizeOverrideEnv(ov.Env))
 	if templateHasKasmVNC(tpl) {
-		off := make([]corev1.EnvVar, 0, len(kasmcfg.DisabledSideServiceEnv))
-		for _, name := range kasmcfg.DisabledSideServiceEnv {
-			off = append(off, corev1.EnvVar{Name: name, Value: "0"})
+		off := make([]corev1.EnvVar, 0, len(kasmcfg.SideServiceEnv))
+		for _, name := range kasmcfg.SideServiceEnv {
+			value := "0"
+			if name == kasmcfg.PrinterEnv && printing {
+				value = "1"
+			}
+			off = append(off, corev1.EnvVar{Name: name, Value: value})
 		}
 		// mergeEnv only replaces the FIRST entry of a given name, so a
 		// stored template that lists one of these names twice (legacy
@@ -461,7 +467,7 @@ func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate,
 		// second entry instead of the stamp. Drop every existing entry
 		// of these names outright before appending the stamps.
 		env = slices.DeleteFunc(env, func(e corev1.EnvVar) bool {
-			return slices.Contains(kasmcfg.DisabledSideServiceEnv, e.Name)
+			return slices.Contains(kasmcfg.SideServiceEnv, e.Name)
 		})
 		env = append(env, off...)
 	}

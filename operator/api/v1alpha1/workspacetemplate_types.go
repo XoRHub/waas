@@ -365,11 +365,11 @@ type WorkspaceTemplateSpec struct {
 	// per-workspace ConfigMap mounted with subPath — the .vnc directory
 	// itself stays writable for the runtime artifacts KasmVNC generates
 	// there). The string is opaque to the operator EXCEPT for the
-	// clipboard DLP keys, which are derived from WorkspacePolicy.Clipboard
-	// and stamped over it at reconcile (the webhook rejects an admin who
-	// writes those keys directly — see applyClipboardPolicy and
-	// policyManagedClipboardKeys). Every other upstream option passes
-	// through unparsed, so no schema churn.
+	// policy-managed keys (clipboard DLP and watermark), which are derived
+	// from WorkspacePolicy.Clipboard / .Watermark and stamped over it at
+	// reconcile (the webhook rejects an admin who writes those keys
+	// directly — see applyPolicy and kasmcfg.PolicyManagedKeys). Every
+	// other upstream option passes through unparsed, so no schema churn.
 	//
 	// This is admin-only surface (templates are admin-managed CRs); note
 	// it can loosen security-relevant settings (require_ssl, auth file
@@ -382,7 +382,7 @@ type WorkspaceTemplateSpec struct {
 	// falls back to the image default — WaaS does NOT re-bake those
 	// defaults (that would freeze them against future image versions).
 	// Empty still yields a mount for a kasmvnc template (it carries the
-	// policy clipboard block); the mount is unconditional, not gated on
+	// policy-managed keys); the mount is unconditional, not gated on
 	// this field. Reference for valid keys:
 	// https://kasmweb.com/kasmvnc/docs/latest/configuration.html
 	//

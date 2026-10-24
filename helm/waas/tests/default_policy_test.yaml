@@ -28,6 +28,8 @@ tests:
       defaultPolicy.clipboard:
         copyFromWorkspace: false
         pasteToWorkspace: false
+      defaultPolicy.fileTransfer: { download: true }
+      defaultPolicy.watermark: "{user} %H:%M"
       defaultPolicy.overrides: { allowedFields: [] }
       defaultPolicy.remoteWorkspaces: false
     asserts:
@@ -65,6 +67,12 @@ tests:
       - equal:
           path: spec.clipboard.pasteToWorkspace
           value: false
+      - equal:
+          path: spec.fileTransfer
+          value: { download: true }
+      - equal:
+          path: spec.watermark
+          value: "{user} %H:%M"
       - notExists:
           path: spec.overrides
       - equal:

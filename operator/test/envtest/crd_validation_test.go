@@ -185,3 +185,30 @@ func TestWorkspaceTemplateEnums(t *testing.T) {
 		t.Fatalf("invalid overridable field must fail the enum, got %v", err)
 	}
 }
+
+// TestWorkspacePolicyWatermarkPattern probes the shell-safety markers on
+// the watermark: KasmVNC's vncserver expands ${NAME} and single-quotes
+// the text unescaped into a shell command, so ', $ and control
+// characters must never reach it (see kasmcfg.ValidateWatermark).
+func TestWorkspacePolicyWatermarkPattern(t *testing.T) {
+	requireEnv(t)
+	ns := newNS(t, "crd-watermark")
+	ctx := context.Background()
+
+	for i, bad := range []string{"it's", "${EVIL}", "a\nb", "a\x01b", strings.Repeat("x", 201)} {
+		pol := &waasv1alpha1.WorkspacePolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "bad-" + string(rune('a'+i)), Namespace: ns},
+			Spec:       waasv1alpha1.WorkspacePolicySpec{Watermark: bad},
+		}
+		if err := adminCli.Create(ctx, pol); err == nil {
+			t.Fatalf("watermark %q must be rejected by the schema", bad)
+		}
+	}
+	ok := &waasv1alpha1.WorkspacePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "ok", Namespace: ns},
+		Spec:       waasv1alpha1.WorkspacePolicySpec{Watermark: "{user} %H:%M café"},
+	}
+	if err := adminCli.Create(ctx, ok); err != nil {
+		t.Fatalf("a plain watermark must be admitted: %v", err)
+	}
+}

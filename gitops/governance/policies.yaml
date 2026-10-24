@@ -34,6 +34,13 @@ spec:
   # clipboard:
   #   copyFromWorkspace: false   # workspace → poste local
   #   pasteToWorkspace: true     # poste local → workspace
+  # Transfert de fichiers, par direction — opt-in (absent = tout refusé).
+  # Sur kasmvnc, download active aussi l'impression. Filigrane KasmVNC :
+  # texte, {user} = username du propriétaire, directives strftime.
+  # fileTransfer:
+  #   upload: false
+  #   download: true
+  # watermark: "{user} %H:%M"
 ---
 apiVersion: waas.xorhub.io/v1alpha1
 kind: WorkspacePolicy
@@ -91,6 +98,7 @@ spec:
       name: admin
   images: []               # tout le catalogue
   remoteWorkspaces: true
+  fileTransfer: { upload: true, download: true }   # opt-in : absent = refusé, même pour les admins
   overrides:
     allowedFields: [env, securityContext, podSecurityContext, volumes,
                     nodeSelector, tolerations, resources, protocol,

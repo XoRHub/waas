@@ -37,13 +37,13 @@ independent decision points.
 | Session menu (`SessionOverlay.tsx`) | read-only | all | display only | mirrors the already-clamped result + names WHO blocked it (`ClipboardLockPolicy` vs `ClipboardLockParams`) |
 
 The session menu is never a decision point — it mirrors the result
-already computed server-side (`clipboardCapabilities`,
+already computed server-side (`sessionCapabilities`,
 `api-server/internal/service/workspace_service.go`).
 
 ### Resolution chain — guacd (`vnc`/`rdp`)
 
 Code: `WorkspaceService.Connect` and
-`clampClipboardGrant`/`mergeParams`/`clipboardCapabilities`
+`clampClipboardGrant`/`mergeParams`/`sessionCapabilities`
 (`api-server/internal/service/workspace_service.go`).
 
 1. `policyGrant = policy.ClipboardOf(resolved policy of the CONNECTING
@@ -58,7 +58,7 @@ Code: `WorkspaceService.Connect` and
    value == true)` — a param can only restrict, never widen beyond the
    policy (guarded by `connect_clipboard_test.go`).
 4. The signed connection token embeds `effectiveGrant` — that is what
-   wwt enforces via the tunnel. `clipboardCapabilities` builds only the
+   wwt enforces via the tunnel. `sessionCapabilities` builds only the
    display view plus the blocking-reason label (policy wins the label
    if both block).
 
@@ -70,8 +70,11 @@ putting it in `params` alone fixes the value for everyone.
 
 ### Resolution chain — `kasmvnc`
 
-Code: `ensureKasmConfig`/`kasmClipboardGrant`/`applyClipboardPolicy`
-(`operator/internal/controller/kasm_config.go`).
+Code: `ensureKasmConfig`/`kasmPolicyOf`/`applyPolicy`
+(`operator/internal/controller/kasm_config.go`). The same owner-policy
+resolution also carries the kasmvnc watermark and printer gate
+(`docs/kasmvnc.md` § File transfer, printing, watermark) — one decision
+per reconcile, stamped together.
 
 1. At reconcile (not at connection time): `policy.ClipboardOf(resolved
    policy of the workspace OWNER, not of the connecting user)` —

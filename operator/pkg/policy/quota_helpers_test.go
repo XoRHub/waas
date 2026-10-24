@@ -65,6 +65,32 @@ func TestClipboardOf(t *testing.T) {
 	}
 }
 
+// File transfer is opt-in: only an explicit true grants a direction.
+func TestFileTransferOf(t *testing.T) {
+	cases := []struct {
+		name             string
+		pol              *waasv1alpha1.WorkspacePolicy
+		upload, download bool
+	}{
+		{"nil policy fails closed", nil, false, false},
+		{"absent block denies both", &waasv1alpha1.WorkspacePolicy{}, false, false},
+		{"explicit grant sticks", &waasv1alpha1.WorkspacePolicy{
+			Spec: waasv1alpha1.WorkspacePolicySpec{FileTransfer: &waasv1alpha1.FileTransferPolicy{Download: true}},
+		}, false, true},
+	}
+	for _, tc := range cases {
+		if u, d := FileTransferOf(tc.pol); u != tc.upload || d != tc.download {
+			t.Errorf("%s: got upload=%v download=%v, want %v/%v", tc.name, u, d, tc.upload, tc.download)
+		}
+	}
+	if got := WatermarkOf(nil); got != "" {
+		t.Errorf("nil policy must carry no watermark, got %q", got)
+	}
+	if got := WatermarkOf(&waasv1alpha1.WorkspacePolicy{Spec: waasv1alpha1.WorkspacePolicySpec{Watermark: "x {user}"}}); got != "x {user}" {
+		t.Errorf("watermark must pass through untouched, got %q", got)
+	}
+}
+
 func TestTemplatesByName(t *testing.T) {
 	items := []waasv1alpha1.WorkspaceTemplate{
 		{ObjectMeta: metav1.ObjectMeta{Name: "a"}},

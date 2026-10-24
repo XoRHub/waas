@@ -134,7 +134,12 @@ describe('DesktopPane', () => {
 
 describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
   const renderKasm = async (
-    capabilities: SessionCapabilities = { clipboardCopy: true, clipboardPaste: true },
+    capabilities: SessionCapabilities = {
+      clipboardCopy: true,
+      clipboardPaste: true,
+      fileUpload: false,
+      fileDownload: false,
+    },
     autoFocus = false,
   ) => {
     apiMock.api.post.mockResolvedValue({
@@ -250,7 +255,12 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
   });
 
   it.each([true, false])('relays clipboardrx only when copy is allowed (%s)', async (allowed) => {
-    const { pane, fromClient } = await renderKasm({ clipboardCopy: allowed, clipboardPaste: true });
+    const { pane, fromClient } = await renderKasm({
+      clipboardCopy: allowed,
+      clipboardPaste: true,
+      fileUpload: false,
+      fileDownload: false,
+    });
 
     fromClient({ action: 'clipboardrx', value: 'from desktop' });
 
@@ -258,7 +268,12 @@ describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
   });
 
   it.each([true, false])('sends clipboardsnd only when paste is allowed (%s)', async (allowed) => {
-    const { pane, frame } = await renderKasm({ clipboardCopy: true, clipboardPaste: allowed });
+    const { pane, frame } = await renderKasm({
+      clipboardCopy: true,
+      clipboardPaste: allowed,
+      fileUpload: false,
+      fileDownload: false,
+    });
     const post = vi.spyOn(frame.contentWindow!, 'postMessage');
 
     pane.current!.sendClipboard('to desktop');

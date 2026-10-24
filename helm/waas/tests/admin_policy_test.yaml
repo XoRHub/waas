@@ -40,12 +40,14 @@ tests:
           path: spec.images
           value: []
 
-  - it: omits limits/lifecycle/clipboard/overrides when left empty (unlimited admin)
+  - it: omits limits/lifecycle/clipboard/fileTransfer/watermark/overrides when left empty (unlimited admin)
     set:
       adminPolicy.enabled: true
       adminPolicy.limits: {}
       adminPolicy.lifecycle: {}
       adminPolicy.clipboard: {}
+      adminPolicy.fileTransfer: null
+      adminPolicy.watermark: ""
       adminPolicy.overrides: { allowedFields: [] }
     asserts:
       - notExists:
@@ -55,7 +57,19 @@ tests:
       - notExists:
           path: spec.clipboard
       - notExists:
+          path: spec.fileTransfer
+      - notExists:
+          path: spec.watermark
+      - notExists:
           path: spec.overrides
+
+  - it: grants both file-transfer directions by default (all-rights policy)
+    set:
+      adminPolicy.enabled: true
+    asserts:
+      - equal:
+          path: spec.fileTransfer
+          value: { upload: true, download: true }
 
   - it: renders limits/lifecycle/clipboard/overrides when set, for full bootstrap customization
     set:

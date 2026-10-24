@@ -381,6 +381,29 @@ func TestUpsertPolicyRoundTripsMaxRunning(t *testing.T) {
 	}
 }
 
+// TestUpsertPolicyRoundTripsFileTransferAndWatermark pins the editor
+// mapping of the kasmvnc policy gates, and the watermark refusals that
+// mirror the CRD markers as 400s.
+func TestUpsertPolicyRoundTripsFileTransferAndWatermark(t *testing.T) {
+	svc := newGovernanceFixture(t, nil, nil)
+	m, err := svc.AdminUpsertPolicy(context.Background(), Actor{ID: "admin"}, "p1", UpsertPolicyInput{
+		FileTransfer: &model.FileTransferPolicyModel{Download: true},
+		Watermark:    "{user} %H:%M",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.FileTransfer == nil || m.FileTransfer.Upload || !m.FileTransfer.Download || m.Watermark != "{user} %H:%M" {
+		t.Fatalf("fileTransfer/watermark must round-trip through the admin editor, got %+v / %q", m.FileTransfer, m.Watermark)
+	}
+	for _, bad := range []string{"it's", "${VNC_PW}", "a\nb", strings.Repeat("x", 201)} {
+		_, err = svc.AdminUpsertPolicy(context.Background(), Actor{ID: "admin"}, "p1", UpsertPolicyInput{Watermark: bad})
+		if err == nil || !strings.Contains(err.Error(), "watermark:") {
+			t.Fatalf("watermark %q must be a 400, got %v", bad, err)
+		}
+	}
+}
+
 // registryImageInput is a minimal valid registry-mode upsert payload
 // carrying the given catalog block.
 func registryImageInput(catalog *model.CatalogSourceModel) UpsertImageInput {

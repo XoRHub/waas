@@ -46,7 +46,7 @@ func TestTunnelGaugeAndByteCounters(t *testing.T) {
 	baseBytes := testutil.ToFloat64(toBrowser)
 
 	token, err := signer.Sign(auth.NewConnectionClaims("waas-test", "user-1", "sess-1", "ws-1",
-		auth.ClipboardGrant{Copy: true, Paste: true}, time.Minute))
+		auth.ClipboardGrant{Copy: true, Paste: true}, auth.FileTransferGrant{}, time.Minute))
 	if err != nil {
 		t.Fatalf("signing: %v", err)
 	}

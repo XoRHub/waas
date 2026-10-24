@@ -67,6 +67,30 @@ type WorkspacePolicySpec struct {
 	// +optional
 	Clipboard *ClipboardPolicy `json:"clipboard,omitempty"`
 
+	// FileTransfer gates file movement between the user's machine and
+	// their workspace sessions, per direction. Absent = both directions
+	// denied (fail closed): a wider channel than the clipboard, so it is
+	// opt-in. Carried in the connection token and the session
+	// capabilities; today it reaches the kasmvnc data plane only
+	// (printing follows download) — the guacd sftp/drive parameters stay
+	// platform-blocked.
+	// +optional
+	FileTransfer *FileTransferPolicy `json:"fileTransfer,omitempty"`
+
+	// Watermark is a text template KasmVNC renders over the desktop of
+	// the governed users' kasmvnc sessions — a deterrent enforced by Xvnc
+	// inside the container (soft control, see docs/kasmvnc.md). Xvnc
+	// expands strftime directives live (%H:%M); the WaaS token {user} is
+	// replaced by the workspace owner's username at reconcile. Empty =
+	// no watermark. Single quotes, $ and control characters are refused:
+	// KasmVNC's vncserver expands ${NAME} from its environment, then hands
+	// the text to Xvnc single-quoted and unescaped through a shell (both
+	// markers mirrored by kasmcfg.ValidateWatermark).
+	// +kubebuilder:validation:MaxLength=200
+	// +kubebuilder:validation:Pattern=`^[^'$\x00-\x1f\x7f]*$`
+	// +optional
+	Watermark string `json:"watermark,omitempty"`
+
 	// Overrides bounds instantiation-time template overrides for the
 	// governed users, on top of each template's own allow-list.
 	// +optional
@@ -105,6 +129,20 @@ type ClipboardPolicy struct {
 	// workspace (data injection direction).
 	// +optional
 	PasteToWorkspace *bool `json:"pasteToWorkspace,omitempty"`
+}
+
+// FileTransferPolicy gates the two file-transfer directions
+// independently. Absent booleans mean denied.
+type FileTransferPolicy struct {
+	// Upload permits sending files from the user's machine INTO the
+	// workspace (data injection direction).
+	// +optional
+	Upload bool `json:"upload,omitempty"`
+	// Download permits fetching files FROM the workspace to the user's
+	// machine (data exfiltration direction). On kasmvnc it also enables
+	// printing — print-to-PDF then download, the same egress class.
+	// +optional
+	Download bool `json:"download,omitempty"`
 }
 
 // PolicyLimits — absent fields mean "unlimited" so the restrictive
