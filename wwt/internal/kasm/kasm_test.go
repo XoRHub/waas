@@ -219,7 +219,7 @@ func TestRejectsNonKasmSessions(t *testing.T) {
 	}
 }
 
-func TestBlocksDownloadsAPI(t *testing.T) {
+func TestBlocksDownloadsPaths(t *testing.T) {
 	upstream, hits := newFakeKasmVNC(t)
 	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
 	server := httptest.NewServer(handler)
@@ -237,25 +237,40 @@ func TestBlocksDownloadsAPI(t *testing.T) {
 	priming := hits.Load()
 
 	// Every shape of the downloads path — listing, subdirectory, and the
-	// normalization tricks (case, trailing slash, dot, double slash) —
-	// must be refused, and the workspace container must never be reached.
-	for _, p := range []string{
-		"/api/downloads",
-		"/api/downloads/",
-		"/api/downloads?path=sub",
-		"/api/downloads/secret.txt",
-		"/API/Downloads",
-		"/api/./downloads",
-		"/api//downloads",
-	} {
-		req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1"+p, nil)
+	// normalization tricks (case, trailing slash, dot, double slash,
+	// embedded NUL) — must be refused, and the workspace container must
+	// never be reached.
+	cases := []struct {
+		path string
+		want int
+	}{
+		{"/api/downloads", http.StatusForbidden},
+		{"/api/downloads/", http.StatusForbidden},
+		{"/api/downloads?path=sub", http.StatusForbidden},
+		{"/api/downloads/secret.txt", http.StatusForbidden},
+		{"/API/Downloads", http.StatusForbidden},
+		{"/api/./downloads", http.StatusForbidden},
+		{"/api//downloads", http.StatusForbidden},
+		// The kasmweb images' www/Downloads/Downloads → ~/Downloads symlink.
+		{"/Downloads", http.StatusForbidden},
+		{"/Downloads/", http.StatusForbidden},
+		{"/Downloads/Downloads/secret.txt", http.StatusForbidden},
+		{"/downloads/downloads/", http.StatusForbidden},
+		{"/./Downloads//Downloads", http.StatusForbidden},
+		// An embedded NUL truncates the upstream's own percent-decoder
+		// past isDownloadsPath's exact/prefix match ("/Downloads\x00x" is
+		// neither "/downloads" nor "/downloads/..."); rejected outright.
+		{"/Downloads%00x", http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1"+tc.path, nil)
 		resp, err := client.Do(req)
 		if err != nil {
-			t.Fatalf("GET %s: %v", p, err)
+			t.Fatalf("GET %s: %v", tc.path, err)
 		}
 		resp.Body.Close()
-		if resp.StatusCode != http.StatusForbidden {
-			t.Errorf("expected 403 for %q, got %d", p, resp.StatusCode)
+		if resp.StatusCode != tc.want {
+			t.Errorf("expected %d for %q, got %d", tc.want, tc.path, resp.StatusCode)
 		}
 	}
 	if hits.Load() != priming {
@@ -279,6 +294,7 @@ func TestWebsocketPassthroughEndsSessionOnClose(t *testing.T) {
 	upstream, _ := newFakeKasmVNC(t)
 	api := &fakeAPI{info: kasmInfo(t, upstream)}
 	handler, signer := newTestHandler(t, api)
+	handler.endGrace = 10 * time.Millisecond
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -316,6 +332,115 @@ func TestWebsocketPassthroughEndsSessionOnClose(t *testing.T) {
 	}
 	if api.ended.Load() != 1 {
 		t.Fatalf("expected exactly one EndSession after the stream closed, got %d", api.ended.Load())
+	}
+}
+
+// The session only ends once its LAST stream has been gone for the
+// whole grace: a reconnect within it (KasmVNC's auto-reconnect) keeps
+// it alive. A long endGrace makes this a pure negative assertion on
+// in-memory state (no timer can fire during the test), instead of a
+// sleep racing the real timer — flaky under -race/load.
+func TestSessionEndCancelledByReconnect(t *testing.T) {
+	api := &fakeAPI{}
+	handler, _ := newTestHandler(t, api)
+	handler.endGrace = time.Hour
+
+	handler.streamOpened("sess-1")
+	handler.streamClosed("sess-1", "ws1")
+	handler.streamOpened("sess-1")
+
+	handler.mu.Lock()
+	s := handler.streams["sess-1"]
+	live, pending := s.live, s.pending
+	handler.mu.Unlock()
+	if live != 1 {
+		t.Fatalf("expected live == 1 after the reconnect, got %d", live)
+	}
+	if pending != nil {
+		t.Fatal("a reconnect within the grace must cancel the pending end")
+	}
+	if n := api.ended.Load(); n != 0 {
+		t.Fatalf("a reconnect within the grace must not end the session, got %d EndSession", n)
+	}
+}
+
+// A still-open second stream (multi-monitor screen.html) keeps the
+// session alive when one of the two closes — same determinism rationale
+// as above: assert the state, don't sleep past a timer that must not
+// have been armed at all.
+func TestSessionEndWaitsForLastStream(t *testing.T) {
+	api := &fakeAPI{}
+	handler, _ := newTestHandler(t, api)
+	handler.endGrace = time.Hour
+
+	handler.streamOpened("sess-1")
+	handler.streamOpened("sess-1")
+	handler.streamClosed("sess-1", "ws1")
+
+	handler.mu.Lock()
+	s := handler.streams["sess-1"]
+	live, pending := s.live, s.pending
+	handler.mu.Unlock()
+	if live != 1 {
+		t.Fatalf("expected live == 1 with one stream still open, got %d", live)
+	}
+	if pending != nil {
+		t.Fatal("a still-open stream must not arm a pending end")
+	}
+}
+
+// endSession's gen fence is what actually matters: Stop() can lose the
+// race against an already-firing timer, so a stale generation must
+// still be rejected even when called directly, bypassing timing
+// altogether.
+func TestEndSessionIgnoresStaleGeneration(t *testing.T) {
+	api := &fakeAPI{}
+	handler, _ := newTestHandler(t, api)
+
+	handler.streamOpened("sess-1")
+	handler.streamClosed("sess-1", "ws1") // live 0, arms a pending end
+	handler.streamOpened("sess-1")        // reconnect: cancels it, bumps gen again
+
+	handler.mu.Lock()
+	s := handler.streams["sess-1"]
+	staleGen := s.gen - 1 // the generation the (stopped) timer was armed for
+	handler.mu.Unlock()
+
+	handler.endSession("sess-1", "ws1", s, staleGen)
+
+	if n := api.ended.Load(); n != 0 {
+		t.Fatalf("a stale generation must not end the session, got %d EndSession", n)
+	}
+	handler.mu.Lock()
+	_, tracked := handler.streams["sess-1"]
+	handler.mu.Unlock()
+	if !tracked {
+		t.Fatal("the session must still be tracked after a stale-generation call")
+	}
+}
+
+// The one case that genuinely needs the timer to fire: a short grace,
+// polled rather than slept on.
+func TestSessionEndFiresOnceGraceElapses(t *testing.T) {
+	api := &fakeAPI{}
+	handler, _ := newTestHandler(t, api)
+	handler.endGrace = time.Millisecond
+
+	handler.streamOpened("sess-1")
+	handler.streamClosed("sess-1", "ws1")
+
+	deadline := time.Now().Add(3 * time.Second)
+	for api.ended.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n := api.ended.Load(); n != 1 {
+		t.Fatalf("expected exactly one EndSession once the grace elapsed, got %d", n)
+	}
+	handler.mu.Lock()
+	_, tracked := handler.streams["sess-1"]
+	handler.mu.Unlock()
+	if tracked {
+		t.Fatal("an ended session must not stay tracked")
 	}
 }
 

@@ -47,6 +47,11 @@ const (
 	// internal API, but a paused/deleted workspace must stop resolving
 	// quickly.
 	infoTTL = 20 * time.Second
+	// reconnectGrace is how long a session outlives its last desktop
+	// stream: the KasmVNC client reconnects on its own after a network
+	// blip, which only works while the api-server still resolves the
+	// session (an ended one answers 409).
+	reconnectGrace = 30 * time.Second
 )
 
 // Handler serves /kasm/{sessionID}/… by proxying to that session's
@@ -57,9 +62,22 @@ type Handler struct {
 	API    proxy.APIClient
 
 	transport http.RoundTripper
+	endGrace  time.Duration
 
-	mu    sync.Mutex
-	infos map[string]cachedInfo
+	mu      sync.Mutex
+	infos   map[string]cachedInfo
+	streams map[string]*sessionStreams
+}
+
+// sessionStreams tracks one session's upgraded WebSockets: the client
+// may hold several at once (multi-monitor screen.html windows), and the
+// session only ends once the last one has been gone for endGrace.
+type sessionStreams struct {
+	live int
+	// gen invalidates a pending end: bumped on every open and every
+	// drop to zero, so a timer only fires the end it was armed for.
+	gen     uint64
+	pending *time.Timer
 }
 
 type cachedInfo struct {
@@ -80,7 +98,9 @@ func NewHandler(issuer string, keys *jwks.Client, api proxy.APIClient) *Handler 
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402
 			IdleConnTimeout: 90 * time.Second,
 		},
-		infos: map[string]cachedInfo{},
+		endGrace: reconnectGrace,
+		infos:    map[string]cachedInfo{},
+		streams:  map[string]*sessionStreams{},
 	}
 }
 
@@ -91,6 +111,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sid, rest, ok := splitPath(r.URL.Path)
 	if !ok {
 		http.NotFound(w, r)
+		return
+	}
+	// A NUL truncates the upstream's own percent-decoder: /Downloads%00x
+	// decodes here to "/Downloads\x00x" — past isDownloadsPath's
+	// exact/prefix match — but upstream reads it as "/Downloads" and
+	// serves the symlinked listing anyway. Reject outright.
+	if strings.ContainsRune(rest, 0) {
+		http.Error(w, "invalid request path", http.StatusBadRequest)
 		return
 	}
 
@@ -132,17 +160,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// KasmVNC's downloads API (/api/downloads) lists — and serves — files
-	// from the session's downloads directory: the same session→browser
+	// from the session's downloads directory, and the kasmweb images
+	// expose the same directory a second way: www/Downloads/Downloads is
+	// a symlink to ~/Downloads, which the built-in HTTP server lists and
+	// serves (verified on kasmweb 1.19.0). Both are the session→browser
 	// file egress the guacd path gates behind TierPlatform for
 	// enable-sftp/enable-drive ("until the file-transfer feature ships
 	// with its own policy gate", operator/pkg/params/params.go). No such
-	// gate exists for kasmvnc yet, so the endpoint is blocked outright to
-	// keep file egress governed identically across protocols. The rest of
-	// the kasmvnc /api surface stays open by design: a WaaS kasmvnc
-	// session is single-user and self-owned (kasm_user holds the owner
-	// role), with no third party to protect the user from — see
-	// docs/kasmvnc.md.
-	if isDownloadsAPIPath(rest) {
+	// gate exists for kasmvnc yet, so both are blocked outright to keep
+	// file egress governed identically across protocols. The rest of the
+	// kasmvnc /api surface stays open by design: a WaaS kasmvnc session
+	// is single-user and self-owned (kasm_user holds the owner role),
+	// with no third party to protect the user from — see docs/kasmvnc.md.
+	if isDownloadsPath(rest) {
 		http.Error(w, "file transfer is not enabled for this session", http.StatusForbidden)
 		return
 	}
@@ -162,23 +192,77 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Proxy. httputil.ReverseProxy relays WebSocket upgrades natively
 	// and only returns once the tunnel closes — which is exactly the
-	// session-end signal the platform needs.
+	// session-end signal the platform needs (after the reconnect grace).
 	isDesktopStream := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 	if isDesktopStream {
 		// The upgraded request only returns once the tunnel closes: its
 		// whole lifetime is the desktop stream. Asset requests don't count.
 		metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolKasm).Inc()
+		h.streamOpened(sid)
+		// ServeHTTP can panic without unwinding past this point (e.g.
+		// http.ErrAbortHandler, which net/http recovers silently): defer
+		// the close accounting so the stream count never leaks.
+		defer func() {
+			metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolKasm).Dec()
+			h.streamClosed(sid, claims.WorkspaceID)
+		}()
 	}
 	h.proxyTo(info, sid, rest).ServeHTTP(w, r)
+}
 
-	if isDesktopStream {
-		metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolKasm).Dec()
-		endCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		h.API.EndSession(endCtx, sid)
-		h.forget(sid)
-		slog.InfoContext(ctx, "kasm session ended", "session", sid, "workspace", claims.WorkspaceID)
+// streamOpened counts a new desktop stream and cancels a pending end
+// (the client reconnected within the grace).
+func (h *Handler) streamOpened(sid string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s := h.streams[sid]
+	if s == nil {
+		s = &sessionStreams{}
+		h.streams[sid] = s
 	}
+	if s.pending != nil {
+		s.pending.Stop()
+		s.pending = nil
+	}
+	s.gen++
+	s.live++
+}
+
+// streamClosed arms the session end once its last stream is gone.
+// Pending ends live in memory only: a wwt restart or crash within the
+// grace loses them, and the api-server's SessionSweeper is NOT a safety
+// net for that — it only reaps sessions whose workspace was deleted, so
+// a lost end leaves the row open (and idle-suspend blocked) until the
+// workspace itself goes away.
+func (h *Handler) streamClosed(sid, workspaceID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s := h.streams[sid]
+	s.live--
+	if s.live > 0 {
+		return
+	}
+	s.gen++
+	gen := s.gen
+	s.pending = time.AfterFunc(h.endGrace, func() { h.endSession(sid, workspaceID, s, gen) })
+}
+
+// endSession ends the session unless a stream reopened since the timer
+// was armed (Stop can lose the race against an already-firing timer).
+func (h *Handler) endSession(sid, workspaceID string, s *sessionStreams, gen uint64) {
+	h.mu.Lock()
+	if h.streams[sid] != s || s.gen != gen {
+		h.mu.Unlock()
+		return
+	}
+	delete(h.streams, sid)
+	delete(h.infos, sid)
+	h.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	h.API.EndSession(ctx, sid)
+	slog.Info("kasm session ended", "session", sid, "workspace", workspaceID)
 }
 
 func (h *Handler) proxyTo(info *proxy.ConnectionInfo, sid, rest string) *httputil.ReverseProxy {
@@ -236,20 +320,21 @@ func (h *Handler) connectionInfo(r *http.Request, sid string) (*proxy.Connection
 	return info, nil
 }
 
-func (h *Handler) forget(sid string) {
-	h.mu.Lock()
-	delete(h.infos, sid)
-	h.mu.Unlock()
-}
-
-// isDownloadsAPIPath reports whether an upstream path targets KasmVNC's
-// downloads API (/api/downloads or any subpath). The path arrives
-// already URL-decoded from splitPath (leading slash guaranteed); it is
-// normalized and lowercased before matching so trailing-slash, dot, and
-// double-slash variants can't slip a request past the block.
-func isDownloadsAPIPath(p string) bool {
+// isDownloadsPath reports whether an upstream path targets the session's
+// downloads folder: KasmVNC's downloads API (/api/downloads) or the
+// kasmweb images' www/Downloads symlink (/Downloads), with any subpath.
+// The path arrives already URL-decoded from splitPath (leading slash
+// guaranteed); it is normalized and lowercased before matching so
+// case, trailing-slash, dot, and double-slash variants can't slip a
+// request past the block.
+func isDownloadsPath(p string) bool {
 	clean := strings.ToLower(path.Clean(p))
-	return clean == "/api/downloads" || strings.HasPrefix(clean, "/api/downloads/")
+	for _, prefix := range []string{"/api/downloads", "/downloads"} {
+		if clean == prefix || strings.HasPrefix(clean, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // splitPath extracts the session ID and the upstream path from

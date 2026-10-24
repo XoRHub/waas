@@ -31,6 +31,9 @@ export const DEFAULT_PORTS: Record<string, number> = {
   kasmvnc: 6901,
 };
 
+/** kasmweb images expect their home here, not at the platform default. */
+const KASM_HOME = '/home/kasm-user';
+
 /**
  * The OS-bound protocol rule of in-cluster templates, as the admission
  * webhook enforces it: a linux template serves vnc or kasmvnc, a
@@ -111,6 +114,9 @@ export function TemplateDialog({
   const prefillBadge = (key: keyof typeof touched) => (touched[key] ? badge : undefined);
 
   const set = (patch: Partial<TemplateInput>) => setInput((prev) => ({ ...prev, ...patch }));
+  // Adding kasmvnc pre-fills the kasmweb home, only while still empty.
+  const kasmHomeDefault = (names: string[]): Partial<TemplateInput> =>
+    names.includes('kasmvnc') && !input.homeMountPath ? { homeMountPath: KASM_HOME } : {};
 
   // Env hints the catalog recommends WITHOUT a default: offered as
   // greyed suggestions in EnvFieldset instead of real env rows, so an
@@ -203,7 +209,9 @@ export function TemplateDialog({
       .filter((h) => h.default == null && !existingNames.has(h.name))
       .map((h) => ({ name: h.name, description: h.description, adopted: false }));
     set({
-      ...(nextProtocols !== protocols ? { protocols: nextProtocols } : {}),
+      ...(nextProtocols !== protocols
+        ? { protocols: nextProtocols, ...kasmHomeDefault(nextProtocols.map((p) => p.name)) }
+        : {}),
       ...(additions.length > 0 ? { env: [...(input.env ?? []), ...additions] } : {}),
     });
     // Re-deriving drops stale non-adopted suggestions; adopted ones
@@ -306,6 +314,7 @@ export function TemplateDialog({
         ...protocols,
         { name, port: DEFAULT_PORTS[name] ?? 0, default: protocols.length === 0 },
       ],
+      ...kasmHomeDefault([name]),
     });
     setActiveProto(name);
   };

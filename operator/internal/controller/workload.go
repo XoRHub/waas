@@ -6,16 +6,20 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path"
+	"slices"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/metakeys"
 	"github.com/xorhub/waas/operator/pkg/policy"
 )
@@ -140,6 +144,22 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 				SubPath:   kasmConfigKey,
 				ReadOnly:  true,
 			})
+	}
+
+	// Browsers in kasmweb images outgrow the container runtime's default
+	// 64Mi /dev/shm. An admin mount there (volumes passthrough) wins: a
+	// second mount on the same path would be rejected by the API server.
+	if templateHasKasmVNC(tpl) && !slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+		return path.Clean(m.MountPath) == kasmShmPath
+	}) {
+		volumes = append(volumes, corev1.Volume{
+			Name: kasmShmVolume,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
+				Medium:    corev1.StorageMediumMemory,
+				SizeLimit: ptr.To(resource.MustParse(kasmShmSize)),
+			}},
+		})
+		mounts = append(mounts, corev1.VolumeMount{Name: kasmShmVolume, MountPath: kasmShmPath})
 	}
 
 	securityContext := wl.SecurityContext
@@ -425,9 +445,26 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 // (WAAS_DESKTOP_PASSWORD for waas-core-images, kasmweb's VNC_PW for kasm,
 // both from the pod-namespace Secret) when no explicit source
 // provides one — the kasmvnc and vnc/rdp mechanisms are mutually
-// exclusive, so at most one injection fires.
+// exclusive, so at most one injection fires. kasmvnc containers also get
+// the kasmweb side services forced off, laid last so no template or
+// override value survives (kasmcfg.DisabledSideServiceEnv).
 func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides) []corev1.EnvVar {
 	env := mergeEnv(tpl.Spec.Env, sanitizeOverrideEnv(ov.Env))
+	if templateHasKasmVNC(tpl) {
+		off := make([]corev1.EnvVar, 0, len(kasmcfg.DisabledSideServiceEnv))
+		for _, name := range kasmcfg.DisabledSideServiceEnv {
+			off = append(off, corev1.EnvVar{Name: name, Value: "0"})
+		}
+		// mergeEnv only replaces the FIRST entry of a given name, so a
+		// stored template that lists one of these names twice (legacy
+		// data predating the webhook/api-server guard) would keep its
+		// second entry instead of the stamp. Drop every existing entry
+		// of these names outright before appending the stamps.
+		env = slices.DeleteFunc(env, func(e corev1.EnvVar) bool {
+			return slices.Contains(kasmcfg.DisabledSideServiceEnv, e.Name)
+		})
+		env = append(env, off...)
+	}
 	if kasmPasswordGenerated(ws, tpl) {
 		env = append(env, kasmEnv(ws))
 	}
