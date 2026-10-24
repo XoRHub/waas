@@ -772,6 +772,10 @@ export interface PolicyModel {
    */
   fileTransfer?: FileTransferPolicyModel;
   /**
+   * Audio mirrors the CRD block (nil = both directions denied).
+   */
+  audio?: AudioPolicyModel;
+  /**
    * Watermark is the KasmVNC desktop watermark template ("" = none).
    */
   watermark?: string;
@@ -811,6 +815,14 @@ export interface ClipboardPolicyModel {
 export interface FileTransferPolicyModel {
   upload: boolean;
   download: boolean;
+}
+/**
+ * AudioPolicyModel mirrors the CRD audio block (opt-in: nil or false =
+ * denied).
+ */
+export interface AudioPolicyModel {
+  playback: boolean;
+  microphone: boolean;
 }
 /**
  * PolicySubject mirrors the CRD subject.
@@ -882,13 +894,13 @@ export interface UserUsage {
   used?: { [key: string]: string };
 }
 /**
- * SessionCapabilities is what the session may do, per clipboard and
- * file-transfer direction; the overlay reflects it, the proxy enforces
- * it. A denied clipboard direction carries WHY in its lock field so the
- * overlay can tell an admin policy denial (immutable for the user) from
- * the user's own disable-copy/disable-paste connection setting (undo +
- * reconnect). File transfer has no params to clamp it: the policy alone
- * decides.
+ * SessionCapabilities is what the session may do, per clipboard,
+ * file-transfer and audio direction; the overlay reflects it, the proxy
+ * enforces it. A denied clipboard direction carries WHY in its lock field
+ * so the overlay can tell an admin policy denial (immutable for the
+ * user) from the user's own disable-copy/disable-paste connection setting
+ * (undo + reconnect). File transfer and audio have no params to clamp
+ * them: the policy alone decides.
  */
 export interface SessionCapabilities {
   clipboardCopy: boolean;
@@ -902,6 +914,8 @@ export interface SessionCapabilities {
   clipboardPasteLock?: ClipboardLock;
   fileUpload: boolean;
   fileDownload: boolean;
+  audioPlayback: boolean;
+  microphone: boolean;
 }
 /**
  * ClipboardLock names the gate that denied a clipboard direction.

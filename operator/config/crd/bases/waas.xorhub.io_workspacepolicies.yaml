@@ -61,6 +61,24 @@ spec:
               priority 0 as the restrictive fallback. No matching policy at all
               means DENY (fail closed).
             properties:
+              audio:
+                description: |-
+                  Audio gates the session's sound, per direction. Absent = both
+                  denied (fail closed), like FileTransfer. Carried in the connection
+                  token and the session capabilities; reaches the kasmvnc data plane
+                  only (the kasm-agent sidecar's audio routes).
+                properties:
+                  microphone:
+                    description: |-
+                      Microphone permits sending the browser's microphone INTO the
+                      workspace (data injection direction, and a live capture of the
+                      user's surroundings — the stricter of the two).
+                    type: boolean
+                  playback:
+                    description: Playback permits hearing the workspace's sound in
+                      the browser.
+                    type: boolean
+                type: object
               clipboard:
                 description: |-
                   Clipboard controls the clipboard bridge between the user's machine

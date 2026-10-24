@@ -1,13 +1,14 @@
 package controller
 
 // The kasm-agent sidecar of kasmvnc workloads: policy-gated file transfer
-// (list / download / upload of the session home) served to wwt, which
-// gates every request on the connection token's file-transfer grant.
-// Everything running INSIDE the desktop container is soft against its
-// own occupant (docs/kasmvnc.md); the sidecar is a separate container the
-// occupant cannot modify — the governed path for normal use. Its
-// configuration surface is WAAS_KASM_AGENT_* (operator.kasmAgent.* Helm
-// values); an empty image turns the feature off.
+// (list / download / upload of the session home) and audio (playback and
+// microphone, through the sidecar's own PulseAudio) served to wwt, which
+// gates every request on the connection token's grants. Everything
+// running INSIDE the desktop container is soft against its own occupant
+// (docs/kasmvnc.md); the sidecar is a separate container the occupant
+// cannot modify — the governed path for normal use. Its configuration
+// surface is WAAS_KASM_AGENT_* (operator.kasmAgent.* Helm values); an
+// empty image turns the feature off.
 
 import (
 	"fmt"
@@ -54,6 +55,16 @@ func KasmAgentFromEnv() (KasmAgentConfig, error) {
 
 const kasmAgentContainerName = "kasm-agent"
 
+// The emptyDir the sidecar's PulseAudio shares with the desktop (socket
+// and microphone FIFO, kasmagent.PulseDir): Memory-backed and tiny — it
+// only ever holds the daemon's runtime files.
+const (
+	kasmPulseVolume = "waas-pulse"
+	kasmPulseSize   = "8Mi"
+)
+
+var kasmPulseMount = corev1.VolumeMount{Name: kasmPulseVolume, MountPath: kasmagent.PulseDir}
+
 // kasmAgentEnabled says whether THIS workspace gets the sidecar: the image
 // is configured, the template serves kasmvnc, and the desktop container
 // carries the VNC_PW the sidecar authenticates with (generated, or set by
@@ -71,7 +82,7 @@ func desktopEnvOf(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplat
 	if ov == nil {
 		ov = &waasv1alpha1.WorkspaceOverrides{}
 	}
-	return desktopEnv(ws, tpl, ov, false)
+	return desktopEnv(ws, tpl, ov, false, false)
 }
 
 func kasmPasswordEnv(env []corev1.EnvVar) *corev1.EnvVar {
@@ -84,10 +95,11 @@ func kasmPasswordEnv(env []corev1.EnvVar) *corev1.EnvVar {
 }
 
 // kasmAgentContainer builds the sidecar next to the desktop container:
-// same home volume at the same path (read-write), the desktop's own
-// VNC_PW entry (whatever its source), and the desktop's uid/gid so
-// uploads land owned by the session user. Hardened like the platform
-// pods; the readiness probe is a TCP connect like the desktop's.
+// same home volume at the same path (read-write), the shared Pulse
+// emptyDir, the desktop's own VNC_PW entry (whatever its source), and
+// the desktop's uid/gid so uploads land owned by the session user and
+// the Pulse socket is reachable. Hardened like the platform pods; the
+// readiness probe is a TCP connect like the desktop's.
 func kasmAgentContainer(tpl *waasv1alpha1.WorkspaceTemplate, desktop corev1.Container, podSC *corev1.PodSecurityContext, cfg KasmAgentConfig) corev1.Container {
 	home := tpl.Spec.EffectiveHomeMountPath()
 	uid, gid := kasmAgentIdentity(desktop.SecurityContext, podSC)
@@ -102,15 +114,16 @@ func kasmAgentContainer(tpl *waasv1alpha1.WorkspaceTemplate, desktop corev1.Cont
 			{Name: kasmagent.EnvMaxUploadBytes, Value: strconv.FormatInt(cfg.MaxUploadBytes, 10)},
 		},
 		Ports: []corev1.ContainerPort{{Name: kasmagent.PortName, ContainerPort: kasmagent.Port}},
-		// Streaming uploads never spool: a small footprint is enough.
+		// Streaming uploads never spool; PulseAudio and one parec per audio
+		// stream are the footprint (≈20Mi).
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("10m"),
-				corev1.ResourceMemory: resource.MustParse("16Mi"),
+				corev1.ResourceCPU:    resource.MustParse("20m"),
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
 			},
-			Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")},
+			Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("128Mi")},
 		},
-		VolumeMounts: []corev1.VolumeMount{{Name: "home", MountPath: home}},
+		VolumeMounts: []corev1.VolumeMount{{Name: "home", MountPath: home}, kasmPulseMount},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler:        corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(kasmagent.Port)}},
 			InitialDelaySeconds: 2,

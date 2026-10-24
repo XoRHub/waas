@@ -293,13 +293,17 @@ describe('policy editor', () => {
     expect(apiMock.api.put).not.toHaveBeenCalled();
   });
 
-  it('flags a non-boolean fileTransfer direction live before submit', async () => {
+  it('flags a non-boolean fileTransfer or audio direction live before submit', async () => {
     const editor = await openEditor();
     await userEvent.clear(editor);
-    await userEvent.type(editor, 'fileTransfer:{enter}  download: yes please');
+    await userEvent.type(
+      editor,
+      'fileTransfer:{enter}  download: yes please{enter}audio:{enter}  microphone: 1',
+    );
     expect(
       await screen.findByText(/fileTransfer.download: must be true or false/),
     ).toBeInTheDocument();
+    expect(await screen.findByText(/audio.microphone: must be true or false/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: en.app.save }));
     expect(apiMock.api.put).not.toHaveBeenCalled();

@@ -350,8 +350,8 @@ is exercised by CI.
 
 | Feature | VNC (linux pod) | RDP (windows VM) | KasmVNC |
 |---|---|---|---|
-| Audio playback | ✅ `enable-audio` + `exposeAudioPort` (PulseAudio in waas-core-images) | ⚙️ guacd's RDP audio channel (`disable-audio` in the registry); no `exposeAudioPort`, PulseAudio is a waas-core-images thing | ❌ Kasm-platform-only upstream |
-| Microphone | ❌ | ⚙️ `enable-audio-input` exists but the web client has no capture wiring — inert | ❌ |
+| Audio playback | ✅ `enable-audio` + `exposeAudioPort` (PulseAudio in waas-core-images) | ⚙️ guacd's RDP audio channel (`disable-audio` in the registry); no `exposeAudioPort`, PulseAudio is a waas-core-images thing | ✅ policy `audio.playback` — session-menu toggle, raw PCM from the `kasm-agent` sidecar's own PulseAudio (the images' platform-only audio service stays off; ADR 0004, `docs/kasmvnc.md` § Audio) |
+| Microphone | ❌ | ⚙️ `enable-audio-input` exists but the web client has no capture wiring — inert | ✅ policy `audio.microphone` — session-menu toggle into the sidecar's PulseAudio source (the browser needs HTTPS for the capture) |
 | Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time); session-menu manual exchange via the client's messages, gated by the connecting user's capabilities |
 | Persistent home | ✅ | ✅ | ✅ (`/home/kasm-user`) |
 | Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ |

@@ -15,6 +15,20 @@
     "spec": {
       "description": "WorkspacePolicySpec is the admin-defined envelope for self-service.\n\nResolution rule (deliberate, keep in sync with pkg/policy): among all\npolicies whose subjects match the user, the HIGHEST spec.priority wins\nand applies as a whole \u2014 no field merging between policies. Ties break\non the lexicographically smallest name and surface a warning, because\ntwo same-priority matches are a configuration smell. A policy with no\nsubjects matches every authenticated user: name one \"default\" with\npriority 0 as the restrictive fallback. No matching policy at all\nmeans DENY (fail closed).",
       "properties": {
+        "audio": {
+          "description": "Audio gates the session's sound, per direction. Absent = both\ndenied (fail closed), like FileTransfer. Carried in the connection\ntoken and the session capabilities; reaches the kasmvnc data plane\nonly (the kasm-agent sidecar's audio routes).",
+          "properties": {
+            "microphone": {
+              "description": "Microphone permits sending the browser's microphone INTO the\nworkspace (data injection direction, and a live capture of the\nuser's surroundings \u2014 the stricter of the two).",
+              "type": "boolean"
+            },
+            "playback": {
+              "description": "Playback permits hearing the workspace's sound in the browser.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
         "clipboard": {
           "description": "Clipboard controls the clipboard bridge between the user's machine\nand their workspace sessions. Absent = both directions allowed.\nEnforced by the WebSocket proxy (instruction filtering, rights\nstamped into the connection token) \u2014 the portal only reflects it.",
           "properties": {

@@ -388,6 +388,7 @@ func TestUpsertPolicyRoundTripsFileTransferAndWatermark(t *testing.T) {
 	svc := newGovernanceFixture(t, nil, nil)
 	m, err := svc.AdminUpsertPolicy(context.Background(), Actor{ID: "admin"}, "p1", UpsertPolicyInput{
 		FileTransfer: &model.FileTransferPolicyModel{Download: true},
+		Audio:        &model.AudioPolicyModel{Playback: true},
 		Watermark:    "{user} %H:%M",
 	})
 	if err != nil {
@@ -395,6 +396,9 @@ func TestUpsertPolicyRoundTripsFileTransferAndWatermark(t *testing.T) {
 	}
 	if m.FileTransfer == nil || m.FileTransfer.Upload || !m.FileTransfer.Download || m.Watermark != "{user} %H:%M" {
 		t.Fatalf("fileTransfer/watermark must round-trip through the admin editor, got %+v / %q", m.FileTransfer, m.Watermark)
+	}
+	if m.Audio == nil || !m.Audio.Playback || m.Audio.Microphone {
+		t.Fatalf("audio must round-trip through the admin editor, got %+v", m.Audio)
 	}
 	for _, bad := range []string{"it's", "${VNC_PW}", "a\nb", strings.Repeat("x", 201)} {
 		_, err = svc.AdminUpsertPolicy(context.Background(), Actor{ID: "admin"}, "p1", UpsertPolicyInput{Watermark: bad})

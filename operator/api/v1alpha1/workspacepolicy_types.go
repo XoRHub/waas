@@ -77,6 +77,13 @@ type WorkspacePolicySpec struct {
 	// +optional
 	FileTransfer *FileTransferPolicy `json:"fileTransfer,omitempty"`
 
+	// Audio gates the session's sound, per direction. Absent = both
+	// denied (fail closed), like FileTransfer. Carried in the connection
+	// token and the session capabilities; reaches the kasmvnc data plane
+	// only (the kasm-agent sidecar's audio routes).
+	// +optional
+	Audio *AudioPolicy `json:"audio,omitempty"`
+
 	// Watermark is a text template KasmVNC renders over the desktop of
 	// the governed users' kasmvnc sessions — a deterrent enforced by Xvnc
 	// inside the container (soft control, see docs/kasmvnc.md). Xvnc
@@ -143,6 +150,19 @@ type FileTransferPolicy struct {
 	// printing — print-to-PDF then download, the same egress class.
 	// +optional
 	Download bool `json:"download,omitempty"`
+}
+
+// AudioPolicy gates the two audio directions independently. Absent
+// booleans mean denied.
+type AudioPolicy struct {
+	// Playback permits hearing the workspace's sound in the browser.
+	// +optional
+	Playback bool `json:"playback,omitempty"`
+	// Microphone permits sending the browser's microphone INTO the
+	// workspace (data injection direction, and a live capture of the
+	// user's surroundings — the stricter of the two).
+	// +optional
+	Microphone bool `json:"microphone,omitempty"`
 }
 
 // PolicyLimits — absent fields mean "unlimited" so the restrictive
