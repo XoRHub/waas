@@ -64,7 +64,9 @@ jobs:
           provenance: false
           tags: ${{ env.REGISTRY }}/${{ steps.vars.outputs.repo }}/${{ matrix.component.name }}:${{ steps.vars.outputs.sha }}-${{ matrix.arch }}
           cache-from: type=gha,scope=${{ matrix.component.name }}-${{ matrix.arch }}
-          cache-to: type=gha,scope=${{ matrix.component.name }}-${{ matrix.arch }},mode=max,ignore-error=true
+          # PRs read main's cache but don't write their own: per-PR-ref
+          # caches blew the 10 GB repo quota.
+          cache-to: ${{ inputs.push && format('type=gha,scope={0}-{1},mode=max,ignore-error=true', matrix.component.name, matrix.arch) || '' }}
       - name: Scan image (PR gate — on main the merged manifest is scanned)
         if: ${{ !inputs.push && matrix.arch == 'amd64' }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
