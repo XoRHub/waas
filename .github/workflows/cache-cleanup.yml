@@ -1,0 +1,73 @@
+# cache-cleanup — keep the Actions cache under GitHub's 10 GB repo quota.
+# Buildx `type=gha` and actions/cache write one cache set per PR ref
+# (refs/pull/<n>/merge) that no later run ever reads; once the quota is
+# hit GitHub evicts the oldest caches, main's included.
+#
+#   - PR closed: delete every cache of that PR's merge ref.
+#   - every 6 h: delete non-main caches not accessed for MAX_AGE_DAYS.
+#     main is left to GitHub's own 7-day eviction so the layer caches of
+#     images not rebuilt for a few days survive.
+#
+# The real quota fix is elsewhere: PR image builds only read the gha
+# layer cache (they no longer write it), so this workflow is enough.
+#
+# pull_request_target (not pull_request) so fork PRs also get a write
+# token. That is safe only because this workflow never checks out or runs
+# PR code: keep it that way, and only ever read the PR number from the
+# event.
+#
+# Caveat: GitHub disables cron-triggered workflows after 60 days without
+# repo activity — re-enable from the Actions tab, or run it by hand with
+# workflow_dispatch.
+
+name: cache-cleanup
+
+on:
+  pull_request_target:
+    types: [closed]
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  pr-closed:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - run: gh cache delete --all --ref "refs/pull/${PR_NUMBER}/merge" --succeed-on-no-caches
+
+  sweep:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    concurrency: cache-cleanup-sweep
+    env:
+      MAX_AGE_DAYS: "3"
+    steps:
+      - name: Delete caches not accessed for MAX_AGE_DAYS
+        run: |
+          # lastAccessedAt is RFC3339 UTC, possibly with fractional seconds:
+          # strip them so jq's fromdateiso8601 parses it.
+          # --order asc: the oldest entries come first, so --limit cannot
+          # drop the ones to sweep.
+          ids=$(gh cache list --limit 1000 --sort last_accessed_at --order asc \
+            --json id,ref,lastAccessedAt --jq '
+            .[]
+            | select(.ref != "refs/heads/main")
+            | select((.lastAccessedAt | sub("\\.[0-9]+"; "") | fromdateiso8601)
+                     < now - 86400 * (env.MAX_AGE_DAYS | tonumber))
+            | .id')
+          for id in $ids; do
+            gh cache delete "$id"
+          done
