@@ -16,6 +16,10 @@ one per domain, so each is reviewable on its own:
 | `ci-security.yml` | `security` |
 | `ci-images.yml` | `build-images`, `merge-manifests`, `scan-images` |
 
+`cache-cleanup.yml` (standalone) deletes a PR's caches on close and
+sweeps non-main caches idle for more than 3 days every 6 h. PR image
+builds read but don't write the gha layer cache.
+
 `chart-oci`, `release-please`, `promote` and `promote-chart` stay in
 `ci.yml` rather than being delegated, for two reasons:
 
