@@ -36,7 +36,7 @@ jobs:
       # Deliberately NOT per-module `go-version-file`: the single pin in
       # .mise.toml satisfies every module's `go` directive (the comment
       # on that pin keeps it that way).
-      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           install_args: go golangci-lint
       # setup-go's built-in module/build cache, now explicit —
@@ -68,7 +68,7 @@ jobs:
     # legs simply never connect.
     services:
       postgres:
-        image: postgres:18-alpine@sha256:3b0ef735388b2cb097fc29b8bb421d86d57d0ddbe7aa1fbd6493e06d65028503
+        image: postgres:18-alpine@sha256:fa1b61f5a4844f4d4b73c9b15716cfc75fe70c931f2d32723630f3b900056366
         env:
           POSTGRES_PASSWORD: pg
         ports:
@@ -81,7 +81,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Toolchain + cache: same rationale as go-lint above.
-      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           install_args: go
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -147,7 +147,7 @@ jobs:
       # out to hack/ci/check_operator_rbac.py (its own pyyaml pin, no
       # venv) to verify the Helm operator ClusterRole against this same
       # regenerated RBAC.
-      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           install_args: go uv
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
