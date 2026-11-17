@@ -1,4 +1,4 @@
-module github.com/xorhub/waas/kasm-agent
+module github.com/xorhub/waas/kasmvnc-sidecar
 
 go 1.26.0
 

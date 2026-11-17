@@ -1,4 +1,4 @@
-# ADR 0003 — kasm-agent: a WaaS sidecar for policy-gated file transfer on KasmVNC
+# ADR 0003 — kasmvnc-sidecar: a WaaS sidecar for policy-gated file transfer on KasmVNC
 
 **Status**: accepted (2026-10-23). **Decider**: platform owner, on the
 Lot 3b restitution of the KasmVNC support plan.
@@ -26,14 +26,16 @@ toggle.
 
 ## Decision
 
-A **new component**, `kasm-agent/` (its own Go module, stdlib only at
+Named `kasmvnc-sidecar` (initially `kasm-agent`, renamed to avoid colliding with Kasm Technologies' proprietary "Kasm Agent").
+
+A **new component**, `kasmvnc-sidecar/` (its own Go module, stdlib only at
 the time — ADR 0004 added `gorilla/websocket` and PulseAudio, imaged and
 released like `wwt`): a small HTTP server the operator injects as a
 **sidecar** of every kasmvnc workload. It serves three routes over the
 session home — list, download, upload — and nothing else. The design
 points:
 
-- **Gate in wwt, not in the agent.** wwt validates the connection JWT
+- **Gate in wwt, not in the sidecar.** wwt validates the connection JWT
   (as for every kasm request) and gates each route on the token's
   `fileTransfer` claims — list needs either direction, download its
   own, upload its own, one HTTP method per route — before relaying to
@@ -47,7 +49,7 @@ points:
 - **Confinement.** `os.Root` on the home: `..`, absolute paths and
   escaping symlinks are refused by the kernel-side resolution, not by
   string matching. Uploads never overwrite (` (1)` suffix) and are
-  capped per request (`operator.kasmAgent.maxUploadSize`, 1 GiB default,
+  capped per request (`operator.kasmvncSidecar.maxUploadSize`, 1 GiB default,
   413 beyond).
 - **Same home, same identity.** The sidecar mounts the home volume at
   the desktop's path and runs as the desktop's uid/gid (container over
@@ -62,11 +64,11 @@ points:
   documented in `docs/kasmvnc.md` (printing over RFB, the occupant's own
   Xvnc, the screen) are unchanged. The old HTTP surfaces stay blocked
   outright, grant or not: one auditable route, no symlinked listings.
-- **Contract in `shared/kasmagent`** (port, env and route names): the
-  operator, wwt and the agent are three modules, so the operator gains
+- **Contract in `shared/kasmvncsidecar`** (port, env and route names): the
+  operator, wwt and the sidecar are three modules, so the operator gains
   the `shared` dependency the other two already had (its image now
   builds from the repo root like theirs).
-- **Off switch.** `operator.kasmAgent.enabled: false` renders an empty
+- **Off switch.** `operator.kasmvncSidecar.enabled: false` renders an empty
   image: no sidecar, no Service port, and wwt answers 503 on the file
   routes. A workspace whose desktop has no `VNC_PW` env (explicit
   credentials Secret feeding the image another way) gets no sidecar
@@ -94,7 +96,7 @@ points:
   the desktop is up (`docs/kasmvnc.md` § Auth) — needed by the Files
   routes and, as it turned out, by KasmVNC's own auto-reconnect.
 - Lot 4 (audio) extended this **same** sidecar rather than adding
-  another — ADR 0004 (`docs/adr/0004-kasm-agent-audio.md`); the agent's
+  another — ADR 0004 (`docs/adr/0004-kasmvnc-sidecar-audio.md`); the sidecar's
   base image changed then.
 - `rdp`/`vnc` (guacd) file transfer is out of scope: `enable-sftp` /
   `enable-drive` stay platform-blocked.

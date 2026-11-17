@@ -126,6 +126,14 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     if (!limit) return undefined;
     return parse(limit) - parse(q?.used?.[kind] ?? '0');
   };
+  // Room for the slider: a kasmvnc workspace also brings its kasmvnc-sidecar
+  // container, which the aggregate counts but the slider does not size.
+  const isKasm = template?.protocols?.some((p) => p.name === 'kasmvnc') ?? false;
+  const room = (kind: 'cpu' | 'memory', parse: (s: string) => number) => {
+    const left = remaining(kind, parse);
+    const sidecar = isKasm ? q?.kasmvncSidecarOverhead?.[kind] : undefined;
+    return left === undefined || !sidecar ? left : left - parse(sidecar);
+  };
 
   const cpuBounds = clampRange(
     {
@@ -133,7 +141,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
       maxes: [
         image?.max?.cpu ? parseCpu(image.max.cpu) : undefined,
         q?.perWorkspace?.cpu ? parseCpu(q.perWorkspace.cpu) : undefined,
-        remaining('cpu', parseCpu),
+        room('cpu', parseCpu),
       ],
       defaults: [
         image?.defaults?.cpu ? parseCpu(image.defaults.cpu) : undefined,
@@ -150,7 +158,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
       maxes: [
         image?.max?.memory ? parseMemory(image.max.memory) : undefined,
         q?.perWorkspace?.memory ? parseMemory(q.perWorkspace.memory) : undefined,
-        remaining('memory', parseMemory),
+        room('memory', parseMemory),
       ],
       defaults: [
         image?.defaults?.memory ? parseMemory(image.defaults.memory) : undefined,

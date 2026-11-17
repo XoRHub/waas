@@ -17,6 +17,7 @@ import (
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 	"github.com/xorhub/waas/operator/pkg/naming"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 // DefaultHomeSize mirrors the reconciler's default when a template does
@@ -332,7 +333,13 @@ type Load struct {
 	CPU     resource.Quantity
 	Memory  resource.Quantity
 	Storage resource.Quantity
-	Paused  bool
+	// SidecarCPU/SidecarMemory: the kasmvnc-sidecar part already inside
+	// CPU/Memory (zero off kasmvnc). Per-workspace bounds (image min/max,
+	// perWorkspace) size the desktop container — what the portal slider
+	// sets — so CheckLimits subtracts it there; aggregates keep the pod total.
+	SidecarCPU    resource.Quantity
+	SidecarMemory resource.Quantity
+	Paused        bool
 	// Detached marks a retained volume (a home PVC surviving its deleted
 	// workspace): storage-only weight — it counts in the aggregate storage
 	// cap but never toward the workspace count nor compute.
@@ -404,6 +411,19 @@ func RetainedVolumeLoads(pvcs []corev1.PersistentVolumeClaim, exclude types.Name
 	return out
 }
 
+// TemplateHasKasmVNC reports whether any of the template's protocols is
+// the web-native KasmVNC endpoint. Single source for both the operator
+// (pod template, config) and this package's quota math, so they can't
+// disagree about which workloads carry the extra kasmvnc-sidecar footprint.
+func TemplateHasKasmVNC(tpl *waasv1alpha1.WorkspaceTemplate) bool {
+	for _, p := range tpl.Spec.Protocols {
+		if p.Name == string(waasv1alpha1.ProtocolKasmVNC) {
+			return true
+		}
+	}
+	return false
+}
+
 // LoadOf computes the footprint the cluster will actually grant a
 // workspace: limits if set, else requests, else the image default. The
 // bool reports whether compute could be determined at all — callers
@@ -429,6 +449,23 @@ func LoadOf(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, img
 		}
 	}
 	load.CPU, load.Memory = cpu, mem
+
+	// The operator injects the kasmvnc-sidecar next to every kasmvnc
+	// desktop (operator/internal/controller.kasmvncSidecarEnabled also checks
+	// the operator-wide image toggle and the desktop's resolved VNC_PW,
+	// neither knowable here nor to the api-server's quota view) — add
+	// its footprint, or the aggregate caps and the portal's "used"
+	// numbers undercount what the cluster actually grants (a
+	// ResourceQuota sums every container of every pod). Counting it on
+	// the rare template that ends up without a sidecar (feature off
+	// fleet-wide, or no VNC_PW) only makes this pre-check a little more
+	// conservative, never wrong in the unsafe direction.
+	if cpuOK && memOK && TemplateHasKasmVNC(tpl) {
+		load.SidecarCPU = resource.MustParse(kasmvncsidecar.SidecarCPULimit)
+		load.SidecarMemory = resource.MustParse(kasmvncsidecar.SidecarMemoryLimit)
+		load.CPU.Add(load.SidecarCPU)
+		load.Memory.Add(load.SidecarMemory)
+	}
 
 	size := resource.MustParse(DefaultHomeSize)
 	if tpl.Spec.HomeSize != nil {
@@ -493,31 +530,35 @@ func CheckLimits(load Load, computeKnown bool, img *waasv1alpha1.WorkspaceImage,
 	}
 
 	// Per-workspace: effective cap = min(image.max, policy.perWorkspace);
-	// image.min guards against undersizing.
+	// image.min guards against undersizing. Both bound the desktop
+	// container alone (the sidecar is not the user's to size).
+	deskCPU, deskMem := load.CPU.DeepCopy(), load.Memory.DeepCopy()
+	deskCPU.Sub(load.SidecarCPU)
+	deskMem.Sub(load.SidecarMemory)
 	if img.Spec.Resources != nil {
 		if m := img.Spec.Resources.Min; m != nil {
-			if m.CPU != nil && load.CPU.Cmp(*m.CPU) < 0 {
-				return denyf(ReasonResourcesInvalid, "image %q requires at least cpu=%s (got %s)", img.Name, m.CPU, &load.CPU)
+			if m.CPU != nil && deskCPU.Cmp(*m.CPU) < 0 {
+				return denyf(ReasonResourcesInvalid, "image %q requires at least cpu=%s (got %s)", img.Name, m.CPU, &deskCPU)
 			}
-			if m.Memory != nil && load.Memory.Cmp(*m.Memory) < 0 {
-				return denyf(ReasonResourcesInvalid, "image %q requires at least memory=%s (got %s)", img.Name, m.Memory, &load.Memory)
+			if m.Memory != nil && deskMem.Cmp(*m.Memory) < 0 {
+				return denyf(ReasonResourcesInvalid, "image %q requires at least memory=%s (got %s)", img.Name, m.Memory, &deskMem)
 			}
 		}
 		if m := img.Spec.Resources.Max; m != nil {
-			if m.CPU != nil && load.CPU.Cmp(*m.CPU) > 0 {
-				return denyf(ReasonResourcesInvalid, "image %q caps cpu at %s (got %s)", img.Name, m.CPU, &load.CPU)
+			if m.CPU != nil && deskCPU.Cmp(*m.CPU) > 0 {
+				return denyf(ReasonResourcesInvalid, "image %q caps cpu at %s (got %s)", img.Name, m.CPU, &deskCPU)
 			}
-			if m.Memory != nil && load.Memory.Cmp(*m.Memory) > 0 {
-				return denyf(ReasonResourcesInvalid, "image %q caps memory at %s (got %s)", img.Name, m.Memory, &load.Memory)
+			if m.Memory != nil && deskMem.Cmp(*m.Memory) > 0 {
+				return denyf(ReasonResourcesInvalid, "image %q caps memory at %s (got %s)", img.Name, m.Memory, &deskMem)
 			}
 		}
 	}
 	if pw := lim.PerWorkspace; pw != nil {
-		if pw.CPU != nil && load.CPU.Cmp(*pw.CPU) > 0 {
-			return denyf(ReasonResourcesInvalid, "policy %q caps cpu at %s per workspace (got %s)", pol.Name, pw.CPU, &load.CPU)
+		if pw.CPU != nil && deskCPU.Cmp(*pw.CPU) > 0 {
+			return denyf(ReasonResourcesInvalid, "policy %q caps cpu at %s per workspace (got %s)", pol.Name, pw.CPU, &deskCPU)
 		}
-		if pw.Memory != nil && load.Memory.Cmp(*pw.Memory) > 0 {
-			return denyf(ReasonResourcesInvalid, "policy %q caps memory at %s per workspace (got %s)", pol.Name, pw.Memory, &load.Memory)
+		if pw.Memory != nil && deskMem.Cmp(*pw.Memory) > 0 {
+			return denyf(ReasonResourcesInvalid, "policy %q caps memory at %s per workspace (got %s)", pol.Name, pw.Memory, &deskMem)
 		}
 		if pw.Home != nil && load.Storage.Cmp(*pw.Home) > 0 {
 			return denyf(ReasonResourcesInvalid, "policy %q caps home volume at %s (got %s)", pol.Name, pw.Home, &load.Storage)

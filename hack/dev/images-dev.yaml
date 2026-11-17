@@ -41,37 +41,16 @@ spec:
     default: { cpu: 500m, memory: 1536Mi }
     max:     { cpu: "2",  memory: 3Gi }
 ---
-# Official Kasm images, pulled straight from Docker Hub (nothing local to
-# build/load): the kasmvnc protocol path. Registry mode with a static
-# catalog (the ConfigMap below) so the template editor's KasmVNC section
-# can read the image's own defaults (catalog `kasmvnc` hint) offline —
-# terminal is the lightest kasmweb image and is published multi-arch.
-# Name kept: gitops/governance/policies.yaml lists it by name.
-apiVersion: waas.xorhub.io/v1alpha1
-kind: WorkspaceImage
-metadata:
-  name: kasm-terminal
-spec:
-  displayName: "Kasm Terminal"
-  description: "Terminal web (image officielle kasmweb, accès KasmVNC natif)."
-  registry: docker.io/kasmweb
-  tagPolicy: tag
-  protocols: [kasmvnc]
-  architectures: [amd64, arm64]
-  enabled: true
-  resources:
-    default: { cpu: 500m, memory: 1Gi }
-    min:     { cpu: 250m, memory: 512Mi }
-    max:     { cpu: "2",  memory: 3Gi }
-  catalog:
-    from:
-      configMapKeyRef:
-        name: kasm-catalog-dev
----
 # Static copy of one catalog-kasmweb.yaml entry (what waas-workspace-images
 # publishes daily), with the `kasmvnc` block read from
 # kasmweb/terminal:1.19.0 itself (KasmVNC 1.5.1, kasmvnc_defaults.yaml
-# verbatim). Display/prefill data only.
+# verbatim). Display/prefill data only. Ordered BEFORE the WorkspaceImage
+# below: it is the catalog ConfigMap that image's `catalog.from.configMapKeyRef`
+# names, and the CatalogSyncWorker's watch fires on the WorkspaceImage as
+# soon as it is created — if the ConfigMap did not exist yet, that first
+# sync failed ("configmaps \"kasm-catalog-dev\" not found") and only
+# retried on the 6h ticker, leaving the template editor without defaults
+# until then.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -263,3 +242,30 @@ data:
 
             command_line:
               prompt: true
+---
+# Official Kasm images, pulled straight from Docker Hub (nothing local to
+# build/load): the kasmvnc protocol path. Registry mode with a static
+# catalog (the ConfigMap above) so the template editor's KasmVNC section
+# can read the image's own defaults (catalog `kasmvnc` hint) offline —
+# terminal is the lightest kasmweb image and is published multi-arch.
+# Name kept: gitops/governance/policies.yaml lists it by name.
+apiVersion: waas.xorhub.io/v1alpha1
+kind: WorkspaceImage
+metadata:
+  name: kasm-terminal
+spec:
+  displayName: "Kasm Terminal"
+  description: "Terminal web (image officielle kasmweb, accès KasmVNC natif)."
+  registry: docker.io/kasmweb
+  tagPolicy: tag
+  protocols: [kasmvnc]
+  architectures: [amd64, arm64]
+  enabled: true
+  resources:
+    default: { cpu: 500m, memory: 1Gi }
+    min:     { cpu: 250m, memory: 512Mi }
+    max:     { cpu: "2",  memory: 3Gi }
+  catalog:
+    from:
+      configMapKeyRef:
+        name: kasm-catalog-dev

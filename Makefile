@@ -1,6 +1,6 @@
 # WaaS — root Makefile. Each component keeps its own Makefile; this one fans out.
 
-GO_MODULES := shared operator api-server wwt kasm-agent
+GO_MODULES := shared operator api-server wwt kasmvnc-sidecar
 # test/smoke is lint-only (its tests need a live cluster) — same split
 # as ci.yml's change-scope plan.
 GO_LINT_MODULES := $(GO_MODULES) test/smoke
@@ -9,7 +9,7 @@ GO_LINT_MODULES := $(GO_MODULES) test/smoke
 CLUSTER_NAME     := waas-dev
 DEV_NAMESPACE    := waas
 IMAGE_TAG        := dev
-DEV_IMAGES       := operator api-server wwt kasm-agent frontend
+DEV_IMAGES       := operator api-server wwt kasmvnc-sidecar frontend
 
 # Workspace desktop images. hack/dev/images-dev.yaml + templates-dev.yaml
 # point at the published registry (ghcr.io/xorhub/waas-workspace-images/*,
@@ -225,7 +225,7 @@ docker-build:
 	docker build -t ghcr.io/xorhub/waas/operator:dev -f operator/Dockerfile .
 	docker build -t ghcr.io/xorhub/waas/api-server:dev -f api-server/Dockerfile .
 	docker build -t ghcr.io/xorhub/waas/wwt:dev -f wwt/Dockerfile .
-	docker build -t ghcr.io/xorhub/waas/kasm-agent:dev -f kasm-agent/Dockerfile .
+	docker build -t ghcr.io/xorhub/waas/kasmvnc-sidecar:dev -f kasmvnc-sidecar/Dockerfile .
 	docker build -t ghcr.io/xorhub/waas/frontend:dev frontend
 
 # --- local k3d dev environment --------------------------------------------

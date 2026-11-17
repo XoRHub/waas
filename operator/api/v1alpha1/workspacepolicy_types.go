@@ -80,7 +80,7 @@ type WorkspacePolicySpec struct {
 	// Audio gates the session's sound, per direction. Absent = both
 	// denied (fail closed), like FileTransfer. Carried in the connection
 	// token and the session capabilities; reaches the kasmvnc data plane
-	// only (the kasm-agent sidecar's audio routes).
+	// only (the kasmvnc-sidecar's audio routes).
 	// +optional
 	Audio *AudioPolicy `json:"audio,omitempty"`
 

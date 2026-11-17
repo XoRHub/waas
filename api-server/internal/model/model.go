@@ -603,8 +603,12 @@ type QuotaStatus struct {
 	Limits               map[string]string `json:"limits,omitempty"` // aggregate caps (cpu/memory/storage)
 	Used                 map[string]string `json:"used,omitempty"`   // current aggregates
 	PerWorkspace         map[string]string `json:"perWorkspace,omitempty"`
-	Defaults             map[string]string `json:"defaults,omitempty"`  // policy-proposed sizing (image defaults win)
-	Lifecycle            map[string]string `json:"lifecycle,omitempty"` // idleSuspendAfter / maxLifetime
+	// KasmVNCSidecarOverhead (cpu/memory) is what a kasmvnc workspace's
+	// kasmvnc-sidecar adds to the aggregate on top of the desktop
+	// sizing; the create slider subtracts it from the remaining room.
+	KasmVNCSidecarOverhead map[string]string `json:"kasmvncSidecarOverhead,omitempty"`
+	Defaults               map[string]string `json:"defaults,omitempty"`  // policy-proposed sizing (image defaults win)
+	Lifecycle              map[string]string `json:"lifecycle,omitempty"` // idleSuspendAfter / maxLifetime
 	// Features flags what the resolved policy opts the user into (e.g.
 	// "remoteWorkspaces"); the UI hides gated tabs from it.
 	Features map[string]bool `json:"features,omitempty"`

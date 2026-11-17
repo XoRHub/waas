@@ -362,14 +362,14 @@ operator:
   # "system:masters,system:serviceaccount:argocd:argocd-application-controller".
   # -- Comma-separated users/groups exempt from workspace policy checks.
   policyBypass: "system:masters"
-  # kasm-agent: the file-transfer sidecar the operator injects next to
-  # every kasmvnc desktop (image `<registry>/kasm-agent:<tag>`, same tag
+  # kasmvnc-sidecar: the file-transfer sidecar the operator injects next to
+  # every kasmvnc desktop (image `<registry>/kasmvnc-sidecar:<tag>`, same tag
   # as the other components). wwt routes the portal's Files section to it
   # and gates each request on the user's WorkspacePolicy fileTransfer
   # grant — see docs/kasmvnc.md. Already-running kasmvnc workspaces pick
   # the sidecar up at their next scale-up boundary (ADR 0001).
-  kasmAgent:
-    # -- Inject the kasm-agent sidecar on kasmvnc workloads. false leaves kasmvnc file transfer unavailable whatever the policies grant.
+  kasmvncSidecar:
+    # -- Inject the kasmvnc-sidecar on kasmvnc workloads. false leaves kasmvnc file transfer unavailable whatever the policies grant.
     enabled: true
     # -- Largest upload request the sidecar accepts (Kubernetes quantity, an integer with a binary suffix — Ki/Mi/Gi); larger uploads answer 413. The Ingress derives its nginx `proxy-body-size` from it; another ingress controller needs its own body limit raised to this value.
     maxUploadSize: 1Gi

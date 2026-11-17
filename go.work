@@ -2,7 +2,7 @@ go 1.27.0
 
 use (
 	./api-server
-	./kasm-agent
+	./kasmvnc-sidecar
 	./operator
 	./shared
 	./test/smoke

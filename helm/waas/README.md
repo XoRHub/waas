@@ -123,8 +123,8 @@ table is a quick *what*.
 | operator.desktopEgress.blockedCIDRs | list | `["169.254.169.254/32","10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]` | CIDRs carved out of the internet allowance: the cloud IMDS /32 and the RFC1918 ranges (cluster and node networks; guacd/wwt reach INTO the desktops, which is ingress). Vanilla-Kubernetes scope — append your Service CIDR if your provider puts it outside RFC1918 (GKE does). An empty list carves out nothing and re-opens IMDS/kube-API. |
 | operator.desktopEgress.extraAllowedCIDRs | list | `[]` | Extra always-reachable CIDRs, each a dedicated allow rule that wins over blockedCIDRs (NetworkPolicy rules OR together). Also honored when allowInternet is false. |
 | operator.policyBypass | string | `"system:masters"` | Comma-separated users/groups exempt from workspace policy checks. |
-| operator.kasmAgent.enabled | bool | `true` | Inject the kasm-agent sidecar on kasmvnc workloads. false leaves kasmvnc file transfer unavailable whatever the policies grant. |
-| operator.kasmAgent.maxUploadSize | string | `"1Gi"` | Largest upload request the sidecar accepts (Kubernetes quantity, an integer with a binary suffix — Ki/Mi/Gi); larger uploads answer 413. The Ingress derives its nginx `proxy-body-size` from it; another ingress controller needs its own body limit raised to this value. |
+| operator.kasmvncSidecar.enabled | bool | `true` | Inject the kasmvnc-sidecar on kasmvnc workloads. false leaves kasmvnc file transfer unavailable whatever the policies grant. |
+| operator.kasmvncSidecar.maxUploadSize | string | `"1Gi"` | Largest upload request the sidecar accepts (Kubernetes quantity, an integer with a binary suffix — Ki/Mi/Gi); larger uploads answer 413. The Ingress derives its nginx `proxy-body-size` from it; another ingress controller needs its own body limit raised to this value. |
 | operator.resources.requests.cpu | string | `"50m"` |  |
 | operator.resources.requests.memory | string | `"64Mi"` |  |
 | operator.resources.limits.memory | string | `"256Mi"` |  |

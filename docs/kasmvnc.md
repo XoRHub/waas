@@ -48,7 +48,7 @@ session — the whole client app flows through this handler.
   A WebSocket upgrade whose `Origin` is present but not the request's own
   host is refused with 403 before anything upstream (`sameOrigin`,
   `kasm.go`) — cross-site WebSocket hijacking defence in depth beyond the
-  `SameSite=Strict` cookie, covering the desktop stream and the agent
+  `SameSite=Strict` cookie, covering the desktop stream and the sidecar
   sockets alike.
 - **Session end**: `httputil.ReverseProxy` only returns once the
   upgraded WebSocket closes — that return is the session-end signal
@@ -85,23 +85,23 @@ verification (`InsecureSkipVerify`, `kasm.go`). The hop is pod-to-pod
 inside the cluster and netpol-guarded. Replacing the self-signed cert
 with a cert-manager-issued one is a known pending hardening item
 (originally "phase 4" of the kasm feasibility plan) — not implemented.
-The kasm-agent hop (below) is plain HTTP on the same posture: same
+The kasmvnc-sidecar hop (below) is plain HTTP on the same posture: same
 pod-to-pod path, same netpol, and it would move to TLS together with
 this item.
 
-## Files: the kasm-agent sidecar (policy-gated file transfer)
+## Files: the kasmvnc-sidecar (policy-gated file transfer)
 
 Standalone KasmVNC has no upload and its download surfaces bypass every
 policy, and the images' own upload service is a closed platform binary
 (see **Capabilities vs the Kasm platform**). File transfer on kasmvnc
-is therefore a WaaS component: **`kasm-agent/`**, a small HTTP server
+is therefore a WaaS component: **`kasmvnc-sidecar/`**, a small HTTP server
 (stdlib plus `gorilla/websocket` for the audio routes below) the
 operator injects as a **sidecar** of every kasmvnc workload
-(`operator/internal/controller/kasm_agent.go`; the decision and its
-trade-offs are ADR 0003, `docs/adr/0003-kasm-agent-sidecar.md`; audio
+(`operator/internal/controller/kasmvnc_sidecar.go`; the decision and its
+trade-offs are ADR 0003, `docs/adr/0003-kasmvnc-sidecar.md`; audio
 is ADR 0004). The contract the three modules share — port `4800`, env,
 route names, the PulseAudio paths and the audio wire format — lives in
-`shared/kasmagent`.
+`shared/kasmvncsidecar`.
 
 - **Routes** (relative to the sidecar; the browser reaches them as
   `/kasm/{sid}/waas/files…`): `GET /files?path=<rel>` lists a directory
@@ -149,8 +149,8 @@ route names, the PulseAudio paths and the audio wire format — lives in
   directory symlinks). Uploads never overwrite (`report (1).pdf`,
   `report (2).pdf`…), file names are reduced to their base, and a request
   body above the cap is **413** with no truncated file left behind. The
-  cap is `operator.kasmAgent.maxUploadSize` (1 GiB default), handed to
-  the sidecar as `KASM_AGENT_MAX_UPLOAD_BYTES`.
+  cap is `operator.kasmvncSidecar.maxUploadSize` (1 GiB default), handed to
+  the sidecar as `KASMVNC_SIDECAR_MAX_UPLOAD_BYTES`.
 - **Edge body limit**: the upload rides the public edge first, which
   has its own cap — ingress-nginx cuts request bodies at **1m** by
   default and spools them to disk. The chart's Ingress therefore sets
@@ -171,12 +171,22 @@ route names, the PulseAudio paths and the audio wire format — lives in
   and the PulseAudio socket is reachable. Hardened: non-root (unless
   the desktop itself runs as root), read-only rootfs, drop ALL, no
   privilege escalation, RuntimeDefault seccomp; 20m/32Mi requests,
-  128Mi memory limit (uploads stream straight to disk, nothing is
-  spooled; PulseAudio and one `parec` per playback stream are the
-  footprint); TCP readiness probe on 4800. The workspace Service gains a `waas-files`
+  500m CPU / 128Mi memory limits (uploads stream straight to disk,
+  nothing is spooled; PulseAudio and one `parec` per playback stream
+  are the footprint — 500m leaves headroom for the daemon plus up to 4
+  concurrent `/audio` connections). The CPU limit is load-bearing, not
+  just hardening: a policy's `limits.aggregate` renders a `waas-quota`
+  namespace `ResourceQuota` with `limits.cpu`/`limits.memory`
+  (`operator/internal/controller/placement.go`), and Kubernetes rejects
+  any container missing a CPU limit once that scope exists — every
+  non-admin kasmvnc workspace stayed `Provisioning` without it. The
+  same numbers feed the quota pre-check (`operator/pkg/policy.LoadOf`
+  adds the sidecar's footprint to a kasmvnc workspace's load, shared
+  via `shared/kasmvncsidecar` so the pod spec and the quota math agree);
+  TCP readiness probe on 4800. The workspace Service gains a `waas-files`
   port (converges on every reconcile, ADR 0001's exception). Sidecar
-  image: `<registry>/kasm-agent:<tag>`, same tag as the other
-  components; `operator.kasmAgent.enabled: false` renders an empty
+  image: `<registry>/kasmvnc-sidecar:<tag>`, same tag as the other
+  components; `operator.kasmvncSidecar.enabled: false` renders an empty
   image, which is the operator's off switch (no sidecar, no port, 503
   from wwt). A kasm template whose desktop has no `VNC_PW` env (an
   explicit credentials Secret feeding the image some other way) gets no
@@ -191,7 +201,7 @@ route names, the PulseAudio paths and the audio wire format — lives in
   mirror its secrets and hostPaths into a second container.
 - **Upgrade note**: the sidecar is part of the pod template, so **every
   platform release** (its image tag follows the components') and every
-  `operator.kasmAgent.maxUploadSize` change (an env value) alters the
+  `operator.kasmvncSidecar.maxUploadSize` change (an env value) alters the
   spec: already-running kasmvnc workspaces show `TemplateDrifted` and
   converge at their next scale-up boundary (ADR 0001) — the same
   behavior as enabling the sidecar on an installed platform, where
@@ -211,7 +221,7 @@ route names, the PulseAudio paths and the audio wire format — lives in
   cookie yet, and a long upload starts on a fresh token; downloads are
   plain links and ride whatever the pane's timer and the listing left.
   They use a plain `fetch`, not the api client, because a 401 there
-  must not sign the user out of the portal and the body is the agent's
+  must not sign the user out of the portal and the body is the sidecar's
   own JSON. 403 reads "Denied by your policy", 413 names the cap, 503
   the missing sidecar, 401 (the refresh itself failed: the session
   ended underneath) "Session expired — reopen Files".
@@ -223,15 +233,15 @@ own `/api/downloads` and `/Downloads` stay blocked whatever the grant
 guarantee against the occupant — the in-container channels below (print
 over RFB, their own Xvnc, the screen) are unchanged.
 
-## Audio: playback and microphone (kasm-agent)
+## Audio: playback and microphone (kasmvnc-sidecar)
 
 Standalone KasmVNC has no audio, and the images' audio helpers are closed
 platform binaries kept off (**Image side services** below) — with
 `KASM_SVC_AUDIO=0` the image starts no PulseAudio of its own either, so
 desktop apps have nowhere to play. The sidecar fills both roles (ADR
-0004, `docs/adr/0004-kasm-agent-audio.md`):
+0004, `docs/adr/0004-kasmvnc-sidecar-audio.md`):
 
-- **Sound server**: the agent supervises one `pulseaudio` daemon
+- **Sound server**: the sidecar supervises one `pulseaudio` daemon
   (restarted with backoff if it dies) loading exactly three modules:
   `module-native-protocol-unix` on `/run/waas-pulse/native`,
   `module-null-sink` `waas_out` (s16le 48 kHz stereo, the default sink)
@@ -395,7 +405,7 @@ proxy.
   guacd path gates behind `TierPlatform` for
   `enable-sftp`/`enable-drive` ("until the file-transfer feature ships
   with its own policy gate", `operator/pkg/params/params.go`). The
-  governed route is the kasm-agent sidecar (**Files** above), gated on
+  governed route is the kasmvnc-sidecar (**Files** above), gated on
   `WorkspacePolicy.fileTransfer`; this endpoint stays blocked outright
   whatever the grant, so there is one auditable file route. This closes
   the HTTP route only — casual or accidental egress — not every channel
@@ -428,13 +438,13 @@ Verified against upstream docs and maintainer-settled issues
 - **Audio (playback + mic)**: absent from standalone KasmVNC at every
   version — a Kasm Workspaces (commercial platform) exclusive
   ([kasmtech/KasmVNC#31](https://github.com/kasmtech/KasmVNC/issues/31)).
-  WaaS provides both through the kasm-agent sidecar's own PulseAudio
+  WaaS provides both through the kasmvnc-sidecar's own PulseAudio
   (**Audio** above) — never through the images' closed
   `kasm_audio_out` / `kasm_audio_input_server`.
 - **Upload (browser → session)**: absent at every scale and not planned
   upstream ([kasmtech/KasmVNC#209](https://github.com/kasmtech/KasmVNC/issues/209)).
   WaaS provides both directions itself, outside KasmVNC, through the
-  kasm-agent sidecar (**Files** above) — never through the images'
+  kasmvnc-sidecar (**Files** above) — never through the images'
   closed `kasm_upload_server`.
 
 ### Image side services: forced off
@@ -655,7 +665,7 @@ inside the RFB WebSocket (UnixRelay messages 182/183,
 `common/rfb/msgTypes.h`), not over `/Downloads`; they can restart Xvnc
 with their own `-httpd` directory and serve their own client JS; and
 the screen itself is an egress channel. The governed path for normal
-users is the policy-gated kasm-agent sidecar (**Files** above) — a
+users is the policy-gated kasmvnc-sidecar (**Files** above) — a
 separate container the occupant cannot modify — not a hard guarantee
 against the occupant.
 
@@ -671,14 +681,19 @@ on all three — clipboard off, no printing, **no watermark** (there is
 no safe text to invent; the deterrent is the permissive side, the hard
 gates are what fail closed). A policy spec edit re-enqueues every workspace
 of the namespace (the winning policy is a namespace-global
-resolution), so the change lands on the running pods right away.
+resolution): the reconciler re-renders the `kasmvnc.yaml` ConfigMap and
+the pod template (env such as `KASM_SVC_PRINTER`, the config hash)
+right away, but — like any pod-template change — a RUNNING workload
+only picks it up at its next scale-up boundary or a manual reload, not
+mid-session (ADR 0001); until then it shows `TemplateDrifted=True` and
+the portal's "update pending" badge.
 
 - **`fileTransfer.upload` / `.download`** — default **deny** (absent =
   false). The api-server resolves the **connecting** user's policy at
   `/connect` and stamps the grant into the connection token
   (`ConnectionClaims.FileTransfer`) and the session capabilities
   (`fileUpload`/`fileDownload`), next to the clipboard. wwt enforces it
-  on the kasm-agent routes (**Files** above); `/api/downloads` and
+  on the kasmvnc-sidecar routes (**Files** above); `/api/downloads` and
   `/Downloads` stay blocked at the proxy regardless, and the guacd
   sftp/drive params stay platform-blocked (no guacd route reads the
   grant).
@@ -768,3 +783,10 @@ resolution), so the change lands on the running pods right away.
   proprietary — **never install a Kasm agent** (what provides
   audio/upload): that is what would fall under their license. The
   standalone server has no platform dependency or phone-home.
+- **The sidecar image redistributes Debian PulseAudio binaries**
+  (`pulseaudio`, `parec`, three modules plus the `libprotocol-native`
+  helper library, and their shared libraries, copied unmodified from
+  Debian packages). It therefore ships each owning package's copyright
+  file, a manifest of `package=version (source: <source package>
+  <source version>)` lines (`packages.txt`) and a `NOTICE` pointing at
+  the matching source (snapshot.debian.org) under `/usr/share/doc/`.

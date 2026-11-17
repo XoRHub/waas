@@ -27,10 +27,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/xorhub/waas/shared/kasmagent"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
-// handler serves the file routes of kasmagent under the given root.
+// handler serves the file routes of kasmvncsidecar under the given root.
 type handler struct {
 	root      *os.Root
 	maxUpload int64
@@ -48,9 +48,9 @@ type Entry struct {
 // 405 on a wrong method, 404 elsewhere.
 func Register(mux *http.ServeMux, root *os.Root, maxUpload int64) {
 	h := &handler{root: root, maxUpload: maxUpload}
-	mux.HandleFunc("GET "+kasmagent.PathList, h.list)
-	mux.HandleFunc("GET "+kasmagent.PathDownload, h.download)
-	mux.HandleFunc("POST "+kasmagent.PathUpload, h.upload)
+	mux.HandleFunc("GET "+kasmvncsidecar.PathList, h.list)
+	mux.HandleFunc("GET "+kasmvncsidecar.PathDownload, h.download)
+	mux.HandleFunc("POST "+kasmvncsidecar.PathUpload, h.upload)
 }
 
 var errBadPath = errors.New("path must be relative to the home directory")
@@ -142,7 +142,7 @@ func (h *handler) download(w http.ResponseWriter, r *http.Request) {
 func (h *handler) upload(w http.ResponseWriter, r *http.Request) {
 	dir := r.URL.Query().Get("dir")
 	if dir == "" {
-		dir = kasmagent.DefaultUploadDir
+		dir = kasmvncsidecar.DefaultUploadDir
 	}
 	rel, err := relPath(dir)
 	if err != nil {
