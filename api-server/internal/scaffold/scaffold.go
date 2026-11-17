@@ -61,6 +61,11 @@ var hints = map[string]hint{
 	"PolicyLimitsModel.defaults":             {comment: `portal pre-selection (display-only); e.g. {cpu: "2", memory: 4Gi}`},
 	"ClipboardPolicyModel.copyFromWorkspace": {value: boolean(true), comment: "workspace → local clipboard"},
 	"ClipboardPolicyModel.pasteToWorkspace":  {value: boolean(true), comment: "local clipboard → workspace"},
+	"FileTransferPolicyModel.upload":         {comment: "local → workspace files; absent block = both directions denied"},
+	"FileTransferPolicyModel.download":       {comment: "workspace → local files; on kasmvnc also enables printing"},
+	"AudioPolicyModel.playback":              {comment: "workspace sound in the browser (kasmvnc); absent block = both denied"},
+	"AudioPolicyModel.microphone":            {comment: "browser microphone into the workspace (kasmvnc)"},
+	"UpsertPolicyInput.watermark":            {comment: "KasmVNC desktop watermark text; {user} = owner's username, strftime (%H:%M); empty = none"},
 	"PolicyOverridesModel.allowedFields":     {comment: "among: " + overridableFields() + "; [] forbids every override"},
 
 	// WorkspaceImage (catalog) editor. displayName/image/protocols are

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
 )
 
@@ -123,6 +125,10 @@ func TestTemplateInputValidatesKasmVNCConfig(t *testing.T) {
 	}
 	kasm := TemplateProtocolInput{Name: "kasmvnc", Port: 6901, Default: true}
 	vnc := TemplateProtocolInput{Name: "vnc", Port: 5901, Default: true}
+	withEnv := func(in TemplateInput, name string) TemplateInput {
+		in.Env = []corev1.EnvVar{{Name: name, Value: "1"}}
+		return in
+	}
 
 	cases := []struct {
 		name    string
@@ -135,15 +141,24 @@ func TestTemplateInputValidatesKasmVNCConfig(t *testing.T) {
 		{
 			"config setting a policy-managed clipboard key",
 			base("data_loss_prevention:\n  clipboard:\n    server_to_client:\n      enabled: true\n", kasm),
-			"clipboard enforcement is derived from WorkspacePolicy.Clipboard",
+			"derived from the WorkspacePolicy",
 		},
 		{
 			"config with the client-override flag",
 			base("runtime_configuration:\n  allow_client_to_override_kasm_server_settings: true\n", kasm),
-			"clipboard enforcement is derived from WorkspacePolicy.Clipboard",
+			"derived from the WorkspacePolicy",
 		},
 		{"config with an unmanaged clipboard sub-key", base("data_loss_prevention:\n  clipboard:\n    server_to_client:\n      size: unlimited\n", kasm), ""},
+		{
+			"config setting the policy-managed watermark text",
+			base("data_loss_prevention:\n  watermark:\n    text:\n      template: hello\n", kasm),
+			"derived from the WorkspacePolicy",
+		},
+		{"config with an unmanaged watermark sub-key", base("data_loss_prevention:\n  watermark:\n    text:\n      font_size: 24\n", kasm), ""},
 		{"invalid YAML", base("data_loss_prevention: [unterminated\n", kasm), "not valid YAML"},
+		{"env setting an operator-owned side-service toggle", withEnv(base("", kasm), "KASM_SVC_AUDIO"), "must not set KASM_SVC_AUDIO"},
+		{"env setting the operator-owned PULSE_SERVER", withEnv(base("", kasm), "PULSE_SERVER"), "must not set PULSE_SERVER"},
+		{"kasmweb toggle on a vnc template", withEnv(base("", vnc), "KASM_SVC_AUDIO"), ""},
 	}
 	for _, tc := range cases {
 		_, err := specFromInput(tc.in)

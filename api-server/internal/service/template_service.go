@@ -313,24 +313,26 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 
 	// kasmvncConfig gates, same as the admission webhook but with a clean
 	// 400 and the reason — an admission denial would otherwise reach the
-	// admin as a wrapped 500. The clipboard DLP keys are policy-owned; the
-	// managed-key list is shared with the webhook (operator/pkg/kasmcfg).
+	// admin as a wrapped 500. The clipboard DLP and watermark keys are
+	// policy-owned; the managed-key list is shared with the webhook
+	// (operator/pkg/kasmcfg).
+	hasKasm := seen[string(waasv1alpha1.ProtocolKasmVNC)]
 	if in.KasmVNCConfig != "" {
-		hasKasm := false
-		for _, p := range spec.Protocols {
-			if p.Name == string(waasv1alpha1.ProtocolKasmVNC) {
-				hasKasm = true
-				break
-			}
-		}
 		if !hasKasm {
 			return nil, apierror.BadRequest("kasmvncConfig requires a kasmvnc protocol entry")
 		}
-		if bad, err := kasmcfg.PolicyManagedClipboardKeys(in.KasmVNCConfig); err != nil {
+		if bad, err := kasmcfg.PolicyManagedKeys(in.KasmVNCConfig); err != nil {
 			return nil, apierror.BadRequest(fmt.Sprintf("kasmvncConfig is %v", err))
 		} else if len(bad) > 0 {
 			return nil, apierror.BadRequest(fmt.Sprintf(
-				"kasmvncConfig must not set %s: clipboard enforcement is derived from WorkspacePolicy.Clipboard, not the template",
+				"kasmvncConfig must not set %s: these keys are derived from the WorkspacePolicy (clipboard, watermark), not the template",
+				strings.Join(bad, ", ")))
+		}
+	}
+	if hasKasm {
+		if bad := kasmcfg.ManagedEnvNames(in.Env); len(bad) > 0 {
+			return nil, apierror.BadRequest(fmt.Sprintf(
+				"env must not set %s: operator-owned on kasmvnc containers (the kasmweb side services are forced off, PULSE_SERVER points at the kasmvnc-sidecar)",
 				strings.Join(bad, ", ")))
 		}
 	}

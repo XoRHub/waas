@@ -1,9 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Guacamole from 'guacamole-common-js';
 import { useClipboardBridge } from '@/hooks/useClipboardBridge';
 import { useSessionResize } from '@/hooks/useSessionResize';
 import { api, ApiError } from '@/lib/api';
+import { refreshKasmCookie, tokenTTL } from '@/lib/kasmCookie';
 import { detectServerLayout } from '@/lib/keyboard';
 import { useAuthStore } from '@/stores/authStore';
 import type { ConnectResult, SessionCapabilities, WorkspaceConnectionPrefs } from '@/types';
@@ -13,6 +14,32 @@ export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fai
 // Guacamole.Client state 3 = CONNECTED, 5 = DISCONNECTED.
 const STATE_CONNECTED = 3;
 const STATE_DISCONNECTED = 5;
+
+// Floor on the kasm cookie refresh cadence (half the token life
+// otherwise): a token whose exp cannot be read must not become a tight
+// loop on the api-server.
+const KASM_REFRESH_MIN_MS = 30_000;
+
+// KasmVNC client connection_state → pane state. 'disconnected' is final:
+// embedded, the client auto-reconnects on its own ('reconnecting'), clean
+// close or not, and only reports 'disconnected' once retries are
+// exhausted, on a graceful server notice, or when reconnect is inhibited.
+const KASM_STATES: Record<string, ConnectionState> = {
+  connecting: 'connecting',
+  reconnecting: 'connecting',
+  connected: 'connected',
+  disconnected: 'disconnected',
+};
+
+// Keystrokes inside the KasmVNC iframe never reach the portal window:
+// replay each one there so the portal's shortcuts (Ctrl+Alt+M, Escape)
+// keep working, and keep from the desktop the ones the portal consumed.
+function forwardKey(e: KeyboardEvent) {
+  if (!window.dispatchEvent(new KeyboardEvent(e.type, e))) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
 
 export interface DesktopPaneHandle {
   disconnect: () => void;
@@ -24,6 +51,12 @@ export interface DesktopPaneHandle {
   sendClipboard: (text: string) => void;
   /** Last text the desktop clipboard sent us (overlay manual fallback). */
   readRemoteClipboard: () => string;
+  /** KasmVNC only: video quality preset (the client's video_quality). */
+  setQuality: (level: number) => void;
+  readQuality: () => number;
+  /** KasmVNC only: the live session id (null off the kasm path) — the
+   *  overlay's Files section addresses /kasm/{id}/waas/… with it. */
+  readSessionId: () => string | null;
 }
 
 /**
@@ -64,10 +97,18 @@ export const DesktopPane = forwardRef<
   // WHY (quota, policy, phase); swallowing it left users with a bare
   // "connection failed".
   const [failDetail, setFailDetail] = useState<string | null>(null);
+  // kasm: the session ended on the client's own idle timeout.
+  const [idle, setIdle] = useState(false);
   // kasmvnc sessions embed KasmVNC's own web client instead of the guac
   // canvas: wwt reverse-proxies the whole app under /kasm/{session}.
   const [kasmUrl, setKasmUrl] = useState<string | null>(null);
   const kasmActiveRef = useRef(false);
+  const kasmSessionRef = useRef<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const kasmCapsRef = useRef<SessionCapabilities | undefined>(undefined);
+  // The client's own default preset (medium); handed over on every
+  // (re)connect so a reconnect keeps the user's choice.
+  const kasmQualityRef = useRef(2);
   // Bumping the generation re-runs the connection effect: that IS the
   // reconnect (used by the overlay to apply reconnect-scoped params).
   const [generation, setGeneration] = useState(0);
@@ -81,15 +122,36 @@ export const DesktopPane = forwardRef<
   // The connection must not restart when unrelated preferences change.
   const effectiveJSON = JSON.stringify(effective ?? {});
 
+  const setBoth = useCallback(
+    (s: ConnectionState) => {
+      setState(s);
+      onStateChange?.(s);
+    },
+    [onStateChange],
+  );
+
+  // Unmounting the iframe closes its WebSocket (the client disconnects
+  // cleanly on unload): that is the kasm session's disconnect. Reconnect
+  // = generation bump, which also mints a fresh token past its expiry.
+  const endKasm = useCallback(
+    (s: ConnectionState) => {
+      kasmActiveRef.current = false;
+      kasmSessionRef.current = null;
+      setKasmUrl(null);
+      setBoth(s);
+    },
+    [setBoth],
+  );
+
+  // The client only trusts messages from its parent window; same origin
+  // either way (wwt serves it under /kasm/), so never post to '*'.
+  const postToKasm = (action: string, value: unknown) =>
+    iframeRef.current?.contentWindow?.postMessage({ action, value }, window.location.origin);
+
   useImperativeHandle(ref, () => ({
     disconnect: () => {
       if (kasmActiveRef.current) {
-        // No client object to ask: unmounting the iframe closes its
-        // WebSocket, which is what ends the session server-side.
-        kasmActiveRef.current = false;
-        setKasmUrl(null);
-        setState('disconnected');
-        onStateChange?.('disconnected');
+        endKasm('disconnected');
         return;
       }
       clientRef.current?.disconnect();
@@ -98,8 +160,20 @@ export const DesktopPane = forwardRef<
     setClipboard: (direction, enabled) => {
       tunnelRef.current?.sendMessage('', 'waas-clipboard', direction, enabled ? '1' : '0');
     },
-    sendClipboard: (text) => clipboard.sendClipboard(text, true),
+    sendClipboard: (text) => {
+      if (!kasmActiveRef.current) {
+        clipboard.sendClipboard(text, true);
+      } else if (kasmCapsRef.current?.clipboardPaste) {
+        postToKasm('clipboardsnd', text);
+      }
+    },
     readRemoteClipboard: () => clipboard.readRemoteClipboard(),
+    setQuality: (level) => {
+      kasmQualityRef.current = level;
+      postToKasm('setvideoquality', level);
+    },
+    readQuality: () => kasmQualityRef.current,
+    readSessionId: () => kasmSessionRef.current,
   }));
 
   useEffect(() => {
@@ -111,14 +185,43 @@ export const DesktopPane = forwardRef<
     const conn = JSON.parse(effectiveJSON) as WorkspaceConnectionPrefs;
     let client: InstanceType<typeof Guacamole.Client> | null = null;
     let keyboard: InstanceType<typeof Guacamole.Keyboard> | null = null;
+    let kasmRefresh: ReturnType<typeof setTimeout> | undefined;
     let cancelled = false;
     // Each (re)connect attempt starts clean: a later guac-level failure
-    // must not resurface a stale API detail.
+    // must not resurface a stale API detail, and a Retry from the
+    // failed/closed screen must read as connecting (this runs after the
+    // previous attempt's cleanup, so it also wins over the 'disconnected'
+    // a guac client reports while being torn down).
     setFailDetail(null);
+    setIdle(false);
+    setBoth('connecting');
 
-    const setBoth = (s: ConnectionState) => {
-      setState(s);
-      onStateChange?.(s);
+    // Messages from the KasmVNC client (same-origin iframe). Anything not
+    // posted by THIS pane's iframe document is ignored: another pane, a
+    // popup or a foreign origin must not drive this session.
+    const onKasmMessage = (e: MessageEvent) => {
+      if (e.source !== iframeRef.current?.contentWindow || e.origin !== window.location.origin) {
+        return;
+      }
+      const { action, value } = (e.data ?? {}) as { action?: string; value?: unknown };
+      const next = action === 'connection_state' && typeof value === 'string' && KASM_STATES[value];
+      if (next === 'disconnected' || action === 'idle_session_timeout') {
+        // The client then navigates itself away: the session is over.
+        // Retries exhausted send 'disconnected' first, which unmounts the
+        // iframe (its later idle_session_timeout is dropped above): one
+        // that gets here is the real 20-min idle timeout.
+        setIdle(action === 'idle_session_timeout');
+        endKasm('disconnected');
+      } else if (next) {
+        setBoth(next);
+        if (next === 'connected' && autoFocus) iframeRef.current?.focus();
+      } else if (
+        action === 'clipboardrx' &&
+        typeof value === 'string' &&
+        kasmCapsRef.current?.clipboardCopy
+      ) {
+        clipboard.receive(value);
+      }
     };
 
     const rescale = () => {
@@ -175,10 +278,33 @@ export const DesktopPane = forwardRef<
           clipboard_down: '1',
           clipboard_seamless: '1',
           path: `kasm/${result.sessionId}/websockify`,
+          video_quality: String(kasmQualityRef.current),
           token: result.connectionToken,
         });
+        kasmCapsRef.current = result.capabilities;
+        window.addEventListener('message', onKasmMessage);
         kasmActiveRef.current = true;
+        kasmSessionRef.current = result.sessionId;
         setKasmUrl(`/kasm/${result.sessionId}/vnc.html?${q.toString()}`);
+
+        // That cookie IS the token, and the desktop outlives its TTL:
+        // re-set it at half-life for as long as the session is up, so
+        // the client's own auto-reconnect and the Files routes keep
+        // authenticating. A failed refresh is retried at the next tick;
+        // a session that ended underneath (endKasm) stops the loop.
+        let ttl = tokenTTL(result.connectionToken);
+        const refreshCookie = async () => {
+          if (cancelled || !kasmActiveRef.current) return;
+          try {
+            ttl = await refreshKasmCookie(workspaceId, result.sessionId);
+          } catch {
+            // retried at the next tick
+          }
+          if (!cancelled && kasmActiveRef.current) {
+            kasmRefresh = setTimeout(refreshCookie, Math.max(ttl / 2, KASM_REFRESH_MIN_MS));
+          }
+        };
+        kasmRefresh = setTimeout(refreshCookie, Math.max(ttl / 2, KASM_REFRESH_MIN_MS));
         return;
       }
 
@@ -272,6 +398,8 @@ export const DesktopPane = forwardRef<
 
     return () => {
       cancelled = true;
+      clearTimeout(kasmRefresh);
+      window.removeEventListener('message', onKasmMessage);
       sessionResize.detach();
       clipboard.detach();
       if (keyboard) {
@@ -284,6 +412,7 @@ export const DesktopPane = forwardRef<
       // Unmounting the iframe closes the KasmVNC WebSocket: that is the
       // kasm session's disconnect.
       kasmActiveRef.current = false;
+      kasmSessionRef.current = null;
       setKasmUrl(null);
       displayHost.replaceChildren();
     };
@@ -295,6 +424,8 @@ export const DesktopPane = forwardRef<
     onCapabilities,
     autoFocus,
     generation,
+    setBoth,
+    endKasm,
     clipboard,
     sessionResize,
   ]);
@@ -304,30 +435,45 @@ export const DesktopPane = forwardRef<
       ref={containerRef}
       // A remote-desktop surface: focusable on purpose (keyboard input
       // is forwarded to the desktop) — role application tells assistive
-      // tech that keys are consumed here, not by the page.
+      // tech that keys are consumed here, not by the page. isolate: the
+      // status overlay's z-index stays inside the pane, under the page's
+      // own controls (Retry).
       role="application"
       tabIndex={0}
-      className="relative h-full w-full overflow-hidden bg-black outline-none focus:ring-1 focus:ring-blue-500/60"
+      className="relative isolate h-full w-full overflow-hidden bg-black outline-none focus:ring-1 focus:ring-blue-500/60"
     >
       <div ref={displayRef} className={state === 'connected' ? 'h-full w-full' : 'hidden'} />
       {kasmUrl && (
-        // display:none iframes still load, so the "connecting" overlay
-        // below covers the pane until the KasmVNC page is up.
+        // Never hidden: the client sizes the remote desktop (resize=remote)
+        // from the pane's real dimensions and focuses itself on connect,
+        // which fails on a visibility:hidden document. The status text
+        // below covers it until 'connected'.
         <iframe
+          ref={iframeRef}
           src={kasmUrl}
           title={t('connect.desktopFrame', 'Remote desktop')}
-          className={state === 'connected' ? 'h-full w-full border-0' : 'hidden'}
-          onLoad={() => {
-            setState('connected');
-            onStateChange?.('connected');
+          className="absolute inset-0 h-full w-full border-0"
+          onLoad={(e) => {
+            const frame = e.currentTarget;
+            // The client reports its own state (connection_state). A page
+            // without the client's container is an error page instead:
+            // wwt refusing the request (expired token, ended session) or
+            // an ingress 502/503.
+            if (!frame.contentDocument?.getElementById('noVNC_container')) {
+              endKasm('failed');
+              return;
+            }
+            // Bound to this document's window: it dies with it, and the
+            // next load (reload, disconnected.html) binds the new one.
+            frame.contentWindow?.addEventListener('keydown', forwardKey, true);
           }}
         />
       )}
       {state !== 'connected' && (
-        <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-white">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black text-sm text-white">
           <p>
             {state === 'connecting' && t('connect.connecting')}
-            {state === 'disconnected' && t('connect.disconnected')}
+            {state === 'disconnected' && t(idle ? 'connect.idleTimeout' : 'connect.disconnected')}
             {state === 'failed' && t('connect.failed')}
           </p>
           {state === 'failed' && failDetail && (

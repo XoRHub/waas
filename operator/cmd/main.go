@@ -136,6 +136,16 @@ func main() {
 		"enabled", desktopEgress.Enabled, "allowInternet", desktopEgress.AllowInternet,
 		"blockedCIDRs", desktopEgress.BlockedCIDRs, "extraAllowedCIDRs", desktopEgress.ExtraAllowedCIDRs)
 
+	// kasmvnc-sidecar of kasmvnc workloads (policy-gated file
+	// transfer): image from the chart, empty = off. Same refusal-to-start
+	// on an unparseable cap as the egress config above.
+	kasmvncSidecar, err := controller.KasmVNCSidecarFromEnv()
+	if err != nil {
+		setupLog.Error(err, "invalid kasmvnc-sidecar configuration — refusing to start")
+		os.Exit(1)
+	}
+	setupLog.Info("kasmvnc-sidecar configured", "image", kasmvncSidecar.Image, "maxUploadBytes", kasmvncSidecar.MaxUploadBytes)
+
 	if err := (&controller.WorkspaceReconciler{
 		Client:            mgr.GetClient(),
 		KubeVirtAvailable: kubeVirtAvailable,
@@ -146,6 +156,7 @@ func main() {
 		PlatformNamespace:       platformNamespace,
 		DesktopEgress:           desktopEgress,
 		DefaultNamespacePattern: defaultNamespacePattern,
+		KasmVNCSidecar:          kasmvncSidecar,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Workspace")
 		os.Exit(1)

@@ -116,6 +116,9 @@ func New(cfg *config.Config, signer *auth.Signer, users middleware.UserSource, h
 				r.Patch("/{id}/overrides", h.Workspaces.UpdateOverrides)
 				r.Post("/{id}/reload", h.Workspaces.Reload)
 				r.Post("/{id}/connect", h.Workspaces.Connect)
+				// Fresh connection token for an open session (kasmvnc
+				// cookie refresh); owner-only like connect.
+				r.Post("/{id}/sessions/{sid}/token", h.Workspaces.SessionToken)
 				// Effective KasmVNC config, read-only (owner or admin).
 				r.Get("/{id}/kasmvnc-config", h.Workspaces.KasmVNCConfig)
 				// In-session desktop resize (exec waas-resize in the pod).
@@ -153,6 +156,7 @@ func New(cfg *config.Config, signer *auth.Signer, users middleware.UserSource, h
 			r.Get("/meta/protocols", h.Meta.Protocols)
 			r.Get("/meta/placeholders", h.Meta.Placeholders)
 			r.Get("/meta/override-fields", h.Meta.OverrideFields)
+			r.Get("/meta/kasmvnc-managed-keys", h.Meta.KasmVNCManagedKeys)
 			r.Get("/meta/scaffold/{kind}", h.Meta.Scaffold)
 
 			r.Route("/workspace-templates", func(r chi.Router) {

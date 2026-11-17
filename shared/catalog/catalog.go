@@ -77,6 +77,22 @@ type Entry struct {
 	// template form — never merged into a built pod, never validated by
 	// a webhook. See docs/image-catalog.md.
 	Recommended *Recommendation `json:"recommended,omitempty"`
+	// KasmVNC describes the KasmVNC server bundled in a kasmweb/* image:
+	// its version and its own defaults file, which the admin template
+	// form reads to offer the image's options with their real defaults
+	// (docs/kasmvnc.md § Configuration). A display/prefill hint like
+	// Recommended — never read at reconcile.
+	KasmVNC *KasmVNCInfo `json:"kasmvnc,omitempty"`
+}
+
+// KasmVNCInfo is the KasmVNC server shipped by one catalog Entry, as
+// read from the image itself by the producer.
+type KasmVNCInfo struct {
+	// Version reported by `Xvnc -version` (e.g. "1.5.1").
+	Version string `json:"version,omitempty"`
+	// Defaults is the image's /usr/share/kasmvnc/kasmvnc_defaults.yaml,
+	// verbatim (comments included — the form shows them as hints).
+	Defaults string `json:"defaults,omitempty"`
 }
 
 // Recommendation is a display/prefill hint attached to one catalog

@@ -15,6 +15,20 @@
     "spec": {
       "description": "WorkspacePolicySpec is the admin-defined envelope for self-service.\n\nResolution rule (deliberate, keep in sync with pkg/policy): among all\npolicies whose subjects match the user, the HIGHEST spec.priority wins\nand applies as a whole \u2014 no field merging between policies. Ties break\non the lexicographically smallest name and surface a warning, because\ntwo same-priority matches are a configuration smell. A policy with no\nsubjects matches every authenticated user: name one \"default\" with\npriority 0 as the restrictive fallback. No matching policy at all\nmeans DENY (fail closed).",
       "properties": {
+        "audio": {
+          "description": "Audio gates the session's sound, per direction. Absent = both\ndenied (fail closed), like FileTransfer. Carried in the connection\ntoken and the session capabilities; reaches the kasmvnc data plane\nonly (the kasmvnc-sidecar's audio routes).",
+          "properties": {
+            "microphone": {
+              "description": "Microphone permits sending the browser's microphone INTO the\nworkspace (data injection direction, and a live capture of the\nuser's surroundings \u2014 the stricter of the two).",
+              "type": "boolean"
+            },
+            "playback": {
+              "description": "Playback permits hearing the workspace's sound in the browser.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
         "clipboard": {
           "description": "Clipboard controls the clipboard bridge between the user's machine\nand their workspace sessions. Absent = both directions allowed.\nEnforced by the WebSocket proxy (instruction filtering, rights\nstamped into the connection token) \u2014 the portal only reflects it.",
           "properties": {
@@ -24,6 +38,20 @@
             },
             "pasteToWorkspace": {
               "description": "PasteToWorkspace permits pasting the local clipboard INTO the\nworkspace (data injection direction).",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "fileTransfer": {
+          "description": "FileTransfer gates file movement between the user's machine and\ntheir workspace sessions, per direction. Absent = both directions\ndenied (fail closed): a wider channel than the clipboard, so it is\nopt-in. Carried in the connection token and the session\ncapabilities; today it reaches the kasmvnc data plane only\n(printing follows download) \u2014 the guacd sftp/drive parameters stay\nplatform-blocked.",
+          "properties": {
+            "download": {
+              "description": "Download permits fetching files FROM the workspace to the user's\nmachine (data exfiltration direction). On kasmvnc it also enables\nprinting \u2014 print-to-PDF then download, the same egress class.",
+              "type": "boolean"
+            },
+            "upload": {
+              "description": "Upload permits sending files from the user's machine INTO the\nworkspace (data injection direction).",
               "type": "boolean"
             }
           },
@@ -247,6 +275,12 @@
             "type": "object"
           },
           "type": "array"
+        },
+        "watermark": {
+          "description": "Watermark is a text template KasmVNC renders over the desktop of\nthe governed users' kasmvnc sessions \u2014 a deterrent enforced by Xvnc\ninside the container (soft control, see docs/kasmvnc.md). Xvnc\nexpands strftime directives live (%H:%M); the WaaS token {user} is\nreplaced by the workspace owner's username at reconcile. Empty =\nno watermark. Single quotes, $ and control characters are refused:\nKasmVNC's vncserver expands ${NAME} from its environment, then hands\nthe text to Xvnc single-quoted and unescaped through a shell (both\nmarkers mirrored by kasmcfg.ValidateWatermark).",
+          "maxLength": 200,
+          "pattern": "^[^'$\\x00-\\x1f\\x7f]*$",
+          "type": "string"
         }
       },
       "type": "object"

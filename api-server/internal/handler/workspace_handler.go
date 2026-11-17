@@ -277,3 +277,15 @@ func (h *WorkspaceHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	}
 	created(w, result)
 }
+
+// SessionToken handles POST /api/v1/workspaces/{id}/sessions/{sid}/token:
+// a fresh connection token for one of the caller's open sessions, grants
+// re-resolved — what keeps a kasmvnc session cookie alive past the TTL.
+func (h *WorkspaceHandler) SessionToken(w http.ResponseWriter, r *http.Request) {
+	result, err := h.svc.RefreshConnectionToken(r.Context(), middleware.Actor(r), chi.URLParam(r, "id"), chi.URLParam(r, "sid"))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	ok(w, result)
+}

@@ -94,6 +94,12 @@ lives in [guacd-parameters.md](guacd-parameters.md) (generated —
   session and merged over the template params in the internal
   ConnectionInfo; wwt forwards them during the guacd handshake.
   `hostname`/`port` remain platform-managed whatever the params say.
+- `POST /api/v1/workspaces/{id}/sessions/{sid}/token` mints a fresh
+  connection token for one of the caller's **open** sessions (owner
+  only, 409 once ended), re-resolving the policy grants — the same
+  minting path as `/connect`, minus the session row. The kasmvnc data
+  plane needs it: its cookie is the token, and a desktop outlives the
+  token's TTL (`docs/kasmvnc.md` § Auth).
 - The portal stores each user's per-workspace protocol/params choice in
   their profile preferences (`workspaceSettings`) — the server still
   re-validates at connect time, so the preference is a convenience, not a
@@ -143,10 +149,13 @@ is refused at connect time with an error saying so.
 **Image env contract (for third-party image builders)**: every
 variable the platform injects or a waas-core-images entrypoint interprets
 is `WAAS_`-prefixed; ecosystem-inherited names survive only on foreign
-boundaries (today: `VNC_PW`, confined to kasmweb images). What the
-operator injects, and when: `WAAS_DESKTOP_PASSWORD` via `secretKeyRef`
-when a vnc password is generated (level 2 above); `VNC_PW` the same
-way for kasmvnc. Images run as uid 1000 (`waas_user`); a conforming
+boundaries (today: `VNC_PW` and the `KASM_SVC_*` toggles, confined to
+kasmweb images). What the operator injects, and when:
+`WAAS_DESKTOP_PASSWORD` via `secretKeyRef` when a vnc password is
+generated (level 2 above); `VNC_PW` the same way for kasmvnc, plus the
+`KASM_SVC_*` side-service toggles forced to `0` on every kasmvnc
+container (operator-owned, refused in template env — see
+[kasmvnc.md](kasmvnc.md)). Images run as uid 1000 (`waas_user`); a conforming
 image must fail closed when a required credential is missing. The
 image-side half of the contract
 (ports, tombstones for legacy names, cosmetic aliases) lives in the
@@ -177,21 +186,26 @@ already-provisioned workspaces without recreating them
 kasmvnc templates may embed the raw content of the user-level KasmVNC
 YAML. The string is **opaque by design** (every upstream option works;
 the operator only checks it parses and rejects the policy-managed
-clipboard keys, see below); it materializes as a per-workspace
+keys — clipboard DLP, watermark — see below); it materializes as a per-workspace
 ConfigMap mounted read-only at `<homeMountPath>/.vnc/kasmvnc.yaml`
 (single-file subPath; the `.vnc` directory is an operator-managed
 emptyDir so it stays writable for KasmVNC's runtime artifacts). KasmVNC
 deep-merges this file over the image's own defaults, so a partial
 config inherits every unspecified key — WaaS adds no default layer of
 its own. The clipboard DLP keys derived from `WorkspacePolicy.Clipboard`
-are stamped last over the admin's content (and rejected if set by hand);
+and the watermark text from `WorkspacePolicy.watermark` are stamped
+last over the admin's content (and rejected if set by hand);
 the mount is therefore unconditional for a kasmvnc template, even with
 an empty field. A content change rolls the workload (hash annotation on
 the pod template). The webhook rejects the field on templates without a
 kasmvnc protocol. Trust boundary: templates are admin-managed CRs — the
 config can loosen security-relevant KasmVNC settings (`require_ssl`,
-auth file paths), which is the admin's call. Full detail:
-[kasmvnc.md](kasmvnc.md).
+auth file paths), which is the admin's call. The admin template editor
+edits it as Essentials / Advanced / YAML tabs whose option list and
+defaults come from the image itself (the catalog's `kasmvnc` hint) and
+writes only the keys set explicitly (an explicit choice equal to the
+default is still written) — the field stays the same opaque string.
+Full detail: [kasmvnc.md](kasmvnc.md).
 
 ### Private registries (`WorkspaceImage.spec.imagePullSecretRef`)
 
@@ -336,27 +350,33 @@ is exercised by CI.
 
 | Feature | VNC (linux pod) | RDP (windows VM) | KasmVNC |
 |---|---|---|---|
-| Audio playback | ✅ `enable-audio` + `exposeAudioPort` (PulseAudio in waas-core-images) | ⚙️ guacd's RDP audio channel (`disable-audio` in the registry); no `exposeAudioPort`, PulseAudio is a waas-core-images thing | ❌ Kasm-platform-only upstream |
-| Microphone | ❌ | ⚙️ `enable-audio-input` exists but the web client has no capture wiring — inert | ❌ |
-| Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time) |
+| Audio playback | ✅ `enable-audio` + `exposeAudioPort` (PulseAudio in waas-core-images) | ⚙️ guacd's RDP audio channel (`disable-audio` in the registry); no `exposeAudioPort`, PulseAudio is a waas-core-images thing | ✅ policy `audio.playback` — session-menu toggle, raw PCM from the `kasmvnc-sidecar` container's own PulseAudio (the images' platform-only audio service stays off; ADR 0004, `docs/kasmvnc.md` § Audio) |
+| Microphone | ❌ | ⚙️ `enable-audio-input` exists but the web client has no capture wiring — inert | ✅ policy `audio.microphone` — session-menu toggle into the sidecar's PulseAudio source (the browser needs HTTPS for the capture) |
+| Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time); session-menu manual exchange via the client's messages, gated by the connecting user's capabilities |
 | Persistent home | ✅ | ✅ | ✅ (`/home/kasm-user`) |
 | Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ |
-| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked | 🚫 | 🚫 `/api/downloads` blocked at the proxy |
+| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked (policy `fileTransfer` carried in the token, no guacd route reads it) | 🚫 | ✅ policy `fileTransfer` — session-menu Files section (list / download / upload into `~/Uploads`) through the `kasmvnc-sidecar` container, gated by wwt on the connecting user's grant (ADR 0003, `docs/kasmvnc.md` § Files); KasmVNC's own `/api/downloads` and `/Downloads/…` stay blocked. Governed path for normal use, not a hard guarantee against the occupant (print over RFB, own Xvnc, the screen) |
+| Printing | ❌ | ❌ | ⚙️ `KASM_SVC_PRINTER` on when the owner's policy allows `download` — soft gate (container env), `docs/kasmvnc.md` |
+| Watermark | ❌ | ❌ | ✅ policy `watermark` text (`{user}`, strftime), stamped into `kasmvnc.yaml` — soft (Xvnc-rendered) |
 | Session recording | 🚫 `recording-*` platform-blocked | 🚫 | ❌ |
 | Keyboard layout | N/A (direct keysyms) | ✅ `server-layout` + browser auto-detect | N/A |
 | Dynamic resize | ✅ pod-exec mechanism | ❌ the frontend never calls the endpoint for rdp: no pod to exec `waas-resize` in; guacd-native `resize-method` is the only candidate, unverified | ✅ native client-side (`resize=remote`) |
 | Multi-monitor | ❌ | ❌ | not integrated (upstream client capability, unverified through the iframe) |
-| Live (no-reconnect) params | `disable-copy`/`disable-paste` only | same | none (no guac tunnel) |
+| Live (no-reconnect) params | `disable-copy`/`disable-paste` only | same | image quality preset (session menu → client `setvideoquality`) |
+| Connection state / reconnect | guac client state; Retry = fresh `/connect` | same | client-reported (`connection_state`), client auto-reconnect (session cookie refreshed on a timer, `docs/kasmvnc.md` § Auth) then Retry = fresh `/connect` + token |
+| Full screen, Ctrl+Alt+M | ✅ session menu | ✅ | ✅ (keystrokes replayed from the iframe) |
 | Post-creation overrides | ✅ protocol-independent (`PATCH /overrides` + reload) | ✅ | ✅ |
 
 Detail lives in the dedicated docs: `docs/clipboard.md` (precedence and
 browser matrix), `docs/session-resize.md` (why resize is pod-exec, not
 guacd), `docs/volumes.md`, `docs/kasmvnc.md`, and
 `docs/adr/0001-template-boundary-convergence.md` (overrides/drift).
-File transfer and recording are deliberately blocked **for everyone,
-admins included**, "until the file-transfer feature ships with its own
-policy gate" (`operator/pkg/params/params.go`) — the kasmvnc downloads
-block mirrors the same doctrine. Remote workspaces run every guacd
+On guacd protocols, file transfer and recording are deliberately
+blocked **for everyone, admins included**, "until the file-transfer
+feature ships with its own policy gate" (`operator/pkg/params/params.go`).
+The gate exists (`WorkspacePolicy.fileTransfer`, `docs/governance.md`)
+and kasmvnc reads it through the `kasmvnc-sidecar` container; the guacd
+sftp/drive blocks lift once a guacd route reads it too. Remote workspaces run every guacd
 protocol — vnc, rdp and ssh, the last one no longer an in-cluster
 option — with the same clipboard filter; kasmvnc is refused there
 (`docs/remote-workspaces.md`).

@@ -107,19 +107,29 @@ func (v *WorkspaceTemplateValidator) validate(tpl *waasv1alpha1.WorkspaceTemplat
 	if tpl.Spec.KasmVNCConfig != "" && !seen[string(waasv1alpha1.ProtocolKasmVNC)] {
 		return nil, v.deny(tpl, "kasmvncConfig requires a kasmvnc protocol entry")
 	}
-	// The operator derives the clipboard DLP directives from
-	// WorkspacePolicy.Clipboard and stamps them over kasmvncConfig at
-	// reconcile (see controller.applyClipboardPolicy). Directives an admin
-	// writes here for those exact keys would be silently overwritten — same
+	// The operator derives the clipboard DLP directives and the watermark
+	// text from the WorkspacePolicy and stamps them over kasmvncConfig at
+	// reconcile (see controller.applyPolicy). Directives an admin writes
+	// here for those exact keys would be silently overwritten — same
 	// "silently ignored field" trap, so refuse them and point at the policy.
-	// Other clipboard sub-keys (size, allow_mimetypes, delay, primary) are
-	// left to the admin and untouched.
+	// Other clipboard/watermark sub-keys (size, allow_mimetypes, font_size,
+	// angle…) are left to the admin and untouched.
 	if tpl.Spec.KasmVNCConfig != "" {
-		if bad, err := kasmcfg.PolicyManagedClipboardKeys(tpl.Spec.KasmVNCConfig); err != nil {
+		if bad, err := kasmcfg.PolicyManagedKeys(tpl.Spec.KasmVNCConfig); err != nil {
 			return nil, v.deny(tpl, fmt.Sprintf("kasmvncConfig is %v", err))
 		} else if len(bad) > 0 {
 			return nil, v.deny(tpl, fmt.Sprintf(
-				"kasmvncConfig must not set %s: clipboard enforcement is derived from WorkspacePolicy.Clipboard, not the template",
+				"kasmvncConfig must not set %s: these keys are derived from the WorkspacePolicy (clipboard, watermark), not the template",
+				strings.Join(bad, ", ")))
+		}
+	}
+	// Same trap for the env the operator stamps on kasmvnc containers
+	// (controller.desktopEnv): the kasmweb side-service toggles and
+	// PULSE_SERVER.
+	if seen[string(waasv1alpha1.ProtocolKasmVNC)] {
+		if bad := kasmcfg.ManagedEnvNames(tpl.Spec.Env); len(bad) > 0 {
+			return nil, v.deny(tpl, fmt.Sprintf(
+				"env must not set %s: operator-owned on kasmvnc containers (the kasmweb side services are forced off, PULSE_SERVER points at the kasmvnc-sidecar)",
 				strings.Join(bad, ", ")))
 		}
 	}

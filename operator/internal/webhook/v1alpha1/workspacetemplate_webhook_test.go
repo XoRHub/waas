@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
@@ -188,7 +189,7 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 				tpl.Spec.KasmVNCConfig = "data_loss_prevention:\n  clipboard:\n    server_to_client:\n      enabled: true\n"
 				return tpl
 			}(),
-			"derived from WorkspacePolicy.Clipboard",
+			"derived from the WorkspacePolicy",
 		},
 		{
 			// Non-managed clipboard sub-keys stay the admin's to tune.
@@ -201,13 +202,53 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 			"",
 		},
 		{
+			// The watermark image would crash Xvnc next to a policy text
+			// watermark (vncserver refuses both at once); the text key is
+			// the policy's. Other watermark sub-keys stay the admin's.
+			"kasmvncConfig setting the watermark image",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
+				tpl.Spec.KasmVNCConfig = "data_loss_prevention:\n  watermark:\n    image: /etc/kasmvnc/logo.png\n"
+				return tpl
+			}(),
+			"derived from the WorkspacePolicy",
+		},
+		{
+			"kasmvncConfig with only unmanaged watermark sub-keys",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
+				tpl.Spec.KasmVNCConfig = "data_loss_prevention:\n  watermark:\n    text:\n      font_size: 24\n      angle: 30\n"
+				return tpl
+			}(),
+			"",
+		},
+		{
+			// Same trap for the side-service toggles the operator stamps.
+			"kasmvnc template env setting an operator-owned side-service toggle",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
+				tpl.Spec.Env = []corev1.EnvVar{{Name: "KASM_SVC_PRINTER", Value: "1"}}
+				return tpl
+			}(),
+			"must not set KASM_SVC_PRINTER",
+		},
+		{
+			"vnc template env with a kasmweb toggle (inert, not operator-owned there)",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901})
+				tpl.Spec.Env = []corev1.EnvVar{{Name: "KASM_SVC_PRINTER", Value: "1"}}
+				return tpl
+			}(),
+			"",
+		},
+		{
 			"kasmvncConfig with the client-override flag",
 			func() *waasv1alpha1.WorkspaceTemplate {
 				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
 				tpl.Spec.KasmVNCConfig = "runtime_configuration:\n  allow_client_to_override_kasm_server_settings: true\n"
 				return tpl
 			}(),
-			"derived from WorkspacePolicy.Clipboard",
+			"derived from the WorkspacePolicy",
 		},
 		{
 			"kasmvncConfig with invalid YAML",

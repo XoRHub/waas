@@ -19,14 +19,15 @@ import (
 )
 
 // User-level KasmVNC configuration (WorkspaceTemplate.spec.kasmvncConfig)
-// plus policy-derived clipboard enforcement.
+// plus policy-derived enforcement.
 //
 // What WaaS writes into ~/.vnc/kasmvnc.yaml is TWO layers merged:
 //   1. the admin's opaque kasmvncConfig (convenience config), then
-//   2. the clipboard DLP keys derived from WorkspacePolicy.Clipboard
-//      (the security authority), stamped last so denying clipboard in
-//      the policy actually disables copy/paste in the container instead
-//      of only greying out a button (docs/kasmvnc.md).
+//   2. the keys derived from the owner's WorkspacePolicy (the security
+//      authority) — the clipboard DLP and the watermark text — stamped
+//      last so denying clipboard in the policy actually disables
+//      copy/paste in the container instead of only greying out a button
+//      (docs/kasmvnc.md).
 // Everything else the admin wrote is preserved.
 //
 // WaaS does NOT add a base/defaults layer of its own. KasmVNC already
@@ -57,48 +58,61 @@ const (
 	annotationKasmConfigHash = "waas.xorhub.io/kasmvnc-config-hash"
 )
 
+// The operator-managed /dev/shm of kasmvnc pods (see buildPodTemplate).
+// 512Mi is enough for Firefox/Chrome; a Memory-medium emptyDir counts
+// against the container's memory limit.
+const (
+	kasmShmVolume = "kasmvnc-shm"
+	kasmShmPath   = "/dev/shm"
+	kasmShmSize   = "512Mi"
+)
+
 func kasmConfigHash(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-// templateHasKasmVNC reports whether any of the template's protocols is
-// the web-native KasmVNC endpoint (the only one this config applies to).
-func templateHasKasmVNC(tpl *waasv1alpha1.WorkspaceTemplate) bool {
-	for _, p := range tpl.Spec.Protocols {
-		if p.Name == string(waasv1alpha1.ProtocolKasmVNC) {
-			return true
-		}
-	}
-	return false
+// kasmPolicy is what the workspace owner's WorkspacePolicy decides for a
+// kasmvnc container: the clipboard DLP, printing (follows the download
+// right: print-to-PDF is session→browser file egress) and the rendered
+// watermark. The zero value is the fail-closed outcome — clipboard off,
+// no printing, no watermark (there is no safe text to invent).
+type kasmPolicy struct {
+	copyAllowed, pasteAllowed, printing bool
+	watermark                           string
 }
 
-// kasmClipboardGrant resolves the workspace owner's clipboard rights.
-// Container-level DLP can only enforce ONE policy per workload, so it
-// follows the owner (personal kasmvnc namespaces make owner == user in
-// practice; a shared workspace enforces the owner's policy for everyone).
-// Resolution failure fails closed: no policy match means clipboard off.
-func (r *WorkspaceReconciler) kasmClipboardGrant(ctx context.Context, ws *waasv1alpha1.Workspace) (copyAllowed, pasteAllowed bool) {
+// kasmPolicyOf resolves the workspace OWNER's policy. Container-level
+// enforcement can only follow ONE policy per workload, so it is the
+// owner's (personal kasmvnc namespaces make owner == user in practice; a
+// shared workspace enforces the owner's policy for everyone). Resolution
+// failure fails closed.
+func (r *WorkspaceReconciler) kasmPolicyOf(ctx context.Context, ws *waasv1alpha1.Workspace) kasmPolicy {
 	policies := &waasv1alpha1.WorkspacePolicyList{}
 	if err := r.List(ctx, policies, client.InNamespace(ws.Namespace)); err != nil {
-		return false, false
+		return kasmPolicy{}
 	}
-	pol, _, denial := policy.Resolve(policies.Items, policy.IdentityOf(ws))
+	id := policy.IdentityOf(ws)
+	pol, _, denial := policy.Resolve(policies.Items, id)
 	if denial != nil {
-		return false, false
+		return kasmPolicy{}
 	}
-	return policy.ClipboardOf(pol)
+	p := kasmPolicy{watermark: kasmcfg.WatermarkText(policy.WatermarkOf(pol), id.Username)}
+	p.copyAllowed, p.pasteAllowed = policy.ClipboardOf(pol)
+	_, p.printing = policy.FileTransferOf(pol)
+	return p
 }
 
-// applyClipboardPolicy merges the policy's clipboard decision into the
-// admin's opaque kasmvnc.yaml, preserving every other directive. The
-// policy is authoritative, so allow_client_to_override_kasm_server_settings
-// is forced off — KasmVNC's DLP directives are ignored otherwise and the
-// client could re-enable clipboard at connect time. The stamped paths come
-// from kasmcfg.ManagedClipboardKeyPaths (single source shared with the
-// webhook/api-server rejection), paired here with their values IN THAT
-// ORDER: clipboard copy, clipboard paste, client-override-off.
-func applyClipboardPolicy(rawConfig string, copyAllowed, pasteAllowed bool) (string, error) {
+// applyPolicy merges the policy decision into the admin's opaque
+// kasmvnc.yaml, preserving every other directive. The policy is
+// authoritative, so allow_client_to_override_kasm_server_settings is
+// forced off — KasmVNC's DLP directives are ignored otherwise and the
+// client could re-enable clipboard at connect time. The watermark key is
+// only written when there is text: KasmVNC 1.5.1 needs nothing else for a
+// text watermark (font, size, tint, angle have Xvnc defaults; verified
+// live on kasmweb/terminal:1.19.0). The stamped paths come from
+// kasmcfg (single source shared with the webhook/api-server rejection).
+func applyPolicy(rawConfig string, p kasmPolicy) (string, error) {
 	root := map[string]any{}
 	if strings.TrimSpace(rawConfig) != "" {
 		if err := yaml.Unmarshal([]byte(rawConfig), &root); err != nil {
@@ -108,9 +122,11 @@ func applyClipboardPolicy(rawConfig string, copyAllowed, pasteAllowed bool) (str
 			root = map[string]any{}
 		}
 	}
-	values := []any{copyAllowed, pasteAllowed, false}
-	for i, path := range kasmcfg.ManagedClipboardKeyPaths {
-		setNested(root, values[i], path...)
+	setNested(root, p.copyAllowed, kasmcfg.KeyClipboardCopy...)
+	setNested(root, p.pasteAllowed, kasmcfg.KeyClipboardPaste...)
+	setNested(root, false, kasmcfg.KeyClientOverride...)
+	if p.watermark != "" {
+		setNested(root, p.watermark, kasmcfg.KeyWatermarkText...)
 	}
 
 	out, err := yaml.Marshal(root)
@@ -138,14 +154,14 @@ func setNested(root map[string]any, value any, keys ...string) {
 }
 
 // ensureKasmConfig keeps the per-workspace ConfigMap converged on the
-// effective KasmVNC config (admin template + policy clipboard
-// enforcement), and removes it for non-kasmvnc workspaces.
+// effective KasmVNC config (admin template + policy enforcement), and
+// removes it for non-kasmvnc workspaces.
 func (r *WorkspaceReconciler) ensureKasmConfig(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) error {
 	key := computeKey(ws)
 	existing := &corev1.ConfigMap{}
 	err := r.Get(ctx, key, existing)
 
-	if !templateHasKasmVNC(tpl) {
+	if !policy.TemplateHasKasmVNC(tpl) {
 		// Not a kasmvnc workspace: there is nothing to enforce and no
 		// kasmvnc.yaml to mount; drop any stale ConfigMap.
 		if err == nil {
@@ -156,8 +172,7 @@ func (r *WorkspaceReconciler) ensureKasmConfig(ctx context.Context, ws *waasv1al
 		return nil
 	}
 
-	copyAllowed, pasteAllowed := r.kasmClipboardGrant(ctx, ws)
-	content, cerr := applyClipboardPolicy(tpl.Spec.KasmVNCConfig, copyAllowed, pasteAllowed)
+	content, cerr := applyPolicy(tpl.Spec.KasmVNCConfig, r.kasmPolicyOf(ctx, ws))
 	if cerr != nil {
 		return fmt.Errorf("building kasmvnc config %s: %w", key.Name, cerr)
 	}

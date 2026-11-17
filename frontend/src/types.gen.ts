@@ -667,6 +667,23 @@ export interface DiscoveredImage {
    * shared/catalog.Entry.
    */
   recommended?: DeploymentRecommendation;
+  /**
+   * KasmVNC is the KasmVNC server this image bundles (version and its
+   * own kasmvnc_defaults.yaml, verbatim): the admin template editor
+   * derives its KasmVNC option list, control types and default values
+   * from it. Display/prefill only, same split from shared/catalog as
+   * Recommended. Only the admin listing (/admin/images) carries it;
+   * the end-user catalog strips it. Absent = unknown (image not
+   * catalogued, or a catalog predating the field).
+   */
+  kasmvnc?: KasmVNCInfo;
+}
+/**
+ * KasmVNCInfo mirrors shared/catalog.KasmVNCInfo.
+ */
+export interface KasmVNCInfo {
+  version?: string;
+  defaults?: string;
 }
 /**
  * DeploymentRecommendation mirrors shared/catalog.Recommendation for
@@ -717,6 +734,12 @@ export interface QuotaStatus {
   limits?: { [key: string]: string }; // aggregate caps (cpu/memory/storage)
   used?: { [key: string]: string }; // current aggregates
   perWorkspace?: { [key: string]: string };
+  /**
+   * KasmVNCSidecarOverhead (cpu/memory) is what a kasmvnc workspace's
+   * kasmvnc-sidecar adds to the aggregate on top of the desktop
+   * sizing; the create slider subtracts it from the remaining room.
+   */
+  kasmvncSidecarOverhead?: { [key: string]: string };
   defaults?: { [key: string]: string }; // policy-proposed sizing (image defaults win)
   lifecycle?: { [key: string]: string }; // idleSuspendAfter / maxLifetime
   /**
@@ -751,6 +774,18 @@ export interface PolicyModel {
   lifecycle?: { [key: string]: string };
   clipboard?: ClipboardPolicyModel;
   /**
+   * FileTransfer mirrors the CRD block (nil = both directions denied).
+   */
+  fileTransfer?: FileTransferPolicyModel;
+  /**
+   * Audio mirrors the CRD block (nil = both directions denied).
+   */
+  audio?: AudioPolicyModel;
+  /**
+   * Watermark is the KasmVNC desktop watermark template ("" = none).
+   */
+  watermark?: string;
+  /**
    * Overrides is the policy-level restriction on template overrides
    * (nil = no restriction; empty list = all overrides forbidden).
    */
@@ -778,6 +813,22 @@ export interface PolicyOverridesModel {
 export interface ClipboardPolicyModel {
   copyFromWorkspace?: boolean;
   pasteToWorkspace?: boolean;
+}
+/**
+ * FileTransferPolicyModel mirrors the CRD fileTransfer block (opt-in:
+ * nil or false = denied).
+ */
+export interface FileTransferPolicyModel {
+  upload: boolean;
+  download: boolean;
+}
+/**
+ * AudioPolicyModel mirrors the CRD audio block (opt-in: nil or false =
+ * denied).
+ */
+export interface AudioPolicyModel {
+  playback: boolean;
+  microphone: boolean;
 }
 /**
  * PolicySubject mirrors the CRD subject.
@@ -849,11 +900,13 @@ export interface UserUsage {
   used?: { [key: string]: string };
 }
 /**
- * SessionCapabilities is what the session may do, per clipboard
- * direction; the overlay reflects it, the proxy enforces it. A denied
- * direction carries WHY in its lock field so the overlay can tell an
- * admin policy denial (immutable for the user) from the user's own
- * disable-copy/disable-paste connection setting (undo + reconnect).
+ * SessionCapabilities is what the session may do, per clipboard,
+ * file-transfer and audio direction; the overlay reflects it, the proxy
+ * enforces it. A denied clipboard direction carries WHY in its lock field
+ * so the overlay can tell an admin policy denial (immutable for the
+ * user) from the user's own disable-copy/disable-paste connection setting
+ * (undo + reconnect). File transfer and audio have no params to clamp
+ * them: the policy alone decides.
  */
 export interface SessionCapabilities {
   clipboardCopy: boolean;
@@ -865,6 +918,10 @@ export interface SessionCapabilities {
    */
   clipboardCopyLock?: ClipboardLock;
   clipboardPasteLock?: ClipboardLock;
+  fileUpload: boolean;
+  fileDownload: boolean;
+  audioPlayback: boolean;
+  microphone: boolean;
 }
 /**
  * ClipboardLock names the gate that denied a clipboard direction.

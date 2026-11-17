@@ -65,6 +65,48 @@ func TestClipboardOf(t *testing.T) {
 	}
 }
 
+// File transfer is opt-in: only an explicit true grants a direction.
+func TestAudioOf(t *testing.T) {
+	for _, tc := range []struct {
+		pol                  *waasv1alpha1.WorkspacePolicy
+		playback, microphone bool
+	}{
+		{nil, false, false},
+		{&waasv1alpha1.WorkspacePolicy{}, false, false},
+		{&waasv1alpha1.WorkspacePolicy{Spec: waasv1alpha1.WorkspacePolicySpec{Audio: &waasv1alpha1.AudioPolicy{Playback: true}}}, true, false},
+		{&waasv1alpha1.WorkspacePolicy{Spec: waasv1alpha1.WorkspacePolicySpec{Audio: &waasv1alpha1.AudioPolicy{Playback: true, Microphone: true}}}, true, true},
+	} {
+		if p, m := AudioOf(tc.pol); p != tc.playback || m != tc.microphone {
+			t.Errorf("AudioOf(%+v) = %v/%v, want %v/%v", tc.pol, p, m, tc.playback, tc.microphone)
+		}
+	}
+}
+
+func TestFileTransferOf(t *testing.T) {
+	cases := []struct {
+		name             string
+		pol              *waasv1alpha1.WorkspacePolicy
+		upload, download bool
+	}{
+		{"nil policy fails closed", nil, false, false},
+		{"absent block denies both", &waasv1alpha1.WorkspacePolicy{}, false, false},
+		{"explicit grant sticks", &waasv1alpha1.WorkspacePolicy{
+			Spec: waasv1alpha1.WorkspacePolicySpec{FileTransfer: &waasv1alpha1.FileTransferPolicy{Download: true}},
+		}, false, true},
+	}
+	for _, tc := range cases {
+		if u, d := FileTransferOf(tc.pol); u != tc.upload || d != tc.download {
+			t.Errorf("%s: got upload=%v download=%v, want %v/%v", tc.name, u, d, tc.upload, tc.download)
+		}
+	}
+	if got := WatermarkOf(nil); got != "" {
+		t.Errorf("nil policy must carry no watermark, got %q", got)
+	}
+	if got := WatermarkOf(&waasv1alpha1.WorkspacePolicy{Spec: waasv1alpha1.WorkspacePolicySpec{Watermark: "x {user}"}}); got != "x {user}" {
+		t.Errorf("watermark must pass through untouched, got %q", got)
+	}
+}
+
 func TestTemplatesByName(t *testing.T) {
 	items := []waasv1alpha1.WorkspaceTemplate{
 		{ObjectMeta: metav1.ObjectMeta{Name: "a"}},

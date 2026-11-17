@@ -20,6 +20,7 @@ import (
 	"github.com/xorhub/waas/api-server/internal/model"
 	"github.com/xorhub/waas/api-server/internal/repository"
 	"github.com/xorhub/waas/shared/auth"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 const testNS = "test-ns"
@@ -363,6 +364,9 @@ func TestQuotaCountsRunningWorkspaces(t *testing.T) {
 	if quota.RunningWorkspaces != 2 {
 		t.Fatalf("paused workspaces must not count as running: got %d", quota.RunningWorkspaces)
 	}
+	if quota.KasmVNCSidecarOverhead["cpu"] != kasmvncsidecar.SidecarCPULimit || quota.KasmVNCSidecarOverhead["memory"] != kasmvncsidecar.SidecarMemoryLimit {
+		t.Fatalf("kasmvncSidecarOverhead must mirror the sidecar limits, got %v", quota.KasmVNCSidecarOverhead)
+	}
 }
 
 // TestUpsertPolicyRoundTripsMaxRunning pins the admin editor mapping in
@@ -378,6 +382,33 @@ func TestUpsertPolicyRoundTripsMaxRunning(t *testing.T) {
 	}
 	if m.Limits.MaxRunningWorkspaces == nil || *m.Limits.MaxRunningWorkspaces != 2 {
 		t.Fatalf("maxRunningWorkspaces must round-trip through the admin editor, got %+v", m.Limits.MaxRunningWorkspaces)
+	}
+}
+
+// TestUpsertPolicyRoundTripsFileTransferAndWatermark pins the editor
+// mapping of the kasmvnc policy gates, and the watermark refusals that
+// mirror the CRD markers as 400s.
+func TestUpsertPolicyRoundTripsFileTransferAndWatermark(t *testing.T) {
+	svc := newGovernanceFixture(t, nil, nil)
+	m, err := svc.AdminUpsertPolicy(context.Background(), Actor{ID: "admin"}, "p1", UpsertPolicyInput{
+		FileTransfer: &model.FileTransferPolicyModel{Download: true},
+		Audio:        &model.AudioPolicyModel{Playback: true},
+		Watermark:    "{user} %H:%M",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.FileTransfer == nil || m.FileTransfer.Upload || !m.FileTransfer.Download || m.Watermark != "{user} %H:%M" {
+		t.Fatalf("fileTransfer/watermark must round-trip through the admin editor, got %+v / %q", m.FileTransfer, m.Watermark)
+	}
+	if m.Audio == nil || !m.Audio.Playback || m.Audio.Microphone {
+		t.Fatalf("audio must round-trip through the admin editor, got %+v", m.Audio)
+	}
+	for _, bad := range []string{"it's", "${VNC_PW}", "a\nb", strings.Repeat("x", 201)} {
+		_, err = svc.AdminUpsertPolicy(context.Background(), Actor{ID: "admin"}, "p1", UpsertPolicyInput{Watermark: bad})
+		if err == nil || !strings.Contains(err.Error(), "watermark:") {
+			t.Fatalf("watermark %q must be a 400, got %v", bad, err)
+		}
 	}
 }
 
@@ -584,6 +615,7 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 			OS:    "linux", App: "firefox", Icon: "firefox", SyncedAt: time.Now(),
 			Profile:     "hardened",
 			Recommended: json.RawMessage(`{"podSecurityContext":{"runAsUser":1000},"env":[{"name":"WAAS_AUDIO_ENABLED","protocols":["vnc"]}]}`),
+			KasmVNC:     json.RawMessage(`{"version":"1.5.1","defaults":"---\ndesktop:\n  allow_resize: true\n"}`),
 		}}
 		if err := svc.catalog.ReplaceEntries(ctx, img.Name, entry); err != nil {
 			t.Fatalf("seeding catalog entries of %s: %v", img.Name, err)
@@ -604,6 +636,22 @@ func TestCatalogSurfacesDiscoveredEntries(t *testing.T) {
 	if got[0].Profile != "hardened" || got[0].Recommended == nil ||
 		got[0].Recommended.PodSecurityContext == nil || got[0].Recommended.PodSecurityContext.RunAsUser == nil || *got[0].Recommended.PodSecurityContext.RunAsUser != 1000 {
 		t.Fatalf("profile/recommended not surfaced: %+v", got[0])
+	}
+	// The KasmVNC defaults only serve the admin template editor: the
+	// admin listing carries them, the end-user catalog is stripped.
+	if got[0].KasmVNC != nil {
+		t.Fatalf("end-user catalog must not carry the kasmvnc defaults: %+v", got[0].KasmVNC)
+	}
+	admin, err := svc.AdminListImages(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(admin, func(m model.CatalogImage) bool { return m.Name == "waas-images" })
+	if i < 0 || len(admin[i].Discovered) != 1 {
+		t.Fatalf("admin listing lost the image or its entries: %+v", admin)
+	}
+	if k := admin[i].Discovered[0].KasmVNC; k == nil || k.Version != "1.5.1" || k.Defaults != "---\ndesktop:\n  allow_resize: true\n" {
+		t.Fatalf("kasmvnc not surfaced on the admin listing: %+v", k)
 	}
 	// Per-image protocols derive from the hint tags (vnc here), not the
 	// parent entry's list (kasmvnc) — the single-app-image fix.

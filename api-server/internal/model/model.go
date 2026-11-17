@@ -545,6 +545,20 @@ type DiscoveredImage struct {
 	// compatibility cadences, same split as DiscoveredImage vs
 	// shared/catalog.Entry.
 	Recommended *DeploymentRecommendation `json:"recommended,omitempty"`
+	// KasmVNC is the KasmVNC server this image bundles (version and its
+	// own kasmvnc_defaults.yaml, verbatim): the admin template editor
+	// derives its KasmVNC option list, control types and default values
+	// from it. Display/prefill only, same split from shared/catalog as
+	// Recommended. Only the admin listing (/admin/images) carries it;
+	// the end-user catalog strips it. Absent = unknown (image not
+	// catalogued, or a catalog predating the field).
+	KasmVNC *KasmVNCInfo `json:"kasmvnc,omitempty"`
+}
+
+// KasmVNCInfo mirrors shared/catalog.KasmVNCInfo.
+type KasmVNCInfo struct {
+	Version  string `json:"version,omitempty"`
+	Defaults string `json:"defaults,omitempty"`
 }
 
 // DeploymentRecommendation mirrors shared/catalog.Recommendation for
@@ -589,8 +603,12 @@ type QuotaStatus struct {
 	Limits               map[string]string `json:"limits,omitempty"` // aggregate caps (cpu/memory/storage)
 	Used                 map[string]string `json:"used,omitempty"`   // current aggregates
 	PerWorkspace         map[string]string `json:"perWorkspace,omitempty"`
-	Defaults             map[string]string `json:"defaults,omitempty"`  // policy-proposed sizing (image defaults win)
-	Lifecycle            map[string]string `json:"lifecycle,omitempty"` // idleSuspendAfter / maxLifetime
+	// KasmVNCSidecarOverhead (cpu/memory) is what a kasmvnc workspace's
+	// kasmvnc-sidecar adds to the aggregate on top of the desktop
+	// sizing; the create slider subtracts it from the remaining room.
+	KasmVNCSidecarOverhead map[string]string `json:"kasmvncSidecarOverhead,omitempty"`
+	Defaults               map[string]string `json:"defaults,omitempty"`  // policy-proposed sizing (image defaults win)
+	Lifecycle              map[string]string `json:"lifecycle,omitempty"` // idleSuspendAfter / maxLifetime
 	// Features flags what the resolved policy opts the user into (e.g.
 	// "remoteWorkspaces"); the UI hides gated tabs from it.
 	Features map[string]bool `json:"features,omitempty"`
@@ -615,6 +633,12 @@ type PolicyModel struct {
 	Limits    PolicyLimitsModel     `json:"limits"`
 	Lifecycle map[string]string     `json:"lifecycle,omitempty"`
 	Clipboard *ClipboardPolicyModel `json:"clipboard,omitempty"`
+	// FileTransfer mirrors the CRD block (nil = both directions denied).
+	FileTransfer *FileTransferPolicyModel `json:"fileTransfer,omitempty"`
+	// Audio mirrors the CRD block (nil = both directions denied).
+	Audio *AudioPolicyModel `json:"audio,omitempty"`
+	// Watermark is the KasmVNC desktop watermark template ("" = none).
+	Watermark string `json:"watermark,omitempty"`
 	// Overrides is the policy-level restriction on template overrides
 	// (nil = no restriction; empty list = all overrides forbidden).
 	Overrides *PolicyOverridesModel `json:"overrides,omitempty"`
@@ -635,6 +659,20 @@ type PolicyOverridesModel struct {
 type ClipboardPolicyModel struct {
 	CopyFromWorkspace *bool `json:"copyFromWorkspace,omitempty"`
 	PasteToWorkspace  *bool `json:"pasteToWorkspace,omitempty"`
+}
+
+// FileTransferPolicyModel mirrors the CRD fileTransfer block (opt-in:
+// nil or false = denied).
+type FileTransferPolicyModel struct {
+	Upload   bool `json:"upload"`
+	Download bool `json:"download"`
+}
+
+// AudioPolicyModel mirrors the CRD audio block (opt-in: nil or false =
+// denied).
+type AudioPolicyModel struct {
+	Playback   bool `json:"playback"`
+	Microphone bool `json:"microphone"`
 }
 
 // PolicySubject mirrors the CRD subject.
@@ -693,11 +731,13 @@ type UserUsage struct {
 	Used       map[string]string `json:"used,omitempty"`
 }
 
-// SessionCapabilities is what the session may do, per clipboard
-// direction; the overlay reflects it, the proxy enforces it. A denied
-// direction carries WHY in its lock field so the overlay can tell an
-// admin policy denial (immutable for the user) from the user's own
-// disable-copy/disable-paste connection setting (undo + reconnect).
+// SessionCapabilities is what the session may do, per clipboard,
+// file-transfer and audio direction; the overlay reflects it, the proxy
+// enforces it. A denied clipboard direction carries WHY in its lock field
+// so the overlay can tell an admin policy denial (immutable for the
+// user) from the user's own disable-copy/disable-paste connection setting
+// (undo + reconnect). File transfer and audio have no params to clamp
+// them: the policy alone decides.
 type SessionCapabilities struct {
 	ClipboardCopy  bool `json:"clipboardCopy"`
 	ClipboardPaste bool `json:"clipboardPaste"`
@@ -706,6 +746,10 @@ type SessionCapabilities struct {
 	// the direction is allowed.
 	ClipboardCopyLock  ClipboardLock `json:"clipboardCopyLock,omitempty"`
 	ClipboardPasteLock ClipboardLock `json:"clipboardPasteLock,omitempty"`
+	FileUpload         bool          `json:"fileUpload"`
+	FileDownload       bool          `json:"fileDownload"`
+	AudioPlayback      bool          `json:"audioPlayback"`
+	Microphone         bool          `json:"microphone"`
 }
 
 // ClipboardLock names the gate that denied a clipboard direction.

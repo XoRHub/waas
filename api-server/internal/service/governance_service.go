@@ -20,8 +20,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/params"
 	"github.com/xorhub/waas/operator/pkg/policy"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 
 	"github.com/xorhub/waas/api-server/internal/apierror"
 	"github.com/xorhub/waas/api-server/internal/model"
@@ -122,6 +124,13 @@ func (s *GovernanceService) Catalog(ctx context.Context, actor Actor) ([]model.C
 			return nil, err
 		}
 		m.Templates = templatesByEntry[allowed[i].Name]
+		// The KasmVNC defaults (a ~4 KB file per kasmweb image) only
+		// serve the admin template editor, which reads the admin
+		// listing; the end-user catalog is fetched by every portal
+		// page and must not carry them.
+		for j := range m.Discovered {
+			m.Discovered[j].KasmVNC = nil
+		}
 		out = append(out, m)
 	}
 	return out, nil
@@ -166,6 +175,9 @@ func (s *GovernanceService) Quota(ctx context.Context, actor Actor) (*model.Quot
 		RetainedVolumes:      use.retainedVolumes,
 		RetainedStorage:      use.retainedStorage,
 		Features:             featureFlags(pol, isAdmin),
+		KasmVNCSidecarOverhead: map[string]string{
+			"cpu": kasmvncsidecar.SidecarCPULimit, "memory": kasmvncsidecar.SidecarMemoryLimit,
+		},
 	}
 	if pol.Spec.Overrides != nil {
 		status.AllowedOverrides = []string{}
@@ -625,14 +637,17 @@ func (s *GovernanceService) AdminListPolicies(ctx context.Context) ([]model.Poli
 
 // UpsertPolicyInput is the admin payload for a policy.
 type UpsertPolicyInput struct {
-	Priority         int32                       `json:"priority"`
-	Subjects         []model.PolicySubject       `json:"subjects"`
-	Images           []string                    `json:"images"`
-	Limits           model.PolicyLimitsModel     `json:"limits"`
-	Lifecycle        map[string]string           `json:"lifecycle"`
-	Clipboard        *model.ClipboardPolicyModel `json:"clipboard"`
-	Overrides        *model.PolicyOverridesModel `json:"overrides"`
-	RemoteWorkspaces bool                        `json:"remoteWorkspaces"`
+	Priority         int32                          `json:"priority"`
+	Subjects         []model.PolicySubject          `json:"subjects"`
+	Images           []string                       `json:"images"`
+	Limits           model.PolicyLimitsModel        `json:"limits"`
+	Lifecycle        map[string]string              `json:"lifecycle"`
+	Clipboard        *model.ClipboardPolicyModel    `json:"clipboard"`
+	FileTransfer     *model.FileTransferPolicyModel `json:"fileTransfer"`
+	Audio            *model.AudioPolicyModel        `json:"audio"`
+	Watermark        string                         `json:"watermark"`
+	Overrides        *model.PolicyOverridesModel    `json:"overrides"`
+	RemoteWorkspaces bool                           `json:"remoteWorkspaces"`
 }
 
 // AdminUpsertPolicy creates or updates a WorkspacePolicy.
@@ -693,6 +708,18 @@ func (s *GovernanceService) AdminUpsertPolicy(ctx context.Context, actor Actor, 
 			PasteToWorkspace:  in.Clipboard.PasteToWorkspace,
 		}
 	}
+	if in.FileTransfer != nil {
+		spec.FileTransfer = &waasv1alpha1.FileTransferPolicy{Upload: in.FileTransfer.Upload, Download: in.FileTransfer.Download}
+	}
+	if in.Audio != nil {
+		spec.Audio = &waasv1alpha1.AudioPolicy{Playback: in.Audio.Playback, Microphone: in.Audio.Microphone}
+	}
+	// Mirrors the CRD markers with a clean 400 (the admission refusal
+	// would reach the admin as a wrapped 500) — see kasmcfg.ValidateWatermark.
+	if err := kasmcfg.ValidateWatermark(in.Watermark); err != nil {
+		return nil, apierror.BadRequest("watermark: " + err.Error())
+	}
+	spec.Watermark = in.Watermark
 	if in.Overrides != nil {
 		ov := &waasv1alpha1.PolicyOverrides{}
 		for _, f := range in.Overrides.AllowedFields {
@@ -933,7 +960,7 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 		return model.CatalogImage{}, fmt.Errorf("listing catalog entries of %s: %w", img.Name, err)
 	}
 	for _, e := range entries {
-		rec := unmarshalRecommended(e.Recommended)
+		rec := unmarshalHint[model.DeploymentRecommendation](e.Recommended)
 		m.Discovered = append(m.Discovered, model.DiscoveredImage{
 			Image:         e.Image,
 			OS:            e.OS,
@@ -944,6 +971,7 @@ func (s *GovernanceService) imageToModel(ctx context.Context, img *waasv1alpha1.
 			Description:   e.Description,
 			Profile:       e.Profile,
 			Recommended:   rec,
+			KasmVNC:       unmarshalHint[model.KasmVNCInfo](e.KasmVNC),
 			Architectures: e.Architectures,
 			Protocols:     deriveProtocols(rec),
 		})
@@ -999,19 +1027,19 @@ func deriveProtocols(rec *model.DeploymentRecommendation) []string {
 	return append(out, rest...)
 }
 
-// unmarshalRecommended decodes the opaque JSON persisted by
-// CatalogSyncWorker; a nil/malformed column yields nil rather than an
-// error — this is display/prefill data, never a reason to fail an API
-// response.
-func unmarshalRecommended(raw json.RawMessage) *model.DeploymentRecommendation {
+// unmarshalHint decodes an opaque hint column (recommended, kasmvnc)
+// persisted by CatalogSyncWorker; a nil/malformed column yields nil
+// rather than an error — this is display/prefill data, never a reason
+// to fail an API response.
+func unmarshalHint[T any](raw json.RawMessage) *T {
 	if len(raw) == 0 {
 		return nil
 	}
-	var r model.DeploymentRecommendation
-	if err := json.Unmarshal(raw, &r); err != nil {
+	var h T
+	if err := json.Unmarshal(raw, &h); err != nil {
 		return nil
 	}
-	return &r
+	return &h
 }
 
 func policyToModel(pol *waasv1alpha1.WorkspacePolicy) model.PolicyModel {
@@ -1058,6 +1086,13 @@ func policyToModel(pol *waasv1alpha1.WorkspacePolicy) model.PolicyModel {
 			PasteToWorkspace:  c.PasteToWorkspace,
 		}
 	}
+	if ft := pol.Spec.FileTransfer; ft != nil {
+		m.FileTransfer = &model.FileTransferPolicyModel{Upload: ft.Upload, Download: ft.Download}
+	}
+	if a := pol.Spec.Audio; a != nil {
+		m.Audio = &model.AudioPolicyModel{Playback: a.Playback, Microphone: a.Microphone}
+	}
+	m.Watermark = pol.Spec.Watermark
 	if lc := pol.Spec.Lifecycle; lc != nil {
 		m.Lifecycle = map[string]string{}
 		if lc.IdleSuspendAfter != nil {

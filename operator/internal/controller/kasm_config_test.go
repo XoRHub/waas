@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -11,6 +12,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 )
 
 // nestedBool reads a nested boolean out of a kasmvnc.yaml document, failing
@@ -60,9 +62,9 @@ func TestKasmClipboardPolicyEnforcement(t *testing.T) {
 		"    client_to_server:\n      enabled: true\n" +
 		"runtime_configuration:\n  allow_client_to_override_kasm_server_settings: true\n"
 
-	deny, err := applyClipboardPolicy(admin, false, false)
+	deny, err := applyPolicy(admin, kasmPolicy{})
 	if err != nil {
-		t.Fatalf("applyClipboardPolicy(deny): %v", err)
+		t.Fatalf("applyPolicy(deny): %v", err)
 	}
 	copyE, pasteE, override := clipboardEnabled(t, deny)
 	if copyE || pasteE {
@@ -77,9 +79,9 @@ func TestKasmClipboardPolicyEnforcement(t *testing.T) {
 	}
 
 	// Asymmetric grant: copy allowed, paste denied.
-	mixed, err := applyClipboardPolicy(admin, true, false)
+	mixed, err := applyPolicy(admin, kasmPolicy{copyAllowed: true})
 	if err != nil {
-		t.Fatalf("applyClipboardPolicy(mixed): %v", err)
+		t.Fatalf("applyPolicy(mixed): %v", err)
 	}
 	copyE, pasteE, override = clipboardEnabled(t, mixed)
 	if !copyE || pasteE || override {
@@ -87,13 +89,84 @@ func TestKasmClipboardPolicyEnforcement(t *testing.T) {
 	}
 
 	// Empty admin config still yields a complete enforcement document.
-	empty, err := applyClipboardPolicy("", true, true)
+	empty, err := applyPolicy("", kasmPolicy{copyAllowed: true, pasteAllowed: true})
 	if err != nil {
-		t.Fatalf("applyClipboardPolicy(empty): %v", err)
+		t.Fatalf("applyPolicy(empty): %v", err)
 	}
 	copyE, pasteE, override = clipboardEnabled(t, empty)
 	if !copyE || !pasteE || override {
 		t.Fatalf("allowing policy over empty config: got copy=%v paste=%v override=%v", copyE, pasteE, override)
+	}
+}
+
+// The watermark text is stamped only when the policy sets one; the admin's
+// other watermark sub-keys survive next to it.
+func TestKasmWatermarkStamped(t *testing.T) {
+	admin := "data_loss_prevention:\n  watermark:\n    text:\n      font_size: 24\n"
+	without, err := applyPolicy(admin, kasmPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := parseYAML(t, without)["data_loss_prevention"].(map[string]any)["watermark"].(map[string]any)["text"].(map[string]any)["template"]; ok {
+		t.Fatal("no policy watermark must leave the template key absent")
+	}
+	with, err := applyPolicy(admin, kasmPolicy{watermark: "WaaS alice %H:%M"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := parseYAML(t, with)["data_loss_prevention"].(map[string]any)["watermark"].(map[string]any)["text"].(map[string]any)
+	if text["template"] != "WaaS alice %H:%M" {
+		t.Fatalf("watermark text not stamped, got %v", text)
+	}
+	if got := nestedFloat(t, with, "data_loss_prevention", "watermark", "text", "font_size"); got != 24 {
+		t.Fatalf("admin watermark sub-key must survive, got %v", got)
+	}
+}
+
+// The owner's policy decides printing and the watermark text, with the
+// owner's username substituted; no policy fails closed on all of it.
+func TestKasmPolicyOfFollowsOwner(t *testing.T) {
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+	ws.Annotations = map[string]string{waasv1alpha1.AnnotationUsername: "o'reilly"}
+	pol := &waasv1alpha1.WorkspacePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "default"},
+		Spec: waasv1alpha1.WorkspacePolicySpec{
+			FileTransfer: &waasv1alpha1.FileTransferPolicy{Download: true},
+			Watermark:    "{user} %H:%M",
+		},
+	}
+	r, _ := newFixture(t, kasmTemplate(), ws, pol)
+	got := r.kasmPolicyOf(context.Background(), ws)
+	want := kasmPolicy{copyAllowed: true, pasteAllowed: true, printing: true, watermark: "o_reilly %H:%M"}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+
+	r, _ = newFixture(t, kasmTemplate(), ws)
+	if got := r.kasmPolicyOf(context.Background(), ws); got != (kasmPolicy{}) {
+		t.Fatalf("no policy must fail closed, got %+v", got)
+	}
+}
+
+// The printer toggle follows the policy; the other side services stay off.
+func TestKasmPrinterFollowsPolicy(t *testing.T) {
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+	for _, printing := range []bool{false, true} {
+		env := map[string]string{}
+		for _, e := range desktopEnv(ws, kasmTemplate(), &waasv1alpha1.WorkspaceOverrides{}, printing, false) {
+			env[e.Name] = e.Value
+		}
+		for _, name := range kasmcfg.SideServiceEnv {
+			want := "0"
+			if name == kasmcfg.PrinterEnv && printing {
+				want = "1"
+			}
+			if env[name] != want {
+				t.Errorf("printing=%v: %s = %q, want %q", printing, name, env[name], want)
+			}
+		}
 	}
 }
 
@@ -195,8 +268,110 @@ func TestKasmConfigAbsentForNonKasmWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, v := range dep.Spec.Template.Spec.Volumes {
-		if v.Name == kasmConfigVolume || v.Name == kasmVncDirVolume {
+		if v.Name == kasmConfigVolume || v.Name == kasmVncDirVolume || v.Name == kasmShmVolume {
 			t.Fatalf("non-kasmvnc workspace must not mount kasmvnc volumes, found %q", v.Name)
+		}
+	}
+	for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
+		if slices.Contains(kasmcfg.SideServiceEnv, e.Name) {
+			t.Fatalf("non-kasmvnc workspace must not get kasmweb side-service env, found %q", e.Name)
+		}
+	}
+}
+
+func kasmDeployment(t *testing.T, tpl *waasv1alpha1.WorkspaceTemplate, ws *waasv1alpha1.Workspace) *appsv1.Deployment {
+	t.Helper()
+	r, c := newFixture(t, tpl, ws)
+	reconcile(t, r, ws)
+	dep := &appsv1.Deployment{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "ws-marc"}, dep); err != nil {
+		t.Fatal(err)
+	}
+	return dep
+}
+
+// The kasmweb side services WaaS does not proxy are forced off, over
+// whatever the template or the workspace override says.
+func TestKasmSideServicesForcedOff(t *testing.T) {
+	tpl := kasmTemplate()
+	tpl.Spec.Env = []corev1.EnvVar{{Name: "KASM_SVC_AUDIO", Value: "1"}, {Name: "START_PULSEAUDIO", Value: "1"}}
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+	ws.Spec.Overrides = &waasv1alpha1.WorkspaceOverrides{Env: []corev1.EnvVar{{Name: "KASM_SVC_PRINTER", Value: "1"}}}
+
+	env := map[string]string{}
+	for _, e := range kasmDeployment(t, tpl, ws).Spec.Template.Spec.Containers[0].Env {
+		if _, dup := env[e.Name]; dup {
+			t.Fatalf("env %q set twice", e.Name)
+		}
+		env[e.Name] = e.Value
+	}
+	for _, name := range kasmcfg.SideServiceEnv {
+		if env[name] != "0" {
+			t.Errorf("%s must be forced to 0, got %q", name, env[name])
+		}
+	}
+	if env["START_PULSEAUDIO"] != "1" {
+		t.Error("unmanaged env must survive")
+	}
+}
+
+// A legacy template stored before the webhook/api-server guard existed
+// could list a managed name twice; mergeEnv only replaces the first
+// entry of a name, so without dropping every existing entry first the
+// stamp would be shadowed by the duplicate's later "1".
+func TestKasmSideServicesForcedOffDropsDuplicateTemplateEntries(t *testing.T) {
+	tpl := kasmTemplate()
+	tpl.Spec.Env = []corev1.EnvVar{
+		{Name: "KASM_SVC_AUDIO", Value: "1"},
+		{Name: "KASM_SVC_AUDIO", Value: "1"},
+	}
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+
+	env := map[string]string{}
+	for _, e := range kasmDeployment(t, tpl, ws).Spec.Template.Spec.Containers[0].Env {
+		if _, dup := env[e.Name]; dup {
+			t.Fatalf("env %q set twice", e.Name)
+		}
+		env[e.Name] = e.Value
+	}
+	if env["KASM_SVC_AUDIO"] != "0" {
+		t.Errorf("duplicated template entry must not survive the stamp, got %q", env["KASM_SVC_AUDIO"])
+	}
+}
+
+// kasmvnc pods get a Memory /dev/shm unless the admin already mounts one.
+func TestKasmShmMount(t *testing.T) {
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+	spec := kasmDeployment(t, kasmTemplate(), ws).Spec.Template.Spec
+	var shm *corev1.Volume
+	for i := range spec.Volumes {
+		if spec.Volumes[i].Name == kasmShmVolume {
+			shm = &spec.Volumes[i]
+		}
+	}
+	if shm == nil || shm.EmptyDir == nil || shm.EmptyDir.Medium != corev1.StorageMediumMemory ||
+		shm.EmptyDir.SizeLimit == nil || shm.EmptyDir.SizeLimit.String() != kasmShmSize {
+		t.Fatalf("expected a %s Memory emptyDir for /dev/shm, got %+v", kasmShmSize, shm)
+	}
+	if !slices.ContainsFunc(spec.Containers[0].VolumeMounts, func(m corev1.VolumeMount) bool {
+		return m.Name == kasmShmVolume && m.MountPath == "/dev/shm"
+	}) {
+		t.Fatalf("expected the /dev/shm mount, got %+v", spec.Containers[0].VolumeMounts)
+	}
+
+	// Admin-provided /dev/shm: theirs is kept, ours is not added.
+	tpl := kasmTemplate()
+	tpl.Spec.Workload = &waasv1alpha1.WorkspaceWorkload{
+		Volumes:      []corev1.Volume{{Name: "dshm", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{Medium: corev1.StorageMediumMemory}}}},
+		VolumeMounts: []corev1.VolumeMount{{Name: "dshm", MountPath: "/dev/shm/"}},
+	}
+	spec = kasmDeployment(t, tpl, ws).Spec.Template.Spec
+	for _, v := range spec.Volumes {
+		if v.Name == kasmShmVolume {
+			t.Fatal("an admin /dev/shm mount must not get a duplicate")
 		}
 	}
 }

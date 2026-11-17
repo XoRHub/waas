@@ -143,6 +143,12 @@ defaultPolicy:
     copyFromWorkspace: true
     # -- Allow pasting the local clipboard INTO the workspace.
     pasteToWorkspace: true
+  # -- File transfer directions (upload / download); empty = both denied. On kasmvnc, download also enables printing.
+  fileTransfer: {}
+  # -- Audio directions on kasmvnc (playback: workspace sound in the browser; microphone: the browser's into the workspace); empty = both denied. Playback is on by default — plain usability, no egress; the microphone stays opt-in.
+  audio: { playback: true }
+  # -- KasmVNC desktop watermark text ({user} = owner's username, strftime directives); empty = none.
+  watermark: ""
   # -- Template-override fields the matched user may set at instantiation time (intersected with the template's own allow-list); empty = no policy-level restriction, the template's allow-list alone applies.
   overrides:
     allowedFields: [env, resources, schedule]
@@ -178,6 +184,12 @@ adminPolicy:
   lifecycle: {}
   # -- Clipboard bridge directions; empty = both allowed.
   clipboard: {}
+  # -- File transfer directions; both granted — the point of this policy (empty would deny both).
+  fileTransfer: { upload: true, download: true }
+  # -- Audio directions; both granted (empty would deny both).
+  audio: { playback: true, microphone: true }
+  # -- KasmVNC desktop watermark text; empty = none.
+  watermark: ""
   # -- Template-override fields admins may set at instantiation time (intersected with the template's own allow-list).
   overrides:
     allowedFields:
@@ -350,6 +362,17 @@ operator:
   # "system:masters,system:serviceaccount:argocd:argocd-application-controller".
   # -- Comma-separated users/groups exempt from workspace policy checks.
   policyBypass: "system:masters"
+  # kasmvnc-sidecar: the file-transfer sidecar the operator injects next to
+  # every kasmvnc desktop (image `<registry>/kasmvnc-sidecar:<tag>`, same tag
+  # as the other components). wwt routes the portal's Files section to it
+  # and gates each request on the user's WorkspacePolicy fileTransfer
+  # grant — see docs/kasmvnc.md. Already-running kasmvnc workspaces pick
+  # the sidecar up at their next scale-up boundary (ADR 0001).
+  kasmvncSidecar:
+    # -- Inject the kasmvnc-sidecar on kasmvnc workloads. false leaves kasmvnc file transfer unavailable whatever the policies grant.
+    enabled: true
+    # -- Largest upload request the sidecar accepts (Kubernetes quantity, an integer with a binary suffix — Ki/Mi/Gi); larger uploads answer 413. The Ingress derives its nginx `proxy-body-size` from it; another ingress controller needs its own body limit raised to this value.
+    maxUploadSize: 1Gi
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { memory: 256Mi }
@@ -522,6 +545,12 @@ apiServer:
   podAnnotations: {}
 
 wwt:
+  # A kasmvnc session's reconnect grace (kasm.go, reconnectGrace) lives
+  # in one replica's memory: with replicas > 1 and no per-session
+  # routing affinity, a reconnect landing on a different replica won't
+  # cancel the first replica's pending end. Scaling past 1 needs sticky
+  # routing on /kasm/{sid} (e.g. ingress-nginx's
+  # upstream-hash-by: $request_uri).
   # -- wwt Deployment replica count.
   replicas: 1
   resources:

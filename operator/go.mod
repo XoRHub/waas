@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/xorhub/waas/shared v0.0.0
 	golang.org/x/text v0.43.0
 	k8s.io/api v0.37.1
 	k8s.io/apimachinery v0.37.1
@@ -73,3 +74,5 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
+
+replace github.com/xorhub/waas/shared => ../shared

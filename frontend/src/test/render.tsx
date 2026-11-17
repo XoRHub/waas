@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -22,6 +22,8 @@ afterEach(() => {
  * (router, TanStack Query with retries off so errors surface
  * immediately). The API layer is NOT provided here: tests mock
  * `@/lib/api` per file — the point where every request funnels through.
+ * The providers are a wrapper, so `rerender` keeps them (and the state
+ * below them).
  */
 export function renderWithProviders(ui: ReactElement) {
   const queryClient = new QueryClient({
@@ -30,11 +32,13 @@ export function renderWithProviders(ui: ReactElement) {
       mutations: { retry: false },
     },
   });
-  return render(
-    <MemoryRouter>
-      <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
-    </MemoryRouter>,
-  );
+  return render(ui, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      </MemoryRouter>
+    ),
+  });
 }
 
 /**

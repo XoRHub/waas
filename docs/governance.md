@@ -24,12 +24,24 @@ WorkspacePolicy ── images[] ───────────►  WorkspaceI
 - **`WorkspacePolicy`** (`wsp`): priority, subjects (`User`/`Group`),
   image subset, limits (`maxWorkspaces`, `maxRunningWorkspaces`,
   `perWorkspace`, `aggregate`, `defaults`), lifecycle
-  (`idleSuspendAfter`, `maxLifetime`).
+  (`idleSuspendAfter`, `maxLifetime`), session rights (`clipboard`,
+  `fileTransfer`, `audio`, `watermark` — see below).
   `maxWorkspaces` caps OWNERSHIP (paused workspaces count — their home
   PVC still holds storage) while `maxRunningWorkspaces` caps compute
   CONCURRENCY (paused workspaces and retained volumes don't count);
   the latter is enforced at both transitions into compute: creating a
   non-paused workspace and resuming a paused one.
+  `perWorkspace` cpu/memory and the image's `resources.min`/`max` size
+  the desktop container alone (what the portal slider sets), while
+  `aggregate` and the portal's "used" numbers count the whole pod: on
+  kasmvnc a workspace's load adds the `kasmvnc-sidecar` container's limit
+  (`operator/pkg/policy.LoadOf`, numbers shared from `shared/kasmvncsidecar`)
+  — needed because the namespace `ResourceQuota` an `aggregate` cap
+  renders sums every container the same way (`docs/kasmvnc.md` § Pod
+  shape). The sidecar is counted even where the operator won't inject
+  it (`operator.kasmvncSidecar.enabled: false`, or no `VNC_PW`): neither is
+  knowable from the quota math, so it stays conservative and identical
+  in the api-server and the operator.
   `limits.defaults` is the sizing the portal pre-selects on the creation
   sliders when the image declares no `resources.default` (image wins);
   it is display-only and never enforced.
@@ -359,6 +371,65 @@ actually disables copy/paste inside the container (see
 `docs/kasmvnc.md` and the full precedence map in `docs/clipboard.md`).
 Either way the policy stays the sole security authority — templates and
 connection params can only restrict further, never widen.
+
+### File transfer policy (`spec.fileTransfer`)
+
+`spec.fileTransfer` gates the two file directions independently
+(`upload`, `download`) and, unlike the clipboard, is **opt-in: absent =
+both denied** — a wider channel, and the behavior every data plane had
+before the field existed. Resolved like the clipboard: the api-server
+reads the CONNECTING user's policy at `/connect` and stamps the grant
+into the connection token (`fileTransfer`) and the session capabilities
+(`fileUpload`/`fileDownload`); no params clamp it. Enforcement points:
+on **kasmvnc**, wwt gates the portal's Files section (the `kasmvnc-sidecar`
+routes: list needs either direction, download and upload their
+own) on the CONNECTING user's grant — the governed path, enforced
+outside the session container (`docs/kasmvnc.md` § Files, ADR 0003);
+and the operator reads the workspace **owner's** policy at reconcile to
+turn the image's printer service on when `download` is granted
+(print-to-PDF then download, the same egress class — a soft,
+in-container gate: `docs/kasmvnc.md` § File transfer, printing,
+watermark). The kasmvnc downloads surface (`/api/downloads`,
+`/Downloads`) stays blocked for everyone whatever the grant (one
+auditable route), and so do the guacd sftp/drive parameters: guacd
+protocols have no file-transfer route yet. Fail-closed on resolution
+failure, like every right here.
+
+### Audio policy (`spec.audio`)
+
+`spec.audio` gates the session's sound per direction (`playback`: the
+workspace's sound in the browser; `microphone`: the browser's microphone
+into the workspace) and, like file transfer, is **opt-in: absent = both
+denied**. Resolved the same way: the api-server reads the CONNECTING
+user's policy at `/connect` and stamps the grant into the connection
+token (`audio`) and the session capabilities (`audioPlayback`,
+`microphone`); no params clamp it. Enforcement point: on **kasmvnc**,
+wwt gates the session menu's audio links (the `kasmvnc-sidecar` container's
+`/audio` and `/mic` WebSockets, one grant each) on the CONNECTING user's
+grant — enforced outside the session container, the governed path
+(`docs/kasmvnc.md` § Audio, ADR 0004). The guacd protocols are
+untouched: their audio is `enable-audio` + the template's
+`exposeAudioPort`, with no microphone. The chart's bootstrap default
+policy grants `playback` (plain usability, no egress) and not the
+microphone (a live capture of the user's surroundings); the admin
+policies grant both. Fail-closed on resolution failure, like every right
+here.
+
+### Watermark (`spec.watermark`)
+
+`spec.watermark` is a text template rendered over the desktop of the
+governed users' **kasmvnc** sessions (no guacd equivalent). Xvnc expands
+`strftime` directives live (`%H:%M`), and the WaaS token `{user}` is
+replaced by the workspace **owner's** username at reconcile — the
+operator stamps the result into the mounted `kasmvnc.yaml` next to the
+clipboard DLP keys. Empty/absent = no watermark, also on resolution
+failure (the deterrent is the permissive side; the hard gates are what
+fail closed). Single quotes, `$` and control characters are refused by
+the CRD (max 200 characters; the admin API mirrors both as a 400):
+KasmVNC's `vncserver` expands `${NAME}` and hands the text to Xvnc
+single-quoted and unescaped through a shell. It is a **soft control**: Xvnc renders it inside the
+user's own container (`docs/kasmvnc.md` for the threat model and the
+username sanitization).
 
 ### Override restriction (`spec.overrides`)
 

@@ -6,18 +6,23 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path"
+	"slices"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/metakeys"
 	"github.com/xorhub/waas/operator/pkg/policy"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 // annotationPodTemplateHash fingerprints the desired pod template so
@@ -92,16 +97,17 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 		MountPath: tpl.Spec.EffectiveHomeMountPath(),
 	}}, mergeVolumeMounts(wl.VolumeMounts, ov.VolumeMounts)...)
 
-	// Effective KasmVNC config (admin template + policy clipboard
-	// enforcement), mounted as a single-file subPath at
-	// <home>/.vnc/kasmvnc.yaml. For a kasmvnc workspace this is always
-	// non-empty (it carries at least the DLP block);
-	// applyClipboardPolicy's only error path is invalid admin YAML, which
-	// ensureKasmConfig already rejected earlier this reconcile.
+	// Effective KasmVNC config (admin template + policy enforcement),
+	// mounted as a single-file subPath at <home>/.vnc/kasmvnc.yaml. For a
+	// kasmvnc workspace this is always non-empty (it carries at least the
+	// DLP block); applyPolicy's only error path is invalid admin YAML,
+	// which ensureKasmConfig already rejected earlier this reconcile. The
+	// same policy decision also gates the printer env below.
 	kasmConfig := ""
-	if templateHasKasmVNC(tpl) {
-		copyAllowed, pasteAllowed := r.kasmClipboardGrant(ctx, ws)
-		kasmConfig, _ = applyClipboardPolicy(tpl.Spec.KasmVNCConfig, copyAllowed, pasteAllowed)
+	var kasmPol kasmPolicy
+	if policy.TemplateHasKasmVNC(tpl) {
+		kasmPol = r.kasmPolicyOf(ctx, ws)
+		kasmConfig, _ = applyPolicy(tpl.Spec.KasmVNCConfig, kasmPol)
 	}
 	if kasmConfig != "" {
 		volumes = append(volumes,
@@ -142,6 +148,37 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 			})
 	}
 
+	// Browsers in kasmweb images outgrow the container runtime's default
+	// 64Mi /dev/shm. An admin mount there (volumes passthrough) wins: a
+	// second mount on the same path would be rejected by the API server.
+	if policy.TemplateHasKasmVNC(tpl) && !slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+		return path.Clean(m.MountPath) == kasmShmPath
+	}) {
+		volumes = append(volumes, corev1.Volume{
+			Name: kasmShmVolume,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
+				Medium:    corev1.StorageMediumMemory,
+				SizeLimit: ptr.To(resource.MustParse(kasmShmSize)),
+			}},
+		})
+		mounts = append(mounts, corev1.VolumeMount{Name: kasmShmVolume, MountPath: kasmShmPath})
+	}
+
+	// The kasmvnc-sidecar (kasmvnc_sidecar.go) shares a small emptyDir with
+	// the desktop: its PulseAudio socket and microphone FIFO live there,
+	// and the desktop's audio clients are pointed at it (desktopEnv).
+	agent := r.kasmvncSidecarEnabled(ws, tpl)
+	if agent {
+		volumes = append(volumes, corev1.Volume{
+			Name: kasmPulseVolume,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
+				Medium:    corev1.StorageMediumMemory,
+				SizeLimit: ptr.To(resource.MustParse(kasmPulseSize)),
+			}},
+		})
+		mounts = append(mounts, kasmPulseMount)
+	}
+
 	securityContext := wl.SecurityContext
 	if ov.SecurityContext != nil {
 		securityContext = ov.SecurityContext
@@ -154,13 +191,48 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 	labels, annotations := workloadMeta(ws, tpl)
 	// The kasmvnc config is content OUTSIDE the pod spec (a ConfigMap):
 	// its hash rides the annotations so the generic fingerprint below
-	// covers config edits AND policy-driven clipboard changes (a policy
-	// edit changes the effective content and thus rolls the workload).
+	// covers config edits AND policy-driven changes (a policy edit changes
+	// the effective content and thus rolls the workload).
 	if kasmConfig != "" {
 		if annotations == nil {
 			annotations = map[string]string{}
 		}
 		annotations[annotationKasmConfigHash] = kasmConfigHash(kasmConfig)
+	}
+	desktop := corev1.Container{
+		Name:            "desktop",
+		Image:           tpl.Spec.Image,
+		Env:             desktopEnv(ws, tpl, ov, kasmPol.printing, agent),
+		Resources:       resources,
+		Ports:           ports,
+		SecurityContext: securityContext,
+		VolumeMounts:    mounts,
+		// TCPSocket for every protocol, kasmvnc included: KasmVNC
+		// serves everything behind Basic auth, so an HTTPGet probe
+		// would 401 and the pod would never turn Ready (the empty
+		// connects KasmVNC logs at debug are documented in
+		// docs/kasmvnc.md).
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(probePort)},
+			},
+			InitialDelaySeconds: 5,
+			PeriodSeconds:       5,
+		},
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(probePort)},
+			},
+			InitialDelaySeconds: 30,
+			PeriodSeconds:       10,
+		},
+	}
+	containers := []corev1.Container{desktop}
+	// Policy-gated file transfer and audio for kasmvnc: the kasmvnc-sidecar
+	// sidecar (kasmvnc_sidecar.go), sharing the home volume, the Pulse emptyDir
+	// and the VNC_PW credential.
+	if agent {
+		containers = append(containers, kasmvncSidecarContainer(tpl, desktop, podSecurityContext, r.KasmVNCSidecar))
 	}
 	built := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
@@ -181,35 +253,8 @@ func (r *WorkspaceReconciler) buildPodTemplate(ctx context.Context, ws *waasv1al
 			AutomountServiceAccountToken: ptr.To(false),
 			ServiceAccountName:           wl.ServiceAccountName,
 			SecurityContext:              podSecurityContext,
-			Containers: []corev1.Container{{
-				Name:            "desktop",
-				Image:           tpl.Spec.Image,
-				Env:             desktopEnv(ws, tpl, ov),
-				Resources:       resources,
-				Ports:           ports,
-				SecurityContext: securityContext,
-				VolumeMounts:    mounts,
-				// TCPSocket for every protocol, kasmvnc included: KasmVNC
-				// serves everything behind Basic auth, so an HTTPGet probe
-				// would 401 and the pod would never turn Ready (the empty
-				// connects KasmVNC logs at debug are documented in
-				// docs/kasmvnc.md).
-				ReadinessProbe: &corev1.Probe{
-					ProbeHandler: corev1.ProbeHandler{
-						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(probePort)},
-					},
-					InitialDelaySeconds: 5,
-					PeriodSeconds:       5,
-				},
-				LivenessProbe: &corev1.Probe{
-					ProbeHandler: corev1.ProbeHandler{
-						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(probePort)},
-					},
-					InitialDelaySeconds: 30,
-					PeriodSeconds:       10,
-				},
-			}},
-			Volumes: volumes,
+			Containers:                   containers,
+			Volumes:                      volumes,
 		},
 	}
 	// Fingerprint of everything above — the drift detector.
@@ -425,9 +470,35 @@ func (r *WorkspaceReconciler) ensureStatefulSet(ctx context.Context, ws *waasv1a
 // (WAAS_DESKTOP_PASSWORD for waas-core-images, kasmweb's VNC_PW for kasm,
 // both from the pod-namespace Secret) when no explicit source
 // provides one — the kasmvnc and vnc/rdp mechanisms are mutually
-// exclusive, so at most one injection fires.
-func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides) []corev1.EnvVar {
+// exclusive, so at most one injection fires. kasmvnc containers also get
+// the kasmweb side services stamped — off, except the printer when the
+// owner's policy allows download — and, with the kasmvnc-sidecar,
+// PULSE_SERVER pointing at its PulseAudio; all laid last so no
+// template or override value survives (kasmcfg.ManagedEnv).
+func desktopEnv(ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate, ov *waasv1alpha1.WorkspaceOverrides, printing, agent bool) []corev1.EnvVar {
 	env := mergeEnv(tpl.Spec.Env, sanitizeOverrideEnv(ov.Env))
+	if policy.TemplateHasKasmVNC(tpl) {
+		off := make([]corev1.EnvVar, 0, len(kasmcfg.ManagedEnv))
+		for _, name := range kasmcfg.SideServiceEnv {
+			value := "0"
+			if name == kasmcfg.PrinterEnv && printing {
+				value = "1"
+			}
+			off = append(off, corev1.EnvVar{Name: name, Value: value})
+		}
+		if agent {
+			off = append(off, corev1.EnvVar{Name: kasmvncsidecar.EnvPulseServer, Value: kasmvncsidecar.PulseServer})
+		}
+		// mergeEnv only replaces the FIRST entry of a given name, so a
+		// stored template that lists one of these names twice (legacy
+		// data predating the webhook/api-server guard) would keep its
+		// second entry instead of the stamp. Drop every existing entry
+		// of these names outright before appending the stamps.
+		env = slices.DeleteFunc(env, func(e corev1.EnvVar) bool {
+			return slices.Contains(kasmcfg.ManagedEnv, e.Name)
+		})
+		env = append(env, off...)
+	}
 	if kasmPasswordGenerated(ws, tpl) {
 		env = append(env, kasmEnv(ws))
 	}

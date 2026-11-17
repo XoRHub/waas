@@ -1,13 +1,28 @@
 // @vitest-environment jsdom
 import { createRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, signIn } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
 import { DesktopPane, type DesktopPaneHandle } from '@/components/DesktopPane';
 import type { SessionCapabilities, Workspace } from '@/types';
+import { CaptureRefused } from '@/lib/kasmAudio';
 import { SessionOverlay } from './SessionOverlay';
+
+const audioMock = {
+  startPlayback: vi.fn(),
+  startMicrophone: vi.fn(),
+};
+vi.mock('@/lib/kasmAudio', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/kasmAudio')>()),
+  get startPlayback() {
+    return audioMock.startPlayback;
+  },
+  get startMicrophone() {
+    return audioMock.startMicrophone;
+  },
+}));
 
 const apiMock = createApiMock({
   '/api/v1/meta/protocols': [],
@@ -36,9 +51,20 @@ const workspace = (protocol: string): Workspace => ({
   protocols: [{ name: protocol, default: true }],
 });
 
+const noGrants = {
+  fileUpload: false,
+  fileDownload: false,
+  audioPlayback: false,
+  microphone: false,
+};
+
 const renderOverlay = async (
   protocol: string,
-  capabilities: SessionCapabilities = { clipboardCopy: true, clipboardPaste: true },
+  capabilities: SessionCapabilities = {
+    clipboardCopy: true,
+    clipboardPaste: true,
+    ...noGrants,
+  },
 ) => {
   signIn({ username: 'marc' });
   renderWithProviders(
@@ -63,15 +89,21 @@ describe('SessionOverlay clipboard section by protocol', () => {
   it('shows the enforced clipboard state read-only on kasmvnc', async () => {
     // The kasm path bypasses the guac tunnel: the clipboard is enforced
     // in the container from the policy, so the overlay reflects that state
-    // read-only (no live toggle, no manual exchange), reading straight
-    // from capabilities.
-    await renderOverlay('kasmvnc', { clipboardCopy: true, clipboardPaste: false });
+    // read-only (no live toggle), reading straight from capabilities. The
+    // manual exchange works there too (through the client's messages),
+    // gated by the same capabilities.
+    await renderOverlay('kasmvnc', {
+      clipboardCopy: true,
+      clipboardPaste: false,
+      ...noGrants,
+    });
 
     // Labels shown, but as status — not interactive checkboxes.
     expect(screen.getByText('Copy from workspace')).toBeInTheDocument();
     expect(screen.getByText('Paste to workspace')).toBeInTheDocument();
-    expect(screen.queryByText('Manual exchange')).toBeNull();
     expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.getByText('Manual exchange')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Text to send/)).toBeDisabled();
 
     // Truthful per-direction status from capabilities.
     expect(screen.getByText('Allowed')).toBeInTheDocument();
@@ -89,6 +121,7 @@ describe('SessionOverlay clipboard section by protocol', () => {
       clipboardPaste: false,
       clipboardCopyLock: 'params',
       clipboardPasteLock: 'policy',
+      ...noGrants,
     });
 
     expect(screen.getByTitle(/Disabled by your connection settings/)).toBeInTheDocument();
@@ -140,7 +173,11 @@ describe('SessionOverlay protocol quick switch', () => {
         <DesktopPane ref={pane} workspaceId="w1" />
         <SessionOverlay
           workspace={ws}
-          capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+          capabilities={{
+            clipboardCopy: true,
+            clipboardPaste: true,
+            ...noGrants,
+          }}
           pane={pane}
         />
       </>,
@@ -189,7 +226,11 @@ describe('SessionOverlay protocol quick switch', () => {
         <DesktopPane ref={pane} workspaceId="w1" />
         <SessionOverlay
           workspace={ws}
-          capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+          capabilities={{
+            clipboardCopy: true,
+            clipboardPaste: true,
+            ...noGrants,
+          }}
           pane={pane}
         />
       </>,
@@ -251,7 +292,11 @@ describe('SessionOverlay reconnect params', () => {
     renderWithProviders(
       <SessionOverlay
         workspace={ws}
-        capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+        capabilities={{
+          clipboardCopy: true,
+          clipboardPaste: true,
+          ...noGrants,
+        }}
         pane={createRef<DesktopPaneHandle>()}
       />,
     );
@@ -287,5 +332,222 @@ describe('SessionOverlay kasmvnc effective config', () => {
 
     expect(screen.queryByText('KasmVNC configuration (managed by the administrator)')).toBeNull();
     expect(apiMock.api.get).not.toHaveBeenCalledWith('/api/v1/workspaces/w1/kasmvnc-config');
+  });
+});
+
+describe('SessionOverlay kasmvnc image quality', () => {
+  it('shows the pane quality and applies a preset live', async () => {
+    const setQuality = vi.fn();
+    const pane = {
+      current: {
+        readQuality: () => 2,
+        setQuality,
+        readRemoteClipboard: () => '',
+        readSessionId: () => 's1',
+      },
+    } as unknown as React.RefObject<DesktopPaneHandle>;
+    signIn({ username: 'marc' });
+    renderWithProviders(
+      <SessionOverlay
+        workspace={workspace('kasmvnc')}
+        capabilities={{
+          clipboardCopy: true,
+          clipboardPaste: true,
+          ...noGrants,
+        }}
+        pane={pane}
+      />,
+    );
+    await userEvent.click(screen.getByTitle(/session menu/i));
+
+    expect(screen.getByRole('button', { name: 'Medium' }).className).toContain('bg-blue-600');
+    await userEvent.click(screen.getByRole('button', { name: 'High' }));
+
+    expect(setQuality).toHaveBeenCalledWith(3);
+    expect(screen.getByRole('button', { name: 'High' }).className).toContain('bg-blue-600');
+  });
+
+  it('has no quality control on guacd protocols', async () => {
+    await renderOverlay('vnc');
+
+    expect(screen.queryByText('Image quality')).toBeNull();
+  });
+});
+
+describe('SessionOverlay kasmvnc files', () => {
+  const kasmPane = {
+    current: {
+      readQuality: () => 2,
+      setQuality: vi.fn(),
+      readRemoteClipboard: () => '',
+      readSessionId: () => 's1',
+    },
+  } as unknown as React.RefObject<DesktopPaneHandle>;
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shows the Files section on kasmvnc when the policy grants a direction', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('[]', { status: 200 }))),
+    );
+    signIn({ username: 'marc' });
+    renderWithProviders(
+      <SessionOverlay
+        workspace={workspace('kasmvnc')}
+        capabilities={{
+          clipboardCopy: true,
+          clipboardPaste: true,
+          ...noGrants,
+          fileDownload: true,
+        }}
+        pane={kasmPane}
+      />,
+    );
+    await userEvent.click(screen.getByTitle(/session menu/i));
+
+    expect(screen.getByText('Files')).toBeInTheDocument();
+    expect(await screen.findByText('Empty folder')).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith('/kasm/s1/waas/files?path=', expect.anything());
+  });
+
+  it('hides it entirely without any grant', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    signIn({ username: 'marc' });
+    renderWithProviders(
+      <SessionOverlay
+        workspace={workspace('kasmvnc')}
+        capabilities={{
+          clipboardCopy: true,
+          clipboardPaste: true,
+          ...noGrants,
+        }}
+        pane={kasmPane}
+      />,
+    );
+    await userEvent.click(screen.getByTitle(/session menu/i));
+    expect(screen.queryByText('Files')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('never shows it on guacd protocols, grant or not', async () => {
+    await renderOverlay('vnc', {
+      clipboardCopy: true,
+      clipboardPaste: true,
+      ...noGrants,
+      fileUpload: true,
+      fileDownload: true,
+    });
+    expect(screen.queryByText('Files')).toBeNull();
+  });
+});
+
+describe('SessionOverlay kasmvnc audio', () => {
+  const kasmPane = {
+    current: {
+      readQuality: () => 2,
+      setQuality: vi.fn(),
+      readRemoteClipboard: () => '',
+      readSessionId: () => 's1',
+    },
+  } as unknown as React.RefObject<DesktopPaneHandle>;
+  const overlay = (caps: Partial<SessionCapabilities>) => (
+    <SessionOverlay
+      workspace={workspace('kasmvnc')}
+      capabilities={{ clipboardCopy: true, clipboardPaste: true, ...noGrants, ...caps }}
+      pane={kasmPane}
+    />
+  );
+  const renderAudio = async (caps: Partial<SessionCapabilities>) => {
+    signIn({ username: 'marc' });
+    const { rerender } = renderWithProviders(overlay(caps));
+    await userEvent.click(screen.getByTitle(/session menu/i));
+    return (next: Partial<SessionCapabilities>) => rerender(overlay(next));
+  };
+  afterEach(() => {
+    audioMock.startPlayback.mockReset();
+    audioMock.startMicrophone.mockReset();
+  });
+
+  it('hides the section without any audio grant and shows only the granted toggles', async () => {
+    await renderAudio({});
+    expect(screen.queryByText('Audio')).toBeNull();
+    cleanup();
+    await renderAudio({ audioPlayback: true });
+    expect(screen.getByText('Audio')).toBeInTheDocument();
+    expect(screen.getByText('Workspace sound')).toBeInTheDocument();
+    expect(screen.queryByText('Microphone')).toBeNull();
+  });
+
+  it('opens the playback link on toggle and stops it on toggle-off', async () => {
+    const stop = vi.fn();
+    audioMock.startPlayback.mockResolvedValue({ stop });
+    await renderAudio({ audioPlayback: true });
+    const toggle = screen.getByLabelText(/workspace sound/i);
+    await userEvent.click(toggle);
+    await waitFor(() =>
+      expect(audioMock.startPlayback).toHaveBeenCalledWith('w1', 's1', expect.any(Function)),
+    );
+    expect(toggle).toBeChecked();
+    await userEvent.click(toggle);
+    await waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(toggle).not.toBeChecked();
+  });
+
+  it('reports a stream that ended on its own and turns the toggle off', async () => {
+    audioMock.startPlayback.mockImplementation(
+      (_w: string, _s: string, onEnd: (reason: string) => void) => {
+        onEnd('closed');
+        return Promise.resolve({ stop: vi.fn() });
+      },
+    );
+    await renderAudio({ audioPlayback: true });
+    await userEvent.click(screen.getByLabelText(/workspace sound/i));
+    expect(await screen.findByText(/audio stream stopped/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/workspace sound/i)).not.toBeChecked();
+  });
+
+  it('names a refused microphone capture', async () => {
+    audioMock.startMicrophone.mockRejectedValue(
+      new CaptureRefused(new DOMException('denied', 'NotAllowedError')),
+    );
+    await renderAudio({ microphone: true });
+    await userEvent.click(screen.getByLabelText(/microphone/i));
+    expect(await screen.findByText(/refused microphone access/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/microphone/i)).not.toBeChecked();
+  });
+
+  it('does not blame the browser for a microphone setup failure', async () => {
+    audioMock.startMicrophone.mockRejectedValue(new DOMException('worklet', 'AbortError'));
+    await renderAudio({ microphone: true });
+    await userEvent.click(screen.getByLabelText(/microphone/i));
+    expect(await screen.findByText(/audio is not available/i)).toBeInTheDocument();
+    expect(screen.queryByText(/refused microphone access/i)).toBeNull();
+  });
+
+  it('closes the link and resets the toggle when the grant is gone after a reconnect', async () => {
+    const stop = vi.fn();
+    audioMock.startPlayback.mockResolvedValue({ stop });
+    const withCaps = await renderAudio({ audioPlayback: true });
+    await userEvent.click(screen.getByLabelText(/workspace sound/i));
+    await waitFor(() => expect(audioMock.startPlayback).toHaveBeenCalledOnce());
+    withCaps({});
+    await waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(screen.queryByText('Workspace sound')).toBeNull();
+    withCaps({ audioPlayback: true });
+    expect(screen.getByLabelText(/workspace sound/i)).not.toBeChecked();
+    expect(audioMock.startPlayback).toHaveBeenCalledOnce();
+  });
+
+  it('never shows audio on guacd protocols, grant or not', async () => {
+    await renderOverlay('vnc', {
+      clipboardCopy: true,
+      clipboardPaste: true,
+      ...noGrants,
+      audioPlayback: true,
+      microphone: true,
+    });
+    expect(screen.queryByText('Audio')).toBeNull();
   });
 });

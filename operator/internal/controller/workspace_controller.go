@@ -30,6 +30,7 @@ import (
 	"github.com/xorhub/waas/operator/internal/kubevirt"
 	"github.com/xorhub/waas/operator/internal/metrics"
 	"github.com/xorhub/waas/operator/pkg/schedule"
+	"github.com/xorhub/waas/shared/kasmvncsidecar"
 )
 
 const (
@@ -86,6 +87,9 @@ type WorkspaceReconciler struct {
 	// affects NEW workspaces: existing ones carry their frozen
 	// spec.targetNamespace.
 	DefaultNamespacePattern string
+	// KasmVNCSidecar configures the file-transfer sidecar of kasmvnc workloads
+	// (WAAS_KASMVNC_SIDECAR_* envs); an empty image disables it.
+	KasmVNCSidecar KasmVNCSidecarConfig
 }
 
 func (r *WorkspaceReconciler) now() time.Time {
@@ -858,7 +862,7 @@ func (r *WorkspaceReconciler) ensureVirtualMachine(ctx context.Context, ws *waas
 // same selector matches both cases.
 func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) error {
 	name := computeName(ws)
-	ports := desiredServicePorts(tpl)
+	ports := desiredServicePorts(tpl, r.kasmvncSidecarEnabled(ws, tpl))
 	existing := &corev1.Service{}
 	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
@@ -903,11 +907,11 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 }
 
 // desiredServicePorts is one ServicePort per declared protocol, plus the
-// PulseAudio port when a protocol exposes it — the Service mirrors the
-// container ports 1:1.
-func desiredServicePorts(tpl *waasv1alpha1.WorkspaceTemplate) []corev1.ServicePort {
+// PulseAudio port when a protocol exposes it and the kasmvnc-sidecar port when
+// the sidecar is injected — the Service mirrors the container ports 1:1.
+func desiredServicePorts(tpl *waasv1alpha1.WorkspaceTemplate, kasmvncSidecar bool) []corev1.ServicePort {
 	protocols := tpl.Spec.EffectiveProtocols()
-	ports := make([]corev1.ServicePort, 0, len(protocols)+1)
+	ports := make([]corev1.ServicePort, 0, len(protocols)+2)
 	for _, p := range protocols {
 		ports = append(ports, corev1.ServicePort{
 			Name:       p.Name,
@@ -920,6 +924,13 @@ func desiredServicePorts(tpl *waasv1alpha1.WorkspaceTemplate) []corev1.ServicePo
 			Name:       audioPortName,
 			Port:       waasv1alpha1.PulseAudioPort,
 			TargetPort: intstr.FromInt32(waasv1alpha1.PulseAudioPort),
+		})
+	}
+	if kasmvncSidecar {
+		ports = append(ports, corev1.ServicePort{
+			Name:       kasmvncsidecar.PortName,
+			Port:       kasmvncsidecar.Port,
+			TargetPort: intstr.FromInt32(kasmvncsidecar.Port),
 		})
 	}
 	return ports
@@ -1026,7 +1037,16 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// re-enqueues the namespace's whole fleet: catalog edits are rare
 		// admin operations and an in-sync reconcile is a cheap no-op.
 		Watches(&waasv1alpha1.WorkspaceImage{},
-			handler.EnqueueRequestsFromMapFunc(r.mapCatalogToWorkspaces),
+			handler.EnqueueRequestsFromMapFunc(r.mapNamespaceToWorkspaces),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		// Policies feed the kasmvnc container (clipboard DLP, watermark,
+		// printer toggle): same reasoning as the catalog — which policy
+		// wins for an owner is a namespace-global question (highest
+		// priority among all matches), so any policy spec change
+		// re-enqueues the fleet; otherwise an edit would only land on
+		// some unrelated reconcile.
+		Watches(&waasv1alpha1.WorkspacePolicy{},
+			handler.EnqueueRequestsFromMapFunc(r.mapNamespaceToWorkspaces),
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("workspace").
 		Complete(r)
@@ -1051,11 +1071,12 @@ func (r *WorkspaceReconciler) mapTemplateToWorkspaces(ctx context.Context, obj c
 	return reqs
 }
 
-// mapCatalogToWorkspaces enqueues the namespace's whole fleet on a
-// catalog edit — see the Watches comment: best-prefix resolution makes
-// the affected set non-local to the edited entry, and over-enqueueing
-// only costs no-op reconciles on rare admin operations.
-func (r *WorkspaceReconciler) mapCatalogToWorkspaces(ctx context.Context, obj client.Object) []ctrl.Request {
+// mapNamespaceToWorkspaces enqueues the namespace's whole fleet on a
+// catalog or policy edit — see the Watches comments: best-prefix /
+// highest-priority resolution makes the affected set non-local to the
+// edited object, and over-enqueueing only costs no-op reconciles on rare
+// admin operations.
+func (r *WorkspaceReconciler) mapNamespaceToWorkspaces(ctx context.Context, obj client.Object) []ctrl.Request {
 	list := &waasv1alpha1.WorkspaceList{}
 	if err := r.List(ctx, list, client.InNamespace(obj.GetNamespace())); err != nil {
 		return nil
