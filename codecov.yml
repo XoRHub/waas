@@ -1,6 +1,6 @@
 # Per-component coverage (see docs/ci-github.md). Flags mirror the images
-# built by ci-images.yml (operator, api-server, wwt, frontend) plus
-# "shared", a Go module with no image of its own.
+# built by ci-images.yml (operator, api-server, wwt, kasm-agent,
+# frontend) plus "shared", a Go module with no image of its own.
 #
 # carryforward: true is required because ci-go.yml/ci-frontend.yml only
 # test the modules a commit actually touched (see the `changes` job in
@@ -35,6 +35,9 @@ flags:
     carryforward: true
   wwt:
     paths: [wwt/]
+    carryforward: true
+  kasm-agent:
+    paths: [kasm-agent/]
     carryforward: true
   frontend:
     paths: [frontend/src/]

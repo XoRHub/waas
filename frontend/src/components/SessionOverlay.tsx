@@ -8,6 +8,7 @@ import {
   useWorkspaceKasmVNCConfig,
 } from '@/hooks/useApi';
 import { KasmVNCConfigView } from '@/components/ProtocolTabs';
+import { SessionFiles } from '@/components/SessionFiles';
 import { hasClipboardApi } from '@/lib/clipboard';
 import { useAuthStore } from '@/stores/authStore';
 import { useEscape } from '@/hooks/useEscape';
@@ -76,6 +77,8 @@ export function SessionOverlay({
   const [receivedClip, setReceivedClip] = useState('');
   const [clipDraft, setClipDraft] = useState('');
   const [quality, setQuality] = useState<number>();
+  // kasmvnc: the live session id the Files section addresses.
+  const [kasmSid, setKasmSid] = useState<string | null>(null);
   useEffect(() => {
     // Reading an imperative handle when the panel opens: the value is
     // not reactive state, and reading it at every toggle CALL SITE would
@@ -84,6 +87,7 @@ export function SessionOverlay({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setReceivedClip(pane.current?.readRemoteClipboard() ?? '');
     setQuality(pane.current?.readQuality());
+    setKasmSid(pane.current?.readSessionId() ?? null);
   }, [open, pane]);
 
   useEffect(() => {
@@ -433,6 +437,23 @@ export function SessionOverlay({
               </div>
             </details>
           </section>
+
+          {/* -------- kasmvnc: files (policy-gated, kasm-agent sidecar) -------- */}
+          {!isRemote &&
+            protocol === 'kasmvnc' &&
+            kasmSid &&
+            (capabilities?.fileUpload || capabilities?.fileDownload) && (
+              <section className="space-y-2">
+                <h4 className="text-xs uppercase tracking-wide text-slate-400">
+                  {t('overlay.files')}
+                </h4>
+                <SessionFiles
+                  sessionId={kasmSid}
+                  canUpload={capabilities?.fileUpload ?? false}
+                  canDownload={capabilities?.fileDownload ?? false}
+                />
+              </section>
+            )}
 
           {/* -------- kasmvnc: effective admin-managed config -------- */}
           {!isRemote && protocol === 'kasmvnc' && (

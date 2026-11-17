@@ -349,7 +349,7 @@ is exercised by CI.
 | Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time); session-menu manual exchange via the client's messages, gated by the connecting user's capabilities |
 | Persistent home | ✅ | ✅ | ✅ (`/home/kasm-user`) |
 | Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ |
-| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked (policy `fileTransfer` carried in the token, not read yet) | 🚫 | 🚫 `/api/downloads` and `/Downloads/…` blocked at the proxy (same: grant carried, routes pending) — HTTP routes only: a soft control against a determined occupant (print over RFB, own Xvnc, the screen; `docs/kasmvnc.md`) |
+| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked (policy `fileTransfer` carried in the token, no guacd route reads it) | 🚫 | ✅ policy `fileTransfer` — session-menu Files section (list / download / upload into `~/Uploads`) through the `kasm-agent` sidecar, gated by wwt on the connecting user's grant (ADR 0003, `docs/kasmvnc.md` § Files); KasmVNC's own `/api/downloads` and `/Downloads/…` stay blocked. Governed path for normal use, not a hard guarantee against the occupant (print over RFB, own Xvnc, the screen) |
 | Printing | ❌ | ❌ | ⚙️ `KASM_SVC_PRINTER` on when the owner's policy allows `download` — soft gate (container env), `docs/kasmvnc.md` |
 | Watermark | ❌ | ❌ | ✅ policy `watermark` text (`{user}`, strftime), stamped into `kasmvnc.yaml` — soft (Xvnc-rendered) |
 | Session recording | 🚫 `recording-*` platform-blocked | 🚫 | ❌ |
@@ -365,13 +365,12 @@ Detail lives in the dedicated docs: `docs/clipboard.md` (precedence and
 browser matrix), `docs/session-resize.md` (why resize is pod-exec, not
 guacd), `docs/volumes.md`, `docs/kasmvnc.md`, and
 `docs/adr/0001-template-boundary-convergence.md` (overrides/drift).
-File transfer and recording are deliberately blocked **for everyone,
-admins included**, "until the file-transfer feature ships with its own
-policy gate" (`operator/pkg/params/params.go`) — the kasmvnc downloads
-block mirrors the same doctrine. The gate itself now exists
-(`WorkspacePolicy.fileTransfer`, `docs/governance.md`): the grant
-travels in the connection token and the capabilities, the blocks lift
-once routes read it. Remote workspaces run every guacd
+On guacd protocols, file transfer and recording are deliberately
+blocked **for everyone, admins included**, "until the file-transfer
+feature ships with its own policy gate" (`operator/pkg/params/params.go`).
+The gate exists (`WorkspacePolicy.fileTransfer`, `docs/governance.md`)
+and kasmvnc reads it through the `kasm-agent` sidecar; the guacd
+sftp/drive blocks lift once a guacd route reads it too. Remote workspaces run every guacd
 protocol — vnc, rdp and ssh, the last one no longer an in-cluster
 option — with the same clipboard filter; kasmvnc is refused there
 (`docs/remote-workspaces.md`).

@@ -30,6 +30,7 @@ import (
 	"github.com/xorhub/waas/operator/internal/kubevirt"
 	"github.com/xorhub/waas/operator/internal/metrics"
 	"github.com/xorhub/waas/operator/pkg/schedule"
+	"github.com/xorhub/waas/shared/kasmagent"
 )
 
 const (
@@ -86,6 +87,9 @@ type WorkspaceReconciler struct {
 	// affects NEW workspaces: existing ones carry their frozen
 	// spec.targetNamespace.
 	DefaultNamespacePattern string
+	// KasmAgent configures the file-transfer sidecar of kasmvnc workloads
+	// (WAAS_KASM_AGENT_* envs); an empty image disables it.
+	KasmAgent KasmAgentConfig
 }
 
 func (r *WorkspaceReconciler) now() time.Time {
@@ -858,7 +862,7 @@ func (r *WorkspaceReconciler) ensureVirtualMachine(ctx context.Context, ws *waas
 // same selector matches both cases.
 func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha1.Workspace, tpl *waasv1alpha1.WorkspaceTemplate) error {
 	name := computeName(ws)
-	ports := desiredServicePorts(tpl)
+	ports := desiredServicePorts(tpl, r.kasmAgentEnabled(ws, tpl))
 	existing := &corev1.Service{}
 	err := r.Get(ctx, computeKey(ws), existing)
 	if err == nil {
@@ -903,11 +907,11 @@ func (r *WorkspaceReconciler) ensureService(ctx context.Context, ws *waasv1alpha
 }
 
 // desiredServicePorts is one ServicePort per declared protocol, plus the
-// PulseAudio port when a protocol exposes it — the Service mirrors the
-// container ports 1:1.
-func desiredServicePorts(tpl *waasv1alpha1.WorkspaceTemplate) []corev1.ServicePort {
+// PulseAudio port when a protocol exposes it and the kasm-agent port when
+// the sidecar is injected — the Service mirrors the container ports 1:1.
+func desiredServicePorts(tpl *waasv1alpha1.WorkspaceTemplate, kasmAgent bool) []corev1.ServicePort {
 	protocols := tpl.Spec.EffectiveProtocols()
-	ports := make([]corev1.ServicePort, 0, len(protocols)+1)
+	ports := make([]corev1.ServicePort, 0, len(protocols)+2)
 	for _, p := range protocols {
 		ports = append(ports, corev1.ServicePort{
 			Name:       p.Name,
@@ -920,6 +924,13 @@ func desiredServicePorts(tpl *waasv1alpha1.WorkspaceTemplate) []corev1.ServicePo
 			Name:       audioPortName,
 			Port:       waasv1alpha1.PulseAudioPort,
 			TargetPort: intstr.FromInt32(waasv1alpha1.PulseAudioPort),
+		})
+	}
+	if kasmAgent {
+		ports = append(ports, corev1.ServicePort{
+			Name:       kasmagent.PortName,
+			Port:       kasmagent.Port,
+			TargetPort: intstr.FromInt32(kasmagent.Port),
 		})
 	}
 	return ports

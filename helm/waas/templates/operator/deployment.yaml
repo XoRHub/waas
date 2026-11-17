@@ -80,6 +80,12 @@ spec:
             # break-glass admins). Keep this list short and audited.
             - name: WAAS_POLICY_BYPASS
               value: {{ .Values.operator.policyBypass | default "system:masters" | quote }}
+            # kasm-agent sidecar of kasmvnc workloads (policy-gated file
+            # transfer). An empty image is the off switch.
+            - name: WAAS_KASM_AGENT_IMAGE
+              value: {{ if .Values.operator.kasmAgent.enabled }}"{{ .Values.image.registry }}/kasm-agent:{{ include "waas.tag" . }}"{{ else }}""{{ end }}
+            - name: WAAS_KASM_AGENT_MAX_UPLOAD_SIZE
+              value: {{ .Values.operator.kasmAgent.maxUploadSize | quote }}
           ports:
             - name: webhook
               containerPort: 9443

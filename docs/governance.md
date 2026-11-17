@@ -369,15 +369,20 @@ both denied** — a wider channel, and the behavior every data plane had
 before the field existed. Resolved like the clipboard: the api-server
 reads the CONNECTING user's policy at `/connect` and stamps the grant
 into the connection token (`fileTransfer`) and the session capabilities
-(`fileUpload`/`fileDownload`); no params clamp it. Enforcement points
-today: on **kasmvnc**, the operator reads the workspace **owner's**
-policy at reconcile and turns the image's printer service on when
-`download` is granted (print-to-PDF then download, the same egress class
-— a soft, in-container gate: `docs/kasmvnc.md` § File transfer,
-printing, watermark). The kasmvnc downloads surface (`/api/downloads`,
-`/Downloads`) and the guacd sftp/drive parameters stay blocked for
-everyone until the file-transfer routes read the grant. Fail-closed on
-resolution failure, like every right here.
+(`fileUpload`/`fileDownload`); no params clamp it. Enforcement points:
+on **kasmvnc**, wwt gates the portal's Files section (the `kasm-agent`
+sidecar routes: list needs either direction, download and upload their
+own) on the CONNECTING user's grant — the governed path, enforced
+outside the session container (`docs/kasmvnc.md` § Files, ADR 0003);
+and the operator reads the workspace **owner's** policy at reconcile to
+turn the image's printer service on when `download` is granted
+(print-to-PDF then download, the same egress class — a soft,
+in-container gate: `docs/kasmvnc.md` § File transfer, printing,
+watermark). The kasmvnc downloads surface (`/api/downloads`,
+`/Downloads`) stays blocked for everyone whatever the grant (one
+auditable route), and so do the guacd sftp/drive parameters: guacd
+protocols have no file-transfer route yet. Fail-closed on resolution
+failure, like every right here.
 
 ### Watermark (`spec.watermark`)
 

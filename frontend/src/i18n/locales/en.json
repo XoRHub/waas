@@ -513,7 +513,20 @@
     "clipboardSendPlaceholder": "Text to send to the workspace clipboard…",
     "clipboardSend": "Send to workspace",
     "clipboardInsecureHint": "Without HTTPS the browser blocks automatic sync: use Ctrl+V inside the session to paste, and this manual exchange to fetch a copy.",
-    "clipboardKasmvnc": "Native KasmVNC clipboard, enforced inside the container from your policy — it cannot be toggled live during the session."
+    "clipboardKasmvnc": "Native KasmVNC clipboard, enforced inside the container from your policy — it cannot be toggled live during the session.",
+    "files": "Files",
+    "filesHome": "Home",
+    "filesEmpty": "Empty folder",
+    "filesUpload": "Upload files…",
+    "filesUploading": "Uploading…",
+    "filesUploaded_one": "{{count}} file uploaded to Uploads",
+    "filesUploaded_other": "{{count}} files uploaded to Uploads",
+    "filesTooLarge": "Too large for this workspace's upload limit",
+    "filesUnavailable": "File transfer is not available on this workspace yet — restart it to enable it",
+    "filesError": "Could not reach the workspace files",
+    "filesHint": "Your workspace home. Uploads land in the Uploads folder.",
+    "filesHintUploadOnly": "Your workspace home. Uploads land in the Uploads folder; downloading is denied by your policy.",
+    "filesHintDownloadOnly": "Your workspace home. Uploading is denied by your policy."
   },
   "schedule": {
     "title": "Schedule (uptime / downtime)",

@@ -107,7 +107,7 @@ jobs:
       # Change scopes follow the REAL dependency graph (go.mod replace
       # directives):
       #   api-server -> operator + shared, wwt -> shared,
-      #   test/smoke -> operator, operator self-contained.
+      #   kasm-agent -> shared, operator -> shared, test/smoke -> operator.
       # &ci is the global-rebuild trap: shared CI config changes retrigger
       # every scope. Keep it FIRST in every list.
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -134,6 +134,9 @@ jobs:
             wwt:
               - *go-global
               - 'wwt/**'
+            kasm-agent:
+              - *go-global
+              - 'kasm-agent/**'
             smoke:
               - *go-global
               - 'test/smoke/**'
@@ -153,9 +156,11 @@ jobs:
               - 'hack/ci/**'
               - 'operator/api/**'
               - 'operator/config/**'
+            # operator's Dockerfile copies shared/.
             image-operator:
               - *ci
               - 'operator/**'
+              - 'shared/**'
             # api-server's Dockerfile copies shared/ + operator/{api,pkg}.
             image-api-server:
               - *ci
@@ -170,6 +175,11 @@ jobs:
               - *ci
               - 'wwt/**'
               - 'shared/**'
+            # kasm-agent's Dockerfile copies shared/.
+            image-kasm-agent:
+              - *ci
+              - 'kasm-agent/**'
+              - 'shared/**'
             image-frontend:
               - *ci
               - 'frontend/**'
@@ -181,6 +191,7 @@ jobs:
           F_OPERATOR: ${{ steps.filter.outputs.operator }}
           F_API: ${{ steps.filter.outputs.api-server }}
           F_WWT: ${{ steps.filter.outputs.wwt }}
+          F_AGENT: ${{ steps.filter.outputs.kasm-agent }}
           F_SMOKE: ${{ steps.filter.outputs.smoke }}
           F_CRDSCHEMAS: ${{ steps.filter.outputs.crd-schemas }}
           F_FRONTEND: ${{ steps.filter.outputs.frontend }}
@@ -188,25 +199,31 @@ jobs:
           F_IMG_OPERATOR: ${{ steps.filter.outputs.image-operator }}
           F_IMG_API: ${{ steps.filter.outputs.image-api-server }}
           F_IMG_WWT: ${{ steps.filter.outputs.image-wwt }}
+          F_IMG_AGENT: ${{ steps.filter.outputs.image-kasm-agent }}
           F_IMG_FRONTEND: ${{ steps.filter.outputs.image-frontend }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = "push" ]; then
             # main: full pipeline, no exceptions (promotion invariant).
-            F_SHARED=true F_OPERATOR=true F_API=true F_WWT=true F_SMOKE=true
+            F_SHARED=true F_OPERATOR=true F_API=true F_WWT=true F_AGENT=true F_SMOKE=true
             F_FRONTEND=true F_HELM=true
-            F_IMG_OPERATOR=true F_IMG_API=true F_IMG_WWT=true F_IMG_FRONTEND=true
+            F_IMG_OPERATOR=true F_IMG_API=true F_IMG_WWT=true F_IMG_AGENT=true F_IMG_FRONTEND=true
           fi
 
           LINT=() ; TEST=()
           [ "$F_SHARED" = "true" ] && { LINT+=(shared); TEST+=(shared); }
-          [ "$F_OPERATOR" = "true" ] && { LINT+=(operator); TEST+=(operator); }
           # Dependents: a change in a dependency re-gates the dependent.
+          if [ "$F_OPERATOR" = "true" ] || [ "$F_SHARED" = "true" ]; then
+            LINT+=(operator); TEST+=(operator)
+          fi
           if [ "$F_API" = "true" ] || [ "$F_SHARED" = "true" ] || [ "$F_OPERATOR" = "true" ]; then
             LINT+=(api-server); TEST+=(api-server)
           fi
           if [ "$F_WWT" = "true" ] || [ "$F_SHARED" = "true" ]; then
             LINT+=(wwt); TEST+=(wwt)
+          fi
+          if [ "$F_AGENT" = "true" ] || [ "$F_SHARED" = "true" ]; then
+            LINT+=(kasm-agent); TEST+=(kasm-agent)
           fi
           # test/smoke is lint-only: its tests need a live cluster.
           if [ "$F_SMOKE" = "true" ] || [ "$F_OPERATOR" = "true" ]; then
@@ -222,9 +239,10 @@ jobs:
 
           img() { [ "$4" = "true" ] && printf '{"name":"%s","context":"%s","dockerfile":"%s"}\n' "$1" "$2" "$3" || true; }
           {
-            img operator   operator operator/Dockerfile   "$F_IMG_OPERATOR"
+            img operator   .        operator/Dockerfile   "$F_IMG_OPERATOR"
             img api-server .        api-server/Dockerfile "$F_IMG_API"
             img wwt        .        wwt/Dockerfile        "$F_IMG_WWT"
+            img kasm-agent .        kasm-agent/Dockerfile "$F_IMG_AGENT"
             img frontend   frontend frontend/Dockerfile   "$F_IMG_FRONTEND"
           } | jq -cs . | sed 's/^/images=/' >> "$GITHUB_OUTPUT"
 
@@ -430,7 +448,7 @@ jobs:
       packages: write  # push the X.Y.Z image tags
       id-token: write  # keyless cosign (Fulcio/Rekor)
     env:
-      COMPONENTS: operator api-server wwt frontend
+      COMPONENTS: operator api-server wwt kasm-agent frontend
       TAG: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
     steps:
       # Trivially true on push; on a replay it rejects a typo'd or
