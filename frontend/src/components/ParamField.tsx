@@ -19,31 +19,18 @@ const SUGGESTED_VALUES: Record<string, string[]> = {
   'terminal-type': ['linux', 'xterm', 'xterm-256color', 'vt100', 'screen'],
 };
 
-/**
- * Tri-state segmented control for KindBool. A binary toggle cannot say
- * "no preference, let guacd decide" — and that third state matters: an
- * admin forcing `false` on a param whose guacd default is `true`
- * (ignore-cert) is NOT the same as leaving it unset. The wire contract is
- * untouched: "" (inherit) / "true" / "false", exactly like the old
- * tri-state <select>, but all three states are now visible at a glance.
- */
-function BoolField({
-  meta,
+/** Segmented control: one button per choice, exactly one pressed. */
+export function Segmented({
+  segments,
   value,
   onChange,
   disabled,
 }: {
-  meta: ParamMeta;
+  segments: { value: string; label: string }[];
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
 }) {
-  const { t } = useTranslation();
-  const segments = [
-    { value: '', label: t('paramField.boolDefault', { value: meta.default || '—' }) },
-    { value: 'true', label: t('paramField.boolOn') },
-    { value: 'false', label: t('paramField.boolOff') },
-  ];
   return (
     <span className="mt-0.5 flex w-full divide-x divide-slate-300 overflow-hidden rounded-md border border-slate-300 dark:divide-slate-600 dark:border-slate-600">
       {segments.map((s) => (
@@ -64,6 +51,37 @@ function BoolField({
       ))}
     </span>
   );
+}
+
+/**
+ * Tri-state segmented control for KindBool. A binary toggle cannot say
+ * "no preference, let guacd decide" — and that third state matters: an
+ * admin forcing `false` on a param whose guacd default is `true`
+ * (ignore-cert) is NOT the same as leaving it unset. The wire contract is
+ * untouched: "" (inherit) / "true" / "false", exactly like the old
+ * tri-state <select>, but all three states are now visible at a glance.
+ * Exported for the KasmVNC editor, whose bool options follow the same
+ * contract (empty = the image default).
+ */
+export function BoolField({
+  defaultValue,
+  value,
+  onChange,
+  disabled,
+}: {
+  /** Shown in the Default segment; empty renders as "—". */
+  defaultValue?: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation();
+  const segments = [
+    { value: '', label: t('paramField.boolDefault', { value: defaultValue || '—' }) },
+    { value: 'true', label: t('paramField.boolOn') },
+    { value: 'false', label: t('paramField.boolOff') },
+  ];
+  return <Segmented segments={segments} value={value} onChange={onChange} disabled={disabled} />;
 }
 
 /** Sentinel select value for the free-input branch of DefaultingField —
@@ -185,7 +203,14 @@ export function ParamField({
           </select>
         );
       case 'bool':
-        return <BoolField meta={meta} value={value} onChange={onChange} disabled={disabled} />;
+        return (
+          <BoolField
+            defaultValue={meta.default}
+            value={value}
+            onChange={onChange}
+            disabled={disabled}
+          />
+        );
       case 'int':
         if (meta.default) {
           return (

@@ -2,8 +2,10 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/naming"
 	"github.com/xorhub/waas/operator/pkg/params"
 )
@@ -61,6 +63,20 @@ func (h *MetaHandler) OverrideFields(w http.ResponseWriter, _ *http.Request) {
 	out := make([]overrideFieldMeta, 0, len(waasv1alpha1.AllOverridableFields()))
 	for _, f := range waasv1alpha1.AllOverridableFields() {
 		out = append(out, overrideFieldMeta{Name: string(f), Description: desc[f]})
+	}
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	ok(w, out)
+}
+
+// KasmVNCManagedKeys handles GET /api/v1/meta/kasmvnc-managed-keys: the
+// dotted kasmvnc.yaml keys the operator derives from the policy and
+// stamps over a template's kasmvncConfig (kasmcfg.ManagedClipboardKeyPaths,
+// the same list the template validation rejects). The template editor
+// shows them locked, from this single source rather than its own copy.
+func (h *MetaHandler) KasmVNCManagedKeys(w http.ResponseWriter, _ *http.Request) {
+	out := make([]string, 0, len(kasmcfg.ManagedClipboardKeyPaths))
+	for _, path := range kasmcfg.ManagedClipboardKeyPaths {
+		out = append(out, strings.Join(path, "."))
 	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	ok(w, out)

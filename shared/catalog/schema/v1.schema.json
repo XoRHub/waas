@@ -82,6 +82,9 @@
         },
         "recommended": {
           "$ref": "#/$defs/Recommendation"
+        },
+        "kasmvnc": {
+          "$ref": "#/$defs/KasmVNCInfo"
         }
       },
       "additionalProperties": false,
@@ -124,6 +127,18 @@
       "required": [
         "name"
       ]
+    },
+    "KasmVNCInfo": {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "defaults": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "PodSecurityContext": {
       "properties": {

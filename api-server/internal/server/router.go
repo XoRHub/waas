@@ -153,6 +153,7 @@ func New(cfg *config.Config, signer *auth.Signer, users middleware.UserSource, h
 			r.Get("/meta/protocols", h.Meta.Protocols)
 			r.Get("/meta/placeholders", h.Meta.Placeholders)
 			r.Get("/meta/override-fields", h.Meta.OverrideFields)
+			r.Get("/meta/kasmvnc-managed-keys", h.Meta.KasmVNCManagedKeys)
 			r.Get("/meta/scaffold/{kind}", h.Meta.Scaffold)
 
 			r.Route("/workspace-templates", func(r chi.Router) {

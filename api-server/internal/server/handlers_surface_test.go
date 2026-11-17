@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/xorhub/waas/shared/auth"
@@ -92,6 +93,16 @@ func TestMetaEndpoints(t *testing.T) {
 	}
 	if fields := decodeData[[]map[string]string](t, rec.Body.Bytes()); len(fields) == 0 {
 		t.Fatal("override-fields must enumerate the governable fields")
+	}
+
+	rec = doJSON(t, h, http.MethodGet, "/api/v1/meta/kasmvnc-managed-keys", token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("kasmvnc-managed-keys: %d", rec.Code)
+	}
+	// Dotted paths, straight from kasmcfg.ManagedClipboardKeyPaths — the
+	// template editor locks exactly what the validation rejects.
+	if keys := decodeData[[]string](t, rec.Body.Bytes()); !slices.Contains(keys, "runtime_configuration.allow_client_to_override_kasm_server_settings") {
+		t.Fatalf("kasmvnc-managed-keys must list the policy-managed dotted keys, got %v", keys)
 	}
 
 	rec = doJSON(t, h, http.MethodGet, "/api/v1/meta/scaffold/workspacepolicy", token, nil)

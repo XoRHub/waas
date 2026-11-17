@@ -366,6 +366,17 @@ export function useOverrideFields() {
   });
 }
 
+// The kasmvnc.yaml keys the operator stamps from the policy — served from
+// the operator's single list (kasmcfg) so the template editor locks
+// exactly what the server rejects, without a copy of its own.
+export function useKasmVNCManagedKeys() {
+  return useQuery({
+    queryKey: ['kasmvnc-managed-keys'],
+    queryFn: () => api.get<string[]>('/api/v1/meta/kasmvnc-managed-keys'),
+    staleTime: Infinity,
+  });
+}
+
 // The guacd parameter registry — cached hard: it only changes with a
 // platform deployment.
 export function useProtocolMeta() {

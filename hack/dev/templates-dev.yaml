@@ -137,9 +137,14 @@ spec:
   resources:
     requests: { cpu: 500m, memory: 1Gi }
     limits: { cpu: "2", memory: 3Gi }
-  env:
-    - name: VNC_RESOLUTION
-      value: "1920x1080"
+  # Not VNC_RESOLUTION env: vncserver appends the yaml-derived flags
+  # after the image's env-derived ones, so only the yaml is effective
+  # (docs/kasmvnc.md). The sparse override the template editor writes.
+  kasmvncConfig: |
+    desktop:
+      resolution:
+        width: 1920
+        height: 1080
   workload:
     kind: Deployment
     podSecurityContext:

@@ -51,8 +51,8 @@ images:
 	if e.OS != "" || e.App != "" || e.Version != "" || e.Icon != "" || e.DisplayName != "" {
 		t.Errorf("optional fields should be zero values: %+v", e)
 	}
-	if e.Profile != "" || e.Recommended != nil {
-		t.Errorf("profile/recommended should be zero values: %+v", e)
+	if e.Profile != "" || e.Recommended != nil || e.KasmVNC != nil {
+		t.Errorf("profile/recommended/kasmvnc should be zero values: %+v", e)
 	}
 	if e.Architectures != nil {
 		t.Errorf("absent architectures should stay nil: %+v", e)
@@ -136,6 +136,35 @@ images:
 	env := e.Recommended.Env[0]
 	if env.Name != "WAAS_AUDIO_ENABLED" || len(env.Protocols) != 1 || env.Protocols[0] != "vnc" || len(env.Requires) != 1 || env.Requires[0] != "WAAS_AUDIO_SINK" {
 		t.Errorf("env hint mismatch: %+v", env)
+	}
+}
+
+func TestParseKasmVNC(t *testing.T) {
+	f, err := Parse([]byte(`
+apiVersion: waas.xorhub.io/catalog/v1
+images:
+  - image: docker.io/kasmweb/terminal:1.19.0
+    kasmvnc:
+      version: "1.5.1"
+      defaults: |
+        ---
+        desktop:
+          resolution:
+            width: 1024
+        # Mouse, trackpad, etc.
+        pointer:
+          game_mode: false
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	k := f.Images[0].KasmVNC
+	if k == nil || k.Version != "1.5.1" {
+		t.Fatalf("kasmvnc = %+v, want version 1.5.1", k)
+	}
+	// Verbatim, comments included: the form shows them as hints.
+	if !strings.HasPrefix(k.Defaults, "---\ndesktop:\n") || !strings.Contains(k.Defaults, "# Mouse, trackpad, etc.\n") {
+		t.Errorf("defaults not carried verbatim: %q", k.Defaults)
 	}
 }
 
