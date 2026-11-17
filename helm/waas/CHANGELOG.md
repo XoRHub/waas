@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.1](https://github.com/XoRHub/waas/compare/chart-0.6.0...chart-0.6.1) (2026-10-24)
+
+
+### Chores
+
+* **deps:** update bitnami/kubectl:latest docker digest to 6d9e8ad ([#281](https://github.com/XoRHub/waas/issues/281)) ([638b99c](https://github.com/XoRHub/waas/commit/638b99ce274980be54f4b2682c574ea6c2b4e1e8))
+* **deps:** update postgres:18.6-alpine docker digest to 83148c0 ([#277](https://github.com/XoRHub/waas/issues/277)) ([f9a7bdd](https://github.com/XoRHub/waas/commit/f9a7bddc0271760266892d77c2cd0ce916506448))
+* **deps:** update postgres:18.6-alpine docker digest to 898c60c ([#280](https://github.com/XoRHub/waas/issues/280)) ([5f4fdbf](https://github.com/XoRHub/waas/commit/5f4fdbf045e6a19911a3c5f00fca7689069b2e72))
+
 ## [0.6.0](https://github.com/XoRHub/waas/compare/chart-0.5.0...chart-0.6.0) (2026-10-20)
 
 
