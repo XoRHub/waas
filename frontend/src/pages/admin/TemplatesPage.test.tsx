@@ -152,6 +152,26 @@ describe('TemplateDialog protocol picker (OS-bound rule + kasmvnc exclusivity)',
     expect(screen.queryByRole('button', { name: 'kasmvnc' })).toBeNull();
   });
 
+  it('pre-fills the kasmweb home when kasmvnc is added to an empty home', async () => {
+    await renderDialog(withProtocols());
+    await userEvent.click(await screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }));
+    await userEvent.click(screen.getByRole('button', { name: 'kasmvnc' }));
+    await userEvent.click(screen.getByRole('button', { name: en.app.save }));
+    await waitFor(() => expect(apiMock.api.post).toHaveBeenCalled());
+    const calls = apiMock.api.post.mock.calls as unknown as Array<[string, TemplateInput]>;
+    expect(calls[calls.length - 1][1].homeMountPath).toBe('/home/kasm-user');
+  });
+
+  it('keeps an admin-set home when kasmvnc is added', async () => {
+    await renderDialog({ ...withProtocols(), homeMountPath: '/home/custom' });
+    await userEvent.click(await screen.findByRole('button', { name: `+ ${en.protocolTabs.add}` }));
+    await userEvent.click(screen.getByRole('button', { name: 'kasmvnc' }));
+    await userEvent.click(screen.getByRole('button', { name: en.app.save }));
+    await waitFor(() => expect(apiMock.api.post).toHaveBeenCalled());
+    const calls = apiMock.api.post.mock.calls as unknown as Array<[string, TemplateInput]>;
+    expect(calls[calls.length - 1][1].homeMountPath).toBe('/home/custom');
+  });
+
   it('offers no other protocol once kasmvnc is configured', async () => {
     await renderDialog(withProtocols('kasmvnc'));
     // The registry query resolves async: the "+" menu must stay absent

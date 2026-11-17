@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
@@ -196,6 +197,25 @@ func TestTemplateWebhookValidatesParamsAgainstRegistry(t *testing.T) {
 			func() *waasv1alpha1.WorkspaceTemplate {
 				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
 				tpl.Spec.KasmVNCConfig = "data_loss_prevention:\n  clipboard:\n    server_to_client:\n      size: unlimited\n"
+				return tpl
+			}(),
+			"",
+		},
+		{
+			// Same trap for the side-service toggles the operator forces off.
+			"kasmvnc template env setting an operator-owned side-service toggle",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "kasmvnc", Port: 6901})
+				tpl.Spec.Env = []corev1.EnvVar{{Name: "KASM_SVC_PRINTER", Value: "1"}}
+				return tpl
+			}(),
+			"must not set KASM_SVC_PRINTER",
+		},
+		{
+			"vnc template env with a kasmweb toggle (inert, not operator-owned there)",
+			func() *waasv1alpha1.WorkspaceTemplate {
+				tpl := tplWith(waasv1alpha1.WorkspaceProtocol{Name: "vnc", Port: 5901})
+				tpl.Spec.Env = []corev1.EnvVar{{Name: "KASM_SVC_PRINTER", Value: "1"}}
 				return tpl
 			}(),
 			"",

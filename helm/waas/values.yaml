@@ -522,6 +522,12 @@ apiServer:
   podAnnotations: {}
 
 wwt:
+  # A kasmvnc session's reconnect grace (kasm.go, reconnectGrace) lives
+  # in one replica's memory: with replicas > 1 and no per-session
+  # routing affinity, a reconnect landing on a different replica won't
+  # cancel the first replica's pending end. Scaling past 1 needs sticky
+  # routing on /kasm/{sid} (e.g. ingress-nginx's
+  # upstream-hash-by: $request_uri).
   # -- wwt Deployment replica count.
   replicas: 1
   resources:

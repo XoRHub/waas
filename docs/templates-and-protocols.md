@@ -143,10 +143,13 @@ is refused at connect time with an error saying so.
 **Image env contract (for third-party image builders)**: every
 variable the platform injects or a waas-core-images entrypoint interprets
 is `WAAS_`-prefixed; ecosystem-inherited names survive only on foreign
-boundaries (today: `VNC_PW`, confined to kasmweb images). What the
-operator injects, and when: `WAAS_DESKTOP_PASSWORD` via `secretKeyRef`
-when a vnc password is generated (level 2 above); `VNC_PW` the same
-way for kasmvnc. Images run as uid 1000 (`waas_user`); a conforming
+boundaries (today: `VNC_PW` and the `KASM_SVC_*` toggles, confined to
+kasmweb images). What the operator injects, and when:
+`WAAS_DESKTOP_PASSWORD` via `secretKeyRef` when a vnc password is
+generated (level 2 above); `VNC_PW` the same way for kasmvnc, plus the
+`KASM_SVC_*` side-service toggles forced to `0` on every kasmvnc
+container (operator-owned, refused in template env — see
+[kasmvnc.md](kasmvnc.md)). Images run as uid 1000 (`waas_user`); a conforming
 image must fail closed when a required credential is missing. The
 image-side half of the contract
 (ports, tombstones for legacy names, cosmetic aliases) lives in the
@@ -341,7 +344,7 @@ is exercised by CI.
 | Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time) |
 | Persistent home | ✅ | ✅ | ✅ (`/home/kasm-user`) |
 | Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ |
-| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked | 🚫 | 🚫 `/api/downloads` blocked at the proxy |
+| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked | 🚫 | 🚫 `/api/downloads` and `/Downloads/…` blocked at the proxy |
 | Session recording | 🚫 `recording-*` platform-blocked | 🚫 | ❌ |
 | Keyboard layout | N/A (direct keysyms) | ✅ `server-layout` + browser auto-detect | N/A |
 | Dynamic resize | ✅ pod-exec mechanism | ❌ the frontend never calls the endpoint for rdp: no pod to exec `waas-resize` in; guacd-native `resize-method` is the only candidate, unverified | ✅ native client-side (`resize=remote`) |

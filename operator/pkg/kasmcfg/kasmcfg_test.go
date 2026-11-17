@@ -3,7 +3,20 @@ package kasmcfg
 import (
 	"slices"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
 )
+
+func TestManagedEnvNames(t *testing.T) {
+	got := ManagedEnvNames([]corev1.EnvVar{
+		{Name: "START_PULSEAUDIO", Value: "1"},
+		{Name: "KASM_SVC_UPLOADS", Value: "1"},
+		{Name: "KASM_SVC_SMARTCARD", Value: "0"},
+	})
+	if want := []string{"KASM_SVC_UPLOADS", "KASM_SVC_SMARTCARD"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
 
 func TestPolicyManagedClipboardKeys(t *testing.T) {
 	cases := []struct {
