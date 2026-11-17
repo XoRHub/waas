@@ -22,7 +22,7 @@ func TestSignAndVerifyRoundTrip(t *testing.T) {
 		t.Fatalf("GenerateSigner: %v", err)
 	}
 
-	token, err := signer.Sign(NewConnectionClaims("waas", "user-1", "sess-1", "ws-1", ClipboardGrant{Copy: true, Paste: true}, time.Minute))
+	token, err := signer.Sign(NewConnectionClaims("waas", "user-1", "sess-1", "ws-1", ClipboardGrant{Copy: true, Paste: true}, FileTransferGrant{}, time.Minute))
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestVerifyRejectsExpired(t *testing.T) {
 		t.Fatalf("GenerateSigner: %v", err)
 	}
 
-	token, err := signer.Sign(NewConnectionClaims("waas", "u", "s", "w", ClipboardGrant{}, -time.Minute))
+	token, err := signer.Sign(NewConnectionClaims("waas", "u", "s", "w", ClipboardGrant{}, FileTransferGrant{}, -time.Minute))
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestVerifyAccessTokenRoundTripAndRejections(t *testing.T) {
 
 	// A connection token must never be accepted as an API token
 	// (audience), and the issuer must match.
-	connToken, err := signer.Sign(NewConnectionClaims("waas", "u", "s", "w", ClipboardGrant{}, time.Minute))
+	connToken, err := signer.Sign(NewConnectionClaims("waas", "u", "s", "w", ClipboardGrant{}, FileTransferGrant{}, time.Minute))
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestVerifyRejectsForgedTokens(t *testing.T) {
 		t.Fatalf("GenerateSigner: %v", err)
 	}
 
-	connClaims := NewConnectionClaims("waas", "u", "s", "w", ClipboardGrant{}, time.Minute)
+	connClaims := NewConnectionClaims("waas", "u", "s", "w", ClipboardGrant{}, FileTransferGrant{}, time.Minute)
 	accessClaims := NewAccessClaims("waas", "u", RoleUser, time.Minute)
 
 	noneConn, err := jwt.NewWithClaims(jwt.SigningMethodNone, connClaims).SignedString(jwt.UnsafeAllowNoneSignatureType)

@@ -1026,7 +1026,16 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// re-enqueues the namespace's whole fleet: catalog edits are rare
 		// admin operations and an in-sync reconcile is a cheap no-op.
 		Watches(&waasv1alpha1.WorkspaceImage{},
-			handler.EnqueueRequestsFromMapFunc(r.mapCatalogToWorkspaces),
+			handler.EnqueueRequestsFromMapFunc(r.mapNamespaceToWorkspaces),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		// Policies feed the kasmvnc container (clipboard DLP, watermark,
+		// printer toggle): same reasoning as the catalog — which policy
+		// wins for an owner is a namespace-global question (highest
+		// priority among all matches), so any policy spec change
+		// re-enqueues the fleet; otherwise an edit would only land on
+		// some unrelated reconcile.
+		Watches(&waasv1alpha1.WorkspacePolicy{},
+			handler.EnqueueRequestsFromMapFunc(r.mapNamespaceToWorkspaces),
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("workspace").
 		Complete(r)
@@ -1051,11 +1060,12 @@ func (r *WorkspaceReconciler) mapTemplateToWorkspaces(ctx context.Context, obj c
 	return reqs
 }
 
-// mapCatalogToWorkspaces enqueues the namespace's whole fleet on a
-// catalog edit — see the Watches comment: best-prefix resolution makes
-// the affected set non-local to the edited entry, and over-enqueueing
-// only costs no-op reconciles on rare admin operations.
-func (r *WorkspaceReconciler) mapCatalogToWorkspaces(ctx context.Context, obj client.Object) []ctrl.Request {
+// mapNamespaceToWorkspaces enqueues the namespace's whole fleet on a
+// catalog or policy edit — see the Watches comments: best-prefix /
+// highest-priority resolution makes the affected set non-local to the
+// edited object, and over-enqueueing only costs no-op reconciles on rare
+// admin operations.
+func (r *WorkspaceReconciler) mapNamespaceToWorkspaces(ctx context.Context, obj client.Object) []ctrl.Request {
 	list := &waasv1alpha1.WorkspaceList{}
 	if err := r.List(ctx, list, client.InNamespace(obj.GetNamespace())); err != nil {
 		return nil

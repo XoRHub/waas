@@ -46,14 +46,27 @@ type ClipboardGrant struct {
 	Paste bool `json:"paste"`
 }
 
+// FileTransferGrant is the file-transfer permission resolved from the
+// user's WorkspacePolicy, stamped next to the clipboard grant. Zero value
+// = both directions denied (fail closed). Not enforced by any proxy path
+// yet: the kasmvnc downloads surface stays blocked outright until the
+// file-transfer routes land; the grant is carried so they can read it.
+type FileTransferGrant struct {
+	// Upload permits local → workspace files.
+	Upload bool `json:"upload"`
+	// Download permits workspace → local files.
+	Download bool `json:"download"`
+}
+
 // ConnectionClaims is the payload of the short-lived token that authorizes a
 // single desktop connection through the WebSocket proxy. It deliberately
 // carries no connection secrets (VNC/RDP credentials stay server-side); the
 // proxy exchanges the session ID against the API server's internal endpoint.
 type ConnectionClaims struct {
-	SessionID   string         `json:"sessionId"`
-	WorkspaceID string         `json:"workspaceId"`
-	Clipboard   ClipboardGrant `json:"clipboard"`
+	SessionID    string            `json:"sessionId"`
+	WorkspaceID  string            `json:"workspaceId"`
+	Clipboard    ClipboardGrant    `json:"clipboard"`
+	FileTransfer FileTransferGrant `json:"fileTransfer"`
 	jwt.RegisteredClaims
 }
 
@@ -78,11 +91,12 @@ func NewStreamClaims(issuer, userID string, role Role, ttl time.Duration) Access
 }
 
 // NewConnectionClaims builds connection-token claims for one session.
-func NewConnectionClaims(issuer, userID, sessionID, workspaceID string, clipboard ClipboardGrant, ttl time.Duration) ConnectionClaims {
+func NewConnectionClaims(issuer, userID, sessionID, workspaceID string, clipboard ClipboardGrant, files FileTransferGrant, ttl time.Duration) ConnectionClaims {
 	return ConnectionClaims{
 		SessionID:        sessionID,
 		WorkspaceID:      workspaceID,
 		Clipboard:        clipboard,
+		FileTransfer:     files,
 		RegisteredClaims: registered(issuer, userID, AudienceConnection, ttl),
 	}
 }

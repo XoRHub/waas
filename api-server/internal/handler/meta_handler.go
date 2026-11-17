@@ -70,12 +70,12 @@ func (h *MetaHandler) OverrideFields(w http.ResponseWriter, _ *http.Request) {
 
 // KasmVNCManagedKeys handles GET /api/v1/meta/kasmvnc-managed-keys: the
 // dotted kasmvnc.yaml keys the operator derives from the policy and
-// stamps over a template's kasmvncConfig (kasmcfg.ManagedClipboardKeyPaths,
+// stamps over a template's kasmvncConfig (kasmcfg.ManagedKeyPaths,
 // the same list the template validation rejects). The template editor
 // shows them locked, from this single source rather than its own copy.
 func (h *MetaHandler) KasmVNCManagedKeys(w http.ResponseWriter, _ *http.Request) {
-	out := make([]string, 0, len(kasmcfg.ManagedClipboardKeyPaths))
-	for _, path := range kasmcfg.ManagedClipboardKeyPaths {
+	out := make([]string, 0, len(kasmcfg.ManagedKeyPaths))
+	for _, path := range kasmcfg.ManagedKeyPaths {
 		out = append(out, strings.Join(path, "."))
 	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")

@@ -180,14 +180,15 @@ already-provisioned workspaces without recreating them
 kasmvnc templates may embed the raw content of the user-level KasmVNC
 YAML. The string is **opaque by design** (every upstream option works;
 the operator only checks it parses and rejects the policy-managed
-clipboard keys, see below); it materializes as a per-workspace
+keys — clipboard DLP, watermark — see below); it materializes as a per-workspace
 ConfigMap mounted read-only at `<homeMountPath>/.vnc/kasmvnc.yaml`
 (single-file subPath; the `.vnc` directory is an operator-managed
 emptyDir so it stays writable for KasmVNC's runtime artifacts). KasmVNC
 deep-merges this file over the image's own defaults, so a partial
 config inherits every unspecified key — WaaS adds no default layer of
 its own. The clipboard DLP keys derived from `WorkspacePolicy.Clipboard`
-are stamped last over the admin's content (and rejected if set by hand);
+and the watermark text from `WorkspacePolicy.watermark` are stamped
+last over the admin's content (and rejected if set by hand);
 the mount is therefore unconditional for a kasmvnc template, even with
 an empty field. A content change rolls the workload (hash annotation on
 the pod template). The webhook rejects the field on templates without a
@@ -348,7 +349,9 @@ is exercised by CI.
 | Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time); session-menu manual exchange via the client's messages, gated by the connecting user's capabilities |
 | Persistent home | ✅ | ✅ | ✅ (`/home/kasm-user`) |
 | Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ |
-| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked | 🚫 | 🚫 `/api/downloads` and `/Downloads/…` blocked at the proxy |
+| File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked (policy `fileTransfer` carried in the token, not read yet) | 🚫 | 🚫 `/api/downloads` and `/Downloads/…` blocked at the proxy (same: grant carried, routes pending) — HTTP routes only: a soft control against a determined occupant (print over RFB, own Xvnc, the screen; `docs/kasmvnc.md`) |
+| Printing | ❌ | ❌ | ⚙️ `KASM_SVC_PRINTER` on when the owner's policy allows `download` — soft gate (container env), `docs/kasmvnc.md` |
+| Watermark | ❌ | ❌ | ✅ policy `watermark` text (`{user}`, strftime), stamped into `kasmvnc.yaml` — soft (Xvnc-rendered) |
 | Session recording | 🚫 `recording-*` platform-blocked | 🚫 | ❌ |
 | Keyboard layout | N/A (direct keysyms) | ✅ `server-layout` + browser auto-detect | N/A |
 | Dynamic resize | ✅ pod-exec mechanism | ❌ the frontend never calls the endpoint for rdp: no pod to exec `waas-resize` in; guacd-native `resize-method` is the only candidate, unverified | ✅ native client-side (`resize=remote`) |
@@ -365,7 +368,10 @@ guacd), `docs/volumes.md`, `docs/kasmvnc.md`, and
 File transfer and recording are deliberately blocked **for everyone,
 admins included**, "until the file-transfer feature ships with its own
 policy gate" (`operator/pkg/params/params.go`) — the kasmvnc downloads
-block mirrors the same doctrine. Remote workspaces run every guacd
+block mirrors the same doctrine. The gate itself now exists
+(`WorkspacePolicy.fileTransfer`, `docs/governance.md`): the grant
+travels in the connection token and the capabilities, the blocks lift
+once routes read it. Remote workspaces run every guacd
 protocol — vnc, rdp and ssh, the last one no longer an in-cluster
 option — with the same clipboard filter; kasmvnc is refused there
 (`docs/remote-workspaces.md`).

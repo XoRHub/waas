@@ -29,6 +29,20 @@
           },
           "type": "object"
         },
+        "fileTransfer": {
+          "description": "FileTransfer gates file movement between the user's machine and\ntheir workspace sessions, per direction. Absent = both directions\ndenied (fail closed): a wider channel than the clipboard, so it is\nopt-in. Carried in the connection token and the session\ncapabilities; today it reaches the kasmvnc data plane only\n(printing follows download) \u2014 the guacd sftp/drive parameters stay\nplatform-blocked.",
+          "properties": {
+            "download": {
+              "description": "Download permits fetching files FROM the workspace to the user's\nmachine (data exfiltration direction). On kasmvnc it also enables\nprinting \u2014 print-to-PDF then download, the same egress class.",
+              "type": "boolean"
+            },
+            "upload": {
+              "description": "Upload permits sending files from the user's machine INTO the\nworkspace (data injection direction).",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
         "images": {
           "description": "Images is the subset of catalog entries (WorkspaceImage names)\nthis policy allows. Empty = the whole enabled catalog (each image's\nown allowedGroups still applies).",
           "items": {
@@ -247,6 +261,12 @@
             "type": "object"
           },
           "type": "array"
+        },
+        "watermark": {
+          "description": "Watermark is a text template KasmVNC renders over the desktop of\nthe governed users' kasmvnc sessions \u2014 a deterrent enforced by Xvnc\ninside the container (soft control, see docs/kasmvnc.md). Xvnc\nexpands strftime directives live (%H:%M); the WaaS token {user} is\nreplaced by the workspace owner's username at reconcile. Empty =\nno watermark. Single quotes, $ and control characters are refused:\nKasmVNC's vncserver expands ${NAME} from its environment, then hands\nthe text to Xvnc single-quoted and unescaped through a shell (both\nmarkers mirrored by kasmcfg.ValidateWatermark).",
+          "maxLength": 200,
+          "pattern": "^[^'$\\x00-\\x1f\\x7f]*$",
+          "type": "string"
         }
       },
       "type": "object"

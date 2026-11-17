@@ -38,7 +38,12 @@ const workspace = (protocol: string): Workspace => ({
 
 const renderOverlay = async (
   protocol: string,
-  capabilities: SessionCapabilities = { clipboardCopy: true, clipboardPaste: true },
+  capabilities: SessionCapabilities = {
+    clipboardCopy: true,
+    clipboardPaste: true,
+    fileUpload: false,
+    fileDownload: false,
+  },
 ) => {
   signIn({ username: 'marc' });
   renderWithProviders(
@@ -66,7 +71,12 @@ describe('SessionOverlay clipboard section by protocol', () => {
     // read-only (no live toggle), reading straight from capabilities. The
     // manual exchange works there too (through the client's messages),
     // gated by the same capabilities.
-    await renderOverlay('kasmvnc', { clipboardCopy: true, clipboardPaste: false });
+    await renderOverlay('kasmvnc', {
+      clipboardCopy: true,
+      clipboardPaste: false,
+      fileUpload: false,
+      fileDownload: false,
+    });
 
     // Labels shown, but as status — not interactive checkboxes.
     expect(screen.getByText('Copy from workspace')).toBeInTheDocument();
@@ -91,6 +101,8 @@ describe('SessionOverlay clipboard section by protocol', () => {
       clipboardPaste: false,
       clipboardCopyLock: 'params',
       clipboardPasteLock: 'policy',
+      fileUpload: false,
+      fileDownload: false,
     });
 
     expect(screen.getByTitle(/Disabled by your connection settings/)).toBeInTheDocument();
@@ -142,7 +154,12 @@ describe('SessionOverlay protocol quick switch', () => {
         <DesktopPane ref={pane} workspaceId="w1" />
         <SessionOverlay
           workspace={ws}
-          capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+          capabilities={{
+            clipboardCopy: true,
+            clipboardPaste: true,
+            fileUpload: false,
+            fileDownload: false,
+          }}
           pane={pane}
         />
       </>,
@@ -191,7 +208,12 @@ describe('SessionOverlay protocol quick switch', () => {
         <DesktopPane ref={pane} workspaceId="w1" />
         <SessionOverlay
           workspace={ws}
-          capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+          capabilities={{
+            clipboardCopy: true,
+            clipboardPaste: true,
+            fileUpload: false,
+            fileDownload: false,
+          }}
           pane={pane}
         />
       </>,
@@ -253,7 +275,12 @@ describe('SessionOverlay reconnect params', () => {
     renderWithProviders(
       <SessionOverlay
         workspace={ws}
-        capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+        capabilities={{
+          clipboardCopy: true,
+          clipboardPaste: true,
+          fileUpload: false,
+          fileDownload: false,
+        }}
         pane={createRef<DesktopPaneHandle>()}
       />,
     );
@@ -302,7 +329,12 @@ describe('SessionOverlay kasmvnc image quality', () => {
     renderWithProviders(
       <SessionOverlay
         workspace={workspace('kasmvnc')}
-        capabilities={{ clipboardCopy: true, clipboardPaste: true }}
+        capabilities={{
+          clipboardCopy: true,
+          clipboardPaste: true,
+          fileUpload: false,
+          fileDownload: false,
+        }}
         pane={pane}
       />,
     );

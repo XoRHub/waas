@@ -143,6 +143,10 @@ defaultPolicy:
     copyFromWorkspace: true
     # -- Allow pasting the local clipboard INTO the workspace.
     pasteToWorkspace: true
+  # -- File transfer directions (upload / download); empty = both denied. On kasmvnc, download also enables printing.
+  fileTransfer: {}
+  # -- KasmVNC desktop watermark text ({user} = owner's username, strftime directives); empty = none.
+  watermark: ""
   # -- Template-override fields the matched user may set at instantiation time (intersected with the template's own allow-list); empty = no policy-level restriction, the template's allow-list alone applies.
   overrides:
     allowedFields: [env, resources, schedule]
@@ -178,6 +182,10 @@ adminPolicy:
   lifecycle: {}
   # -- Clipboard bridge directions; empty = both allowed.
   clipboard: {}
+  # -- File transfer directions; both granted — the point of this policy (empty would deny both).
+  fileTransfer: { upload: true, download: true }
+  # -- KasmVNC desktop watermark text; empty = none.
+  watermark: ""
   # -- Template-override fields admins may set at instantiation time (intersected with the template's own allow-list).
   overrides:
     allowedFields:

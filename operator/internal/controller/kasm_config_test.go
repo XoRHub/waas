@@ -62,9 +62,9 @@ func TestKasmClipboardPolicyEnforcement(t *testing.T) {
 		"    client_to_server:\n      enabled: true\n" +
 		"runtime_configuration:\n  allow_client_to_override_kasm_server_settings: true\n"
 
-	deny, err := applyClipboardPolicy(admin, false, false)
+	deny, err := applyPolicy(admin, kasmPolicy{})
 	if err != nil {
-		t.Fatalf("applyClipboardPolicy(deny): %v", err)
+		t.Fatalf("applyPolicy(deny): %v", err)
 	}
 	copyE, pasteE, override := clipboardEnabled(t, deny)
 	if copyE || pasteE {
@@ -79,9 +79,9 @@ func TestKasmClipboardPolicyEnforcement(t *testing.T) {
 	}
 
 	// Asymmetric grant: copy allowed, paste denied.
-	mixed, err := applyClipboardPolicy(admin, true, false)
+	mixed, err := applyPolicy(admin, kasmPolicy{copyAllowed: true})
 	if err != nil {
-		t.Fatalf("applyClipboardPolicy(mixed): %v", err)
+		t.Fatalf("applyPolicy(mixed): %v", err)
 	}
 	copyE, pasteE, override = clipboardEnabled(t, mixed)
 	if !copyE || pasteE || override {
@@ -89,13 +89,84 @@ func TestKasmClipboardPolicyEnforcement(t *testing.T) {
 	}
 
 	// Empty admin config still yields a complete enforcement document.
-	empty, err := applyClipboardPolicy("", true, true)
+	empty, err := applyPolicy("", kasmPolicy{copyAllowed: true, pasteAllowed: true})
 	if err != nil {
-		t.Fatalf("applyClipboardPolicy(empty): %v", err)
+		t.Fatalf("applyPolicy(empty): %v", err)
 	}
 	copyE, pasteE, override = clipboardEnabled(t, empty)
 	if !copyE || !pasteE || override {
 		t.Fatalf("allowing policy over empty config: got copy=%v paste=%v override=%v", copyE, pasteE, override)
+	}
+}
+
+// The watermark text is stamped only when the policy sets one; the admin's
+// other watermark sub-keys survive next to it.
+func TestKasmWatermarkStamped(t *testing.T) {
+	admin := "data_loss_prevention:\n  watermark:\n    text:\n      font_size: 24\n"
+	without, err := applyPolicy(admin, kasmPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := parseYAML(t, without)["data_loss_prevention"].(map[string]any)["watermark"].(map[string]any)["text"].(map[string]any)["template"]; ok {
+		t.Fatal("no policy watermark must leave the template key absent")
+	}
+	with, err := applyPolicy(admin, kasmPolicy{watermark: "WaaS alice %H:%M"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := parseYAML(t, with)["data_loss_prevention"].(map[string]any)["watermark"].(map[string]any)["text"].(map[string]any)
+	if text["template"] != "WaaS alice %H:%M" {
+		t.Fatalf("watermark text not stamped, got %v", text)
+	}
+	if got := nestedFloat(t, with, "data_loss_prevention", "watermark", "text", "font_size"); got != 24 {
+		t.Fatalf("admin watermark sub-key must survive, got %v", got)
+	}
+}
+
+// The owner's policy decides printing and the watermark text, with the
+// owner's username substituted; no policy fails closed on all of it.
+func TestKasmPolicyOfFollowsOwner(t *testing.T) {
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+	ws.Annotations = map[string]string{waasv1alpha1.AnnotationUsername: "o'reilly"}
+	pol := &waasv1alpha1.WorkspacePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "default"},
+		Spec: waasv1alpha1.WorkspacePolicySpec{
+			FileTransfer: &waasv1alpha1.FileTransferPolicy{Download: true},
+			Watermark:    "{user} %H:%M",
+		},
+	}
+	r, _ := newFixture(t, kasmTemplate(), ws, pol)
+	got := r.kasmPolicyOf(context.Background(), ws)
+	want := kasmPolicy{copyAllowed: true, pasteAllowed: true, printing: true, watermark: "o_reilly %H:%M"}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+
+	r, _ = newFixture(t, kasmTemplate(), ws)
+	if got := r.kasmPolicyOf(context.Background(), ws); got != (kasmPolicy{}) {
+		t.Fatalf("no policy must fail closed, got %+v", got)
+	}
+}
+
+// The printer toggle follows the policy; the other side services stay off.
+func TestKasmPrinterFollowsPolicy(t *testing.T) {
+	ws := workspace()
+	ws.Spec.TemplateRef = "kasm-firefox"
+	for _, printing := range []bool{false, true} {
+		env := map[string]string{}
+		for _, e := range desktopEnv(ws, kasmTemplate(), &waasv1alpha1.WorkspaceOverrides{}, printing) {
+			env[e.Name] = e.Value
+		}
+		for _, name := range kasmcfg.SideServiceEnv {
+			want := "0"
+			if name == kasmcfg.PrinterEnv && printing {
+				want = "1"
+			}
+			if env[name] != want {
+				t.Errorf("printing=%v: %s = %q, want %q", printing, name, env[name], want)
+			}
+		}
 	}
 }
 
@@ -202,7 +273,7 @@ func TestKasmConfigAbsentForNonKasmWorkspace(t *testing.T) {
 		}
 	}
 	for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
-		if slices.Contains(kasmcfg.DisabledSideServiceEnv, e.Name) {
+		if slices.Contains(kasmcfg.SideServiceEnv, e.Name) {
 			t.Fatalf("non-kasmvnc workspace must not get kasmweb side-service env, found %q", e.Name)
 		}
 	}
@@ -235,7 +306,7 @@ func TestKasmSideServicesForcedOff(t *testing.T) {
 		}
 		env[e.Name] = e.Value
 	}
-	for _, name := range kasmcfg.DisabledSideServiceEnv {
+	for _, name := range kasmcfg.SideServiceEnv {
 		if env[name] != "0" {
 			t.Errorf("%s must be forced to 0, got %q", name, env[name])
 		}

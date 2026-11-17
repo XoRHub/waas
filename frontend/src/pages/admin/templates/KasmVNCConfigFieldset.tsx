@@ -253,9 +253,9 @@ export function KasmVNCConfigFieldset({
           </Row>
         );
       })}
-      <Row label={t('admin.templatesPage.kasmvncClipboard')} hint={managedKeys.join(', ')}>
+      <Row label={t('admin.templatesPage.kasmvncPolicyManaged')} hint={managedKeys.join(', ')}>
         <span className="mt-0.5 block rounded-md border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 dark:border-slate-600 dark:text-slate-400">
-          🔒 {t('admin.templatesPage.kasmvncClipboardManaged')}
+          🔒 {t('admin.templatesPage.kasmvncPolicyManagedHint')}
         </span>
       </Row>
     </div>

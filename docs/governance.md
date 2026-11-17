@@ -24,7 +24,8 @@ WorkspacePolicy ── images[] ───────────►  WorkspaceI
 - **`WorkspacePolicy`** (`wsp`): priority, subjects (`User`/`Group`),
   image subset, limits (`maxWorkspaces`, `maxRunningWorkspaces`,
   `perWorkspace`, `aggregate`, `defaults`), lifecycle
-  (`idleSuspendAfter`, `maxLifetime`).
+  (`idleSuspendAfter`, `maxLifetime`), session rights (`clipboard`,
+  `fileTransfer`, `watermark` — see below).
   `maxWorkspaces` caps OWNERSHIP (paused workspaces count — their home
   PVC still holds storage) while `maxRunningWorkspaces` caps compute
   CONCURRENCY (paused workspaces and retained volumes don't count);
@@ -359,6 +360,40 @@ actually disables copy/paste inside the container (see
 `docs/kasmvnc.md` and the full precedence map in `docs/clipboard.md`).
 Either way the policy stays the sole security authority — templates and
 connection params can only restrict further, never widen.
+
+### File transfer policy (`spec.fileTransfer`)
+
+`spec.fileTransfer` gates the two file directions independently
+(`upload`, `download`) and, unlike the clipboard, is **opt-in: absent =
+both denied** — a wider channel, and the behavior every data plane had
+before the field existed. Resolved like the clipboard: the api-server
+reads the CONNECTING user's policy at `/connect` and stamps the grant
+into the connection token (`fileTransfer`) and the session capabilities
+(`fileUpload`/`fileDownload`); no params clamp it. Enforcement points
+today: on **kasmvnc**, the operator reads the workspace **owner's**
+policy at reconcile and turns the image's printer service on when
+`download` is granted (print-to-PDF then download, the same egress class
+— a soft, in-container gate: `docs/kasmvnc.md` § File transfer,
+printing, watermark). The kasmvnc downloads surface (`/api/downloads`,
+`/Downloads`) and the guacd sftp/drive parameters stay blocked for
+everyone until the file-transfer routes read the grant. Fail-closed on
+resolution failure, like every right here.
+
+### Watermark (`spec.watermark`)
+
+`spec.watermark` is a text template rendered over the desktop of the
+governed users' **kasmvnc** sessions (no guacd equivalent). Xvnc expands
+`strftime` directives live (`%H:%M`), and the WaaS token `{user}` is
+replaced by the workspace **owner's** username at reconcile — the
+operator stamps the result into the mounted `kasmvnc.yaml` next to the
+clipboard DLP keys. Empty/absent = no watermark, also on resolution
+failure (the deterrent is the permissive side; the hard gates are what
+fail closed). Single quotes, `$` and control characters are refused by
+the CRD (max 200 characters; the admin API mirrors both as a 400):
+KasmVNC's `vncserver` expands `${NAME}` and hands the text to Xvnc
+single-quoted and unescaped through a shell. It is a **soft control**: Xvnc renders it inside the
+user's own container (`docs/kasmvnc.md` for the threat model and the
+username sanitization).
 
 ### Override restriction (`spec.overrides`)
 

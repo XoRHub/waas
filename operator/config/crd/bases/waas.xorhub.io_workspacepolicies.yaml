@@ -79,6 +79,28 @@ spec:
                       workspace (data injection direction).
                     type: boolean
                 type: object
+              fileTransfer:
+                description: |-
+                  FileTransfer gates file movement between the user's machine and
+                  their workspace sessions, per direction. Absent = both directions
+                  denied (fail closed): a wider channel than the clipboard, so it is
+                  opt-in. Carried in the connection token and the session
+                  capabilities; today it reaches the kasmvnc data plane only
+                  (printing follows download) — the guacd sftp/drive parameters stay
+                  platform-blocked.
+                properties:
+                  download:
+                    description: |-
+                      Download permits fetching files FROM the workspace to the user's
+                      machine (data exfiltration direction). On kasmvnc it also enables
+                      printing — print-to-PDF then download, the same egress class.
+                    type: boolean
+                  upload:
+                    description: |-
+                      Upload permits sending files from the user's machine INTO the
+                      workspace (data injection direction).
+                    type: boolean
+                type: object
               images:
                 description: |-
                   Images is the subset of catalog entries (WorkspaceImage names)
@@ -261,6 +283,20 @@ spec:
                   - name
                   type: object
                 type: array
+              watermark:
+                description: |-
+                  Watermark is a text template KasmVNC renders over the desktop of
+                  the governed users' kasmvnc sessions — a deterrent enforced by Xvnc
+                  inside the container (soft control, see docs/kasmvnc.md). Xvnc
+                  expands strftime directives live (%H:%M); the WaaS token {user} is
+                  replaced by the workspace owner's username at reconcile. Empty =
+                  no watermark. Single quotes, $ and control characters are refused:
+                  KasmVNC's vncserver expands ${NAME} from its environment, then hands
+                  the text to Xvnc single-quoted and unescaped through a shell (both
+                  markers mirrored by kasmcfg.ValidateWatermark).
+                maxLength: 200
+                pattern: ^[^'$\x00-\x1f\x7f]*$
+                type: string
             type: object
         required:
         - spec

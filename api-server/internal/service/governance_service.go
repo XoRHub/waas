@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	waasv1alpha1 "github.com/xorhub/waas/operator/api/v1alpha1"
+	"github.com/xorhub/waas/operator/pkg/kasmcfg"
 	"github.com/xorhub/waas/operator/pkg/params"
 	"github.com/xorhub/waas/operator/pkg/policy"
 
@@ -632,14 +633,16 @@ func (s *GovernanceService) AdminListPolicies(ctx context.Context) ([]model.Poli
 
 // UpsertPolicyInput is the admin payload for a policy.
 type UpsertPolicyInput struct {
-	Priority         int32                       `json:"priority"`
-	Subjects         []model.PolicySubject       `json:"subjects"`
-	Images           []string                    `json:"images"`
-	Limits           model.PolicyLimitsModel     `json:"limits"`
-	Lifecycle        map[string]string           `json:"lifecycle"`
-	Clipboard        *model.ClipboardPolicyModel `json:"clipboard"`
-	Overrides        *model.PolicyOverridesModel `json:"overrides"`
-	RemoteWorkspaces bool                        `json:"remoteWorkspaces"`
+	Priority         int32                          `json:"priority"`
+	Subjects         []model.PolicySubject          `json:"subjects"`
+	Images           []string                       `json:"images"`
+	Limits           model.PolicyLimitsModel        `json:"limits"`
+	Lifecycle        map[string]string              `json:"lifecycle"`
+	Clipboard        *model.ClipboardPolicyModel    `json:"clipboard"`
+	FileTransfer     *model.FileTransferPolicyModel `json:"fileTransfer"`
+	Watermark        string                         `json:"watermark"`
+	Overrides        *model.PolicyOverridesModel    `json:"overrides"`
+	RemoteWorkspaces bool                           `json:"remoteWorkspaces"`
 }
 
 // AdminUpsertPolicy creates or updates a WorkspacePolicy.
@@ -700,6 +703,15 @@ func (s *GovernanceService) AdminUpsertPolicy(ctx context.Context, actor Actor, 
 			PasteToWorkspace:  in.Clipboard.PasteToWorkspace,
 		}
 	}
+	if in.FileTransfer != nil {
+		spec.FileTransfer = &waasv1alpha1.FileTransferPolicy{Upload: in.FileTransfer.Upload, Download: in.FileTransfer.Download}
+	}
+	// Mirrors the CRD markers with a clean 400 (the admission refusal
+	// would reach the admin as a wrapped 500) — see kasmcfg.ValidateWatermark.
+	if err := kasmcfg.ValidateWatermark(in.Watermark); err != nil {
+		return nil, apierror.BadRequest("watermark: " + err.Error())
+	}
+	spec.Watermark = in.Watermark
 	if in.Overrides != nil {
 		ov := &waasv1alpha1.PolicyOverrides{}
 		for _, f := range in.Overrides.AllowedFields {
@@ -1066,6 +1078,10 @@ func policyToModel(pol *waasv1alpha1.WorkspacePolicy) model.PolicyModel {
 			PasteToWorkspace:  c.PasteToWorkspace,
 		}
 	}
+	if ft := pol.Spec.FileTransfer; ft != nil {
+		m.FileTransfer = &model.FileTransferPolicyModel{Upload: ft.Upload, Download: ft.Download}
+	}
+	m.Watermark = pol.Spec.Watermark
 	if lc := pol.Spec.Lifecycle; lc != nil {
 		m.Lifecycle = map[string]string{}
 		if lc.IdleSuspendAfter != nil {
