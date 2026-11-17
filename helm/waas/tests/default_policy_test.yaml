@@ -29,6 +29,7 @@ tests:
         copyFromWorkspace: false
         pasteToWorkspace: false
       defaultPolicy.fileTransfer: { download: true }
+      defaultPolicy.audio: { playback: true, microphone: true }
       defaultPolicy.watermark: "{user} %H:%M"
       defaultPolicy.overrides: { allowedFields: [] }
       defaultPolicy.remoteWorkspaces: false
@@ -71,6 +72,9 @@ tests:
           path: spec.fileTransfer
           value: { download: true }
       - equal:
+          path: spec.audio
+          value: { playback: true, microphone: true }
+      - equal:
           path: spec.watermark
           value: "{user} %H:%M"
       - notExists:
@@ -78,6 +82,23 @@ tests:
       - equal:
           path: spec.remoteWorkspaces
           value: false
+
+  # Playback is plain usability (no egress); the microphone is a live
+  # capture and stays opt-in. An empty block denies both.
+  - it: grants audio playback but not the microphone by default
+    set:
+      defaultPolicy.enabled: true
+    asserts:
+      - equal:
+          path: spec.audio
+          value: { playback: true }
+  - it: omits audio when the block is nulled (both directions denied)
+    set:
+      defaultPolicy.enabled: true
+      defaultPolicy.audio: null
+    asserts:
+      - notExists:
+          path: spec.audio
 
   - it: the chart default maxRunningWorkspaces (null = unlimited) is omitted from the rendered policy
     set:

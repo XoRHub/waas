@@ -13,6 +13,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
+
+	"github.com/xorhub/waas/shared/kasmagent"
 )
 
 // The policy-derived kasmvnc.yaml keys, stamped by the controller over the
@@ -151,12 +153,19 @@ var SideServiceEnv = []string{
 	"KASM_SVC_SMARTCARD",
 }
 
+// ManagedEnv is every env name the controller stamps on kasmvnc
+// containers: the side-service toggles above, plus PULSE_SERVER, which
+// points the desktop's audio clients at the kasm-agent sidecar's
+// PulseAudio (the image's own daemon never starts: KASM_SVC_AUDIO=0
+// skips it). Same soft-control caveat as the toggles.
+var ManagedEnv = append(slices.Clone(SideServiceEnv), kasmagent.EnvPulseServer)
+
 // ManagedEnvNames returns the names in env that WaaS owns on kasmvnc
-// containers (SideServiceEnv).
+// containers (ManagedEnv).
 func ManagedEnvNames(env []corev1.EnvVar) []string {
 	var found []string
 	for _, e := range env {
-		if slices.Contains(SideServiceEnv, e.Name) {
+		if slices.Contains(ManagedEnv, e.Name) {
 			found = append(found, e.Name)
 		}
 	}

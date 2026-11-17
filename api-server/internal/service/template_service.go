@@ -332,7 +332,7 @@ func specFromInput(in TemplateInput) (*waasv1alpha1.WorkspaceTemplateSpec, error
 	if hasKasm {
 		if bad := kasmcfg.ManagedEnvNames(in.Env); len(bad) > 0 {
 			return nil, apierror.BadRequest(fmt.Sprintf(
-				"env must not set %s: the kasmweb side services WaaS does not proxy are forced off by the operator",
+				"env must not set %s: operator-owned on kasmvnc containers (the kasmweb side services are forced off, PULSE_SERVER points at the kasm-agent sidecar)",
 				strings.Join(bad, ", ")))
 		}
 	}

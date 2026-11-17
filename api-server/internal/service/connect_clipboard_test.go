@@ -168,22 +168,28 @@ func TestRemoteConnectClipboardClampedByParams(t *testing.T) {
 	assertClipboard(t, f, res, false, false, model.ClipboardLockParams, model.ClipboardLockParams)
 }
 
-// File transfer is opt-in and policy-only: the grant lands identically in
-// the token (what the file routes will enforce) and the capabilities
-// (what the session menu shows); no policy block means both denied.
+// File transfer and audio are opt-in and policy-only: the grant lands
+// identically in the token (what the kasm-agent routes enforce) and the
+// capabilities (what the session menu shows); no policy block means both
+// denied.
 func TestConnectFileTransferGrant(t *testing.T) {
 	for _, tc := range []struct {
 		name                     string
 		files                    *waasv1alpha1.FileTransferPolicy
+		audio                    *waasv1alpha1.AudioPolicy
 		wantUpload, wantDownload bool
+		wantPlayback, wantMic    bool
 	}{
-		{"absent block denies both", nil, false, false},
-		{"download only", &waasv1alpha1.FileTransferPolicy{Download: true}, false, true},
-		{"both granted", &waasv1alpha1.FileTransferPolicy{Upload: true, Download: true}, true, true},
+		{"absent blocks deny all", nil, nil, false, false, false, false},
+		{"download only", &waasv1alpha1.FileTransferPolicy{Download: true}, nil, false, true, false, false},
+		{"both granted", &waasv1alpha1.FileTransferPolicy{Upload: true, Download: true}, nil, true, true, false, false},
+		{"playback only", nil, &waasv1alpha1.AudioPolicy{Playback: true}, false, false, true, false},
+		{"playback and microphone", nil, &waasv1alpha1.AudioPolicy{Playback: true, Microphone: true}, false, false, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pol := clipboardPolicy(true, true)
 			pol.Spec.FileTransfer = tc.files
+			pol.Spec.Audio = tc.audio
 			f := newRemoteFixture(t, []model.User{{ID: "u1", Username: "alice"}}, []waasv1alpha1.WorkspacePolicy{pol})
 			seedRunningWorkspace(t, f, "uid-1", clipboardTemplate(nil))
 			res, err := f.workspace.Connect(context.Background(), Actor{ID: "u1", Role: string(auth.RoleUser)}, "uid-1", ConnectInput{})
@@ -200,6 +206,11 @@ func TestConnectFileTransferGrant(t *testing.T) {
 			}
 			if claims.FileTransfer.Upload != tc.wantUpload || claims.FileTransfer.Download != tc.wantDownload {
 				t.Fatalf("token fileTransfer %+v diverges from capabilities", claims.FileTransfer)
+			}
+			if res.Capabilities.AudioPlayback != tc.wantPlayback || res.Capabilities.Microphone != tc.wantMic ||
+				claims.Audio.Playback != tc.wantPlayback || claims.Audio.Microphone != tc.wantMic {
+				t.Fatalf("capabilities audio %v/%v, token %+v, want %v/%v",
+					res.Capabilities.AudioPlayback, res.Capabilities.Microphone, claims.Audio, tc.wantPlayback, tc.wantMic)
 			}
 		})
 	}

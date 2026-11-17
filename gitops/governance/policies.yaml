@@ -35,11 +35,17 @@ spec:
   #   copyFromWorkspace: false   # workspace → poste local
   #   pasteToWorkspace: true     # poste local → workspace
   # Transfert de fichiers, par direction — opt-in (absent = tout refusé).
-  # Sur kasmvnc, download active aussi l'impression. Filigrane KasmVNC :
-  # texte, {user} = username du propriétaire, directives strftime.
+  # Sur kasmvnc, download active aussi l'impression. Audio kasmvnc, par
+  # direction — opt-in (absent = tout refusé) : playback = le son du
+  # workspace dans le navigateur, microphone = celui du navigateur vers le
+  # workspace. Filigrane KasmVNC : texte, {user} = username du
+  # propriétaire, directives strftime.
   # fileTransfer:
   #   upload: false
   #   download: true
+  # audio:
+  #   playback: true
+  #   microphone: false
   # watermark: "{user} %H:%M"
 ---
 apiVersion: waas.xorhub.io/v1alpha1
@@ -99,6 +105,7 @@ spec:
   images: []               # tout le catalogue
   remoteWorkspaces: true
   fileTransfer: { upload: true, download: true }   # opt-in : absent = refusé, même pour les admins
+  audio: { playback: true, microphone: true }      # idem
   overrides:
     allowedFields: [env, securityContext, podSecurityContext, volumes,
                     nodeSelector, tolerations, resources, protocol,

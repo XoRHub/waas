@@ -640,6 +640,7 @@ type UpsertPolicyInput struct {
 	Lifecycle        map[string]string              `json:"lifecycle"`
 	Clipboard        *model.ClipboardPolicyModel    `json:"clipboard"`
 	FileTransfer     *model.FileTransferPolicyModel `json:"fileTransfer"`
+	Audio            *model.AudioPolicyModel        `json:"audio"`
 	Watermark        string                         `json:"watermark"`
 	Overrides        *model.PolicyOverridesModel    `json:"overrides"`
 	RemoteWorkspaces bool                           `json:"remoteWorkspaces"`
@@ -705,6 +706,9 @@ func (s *GovernanceService) AdminUpsertPolicy(ctx context.Context, actor Actor, 
 	}
 	if in.FileTransfer != nil {
 		spec.FileTransfer = &waasv1alpha1.FileTransferPolicy{Upload: in.FileTransfer.Upload, Download: in.FileTransfer.Download}
+	}
+	if in.Audio != nil {
+		spec.Audio = &waasv1alpha1.AudioPolicy{Playback: in.Audio.Playback, Microphone: in.Audio.Microphone}
 	}
 	// Mirrors the CRD markers with a clean 400 (the admission refusal
 	// would reach the admin as a wrapped 500) — see kasmcfg.ValidateWatermark.
@@ -1080,6 +1084,9 @@ func policyToModel(pol *waasv1alpha1.WorkspacePolicy) model.PolicyModel {
 	}
 	if ft := pol.Spec.FileTransfer; ft != nil {
 		m.FileTransfer = &model.FileTransferPolicyModel{Upload: ft.Upload, Download: ft.Download}
+	}
+	if a := pol.Spec.Audio; a != nil {
+		m.Audio = &model.AudioPolicyModel{Playback: a.Playback, Microphone: a.Microphone}
 	}
 	m.Watermark = pol.Spec.Watermark
 	if lc := pol.Spec.Lifecycle; lc != nil {

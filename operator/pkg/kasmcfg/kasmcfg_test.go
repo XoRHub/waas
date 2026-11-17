@@ -15,8 +15,9 @@ func TestManagedEnvNames(t *testing.T) {
 		{Name: "START_PULSEAUDIO", Value: "1"},
 		{Name: "KASM_SVC_UPLOADS", Value: "1"},
 		{Name: "KASM_SVC_SMARTCARD", Value: "0"},
+		{Name: "PULSE_SERVER", Value: "tcp:elsewhere"},
 	})
-	if want := []string{"KASM_SVC_UPLOADS", "KASM_SVC_SMARTCARD"}; !slices.Equal(got, want) {
+	if want := []string{"KASM_SVC_UPLOADS", "KASM_SVC_SMARTCARD", "PULSE_SERVER"}; !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }

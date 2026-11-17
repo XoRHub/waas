@@ -157,6 +157,7 @@ func TestTemplateInputValidatesKasmVNCConfig(t *testing.T) {
 		{"config with an unmanaged watermark sub-key", base("data_loss_prevention:\n  watermark:\n    text:\n      font_size: 24\n", kasm), ""},
 		{"invalid YAML", base("data_loss_prevention: [unterminated\n", kasm), "not valid YAML"},
 		{"env setting an operator-owned side-service toggle", withEnv(base("", kasm), "KASM_SVC_AUDIO"), "must not set KASM_SVC_AUDIO"},
+		{"env setting the operator-owned PULSE_SERVER", withEnv(base("", kasm), "PULSE_SERVER"), "must not set PULSE_SERVER"},
 		{"kasmweb toggle on a vnc template", withEnv(base("", vnc), "KASM_SVC_AUDIO"), ""},
 	}
 	for _, tc := range cases {

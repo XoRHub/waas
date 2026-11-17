@@ -48,14 +48,24 @@ type ClipboardGrant struct {
 
 // FileTransferGrant is the file-transfer permission resolved from the
 // user's WorkspacePolicy, stamped next to the clipboard grant. Zero value
-// = both directions denied (fail closed). Not enforced by any proxy path
-// yet: the kasmvnc downloads surface stays blocked outright until the
-// file-transfer routes land; the grant is carried so they can read it.
+// = both directions denied (fail closed). wwt enforces it on the
+// kasm-agent file routes; the kasmvnc downloads surface stays blocked
+// outright regardless.
 type FileTransferGrant struct {
 	// Upload permits local → workspace files.
 	Upload bool `json:"upload"`
 	// Download permits workspace → local files.
 	Download bool `json:"download"`
+}
+
+// AudioGrant is the audio permission resolved from the user's
+// WorkspacePolicy. Zero value = both directions denied (fail closed).
+// wwt enforces it on the kasm-agent audio routes.
+type AudioGrant struct {
+	// Playback permits workspace → browser sound.
+	Playback bool `json:"playback"`
+	// Microphone permits browser → workspace sound.
+	Microphone bool `json:"microphone"`
 }
 
 // ConnectionClaims is the payload of the short-lived token that authorizes a
@@ -67,6 +77,7 @@ type ConnectionClaims struct {
 	WorkspaceID  string            `json:"workspaceId"`
 	Clipboard    ClipboardGrant    `json:"clipboard"`
 	FileTransfer FileTransferGrant `json:"fileTransfer"`
+	Audio        AudioGrant        `json:"audio"`
 	jwt.RegisteredClaims
 }
 
@@ -91,12 +102,13 @@ func NewStreamClaims(issuer, userID string, role Role, ttl time.Duration) Access
 }
 
 // NewConnectionClaims builds connection-token claims for one session.
-func NewConnectionClaims(issuer, userID, sessionID, workspaceID string, clipboard ClipboardGrant, files FileTransferGrant, ttl time.Duration) ConnectionClaims {
+func NewConnectionClaims(issuer, userID, sessionID, workspaceID string, clipboard ClipboardGrant, files FileTransferGrant, audio AudioGrant, ttl time.Duration) ConnectionClaims {
 	return ConnectionClaims{
 		SessionID:        sessionID,
 		WorkspaceID:      workspaceID,
 		Clipboard:        clipboard,
 		FileTransfer:     files,
+		Audio:            audio,
 		RegisteredClaims: registered(issuer, userID, AudienceConnection, ttl),
 	}
 }

@@ -400,10 +400,15 @@ function validatePolicy(value: unknown, knownFields?: string[]): YamlIssue[] {
   if (pol.remoteWorkspaces !== undefined && typeof pol.remoteWorkspaces !== 'boolean') {
     issues.push({ line: 0, message: 'remoteWorkspaces: must be true or false' });
   }
-  const fileTransfer = pol.fileTransfer as Record<string, unknown> | undefined | null;
-  for (const dir of ['upload', 'download']) {
-    if (fileTransfer?.[dir] !== undefined && typeof fileTransfer[dir] !== 'boolean') {
-      issues.push({ line: 0, message: `fileTransfer.${dir}: must be true or false` });
+  for (const [block, dirs] of [
+    ['fileTransfer', ['upload', 'download']],
+    ['audio', ['playback', 'microphone']],
+  ] as const) {
+    const grants = pol[block] as Record<string, unknown> | undefined | null;
+    for (const dir of dirs) {
+      if (grants?.[dir] !== undefined && typeof grants[dir] !== 'boolean') {
+        issues.push({ line: 0, message: `${block}.${dir}: must be true or false` });
+      }
     }
   }
   // The scaffold's empty `watermark:` parses as null — that is "none".

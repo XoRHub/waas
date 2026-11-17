@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/xorhub/waas/kasm-agent/internal/basicauth"
 )
 
 const testPassword = "vnc-pw-1"
@@ -57,7 +59,9 @@ func newServer(t *testing.T, maxUpload int64) (*httptest.Server, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { root.Close() })
-	srv := httptest.NewServer(NewHandler(root, testPassword, maxUpload))
+	mux := http.NewServeMux()
+	Register(mux, root, maxUpload)
+	srv := httptest.NewServer(basicauth.Require(testPassword, mux))
 	t.Cleanup(srv.Close)
 	return srv, home
 }

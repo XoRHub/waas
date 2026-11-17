@@ -47,9 +47,9 @@ const (
 	routePrefix = "/kasm/"
 	cookieName  = "waas_kasm"
 	// agentPrefix is the subtree of /kasm/{sid}/ that is WaaS's own, not
-	// KasmVNC's: the kasm-agent sidecar's policy-gated file transfer
-	// (/kasm/{sid}/waas/files…, routed to the same host on the agent's
-	// port) and the cookie refresh below.
+	// KasmVNC's: the kasm-agent sidecar's policy-gated file transfer and
+	// audio (/kasm/{sid}/waas/files…, /waas/audio, /waas/mic — routed to
+	// the same host on the agent's port) and the cookie refresh below.
 	agentPrefix = "/waas"
 	// sessionPath (/kasm/{sid}/waas/session?token=…) only re-sets the
 	// session cookie from a fresh token and answers 204: the cookie IS the
@@ -139,6 +139,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request path", http.StatusBadRequest)
 		return
 	}
+	// Cross-site WebSocket hijacking, in depth beyond the SameSite=Strict
+	// cookie: browsers always send Origin on a WebSocket handshake, and
+	// every legitimate one here (the KasmVNC client in its same-origin
+	// iframe, the portal's audio links) comes from this very host. An
+	// absent Origin is a non-browser client (health probes) and passes —
+	// proxyTo sets one for KasmVNC's parser.
+	isUpgrade := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+	if isUpgrade && !sameOrigin(r) {
+		http.Error(w, "cross-origin WebSocket refused", http.StatusForbidden)
+		return
+	}
 
 	// 1. Authenticate: token query (first hit, from the iframe URL) or
 	// the session-scoped cookie (every subsequent page request).
@@ -190,23 +201,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// File transfer goes through the kasm-agent sidecar, gated on the
-	// token's policy grant — the governed path. Same host (the workspace
-	// Service), the agent's port, the same injected Basic pair.
+	// File transfer and audio go through the kasm-agent sidecar, gated on
+	// the token's policy grants — the governed path. Same host (the
+	// workspace Service), the agent's port, the same injected Basic pair.
+	// The audio WebSockets ride ReverseProxy's upgrade handling like the
+	// desktop stream but are NOT desktop streams: they neither keep a
+	// session alive nor end it (the counting below is skipped).
 	if agentPath, ok := strings.CutPrefix(rest, agentPrefix); ok && (agentPath == "" || agentPath[0] == '/') {
 		agentPath = path.Clean("/" + agentPath)
 		if agentPath == sessionPath {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if status, msg := fileRouteStatus(claims.FileTransfer, r.Method, agentPath); status != 0 {
+		if status, msg := agentRouteStatus(claims, r.Method, agentPath); status != 0 {
 			http.Error(w, msg, status)
 			return
 		}
 		target := &url.URL{Scheme: "http", Host: net.JoinHostPort(info.Hostname, strconv.Itoa(int(h.agentPort)))}
 		// 503 rather than 502: the sidecar is optional (operator.kasmAgent
 		// off, or a workspace started before it was enabled).
-		h.proxyTo(target, info, sid, agentPath, http.StatusServiceUnavailable, "file transfer is unavailable for this session").ServeHTTP(w, r)
+		h.proxyTo(target, info, sid, agentPath, http.StatusServiceUnavailable, "the kasm-agent sidecar is unavailable for this session").ServeHTTP(w, r)
 		return
 	}
 
@@ -232,8 +246,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 3. Proxy. httputil.ReverseProxy relays WebSocket upgrades natively
 	// and only returns once the tunnel closes — which is exactly the
 	// session-end signal the platform needs (after the reconnect grace).
-	isDesktopStream := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
-	if isDesktopStream {
+	if isUpgrade {
 		// The upgraded request only returns once the tunnel closes: its
 		// whole lifetime is the desktop stream. Asset requests don't count.
 		metrics.ActiveTunnels.WithLabelValues(metrics.ProtocolKasm).Inc()
@@ -250,27 +263,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.proxyTo(target, info, sid, rest, http.StatusBadGateway, "desktop unreachable").ServeHTTP(w, r)
 }
 
-// fileRouteStatus gates a kasm-agent route on the connection token's
-// file-transfer grant: 0 = allowed, otherwise the status and message to
-// answer. Fail closed — an unknown route is 404 whatever the grant, the
-// list needs either direction, download and upload their own, and each
-// route has exactly one method (so a POST can never ride a download
-// grant into the upload route).
-func fileRouteStatus(grant auth.FileTransferGrant, method, p string) (int, string) {
+// agentRouteStatus gates a kasm-agent route on the connection token's
+// grants: 0 = allowed, otherwise the status and message to answer. Fail
+// closed — an unknown route is 404 whatever the grant, the file list
+// needs either direction, download and upload their own, playback and
+// microphone their own, and each route has exactly one method (so a POST
+// can never ride a download grant into the upload route).
+func agentRouteStatus(claims *auth.ConnectionClaims, method, p string) (int, string) {
 	var allowed bool
-	var want string
+	var want, denied string
+	files, audio := claims.FileTransfer, claims.Audio
 	switch p {
 	case kasmagent.PathList:
-		allowed, want = grant.Upload || grant.Download, http.MethodGet
+		allowed, want, denied = files.Upload || files.Download, http.MethodGet, "file transfer"
 	case kasmagent.PathDownload:
-		allowed, want = grant.Download, http.MethodGet
+		allowed, want, denied = files.Download, http.MethodGet, "file transfer"
 	case kasmagent.PathUpload:
-		allowed, want = grant.Upload, http.MethodPost
+		allowed, want, denied = files.Upload, http.MethodPost, "file transfer"
+	case kasmagent.PathAudio:
+		allowed, want, denied = audio.Playback, http.MethodGet, "audio"
+	case kasmagent.PathMic:
+		allowed, want, denied = audio.Microphone, http.MethodGet, "the microphone"
 	default:
 		return http.StatusNotFound, "not found"
 	}
 	if !allowed {
-		return http.StatusForbidden, "file transfer is not enabled for this session"
+		return http.StatusForbidden, denied + " is not enabled for this session"
 	}
 	if method != want {
 		return http.StatusMethodNotAllowed, "method not allowed"
@@ -403,6 +421,17 @@ func isDownloadsPath(p string) bool {
 		}
 	}
 	return false
+}
+
+// sameOrigin reports whether the request's Origin, when present, names
+// the host it was sent to (an opaque "null" origin never does).
+func sameOrigin(r *http.Request) bool {
+	o := r.Header.Get("Origin")
+	if o == "" {
+		return true
+	}
+	u, err := url.Parse(o)
+	return err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host)
 }
 
 // splitPath extracts the session ID and the upstream path from

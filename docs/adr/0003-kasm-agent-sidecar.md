@@ -26,11 +26,12 @@ toggle.
 
 ## Decision
 
-A **new component**, `kasm-agent/` (its own Go module, stdlib only,
-imaged and released like `wwt`): a small HTTP server the operator
-injects as a **sidecar** of every kasmvnc workload. It serves three
-routes over the session home — list, download, upload — and nothing
-else. The design points:
+A **new component**, `kasm-agent/` (its own Go module, stdlib only at
+the time — ADR 0004 added `gorilla/websocket` and PulseAudio, imaged and
+released like `wwt`): a small HTTP server the operator injects as a
+**sidecar** of every kasmvnc workload. It serves three routes over the
+session home — list, download, upload — and nothing else. The design
+points:
 
 - **Gate in wwt, not in the agent.** wwt validates the connection JWT
   (as for every kasm request) and gates each route on the token's
@@ -92,7 +93,8 @@ else. The design points:
   portal refreshes the session cookie from a fresh token for as long as
   the desktop is up (`docs/kasmvnc.md` § Auth) — needed by the Files
   routes and, as it turned out, by KasmVNC's own auto-reconnect.
-- Lot 4 (audio) extends this **same** sidecar rather than adding
-  another; the agent's base image changes then.
+- Lot 4 (audio) extended this **same** sidecar rather than adding
+  another — ADR 0004 (`docs/adr/0004-kasm-agent-audio.md`); the agent's
+  base image changed then.
 - `rdp`/`vnc` (guacd) file transfer is out of scope: `enable-sftp` /
   `enable-drive` stay platform-blocked.

@@ -45,6 +45,11 @@ session — the whole client app flows through this handler.
   (`kasm.go`, `proxyTo`) — it never reaches the browser. The proxy also
   sets an `Origin` header when absent: KasmVNC's WebSocket handshake
   parser requires one (browsers always send it, health probes don't).
+  A WebSocket upgrade whose `Origin` is present but not the request's own
+  host is refused with 403 before anything upstream (`sameOrigin`,
+  `kasm.go`) — cross-site WebSocket hijacking defence in depth beyond the
+  `SameSite=Strict` cookie, covering the desktop stream and the agent
+  sockets alike.
 - **Session end**: `httputil.ReverseProxy` only returns once the
   upgraded WebSocket closes — that return is the session-end signal
   (`EndSession`). The proxy counts live `/websockify` streams per
@@ -89,12 +94,14 @@ this item.
 Standalone KasmVNC has no upload and its download surfaces bypass every
 policy, and the images' own upload service is a closed platform binary
 (see **Capabilities vs the Kasm platform**). File transfer on kasmvnc
-is therefore a WaaS component: **`kasm-agent/`**, a small stdlib-only
-HTTP server the operator injects as a **sidecar** of every kasmvnc
-workload (`operator/internal/controller/kasm_agent.go`; the decision and
-its trade-offs are ADR 0003, `docs/adr/0003-kasm-agent-sidecar.md`).
-The contract the three modules share — port `4800`, env and route names
-— lives in `shared/kasmagent`.
+is therefore a WaaS component: **`kasm-agent/`**, a small HTTP server
+(stdlib plus `gorilla/websocket` for the audio routes below) the
+operator injects as a **sidecar** of every kasmvnc workload
+(`operator/internal/controller/kasm_agent.go`; the decision and its
+trade-offs are ADR 0003, `docs/adr/0003-kasm-agent-sidecar.md`; audio
+is ADR 0004). The contract the three modules share — port `4800`, env,
+route names, the PulseAudio paths and the audio wire format — lives in
+`shared/kasmagent`.
 
 - **Routes** (relative to the sidecar; the browser reaches them as
   `/kasm/{sid}/waas/files…`): `GET /files?path=<rel>` lists a directory
@@ -157,13 +164,16 @@ The contract the three modules share — port `4800`, env and route names
   Gateway implementation adds one is its configuration, not the
   route's.
 - **Pod shape**: the sidecar mounts the **same home volume at the same
-  path**, read-write, and runs as the desktop's uid/gid — the container
-  `securityContext` wins over the pod's, else the kasmweb `1000/1000` —
-  so uploads land owned by the session user. Hardened: non-root (unless
+  path**, read-write, plus the small `waas-pulse` Memory emptyDir it
+  shares with the desktop (**Audio** below), and runs as the desktop's
+  uid/gid — the container `securityContext` wins over the pod's, else
+  the kasmweb `1000/1000` — so uploads land owned by the session user
+  and the PulseAudio socket is reachable. Hardened: non-root (unless
   the desktop itself runs as root), read-only rootfs, drop ALL, no
-  privilege escalation, RuntimeDefault seccomp; 10m/16Mi requests, 64Mi
-  memory limit (uploads stream straight to disk, nothing is spooled);
-  TCP readiness probe on 4800. The workspace Service gains a `waas-files`
+  privilege escalation, RuntimeDefault seccomp; 20m/32Mi requests,
+  128Mi memory limit (uploads stream straight to disk, nothing is
+  spooled; PulseAudio and one `parec` per playback stream are the
+  footprint); TCP readiness probe on 4800. The workspace Service gains a `waas-files`
   port (converges on every reconcile, ADR 0001's exception). Sidecar
   image: `<registry>/kasm-agent:<tag>`, same tag as the other
   components; `operator.kasmAgent.enabled: false` renders an empty
@@ -213,6 +223,94 @@ own `/api/downloads` and `/Downloads` stay blocked whatever the grant
 guarantee against the occupant — the in-container channels below (print
 over RFB, their own Xvnc, the screen) are unchanged.
 
+## Audio: playback and microphone (kasm-agent)
+
+Standalone KasmVNC has no audio, and the images' audio helpers are closed
+platform binaries kept off (**Image side services** below) — with
+`KASM_SVC_AUDIO=0` the image starts no PulseAudio of its own either, so
+desktop apps have nowhere to play. The sidecar fills both roles (ADR
+0004, `docs/adr/0004-kasm-agent-audio.md`):
+
+- **Sound server**: the agent supervises one `pulseaudio` daemon
+  (restarted with backoff if it dies) loading exactly three modules:
+  `module-native-protocol-unix` on `/run/waas-pulse/native`,
+  `module-null-sink` `waas_out` (s16le 48 kHz stereo, the default sink)
+  and `module-pipe-source` `waas_mic` (a FIFO at
+  `/run/waas-pulse/mic.fifo`, s16le 48 kHz mono, the default source).
+  `/run/waas-pulse` is a Memory emptyDir (`waas-pulse`, 8Mi) the
+  operator mounts in **both** containers; the desktop gets
+  `PULSE_SERVER=unix:/run/waas-pulse/native`, an operator-owned env
+  stamped with the side-service toggles and refused in templates like
+  them (`kasmcfg.ManagedEnv`). Same uid on both sides, so
+  `auth-anonymous=1` and no cookie: the pod is the only path to the
+  socket. The modules are on the daemon's command line (no script in
+  the shared, desktop-writable emptyDir) and `--disallow-module-loading
+  --disallow-exit` lock it: from the desktop, `pactl load-module` and
+  `pactl exit` are refused — the occupant can only re-route or mute
+  their own streams. Verified on `kasmweb/terminal:1.19.0`: `pactl info`
+  inside the desktop reports the sidecar's server with
+  `waas_out`/`waas_mic` as defaults, `pacat` plays into it,
+  `parec --device=@DEFAULT_SOURCE@` records what the portal sends.
+- **Routes** (the browser reaches them as `/kasm/{sid}/waas/audio` and
+  `/waas/mic`, WebSocket upgrades behind the same Basic pair as the file
+  routes): `GET /audio` streams `waas_out.monitor` — one `parec` per
+  connection, killed when the socket closes — as raw PCM **s16le 48 kHz
+  stereo, 20 ms binary frames** (3840 bytes, ≈1.5 Mbit/s); `GET /mic`
+  takes raw PCM **s16le 48 kHz mono** binary frames and writes them into
+  the FIFO (≈0.77 Mbit/s at 20 ms frames; a frame the daemon is not
+  draining in time is dropped rather than the socket stalled). **One
+  microphone writer at a time**: a second `/mic` connection is refused
+  with 409 while one is open; a `/mic` frame over 4096 bytes closes the
+  socket, an odd-length one is skipped. At most 4 `/audio` connections
+  per sidecar (429 past that); a playback client that stops reading is
+  dropped after 5 s. 503 when the daemon is down (`/audio` dials its
+  socket before upgrading, `/mic` finds no FIFO reader) — the portal
+  shows "not available". Raw PCM is a deliberate ceiling — Opus is the
+  upgrade path when the bandwidth matters.
+- **Gate in wwt** (`agentRouteStatus`, `kasm.go`, the same table as the
+  file routes): `/waas/audio` needs the token's `audio.playback`,
+  `/waas/mic` its `audio.microphone`, GET only, 403 otherwise; the
+  upgrade is relayed through the same `proxyTo` as everything else. The
+  audio sockets are **not** desktop streams: they neither keep a
+  session alive past its reconnect grace nor end it. The grant is
+  checked at the handshake only: an open socket outlives a policy change
+  until it closes, like the desktop stream; the portal turns a toggle off
+  when a reconnect's capabilities no longer grant it.
+- **Policy**: `WorkspacePolicy.audio {playback, microphone}`, default
+  deny, resolved for the **connecting** user at `/connect` like
+  `fileTransfer` and stamped into the connection token (`audio`) and the
+  session capabilities (`audioPlayback`, `microphone`);
+  `docs/governance.md` § Audio policy. The chart's default policy grants
+  playback only; the admin policies grant both.
+- **Portal** (`frontend/src/lib/kasmAudio.ts` + `lib/pcmWorklet.js`): an
+  **Audio** section in the kasmvnc session menu with a *Workspace sound*
+  toggle and a *Microphone* toggle, each shown only when granted. Each
+  link re-sets the session cookie from a fresh token first (like Files),
+  opens its WebSocket and an `AudioContext` at 48 kHz: playback feeds an
+  `AudioWorklet` player with a drop-oldest jitter buffer (prime 60 ms,
+  cap 300 ms); the microphone captures `getUserMedia({channelCount: 1,
+  echoCancellation: true})` through a worklet posting 20 ms blocks,
+  converted to s16le on the main thread (resampled first if the browser
+  refused a 48 kHz context). A link follows the session: a reconnect
+  restarts it on the new session id. The worklet is a plain JS file
+  shipped as a hashed same-origin asset (`?url&no-inline`), so the
+  nginx CSP (`script-src 'self'`) is untouched; the sockets are covered
+  by its `connect-src ws(s)://$http_host`. The KasmVNC client posts
+  `enable_audio` to its parent on every click in the desktop; the
+  playback link uses that user gesture to resume a context the
+  browser's autoplay policy kept suspended. Errors are worded: a refused
+  capture ("The browser refused microphone access" — permission, no
+  device, or no HTTPS: `getUserMedia` needs a secure context, so the
+  dev env's 8080 port has no microphone), a stream that stopped (toggle
+  again), a sidecar that is not there (restart the workspace).
+- **Soft vs governed**, as for files: the grant holds for this path,
+  which the occupant cannot modify; the shared emptyDir is theirs too
+  (same uid), so they can unplug the socket or feed the FIFO from inside
+  their own session — their own audio, nothing more.
+- **Not the images' services**: `kasm_audio_out` (MPEG-TS over its own
+  WebSocket on 4901/8081) and `kasm_audio_input_server` (4903) stay off;
+  the `KASM_SVC_AUDIO*` stamps are unchanged.
+
 ## Portal integration
 
 Embedded in an iframe (`window.self !== window.top`, upstream
@@ -231,6 +329,7 @@ against the client served by `kasmweb/*:1.19.0`
 | client → portal | `connection_state` (`connecting`, `connected`, `reconnecting`, `disconnecting`, `disconnected`) | drives the pane state; `reconnecting` reads as connecting; `disconnected` is final (embedded, the client auto-reconnects whether the close was clean or not, and only sends it once retries are exhausted, on a graceful server notice, or when reconnect is inhibited): the iframe is unmounted and **Retry** opens a fresh session with a fresh token |
 | client → portal | `idle_session_timeout` | final as well: sent on the client's own idle timeout **and** when auto-reconnect retries are exhausted (then right after `connection_state: disconnected`, which already ended the session); the client navigates itself to `disconnected.html` 10 s later. Received first, it is the idle timeout: the pane says so ("Disconnected after 20 minutes without activity") instead of the plain "connection closed" |
 | client → portal | `clipboardrx` (`value`: text) | desktop → portal clipboard: fills the session menu's manual exchange (and a best-effort `writeText`); dropped unless the session capabilities allow copy |
+| client → portal | `enable_audio` (`value`: null) | posted by the client's `_focusCanvas` on every click in the desktop — a user gesture: the playback link (`lib/kasmAudio.ts`) resumes an `AudioContext` the browser's autoplay policy kept suspended; otherwise ignored |
 | portal → client | `clipboardsnd` (`value`: text) | manual exchange "Send to workspace"; only posted when the capabilities allow paste (the client applies it only with `clipboard_up`) |
 | portal → client | `setvideoquality` (`value`: `1` low, `2` medium — the client default, `3` high, `5` lossless) | session-menu quality presets, applied live; the choice is also handed to the next iframe URL as `video_quality`, so a reconnect keeps it |
 
@@ -269,8 +368,9 @@ against the client served by `kasmweb/*:1.19.0`
   disconnects cleanly when the iframe is unmounted, and a message posted
   right before unmounting would never be processed), `disconnectrx`
   (redundant with `connection_state: disconnected`), `fullscreen`
-  (only sent by the hidden control-bar button), audio, statistics,
-  multi-monitor and game-mode messages.
+  (only sent by the hidden control-bar button), the platform's own
+  audio messages other than `enable_audio`, statistics, multi-monitor
+  and game-mode messages.
 
 ## Exposed `/api` surface
 
@@ -328,6 +428,9 @@ Verified against upstream docs and maintainer-settled issues
 - **Audio (playback + mic)**: absent from standalone KasmVNC at every
   version — a Kasm Workspaces (commercial platform) exclusive
   ([kasmtech/KasmVNC#31](https://github.com/kasmtech/KasmVNC/issues/31)).
+  WaaS provides both through the kasm-agent sidecar's own PulseAudio
+  (**Audio** above) — never through the images' closed
+  `kasm_audio_out` / `kasm_audio_input_server`.
 - **Upload (browser → session)**: absent at every scale and not planned
   upstream ([kasmtech/KasmVNC#209](https://github.com/kasmtech/KasmVNC/issues/209)).
   WaaS provides both directions itself, outside KasmVNC, through the
@@ -371,8 +474,11 @@ started or configured inside the container can be relied on against
 its own occupant. Two consequences of the stamp itself:
 
 - `KASM_SVC_AUDIO=0` also skips the image's `START_PULSEAUDIO` step
-  (it is nested in the audio service start), so no PulseAudio runs in
-  the pod by default. `START_PULSEAUDIO` itself is left alone.
+  (it is nested in the audio service start), so the image starts no
+  PulseAudio of its own; `START_PULSEAUDIO` itself is left alone. The
+  desktop's `PULSE_SERVER` — stamped with the toggles, refused in
+  templates like them — points its audio clients at the sidecar's
+  daemon instead (**Audio** above).
 - Printing (PDF to `~/PDF` and a browser download) is the one toggle a
   policy turns on — a **soft gate**, with exactly the limit described
   above: see **File transfer, printing, watermark**.

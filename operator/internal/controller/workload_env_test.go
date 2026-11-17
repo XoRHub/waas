@@ -45,7 +45,7 @@ func TestDesktopEnvDropsOverrideValueFrom(t *testing.T) {
 	}}
 
 	byName := map[string]corev1.EnvVar{}
-	for _, e := range desktopEnv(ws, tpl, ov, false) {
+	for _, e := range desktopEnv(ws, tpl, ov, false, false) {
 		byName[e.Name] = e
 	}
 

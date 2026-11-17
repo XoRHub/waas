@@ -25,7 +25,7 @@ WorkspacePolicy ── images[] ───────────►  WorkspaceI
   image subset, limits (`maxWorkspaces`, `maxRunningWorkspaces`,
   `perWorkspace`, `aggregate`, `defaults`), lifecycle
   (`idleSuspendAfter`, `maxLifetime`), session rights (`clipboard`,
-  `fileTransfer`, `watermark` — see below).
+  `fileTransfer`, `audio`, `watermark` — see below).
   `maxWorkspaces` caps OWNERSHIP (paused workspaces count — their home
   PVC still holds storage) while `maxRunningWorkspaces` caps compute
   CONCURRENCY (paused workspaces and retained volumes don't count);
@@ -383,6 +383,26 @@ watermark). The kasmvnc downloads surface (`/api/downloads`,
 auditable route), and so do the guacd sftp/drive parameters: guacd
 protocols have no file-transfer route yet. Fail-closed on resolution
 failure, like every right here.
+
+### Audio policy (`spec.audio`)
+
+`spec.audio` gates the session's sound per direction (`playback`: the
+workspace's sound in the browser; `microphone`: the browser's microphone
+into the workspace) and, like file transfer, is **opt-in: absent = both
+denied**. Resolved the same way: the api-server reads the CONNECTING
+user's policy at `/connect` and stamps the grant into the connection
+token (`audio`) and the session capabilities (`audioPlayback`,
+`microphone`); no params clamp it. Enforcement point: on **kasmvnc**,
+wwt gates the session menu's audio links (the `kasm-agent` sidecar's
+`/audio` and `/mic` WebSockets, one grant each) on the CONNECTING user's
+grant — enforced outside the session container, the governed path
+(`docs/kasmvnc.md` § Audio, ADR 0004). The guacd protocols are
+untouched: their audio is `enable-audio` + the template's
+`exposeAudioPort`, with no microphone. The chart's bootstrap default
+policy grants `playback` (plain usability, no egress) and not the
+microphone (a live capture of the user's surroundings); the admin
+policies grant both. Fail-closed on resolution failure, like every right
+here.
 
 ### Watermark (`spec.watermark`)
 

@@ -461,7 +461,7 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 	grants := resolvePolicyGrants(ctx, s.kube, s.namespace, s.users, actor)
 	policyGrant := grants.clipboard
 	clipboard := clampClipboardGrant(policyGrant, mergeParams(entry.Params, in.Params))
-	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, rw.ID, clipboard, grants.files, s.connectionTTL))
+	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, rw.ID, clipboard, grants.files, grants.audio, s.connectionTTL))
 	if err != nil {
 		return nil, fmt.Errorf("issuing connection token: %w", err)
 	}
@@ -472,7 +472,7 @@ func (s *RemoteWorkspaceService) Connect(ctx context.Context, actor Actor, id st
 		SessionID:       session.ID,
 		ConnectionToken: token,
 		Protocol:        entry.Name,
-		Capabilities:    sessionCapabilities(policyGrant, clipboard, grants.files),
+		Capabilities:    sessionCapabilities(policyGrant, clipboard, grants.files, grants.audio),
 	}, nil
 }
 

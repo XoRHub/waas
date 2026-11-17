@@ -527,7 +527,14 @@
     "filesExpired": "Session expired — reopen Files",
     "filesHint": "Your workspace home. Uploads land in the Uploads folder.",
     "filesHintUploadOnly": "Your workspace home. Uploads land in the Uploads folder; downloading is denied by your policy.",
-    "filesHintDownloadOnly": "Your workspace home. Uploading is denied by your policy."
+    "filesHintDownloadOnly": "Your workspace home. Uploading is denied by your policy.",
+    "audio": "Audio",
+    "audioPlayback": "Workspace sound",
+    "microphone": "Microphone",
+    "audioUnavailable": "Audio is not available on this workspace yet — restart it to enable it",
+    "audioClosed": "The audio stream stopped — turn it on again",
+    "micDenied": "The browser refused microphone access (permission, or no HTTPS)",
+    "audioHint": "Raw audio over the session connection: ≈1.5 Mbit/s for sound, ≈0.8 Mbit/s for the microphone."
   },
   "schedule": {
     "title": "Schedule (uptime / downtime)",

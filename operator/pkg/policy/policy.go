@@ -183,6 +183,16 @@ func FileTransferOf(pol *waasv1alpha1.WorkspacePolicy) (upload, download bool) {
 	return pol.Spec.FileTransfer.Upload, pol.Spec.FileTransfer.Download
 }
 
+// AudioOf returns the audio rights a policy grants: opt-in like file
+// transfer — a nil policy, an absent block or absent fields all mean
+// denied.
+func AudioOf(pol *waasv1alpha1.WorkspacePolicy) (playback, microphone bool) {
+	if pol == nil || pol.Spec.Audio == nil {
+		return false, false
+	}
+	return pol.Spec.Audio.Playback, pol.Spec.Audio.Microphone
+}
+
 // WatermarkOf returns the watermark template a policy sets; empty (nil
 // policy, absent field) means no watermark.
 func WatermarkOf(pol *waasv1alpha1.WorkspacePolicy) string {

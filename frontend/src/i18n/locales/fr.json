@@ -527,7 +527,14 @@
     "filesExpired": "Session expirée — rouvrez Fichiers",
     "filesHint": "Le dossier personnel de votre workspace. Les envois arrivent dans le dossier Uploads.",
     "filesHintUploadOnly": "Le dossier personnel de votre workspace. Les envois arrivent dans Uploads ; le téléchargement est refusé par votre policy.",
-    "filesHintDownloadOnly": "Le dossier personnel de votre workspace. L'envoi est refusé par votre policy."
+    "filesHintDownloadOnly": "Le dossier personnel de votre workspace. L'envoi est refusé par votre policy.",
+    "audio": "Audio",
+    "audioPlayback": "Son du workspace",
+    "microphone": "Microphone",
+    "audioUnavailable": "L'audio n'est pas encore disponible sur ce workspace — redémarrez-le pour l'activer",
+    "audioClosed": "Le flux audio s'est interrompu — réactivez-le",
+    "micDenied": "Le navigateur a refusé l'accès au microphone (permission, ou pas de HTTPS)",
+    "audioHint": "Audio brut via la connexion de session : ≈1,5 Mbit/s pour le son, ≈0,8 Mbit/s pour le micro."
   },
   "schedule": {
     "title": "Planning (uptime / downtime)",

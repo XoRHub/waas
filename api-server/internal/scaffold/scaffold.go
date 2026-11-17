@@ -63,6 +63,8 @@ var hints = map[string]hint{
 	"ClipboardPolicyModel.pasteToWorkspace":  {value: boolean(true), comment: "local clipboard → workspace"},
 	"FileTransferPolicyModel.upload":         {comment: "local → workspace files; absent block = both directions denied"},
 	"FileTransferPolicyModel.download":       {comment: "workspace → local files; on kasmvnc also enables printing"},
+	"AudioPolicyModel.playback":              {comment: "workspace sound in the browser (kasmvnc); absent block = both denied"},
+	"AudioPolicyModel.microphone":            {comment: "browser microphone into the workspace (kasmvnc)"},
 	"UpsertPolicyInput.watermark":            {comment: "KasmVNC desktop watermark text; {user} = owner's username, strftime (%H:%M); empty = none"},
 	"PolicyOverridesModel.allowedFields":     {comment: "among: " + overridableFields() + "; [] forbids every override"},
 

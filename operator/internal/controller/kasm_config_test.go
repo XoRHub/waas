@@ -155,7 +155,7 @@ func TestKasmPrinterFollowsPolicy(t *testing.T) {
 	ws.Spec.TemplateRef = "kasm-firefox"
 	for _, printing := range []bool{false, true} {
 		env := map[string]string{}
-		for _, e := range desktopEnv(ws, kasmTemplate(), &waasv1alpha1.WorkspaceOverrides{}, printing) {
+		for _, e := range desktopEnv(ws, kasmTemplate(), &waasv1alpha1.WorkspaceOverrides{}, printing, false) {
 			env[e.Name] = e.Value
 		}
 		for _, name := range kasmcfg.SideServiceEnv {
