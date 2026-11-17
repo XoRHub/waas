@@ -448,6 +448,7 @@ export function SessionOverlay({
                   {t('overlay.files')}
                 </h4>
                 <SessionFiles
+                  workspaceId={workspace!.id}
                   sessionId={kasmSid}
                   canUpload={capabilities?.fileUpload ?? false}
                   canDownload={capabilities?.fileDownload ?? false}

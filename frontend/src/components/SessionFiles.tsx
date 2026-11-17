@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
+import { refreshKasmCookie } from '@/lib/kasmCookie';
 
 interface Entry {
   name: string;
@@ -11,11 +13,35 @@ interface Entry {
 // Routes wwt serves under /kasm/{sid}/waas/ and relays to the kasm-agent
 // sidecar, each gated on the connection token's file-transfer grant.
 // Plain fetch, not the api client: the body is the agent's own JSON (no
-// envelope), and a 401 here — the session cookie expired — must not sign
-// the user out of the portal the way an api-server 401 does.
+// envelope), and a 401 here — a session cookie wwt no longer accepts —
+// must not sign the user out of the portal the way an api-server 401 does.
 const filesUrl = (sessionId: string) => `/kasm/${encodeURIComponent(sessionId)}/waas/files`;
 
 const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
+
+// The HTTP status a request failed with, as the user reads it. 401 is the
+// cookie: refreshed before every request here, so it only remains when
+// the refresh itself could not run (the session ended underneath).
+function errorText(t: TFunction, status: number): string {
+  switch (status) {
+    case 401:
+      return t('overlay.filesExpired');
+    case 403:
+      return t('overlay.deniedByPolicy');
+    case 413:
+      return t('overlay.filesTooLarge');
+    case 503:
+      return t('overlay.filesUnavailable');
+    default:
+      return t('overlay.filesError');
+  }
+}
+
+// Every request rides the session cookie, which wwt only accepts while
+// the connection token inside it is valid: re-set it first, best-effort —
+// a refresh that fails leaves the request to answer 401 on its own.
+const withFreshCookie = (workspaceId: string, sessionId: string) =>
+  refreshKasmCookie(workspaceId, sessionId).catch(() => undefined);
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -36,10 +62,12 @@ function formatSize(bytes: number): string {
  * enforces each request regardless of what is rendered).
  */
 export function SessionFiles({
+  workspaceId,
   sessionId,
   canUpload,
   canDownload,
 }: {
+  workspaceId: string;
   sessionId: string;
   canUpload: boolean;
   canDownload: boolean;
@@ -47,28 +75,22 @@ export function SessionFiles({
   const { t } = useTranslation();
   const [dir, setDir] = useState('');
   const [entries, setEntries] = useState<Entry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  // Failures are kept as the status they came with and worded at render.
+  const [error, setError] = useState<number | null>(null);
+  const [uploadError, setUploadError] = useState<number | null>(null);
+  const [uploaded, setUploaded] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   // Bumped after an upload so the listing shows the new files.
   const [generation, setGeneration] = useState(0);
 
-  const errorText = (status: unknown) => {
-    switch (status) {
-      case 403:
-        return t('overlay.deniedByPolicy');
-      case 413:
-        return t('overlay.filesTooLarge');
-      case 503:
-        return t('overlay.filesUnavailable');
-      default:
-        return t('overlay.filesError');
-    }
-  };
-
   useEffect(() => {
     let cancelled = false;
-    fetch(`${filesUrl(sessionId)}?path=${encodeURIComponent(dir)}`, { credentials: 'same-origin' })
+    withFreshCookie(workspaceId, sessionId)
+      .then(() =>
+        fetch(`${filesUrl(sessionId)}?path=${encodeURIComponent(dir)}`, {
+          credentials: 'same-origin',
+        }),
+      )
       .then(async (r) => {
         if (!r.ok) throw r.status;
         return (await r.json()) as Entry[];
@@ -81,22 +103,22 @@ export function SessionFiles({
       .catch((e: unknown) => {
         if (cancelled) return;
         setEntries(null);
-        setError(errorText(e));
+        setError(typeof e === 'number' ? e : 0);
       });
     return () => {
       cancelled = true;
     };
-    // errorText only reads t: re-running on language change is noise.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, dir, generation]);
+  }, [workspaceId, sessionId, dir, generation]);
 
   const upload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const form = new FormData();
     for (const f of Array.from(files)) form.append('files', f, f.name);
     setBusy(true);
-    setStatus(null);
+    setUploaded(null);
+    setUploadError(null);
     try {
+      await withFreshCookie(workspaceId, sessionId);
       const r = await fetch(`${filesUrl(sessionId)}/upload`, {
         method: 'POST',
         body: form,
@@ -104,12 +126,12 @@ export function SessionFiles({
       });
       if (!r.ok) throw r.status;
       const { stored } = (await r.json()) as { stored: string[] };
-      setStatus(t('overlay.filesUploaded', { count: stored.length }));
+      setUploaded(stored.length);
       // Uploads land in ~/Uploads (the agent's default): show them.
       setDir('Uploads');
       setGeneration((g) => g + 1);
     } catch (e: unknown) {
-      setStatus(errorText(e));
+      setUploadError(typeof e === 'number' ? e : 0);
     } finally {
       setBusy(false);
     }
@@ -140,8 +162,8 @@ export function SessionFiles({
         ))}
       </div>
 
-      {error ? (
-        <p className="text-[11px] text-amber-300/90">{error}</p>
+      {error !== null ? (
+        <p className="text-[11px] text-amber-300/90">{errorText(t, error)}</p>
       ) : entries === null ? (
         <p className="text-[11px] text-slate-500">…</p>
       ) : entries.length === 0 ? (
@@ -191,7 +213,14 @@ export function SessionFiles({
           {busy ? t('overlay.filesUploading') : t('overlay.filesUpload')}
         </label>
       )}
-      {status && <p className="text-[11px] text-slate-400">{status}</p>}
+      {uploaded !== null && (
+        <p className="text-[11px] text-slate-400">
+          {t('overlay.filesUploaded', { count: uploaded })}
+        </p>
+      )}
+      {uploadError !== null && (
+        <p className="text-[11px] text-slate-400">{errorText(t, uploadError)}</p>
+      )}
       <p className="text-[11px] text-slate-500">
         {canUpload && canDownload
           ? t('overlay.filesHint')

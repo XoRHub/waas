@@ -524,6 +524,7 @@
     "filesTooLarge": "Trop volumineux pour la limite d'envoi de ce workspace",
     "filesUnavailable": "Le transfert de fichiers n'est pas encore disponible sur ce workspace — redémarrez-le pour l'activer",
     "filesError": "Impossible d'atteindre les fichiers du workspace",
+    "filesExpired": "Session expirée — rouvrez Fichiers",
     "filesHint": "Le dossier personnel de votre workspace. Les envois arrivent dans le dossier Uploads.",
     "filesHintUploadOnly": "Le dossier personnel de votre workspace. Les envois arrivent dans Uploads ; le téléchargement est refusé par votre policy.",
     "filesHintDownloadOnly": "Le dossier personnel de votre workspace. L'envoi est refusé par votre policy."

@@ -421,12 +421,7 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 	// The template is resolved on EVERY connect, not only when overrides
 	// need vetting: its locked params (disable-copy/disable-paste) feed
 	// the clipboard clamp below even on a plain no-override connect.
-	tpl := &waasv1alpha1.WorkspaceTemplate{}
-	tplErr := s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: ws.Spec.TemplateRef}, tpl)
-	var entry *waasv1alpha1.WorkspaceProtocol
-	if tplErr == nil {
-		entry = tpl.Spec.ProtocolNamed(protocol)
-	}
+	tpl, entry, tplErr := s.templateEntry(ctx, ws, protocol)
 	if len(in.Params) > 0 || in.Protocol != "" {
 		if tplErr != nil {
 			return nil, fmt.Errorf("fetching template %s: %w", ws.Spec.TemplateRef, tplErr)
@@ -484,26 +479,80 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 	if err := s.sessions.Create(ctx, session); err != nil {
 		return nil, fmt.Errorf("recording session: %w", err)
 	}
+	result, err := s.connectResult(ctx, actor, ws, session, entry, tplErr)
+	if err != nil {
+		return nil, err
+	}
+	s.audit.Record(ctx, actor, "session.started", "session", session.ID, "workspace="+ws.Name+" protocol="+protocol)
+	return result, nil
+}
 
-	// Clipboard rights come from the CONNECTING user's policy. On guacd
-	// protocols they travel inside the token and wwt enforces them per
-	// tunnel (disable-copy/disable-paste). On kasmvnc there is no guacd
-	// tunnel: the operator bakes the same policy decision into the
-	// container's kasmvnc.yaml (data_loss_prevention), so the grant here is
-	// only reported as capabilities for the overlay — the container is what
-	// actually enforces it. The two agree on personal kasmvnc workspaces
-	// (owner == connecting user); the operator follows the workspace owner
-	// because container-level DLP is one-per-workload.
-	//
-	// The policy grant is then clamped by the session's effective
-	// disable-copy/disable-paste params — template values overlaid with
-	// the vetted connect-time overrides, the same precedence guacd sees
-	// via ConnectionInfo. Params only ever restrict, never grant. A
-	// template that failed to resolve fails closed, like every other
-	// resolution failure here: session yes, clipboard no.
-	// File transfer rides the same resolution: policy-only (no params
-	// clamp it), carried in the token and the capabilities for the
-	// routes that will enforce it.
+// RefreshConnectionToken mints a fresh connection token for one of the
+// caller's OPEN sessions, with the grants re-resolved: the kasmvnc data
+// plane authenticates every request with the token (as a session cookie),
+// and a desktop outlives the token's TTL many times over — without this
+// the client's own reconnect and the Files section stop working a few
+// minutes in. Same scope as Connect: the workspace's owner, who also
+// started the session; an ended session is 409 like ConnectionInfo. No
+// audit line — the session was audited when it started, and this runs
+// every few minutes for its whole lifetime.
+func (s *WorkspaceService) RefreshConnectionToken(ctx context.Context, actor Actor, id, sessionID string) (*ConnectResult, error) {
+	ws, err := s.fetchByID(ctx, actor, id)
+	if err != nil {
+		return nil, err
+	}
+	session, err := s.sessions.FindByID(ctx, sessionID)
+	if err != nil && !errors.Is(err, repository.ErrSessionNotFound) {
+		return nil, fmt.Errorf("finding session %s: %w", sessionID, err)
+	}
+	// Another workspace's or another user's session: not found, never a
+	// 403 that confirms the id exists.
+	if err != nil || session.WorkspaceID != string(ws.UID) || session.UserID != actor.ID {
+		return nil, apierror.NotFound("session not found")
+	}
+	if session.EndedAt != nil {
+		return nil, apierror.Conflict("session already ended")
+	}
+	_, entry, tplErr := s.templateEntry(ctx, ws, session.Protocol)
+	return s.connectResult(ctx, actor, ws, session, entry, tplErr)
+}
+
+// templateEntry resolves the workspace's template and the protocol entry
+// a session uses on it; tplErr is the template lookup's outcome, which
+// the callers fail closed on (entry is nil then).
+func (s *WorkspaceService) templateEntry(ctx context.Context, ws *waasv1alpha1.Workspace, protocol string) (tpl *waasv1alpha1.WorkspaceTemplate, entry *waasv1alpha1.WorkspaceProtocol, tplErr error) {
+	tpl = &waasv1alpha1.WorkspaceTemplate{}
+	tplErr = s.kube.Get(ctx, client.ObjectKey{Namespace: s.namespace, Name: ws.Spec.TemplateRef}, tpl)
+	if tplErr == nil {
+		entry = tpl.Spec.ProtocolNamed(protocol)
+	}
+	return tpl, entry, tplErr
+}
+
+// connectResult resolves the connecting user's grants and signs the
+// session's connection token: the one minting path, so a refreshed token
+// carries exactly what a fresh connect would.
+//
+// Clipboard rights come from the CONNECTING user's policy. On guacd
+// protocols they travel inside the token and wwt enforces them per
+// tunnel (disable-copy/disable-paste). On kasmvnc there is no guacd
+// tunnel: the operator bakes the same policy decision into the
+// container's kasmvnc.yaml (data_loss_prevention), so the grant here is
+// only reported as capabilities for the overlay — the container is what
+// actually enforces it. The two agree on personal kasmvnc workspaces
+// (owner == connecting user); the operator follows the workspace owner
+// because container-level DLP is one-per-workload.
+//
+// The policy grant is then clamped by the session's effective
+// disable-copy/disable-paste params — template values overlaid with
+// the vetted connect-time overrides, the same precedence guacd sees
+// via ConnectionInfo. Params only ever restrict, never grant. A
+// template that failed to resolve fails closed, like every other
+// resolution failure here: session yes, clipboard no.
+// File transfer rides the same resolution: policy-only (no params
+// clamp it), carried in the token and the capabilities for the
+// routes that will enforce it.
+func (s *WorkspaceService) connectResult(ctx context.Context, actor Actor, ws *waasv1alpha1.Workspace, session *model.Session, entry *waasv1alpha1.WorkspaceProtocol, tplErr error) (*ConnectResult, error) {
 	grants := resolvePolicyGrants(ctx, s.kube, s.namespace, s.users, actor)
 	policyGrant, clipboard := grants.clipboard, grants.clipboard
 	if tplErr != nil {
@@ -513,18 +562,16 @@ func (s *WorkspaceService) Connect(ctx context.Context, actor Actor, id string, 
 		if entry != nil {
 			locked = entry.Params
 		}
-		clipboard = clampClipboardGrant(clipboard, mergeParams(locked, in.Params))
+		clipboard = clampClipboardGrant(clipboard, mergeParams(locked, session.Params))
 	}
 	token, err := s.signer.Sign(auth.NewConnectionClaims(s.issuer, actor.ID, session.ID, string(ws.UID), clipboard, grants.files, s.connectionTTL))
 	if err != nil {
 		return nil, fmt.Errorf("issuing connection token: %w", err)
 	}
-	s.audit.Record(ctx, actor, "session.started", "session", session.ID, "workspace="+ws.Name+" protocol="+protocol)
-
 	return &ConnectResult{
 		SessionID:       session.ID,
 		ConnectionToken: token,
-		Protocol:        protocol,
+		Protocol:        session.Protocol,
 		Capabilities:    sessionCapabilities(policyGrant, clipboard, grants.files),
 	}, nil
 }

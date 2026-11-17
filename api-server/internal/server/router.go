@@ -116,6 +116,9 @@ func New(cfg *config.Config, signer *auth.Signer, users middleware.UserSource, h
 				r.Patch("/{id}/overrides", h.Workspaces.UpdateOverrides)
 				r.Post("/{id}/reload", h.Workspaces.Reload)
 				r.Post("/{id}/connect", h.Workspaces.Connect)
+				// Fresh connection token for an open session (kasmvnc
+				// cookie refresh); owner-only like connect.
+				r.Post("/{id}/sessions/{sid}/token", h.Workspaces.SessionToken)
 				// Effective KasmVNC config, read-only (owner or admin).
 				r.Get("/{id}/kasmvnc-config", h.Workspaces.KasmVNCConfig)
 				// In-session desktop resize (exec waas-resize in the pod).

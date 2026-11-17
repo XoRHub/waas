@@ -81,7 +81,17 @@ else. The design points:
 - Enabling the sidecar on an installed platform is a pod-template
   change: the Service port converges at once, the container at the next
   scale-up boundary (ADR 0001) — until then wwt answers 503 and the
-  portal says so.
+  portal says so. The same holds afterwards for **every platform
+  release** (the sidecar image tag follows the components') and every
+  `maxUploadSize` change: kasmvnc workspaces show `TemplateDrifted`
+  until their next boundary, where guacd workspaces did not drift on a
+  release before.
+- The sidecar mounts the home volume only: admin `volumeMounts` under
+  the home are not mirrored into it (`docs/kasmvnc.md` § Files).
+- The connection token's TTL stopped bounding a kasmvnc session: the
+  portal refreshes the session cookie from a fresh token for as long as
+  the desktop is up (`docs/kasmvnc.md` § Auth) — needed by the Files
+  routes and, as it turned out, by KasmVNC's own auto-reconnect.
 - Lot 4 (audio) extends this **same** sidecar rather than adding
   another; the agent's base image changes then.
 - `rdp`/`vnc` (guacd) file transfer is out of scope: `enable-sftp` /

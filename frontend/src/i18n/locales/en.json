@@ -524,6 +524,7 @@
     "filesTooLarge": "Too large for this workspace's upload limit",
     "filesUnavailable": "File transfer is not available on this workspace yet — restart it to enable it",
     "filesError": "Could not reach the workspace files",
+    "filesExpired": "Session expired — reopen Files",
     "filesHint": "Your workspace home. Uploads land in the Uploads folder.",
     "filesHintUploadOnly": "Your workspace home. Uploads land in the Uploads folder; downloading is denied by your policy.",
     "filesHintDownloadOnly": "Your workspace home. Uploading is denied by your policy."

@@ -663,6 +663,69 @@ func TestDownloadsPathsStayBlockedWithGrant(t *testing.T) {
 	}
 }
 
+// The cookie refresh: a fresh query token re-sets the session cookie and
+// answers 204 without touching KasmVNC or the sidecar; a bad or
+// mismatched token is refused exactly like any kasm request.
+func TestSessionRouteRefreshesTheCookie(t *testing.T) {
+	upstream, kasmHits := newFakeKasmVNC(t)
+	agent, agentHits := newFakeAgent(t)
+	handler, signer := newTestHandler(t, &fakeAPI{info: kasmInfo(t, upstream)})
+	agentURL, _ := url.Parse(agent.URL)
+	port, _ := strconv.Atoi(agentURL.Port())
+	handler.agentPort = int32(port)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	expired, err := signer.Sign(auth.NewConnectionClaims("waas-test", "u1", "sess-1", "ws1", auth.ClipboardGrant{}, auth.FileTransferGrant{}, -time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := connectionToken(t, signer, "sess-1")
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/kasm/sess-1/waas/session?token="+fresh, nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: expired})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+	var cookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == cookieName {
+			cookie = c
+		}
+	}
+	if cookie == nil || cookie.Value != fresh || cookie.Path != "/kasm/sess-1" || !cookie.HttpOnly {
+		t.Fatalf("expected the scoped session cookie re-set from the fresh token, got %+v", cookie)
+	}
+	if kasmHits.Load() != 0 || agentHits.Load() != 0 {
+		t.Fatalf("the refresh must touch nothing upstream; kasm=%d agent=%d", kasmHits.Load(), agentHits.Load())
+	}
+
+	for _, tc := range []struct {
+		token string
+		want  int
+	}{
+		{expired, http.StatusUnauthorized},
+		{"garbage", http.StatusUnauthorized},
+		{connectionToken(t, signer, "sess-2"), http.StatusForbidden},
+	} {
+		resp, err := http.Get(server.URL + "/kasm/sess-1/waas/session?token=" + tc.token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != tc.want {
+			t.Errorf("expected %d, got %d", tc.want, resp.StatusCode)
+		}
+		if len(resp.Cookies()) != 0 {
+			t.Error("a refused token must not set a cookie")
+		}
+	}
+}
+
 // Sidecar absent (operator.kasmAgent off, or a workspace started before
 // it was enabled): 503, not the desktop's 502.
 func TestFileRoutesAnswer503WithoutTheSidecar(t *testing.T) {
