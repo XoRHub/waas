@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { useEffect } from 'react';
+import { useEffect, useImperativeHandle, type Ref } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { renderWithProviders, signIn } from '@/test/render';
 import { createApiMock } from '@/test/apiMock';
 import type { ConnectionState } from '@/components/DesktopPane';
@@ -37,12 +37,30 @@ vi.mock('react-router', async (importOriginal) => {
   return { ...mod, useParams: () => ({ id: 'w1' }) };
 });
 
-// Stub the Guacamole canvas: report "connected" so the leave bar renders.
+// Stub the Guacamole canvas: report `pane.initial` (connected by default,
+// so the leave bar renders); reconnect() reads as connecting, like the
+// real pane.
+const pane = vi.hoisted(() => ({
+  initial: 'connected' as 'connected' | 'failed',
+  reconnect: vi.fn(),
+}));
 vi.mock('@/components/DesktopPane', () => ({
-  DesktopPane: ({ onStateChange }: { onStateChange: (s: ConnectionState) => void }) => {
+  DesktopPane: ({
+    onStateChange,
+    ref,
+  }: {
+    onStateChange: (s: ConnectionState) => void;
+    ref: Ref<unknown>;
+  }) => {
     useEffect(() => {
-      onStateChange('connected');
+      onStateChange(pane.initial);
     }, [onStateChange]);
+    useImperativeHandle(ref, () => ({
+      reconnect: () => {
+        pane.reconnect();
+        onStateChange('connecting');
+      },
+    }));
     return <div data-testid="desktop-pane" />;
   },
 }));
@@ -68,5 +86,20 @@ describe('leave bar hit-box', () => {
     expect(wrapper.className).toContain('inset-x-0');
     expect(pullTab.className).toContain('pointer-events-auto');
     expect(label.className).toContain('pointer-events-auto');
+  });
+});
+
+describe('closed/failed session', () => {
+  it('Retry reconnects and hides the buttons while connecting', async () => {
+    pane.initial = 'failed';
+    signIn({ username: 'marc' });
+    renderWithProviders(<ConnectPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+
+    expect(pane.reconnect).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Back to my workspaces' })).toBeNull();
+    pane.initial = 'connected';
   });
 });

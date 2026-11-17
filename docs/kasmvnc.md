@@ -46,7 +46,8 @@ session — the whole client app flows through this handler.
   session answers 409 on `ConnectionInfo`. The reconnect still needs a
   valid cookie: past the connection JWT's expiry (5 min by default) it
   fails with 401 until the portal reopens the iframe with a fresh
-  token. **The grace lives on one wwt replica, in memory**: with
+  token (the **Retry** button on the disconnected screen — see
+  **Portal integration** below). **The grace lives on one wwt replica, in memory**: with
   `wwt.replicas > 1` and no per-session routing affinity, a reconnect
   that lands on a different replica won't cancel the first replica's
   timer — the row ends while the stream is still live. Running more
@@ -69,6 +70,59 @@ verification (`InsecureSkipVerify`, `kasm.go`). The hop is pod-to-pod
 inside the cluster and netpol-guarded. Replacing the self-signed cert
 with a cert-manager-issued one is a known pending hardening item
 (originally "phase 4" of the kasm feasibility plan) — not implemented.
+
+## Portal integration
+
+Embedded in an iframe (`window.self !== window.top`, upstream
+`isInsideKasmVDI`), the KasmVNC client behaves as a component of the
+Kasm platform: it hides its whole control bar (settings, clipboard
+panel, fullscreen button — unless `show_control_bar` is passed), drops
+its own status notifications, turns its auto-reconnect on (5 retries,
+5 s apart) and talks to its parent with `postMessage({action, value})`.
+The portal (`frontend/src/components/DesktopPane.tsx`, kasm branch)
+therefore provides what is hidden, using these messages — checked
+against the client served by `kasmweb/*:1.19.0`
+(`/usr/share/kasmvnc/www/assets/ui-*.js`; upstream `app/ui.js`):
+
+| Direction | Message | What the portal does |
+|---|---|---|
+| client → portal | `connection_state` (`connecting`, `connected`, `reconnecting`, `disconnecting`, `disconnected`) | drives the pane state; `reconnecting` reads as connecting; `disconnected` is final (embedded, the client auto-reconnects whether the close was clean or not, and only sends it once retries are exhausted, on a graceful server notice, or when reconnect is inhibited): the iframe is unmounted and **Retry** opens a fresh session with a fresh token |
+| client → portal | `idle_session_timeout` | final as well: sent on the client's own idle timeout **and** when auto-reconnect retries are exhausted (then right after `connection_state: disconnected`, which already ended the session); the client navigates itself to `disconnected.html` 10 s later. Received first, it is the idle timeout: the pane says so ("Disconnected after 20 minutes without activity") instead of the plain "connection closed" |
+| client → portal | `clipboardrx` (`value`: text) | desktop → portal clipboard: fills the session menu's manual exchange (and a best-effort `writeText`); dropped unless the session capabilities allow copy |
+| portal → client | `clipboardsnd` (`value`: text) | manual exchange "Send to workspace"; only posted when the capabilities allow paste (the client applies it only with `clipboard_up`) |
+| portal → client | `setvideoquality` (`value`: `1` low, `2` medium — the client default, `3` high, `5` lossless) | session-menu quality presets, applied live; the choice is also handed to the next iframe URL as `video_quality`, so a reconnect keeps it |
+
+- **Security filter**: a message is accepted only when `event.source`
+  is that pane's iframe window **and** `event.origin` is the portal's
+  origin — another pane, a popup or a foreign origin cannot drive the
+  session. The portal posts to its own origin, never `*`. (The 1.5.1
+  client does not check who posts to it; upstream master added an
+  `event.source === window.parent` check.)
+- **Keyboard**: keystrokes inside the iframe never reach the portal
+  window. On each iframe load the pane adds a capture-phase `keydown`
+  listener on the iframe window that replays the event on the portal
+  window; when a portal handler consumes it (`Ctrl+Alt+M`, `Escape`
+  closing the menu) it is kept from the desktop. So on kasmvnc the
+  overlay shortcut `Ctrl+Alt+M` never reaches the desktop, whereas on
+  guac sessions it is forwarded to it as well. The listener dies with
+  the iframe document; the next load binds the new one.
+- **Idle timeout**: the client disconnects after 20 minutes without
+  *input* (keyboard, mouse); the portal keeps that default and never
+  sends `set_idle_timeout`. `idle_disconnect=0` does not disable it: the
+  client falls back to 1200 s. **Retry** opens a fresh session.
+- **Fullscreen**: the session menu toggles the Fullscreen API on the
+  whole page, not the pane, so the menu stays reachable.
+- **Load fallback**: the client reports its own state, so `onLoad` no
+  longer means "connected". An iframe page without the client's
+  `noVNC_container` element is an error page — wwt refusing the request
+  (plain-text `http.Error`: expired token, ended session) or an ingress
+  502/503 HTML page — and the pane shows the failure.
+- **Not used**: `terminate` (the client's `unload` handler already
+  disconnects cleanly when the iframe is unmounted, and a message posted
+  right before unmounting would never be processed), `disconnectrx`
+  (redundant with `connection_state: disconnected`), `fullscreen`
+  (only sent by the hidden control-bar button), audio, statistics,
+  multi-monitor and game-mode messages.
 
 ## Exposed `/api` surface
 

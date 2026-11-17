@@ -341,7 +341,7 @@ is exercised by CI.
 |---|---|---|---|
 | Audio playback | ✅ `enable-audio` + `exposeAudioPort` (PulseAudio in waas-core-images) | ⚙️ guacd's RDP audio channel (`disable-audio` in the registry); no `exposeAudioPort`, PulseAudio is a waas-core-images thing | ❌ Kasm-platform-only upstream |
 | Microphone | ❌ | ⚙️ `enable-audio-input` exists but the web client has no capture wiring — inert | ❌ |
-| Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time) |
+| Governed clipboard | ✅ live | ✅ by design, text only (same wwt filter; guacd's cliprdr against the VM's RDP server) — not verified in a live session, see `docs/clipboard.md` | ✅ container-side DLP (owner policy, reconcile-time); session-menu manual exchange via the client's messages, gated by the connecting user's capabilities |
 | Persistent home | ✅ | ✅ | ✅ (`/home/kasm-user`) |
 | Concurrent shared volume | ❌ (RWO; `homeVolumeName` = sequential adoption, not sharing) | ❌ | ❌ |
 | File transfer | 🚫 `enable-sftp`/`enable-drive` platform-blocked | 🚫 | 🚫 `/api/downloads` and `/Downloads/…` blocked at the proxy |
@@ -349,7 +349,9 @@ is exercised by CI.
 | Keyboard layout | N/A (direct keysyms) | ✅ `server-layout` + browser auto-detect | N/A |
 | Dynamic resize | ✅ pod-exec mechanism | ❌ the frontend never calls the endpoint for rdp: no pod to exec `waas-resize` in; guacd-native `resize-method` is the only candidate, unverified | ✅ native client-side (`resize=remote`) |
 | Multi-monitor | ❌ | ❌ | not integrated (upstream client capability, unverified through the iframe) |
-| Live (no-reconnect) params | `disable-copy`/`disable-paste` only | same | none (no guac tunnel) |
+| Live (no-reconnect) params | `disable-copy`/`disable-paste` only | same | image quality preset (session menu → client `setvideoquality`) |
+| Connection state / reconnect | guac client state; Retry = fresh `/connect` | same | client-reported (`connection_state`), client auto-reconnect then Retry = fresh `/connect` + token |
+| Full screen, Ctrl+Alt+M | ✅ session menu | ✅ | ✅ (keystrokes replayed from the iframe) |
 | Post-creation overrides | ✅ protocol-independent (`PATCH /overrides` + reload) | ✅ | ✅ |
 
 Detail lives in the dedicated docs: `docs/clipboard.md` (precedence and

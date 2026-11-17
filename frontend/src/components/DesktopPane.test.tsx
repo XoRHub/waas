@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
+import { createRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createApiMock } from '@/test/apiMock';
-import type { ConnectResult } from '@/types';
-import { DesktopPane } from './DesktopPane';
+import type { ConnectResult, SessionCapabilities } from '@/types';
+import { DesktopPane, type DesktopPaneHandle } from './DesktopPane';
 
 const apiMock = createApiMock();
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -100,6 +101,7 @@ afterEach(() => {
   cleanup();
   guac.instances.length = 0;
   apiMock.api.post.mockClear();
+  vi.restoreAllMocks();
 });
 
 describe('DesktopPane', () => {
@@ -127,5 +129,209 @@ describe('DesktopPane', () => {
     display.onresize?.(1000, 500);
 
     expect(display.scale).toHaveBeenCalledWith(Math.min(800 / 1000, 600 / 500));
+  });
+});
+
+describe('DesktopPane kasmvnc (KasmVNC client in an iframe)', () => {
+  const renderKasm = async (
+    capabilities: SessionCapabilities = { clipboardCopy: true, clipboardPaste: true },
+    autoFocus = false,
+  ) => {
+    apiMock.api.post.mockResolvedValue({
+      data: { sessionId: 's1', connectionToken: 'tok', protocol: 'kasmvnc', capabilities },
+    });
+    const pane = createRef<DesktopPaneHandle>();
+    const onStateChange = vi.fn();
+    const { container } = render(
+      <DesktopPane
+        ref={pane}
+        workspaceId="w1"
+        onStateChange={onStateChange}
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- the prop under test
+        autoFocus={autoFocus}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
+    const frame = container.querySelector('iframe')!;
+    const fromClient = (data: unknown, opts: { source?: Window; origin?: string } = {}) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data,
+            source: opts.source ?? frame.contentWindow,
+            origin: opts.origin ?? window.location.origin,
+          }),
+        );
+      });
+    // The served vnc.html, as far as the pane's onLoad check goes.
+    const loadClient = () => {
+      const doc = frame.contentDocument!;
+      doc.appendChild(doc.createElement('div')).id = 'noVNC_container';
+      fireEvent.load(frame);
+    };
+    return { pane, onStateChange, container, frame, fromClient, loadClient };
+  };
+
+  it('drives the pane state from the client connection_state, not from onLoad', async () => {
+    const { onStateChange, container, fromClient, loadClient } = await renderKasm();
+
+    loadClient();
+    expect(onStateChange).not.toHaveBeenCalledWith('connected');
+
+    fromClient({ action: 'connection_state', value: 'connected' });
+    expect(onStateChange).toHaveBeenLastCalledWith('connected');
+
+    // The client's own auto-reconnect is transient: back to connecting.
+    fromClient({ action: 'connection_state', value: 'reconnecting' });
+    expect(onStateChange).toHaveBeenLastCalledWith('connecting');
+
+    // 'disconnected' is final: the iframe goes, the session is over.
+    fromClient({ action: 'connection_state', value: 'disconnected' });
+    expect(onStateChange).toHaveBeenLastCalledWith('disconnected');
+    expect(container.querySelector('iframe')).toBeNull();
+  });
+
+  it('keeps the iframe visible while connecting (the client focuses itself on connect)', async () => {
+    const { frame } = await renderKasm();
+
+    expect(frame.className).not.toContain('invisible');
+    expect(getComputedStyle(frame).visibility).not.toBe('hidden');
+    expect(screen.getByText('connect.connecting')).toBeTruthy();
+  });
+
+  it('focuses the iframe on connect when autoFocus is set', async () => {
+    const { frame, fromClient } = await renderKasm(undefined, true);
+
+    fromClient({ action: 'connection_state', value: 'connected' });
+
+    expect(document.activeElement).toBe(frame);
+  });
+
+  it('ends the session on idle_session_timeout', async () => {
+    const { onStateChange, container, fromClient } = await renderKasm();
+
+    fromClient({ action: 'idle_session_timeout', value: 'Idle session timeout exceeded' });
+
+    expect(onStateChange).toHaveBeenLastCalledWith('disconnected');
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(screen.getByText('connect.idleTimeout')).toBeTruthy();
+  });
+
+  it('reports exhausted retries as a plain disconnect, not as idle', async () => {
+    const { fromClient } = await renderKasm();
+
+    // The client's order once auto-reconnect gave up.
+    fromClient({ action: 'connection_state', value: 'disconnected' });
+    fromClient({ action: 'idle_session_timeout', value: 'Idle session timeout exceeded' });
+
+    expect(screen.getByText('connect.disconnected')).toBeTruthy();
+  });
+
+  it('ignores messages from another window or another origin', async () => {
+    const { onStateChange, fromClient } = await renderKasm();
+
+    fromClient({ action: 'connection_state', value: 'connected' }, { source: window });
+    fromClient(
+      { action: 'connection_state', value: 'connected' },
+      { origin: 'https://evil.example' },
+    );
+
+    expect(onStateChange).not.toHaveBeenCalledWith('connected');
+  });
+
+  it('fails when the iframe page is not the client (wwt or ingress error page)', async () => {
+    const { onStateChange, container, frame } = await renderKasm();
+    frame.contentDocument!.appendChild(frame.contentDocument!.createElement('h1'));
+
+    fireEvent.load(frame);
+
+    expect(onStateChange).toHaveBeenLastCalledWith('failed');
+    expect(container.querySelector('iframe')).toBeNull();
+  });
+
+  it.each([true, false])('relays clipboardrx only when copy is allowed (%s)', async (allowed) => {
+    const { pane, fromClient } = await renderKasm({ clipboardCopy: allowed, clipboardPaste: true });
+
+    fromClient({ action: 'clipboardrx', value: 'from desktop' });
+
+    expect(pane.current!.readRemoteClipboard()).toBe(allowed ? 'from desktop' : '');
+  });
+
+  it.each([true, false])('sends clipboardsnd only when paste is allowed (%s)', async (allowed) => {
+    const { pane, frame } = await renderKasm({ clipboardCopy: true, clipboardPaste: allowed });
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+
+    pane.current!.sendClipboard('to desktop');
+
+    if (allowed) {
+      expect(post).toHaveBeenCalledWith(
+        { action: 'clipboardsnd', value: 'to desktop' },
+        window.location.origin,
+      );
+    } else {
+      expect(post).not.toHaveBeenCalled();
+    }
+  });
+
+  it('applies the quality live and keeps it across a reconnect', async () => {
+    const { pane, frame, container } = await renderKasm();
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+
+    pane.current!.setQuality(3);
+    expect(post).toHaveBeenCalledWith(
+      { action: 'setvideoquality', value: 3 },
+      window.location.origin,
+    );
+    expect(pane.current!.readQuality()).toBe(3);
+
+    act(() => pane.current!.reconnect());
+    await waitFor(() => expect(apiMock.api.post).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(container.querySelector('iframe')?.getAttribute('src')).toContain('video_quality=3'),
+    );
+  });
+
+  it('reconnect after a final disconnect opens a fresh session', async () => {
+    const { pane, onStateChange, container, fromClient } = await renderKasm();
+    fromClient({ action: 'connection_state', value: 'disconnected' });
+    expect(container.querySelector('iframe')).toBeNull();
+
+    act(() => pane.current!.reconnect());
+    expect(onStateChange).toHaveBeenLastCalledWith('connecting');
+
+    await waitFor(() => expect(apiMock.api.post).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
+  });
+
+  it('replays iframe keystrokes on the portal window so its shortcuts work', async () => {
+    const { frame, loadClient } = await renderKasm();
+    const win = frame.contentWindow! as typeof window;
+    // Stand-in for the overlay's window-level Ctrl+Alt+M handler.
+    const shortcut = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.altKey && e.key === 'm') e.preventDefault();
+    };
+    window.addEventListener('keydown', shortcut);
+    // Stand-in for the client's own keyboard handler (inside the iframe).
+    const desktop = vi.fn();
+    win.document.addEventListener('keydown', desktop);
+    const press = (init: KeyboardEventInit) => {
+      const ev = new win.KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true });
+      win.document.dispatchEvent(ev);
+      return ev;
+    };
+
+    // Before load: nothing listens on the client's window yet.
+    expect(press({ key: 'm', ctrlKey: true, altKey: true }).defaultPrevented).toBe(false);
+    expect(desktop).toHaveBeenCalledTimes(1);
+
+    loadClient();
+    // The portal consumed it: kept from the desktop.
+    expect(press({ key: 'm', ctrlKey: true, altKey: true }).defaultPrevented).toBe(true);
+    expect(desktop).toHaveBeenCalledTimes(1);
+    // Anything else still reaches the desktop untouched.
+    expect(press({ key: 'a' }).defaultPrevented).toBe(false);
+    expect(desktop).toHaveBeenCalledTimes(2);
+
+    window.removeEventListener('keydown', shortcut);
   });
 });
