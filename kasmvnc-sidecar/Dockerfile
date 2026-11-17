@@ -16,7 +16,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/k
 # the ALSA plugins (≈190 MB) that nothing here loads. Alpine's build is
 # not an option: its module-pipe-source aborts on every FIFO read
 # (pa_frame_aligned assertion, pulseaudio 17.0-r5 on 3.23).
-FROM debian:13-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS pulse
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS pulse
 # Unpinned on purpose: the stage is a throwaway source of binaries and
 # Debian's point releases retire the old version, which a pin would turn
 # into a build failure at every base digest bump.
@@ -67,7 +67,7 @@ RUN set -eu; \
 # The operator sets runAsUser/runAsGroup to the desktop's uid/gid
 # (kasmweb: 1000) so uploads land owned by the session user and the
 # PulseAudio socket is reachable from the desktop.
-FROM debian:13-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 WORKDIR /
 COPY --from=pulse /out /
 COPY --from=builder /out/kasmvnc-sidecar /kasmvnc-sidecar
